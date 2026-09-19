@@ -707,13 +707,13 @@ function (path, config) {
             },
             {
                 title: 'Analyze — the loss matrix',
-                byTitle: 'Analyze the loaded variants: the loss matrix, allele-selective targets, gene search, patents, and what is loaded',
+                byTitle: 'Analyze the loaded variants: the loss matrix, allele-selective targets, gene search, and what is loaded',
                 byIcon: 'biotech',
                 text: 'Work out which genes a sample has lost — frameshifts, stop codons and '
                     + 'splice-site changes, read off the coding sequence — and light those '
                     + 'variants and genes up across the genome. The same library finds a '
-                    + 'gene by name, acts on the selected regions, shows the patent '
-                    + 'landscape, and says what is loaded.',
+                    + 'gene by name, acts on the selected regions, and says what is '
+                    + 'loaded. The patent strip has its own button on this toolbar.',
             },
             {
                 title: 'Fit — see everything again',
@@ -13991,6 +13991,11 @@ function (path, config) {
             // from it: what this genome IS, then looking something up in it, then the two
             // analyses, with the deepest last. A library read top to bottom should get
             // further from the file with every section rather than jumping about.
+            // FINDING A GENE COMES FIRST: it is what someone opening this library most often
+            // wants, and it was below the analyses.
+            books.push({ section: 'This genome', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
+                blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
+                ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
             books.push({ section: 'This genome', title: 'Label the samples and files', badge: SAMPLES.length ? String(SAMPLES.length) : '', icon: 'edit', ready: true,
                 blurb: 'Give each VCF sample column and each loaded file the name you use for it -- "tumour", "the normal", "day 14" -- and every panel, report and saved file follows.',
                 open: () => { try { labelSamplesDialog(); } catch (e) { } } });
@@ -14068,12 +14073,8 @@ function (path, config) {
                 blurb: 'Somatic calls the normal carries, genotypes the reads contradict, the mutational spectrum, and one callset '
                     + 'against another or against a truth set.',
                 open: () => qcMenu() });
-            books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
-                blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
-                ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
-            books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', toggle: true, on: patOn, icon: 'gavel',
-                blurb: 'Draw a strip down every chromosome showing where patented sequences fall; open again to hide it.',
-                ready: true, open: () => { try { patLoad(); } catch (e) { } } });
+            // PATENTS ARE NOT LISTED HERE. The toolbar above the chromosomes has its own
+            // Patents button, and the same switch in two places reads as two different things.
             // LOSS OF HETEROZYGOSITY, AT THE TOP. It was a step inside "Find the losses", two
             // levels down, though it answers its own question and now carries its own report.
             if (lohResult) {
