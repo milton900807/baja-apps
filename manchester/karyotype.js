@@ -4064,6 +4064,196 @@ function (path, config) {
         const cfRow = new Uint8Array(GT_MAX);
         const bfRow = new Uint8Array(GT_MAX);
         const psRow = new Uint32Array(GT_MAX);
+        // ---- WHOSE GENOME: THE SEX OF EACH SAMPLE ------------------------------------------
+        //
+        // Four signals, each measured against the same sample's own autosomes so that no
+        // threshold depends on the caller, the coverage or the kind of callset:
+        //   X heterozygosity   two X chromosomes give heterozygous calls along X at a rate
+        //                      comparable to the autosomes; one gives almost none. Only
+        //                      credible heterozygotes count (allele fraction 0.2-0.8 where the
+        //                      reads are known, and not a low-confidence call).
+        //   X depth            one X is read at half the autosomal depth, two at the same.
+        //   Y                  a real Y gives calls outside the pseudoautosomal regions and the
+        //                      X-transposed stretch, and they are homozygous or haploid (one
+        //                      Y, one allele). Calls that are mostly heterozygous are X reads
+        //                      mismapped onto Y. An EMPTY Y is only evidence when the callset
+        //                      is large enough that a male would have produced Y calls.
+        //   Haploid X          a caller that wrote "1" rather than "1/1" on X was told the
+        //                      sample has one X.
+        // Where they disagree the disagreement is the finding, and it is named: two X and a
+        // Y (XXY, or a mixture), one X and no Y at half depth (45,X, or a male whose Y is
+        // lost, common in tumors), no X heterozygosity at full depth (a female whose tumor
+        // has lost heterozygosity across X).
+        //
+        // Depth and ploidy are not kept per variant, so they are gathered here while the rows
+        // go past: X and Y on every row, the autosomes on one row in eight.
+        const SEX_EV = [];                    // per sample slot
+        const sexEvOf = (si) => SEX_EV[si] || (SEX_EV[si] = { aDp: 0, aN: 0, xDp: 0, xN: 0, yDp: 0, yN: 0, xHap: 0, xGt: 0, yHap: 0, yGt: 0 });
+        // Pseudoautosomal regions (X and Y still pair there) and the X-transposed region of Y
+        // (99% identical to X, so female reads land on it), per assembly.
+        const SEX_REGIONS = {
+            GRCh38: { xPar: [[10001, 2781479], [155701383, 156030895]], yPar: [[10001, 2781479], [56887903, 57217415]], yXtr: [[2950000, 6800000]] },
+            GRCh37: { xPar: [[60001, 2699520], [154931044, 155260560]], yPar: [[10001, 2649520], [59034050, 59363566]], yXtr: [[2820000, 6700000]] },
+        };
+        const sexRegions = () => {
+            const sp = ('' + (r.species || 'human')).toLowerCase();
+            if (sp !== 'human') return { xPar: [], yPar: [], yXtr: [] };
+            return /37|hg19/i.test('' + (r.assembly || '')) ? SEX_REGIONS.GRCh37 : SEX_REGIONS.GRCh38;
+        };
+        const inSpans = (spans, p) => { for (const s of spans) if (p >= s[0] && p <= s[1]) return true; return false; };
+        const __sexChrom = new Map();
+        const sexChromClass = (name) => {
+            let c = __sexChrom.get(name);
+            if (c != null) return c;
+            const n = ('' + name).replace(/^chr/i, '');
+            c = /^X$/i.test(n) ? 'X' : /^Y$/i.test(n) ? 'Y' : /^\d+$/.test(n) ? 'A' : '';
+            __sexChrom.set(name, c);
+            return c;
+        };
+        // '' where a site says nothing about sex: off the autosomes and sex chromosomes, or in
+        // a pseudoautosomal or X-transposed stretch.
+        const sexClassAt = (chrom, pos) => {
+            const c = sexChromClass(chrom);
+            if (c === 'X' && inSpans(sexRegions().xPar, pos)) return '';
+            if (c === 'Y') { const R0 = sexRegions(); if (inSpans(R0.yPar, pos) || inSpans(R0.yXtr, pos)) return ''; }
+            return c;
+        };
+        // One row's depth and ploidy, per sample, into SEX_EV.
+        const sexAccumulate = (f, ix, count, cols, codes) => {
+            const cls = sexClassAt(f[0], +f[1]);
+            if (!cls) return;
+            if (cls === 'A' && (((count.sexTick = (count.sexTick || 0) + 1) & 7) !== 0)) return;
+            for (let j = 0; j < cols.length && 9 + j < f.length; j++) {
+                const si = cols[j];
+                if (si < 0 || !codes[si]) continue;
+                const cell = f[9 + j], E = sexEvOf(si);
+                let dp = NaN;
+                if (ix.dp >= 0 || ix.ad >= 0) {
+                    const parts = cell.split(':');
+                    if (ix.dp >= 0) dp = +parts[ix.dp];
+                    if (!(dp >= 0) && ix.ad >= 0 && parts[ix.ad]) dp = parts[ix.ad].split(',').reduce((a, x) => a + (+x || 0), 0);
+                }
+                if (cls === 'A') { if (dp >= 0) { E.aDp += dp; E.aN++; } continue; }
+                const colon = cell.indexOf(':');
+                const g = colon < 0 ? cell : cell.slice(0, colon);
+                const hap = g !== '.' && g.indexOf('/') < 0 && g.indexOf('|') < 0;
+                if (cls === 'X') { E.xGt++; if (hap) E.xHap++; if (dp >= 0) { E.xDp += dp; E.xN++; } }
+                else { E.yGt++; if (hap) E.yHap++; if (dp >= 0) { E.yDp += dp; E.yN++; } }
+            }
+        };
+        // The call for one sample slot (-1: a file with no genotype columns, where only Y can
+        // be read).
+        const sexCall = (si) => {
+            const noGt = !(si >= 0);
+            const R0 = sexRegions();
+            let auto = 0, autoHet = 0, xCalls = 0, xHet = 0, yN = 0, yHom = 0;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n) continue;
+                const cls = sexChromClass(drawn[ci].name);
+                if (!cls) continue;
+                for (let k = 0; k < d.n; k++) {
+                    const gt = noGt ? GT_HET : ((d.gtw > si) ? gtOf(d, k, si) : GT_NONE);
+                    if (gt < GT_HET) continue;
+                    if (!noGt && confOf(d, k, si) === CONF_LOW) continue;
+                    const p = d.pos[k];
+                    if (cls === 'Y') {
+                        if (inSpans(R0.yPar, p) || inSpans(R0.yXtr, p)) continue;
+                        yN++; if (gt === GT_HOM || gt === GT_HOMP) yHom++;
+                        continue;
+                    }
+                    if (cls === 'X' && inSpans(R0.xPar, p)) continue;
+                    const het = gt === GT_HET || gt === GT_HAP1 || gt === GT_HAP2;
+                    const b = noGt ? -1 : bafOf(d, k, si);
+                    const credible = !noGt && het && (b < 0 || (b >= 0.2 && b <= 0.8));
+                    if (cls === 'X') { xCalls++; if (credible) xHet++; }
+                    else { auto++; if (credible) autoHet++; }
+                }
+            }
+            const S = [];
+            const pct = (x) => Math.round(x * 100) + '%';
+            // 1. X heterozygosity, against the autosomes
+            let rx = -1;
+            if (!noGt && xCalls >= 30 && autoHet >= 100 && auto) {
+                rx = (xHet / xCalls) / (autoHet / auto);
+                const vote = rx >= 0.35 ? 'F' : rx <= 0.12 ? 'M' : '';
+                S.push({ key: 'xhet', vote: vote, w: 2, text: 'X heterozygosity is ' + pct(rx) + ' of the autosomal rate (' + xHet.toLocaleString() + ' of '
+                    + xCalls.toLocaleString() + ' X calls)' + (vote === 'F' ? ': two X' : vote === 'M' ? ': one X' : ': between one X and two') });
+            }
+            // 2. X depth, against the autosomes
+            const E = noGt ? null : SEX_EV[si];
+            let dx = -1;
+            if (E && E.xN >= 30 && E.aN >= 200 && E.aDp > 0) {
+                dx = (E.xDp / E.xN) / (E.aDp / E.aN);
+                const vote = dx >= 0.8 ? 'F' : (dx >= 0.3 && dx <= 0.65) ? 'M' : '';
+                const dy = (E.yN >= 20) ? (E.yDp / E.yN) / (E.aDp / E.aN) : -1;
+                S.push({ key: 'xdp', vote: vote, w: 2, text: 'X is read at ' + dx.toFixed(2) + 'x the autosomal depth' + (vote === 'F' ? ' (two copies)' : vote === 'M' ? ' (one copy)' : '')
+                    + (dy >= 0 ? ', Y at ' + dy.toFixed(2) + 'x' : '') });
+            }
+            // 3. Y
+            const homFrac = yN ? yHom / yN : 0;
+            if (yN >= 20 && auto && yN / auto >= 0.0003 && (noGt || homFrac >= 0.6)) {
+                S.push({ key: 'y', vote: 'M', w: noGt ? 2 : 2, text: yN.toLocaleString() + ' calls on Y outside its X-shared regions' + (noGt ? '' : ', ' + pct(homFrac) + ' homozygous: a Y') });
+            } else if (yN >= 20 && !noGt && homFrac < 0.6) {
+                S.push({ key: 'y', vote: '', w: 0, text: yN.toLocaleString() + ' calls on Y, but only ' + pct(homFrac) + ' homozygous: X reads mismapped onto Y, not a Y' });
+            } else if (yN < 5 && auto >= 50000) {
+                S.push({ key: 'y', vote: 'F', w: 1, text: 'Y is empty, though ' + auto.toLocaleString() + ' autosomal calls mean a male would show Y calls' });
+            } else if (yN) {
+                S.push({ key: 'y', vote: '', w: 0, text: yN + ' calls on Y: too few to read either way' });
+            }
+            // 4. haploid genotypes on X
+            if (E && E.xGt >= 30 && E.xHap / E.xGt >= 0.5) {
+                S.push({ key: 'hap', vote: 'M', w: 2, text: 'the caller wrote haploid genotypes on X (' + pct(E.xHap / E.xGt) + ' of X calls): it was set up for one X' });
+            }
+            let m = 0, fe = 0;
+            for (const s of S) { if (s.vote === 'M') m += s.w; else if (s.vote === 'F') fe += s.w; }
+            const V = (k) => { const s = S.find((x) => x.key === k); return s ? s.vote : ''; };
+            let call = 'not determined', conf = '', kary = '', note = '';
+            if (!m && !fe) {
+                note = noGt ? 'no genotypes in the file, and Y says nothing' : (xCalls < 30 ? 'too few calls on X to judge (' + xCalls + ')' : 'the signals are all in between');
+            } else if (m && !fe) {
+                call = 'male'; conf = m >= 4 ? 'high' : m >= 2 ? 'medium' : 'low'; kary = 'XY';
+            } else if (fe && !m) {
+                call = 'female'; conf = fe >= 4 ? 'high' : fe >= 2 ? 'medium' : 'low'; kary = 'XX';
+            } else if (V('xhet') === 'F' && V('y') === 'M') {
+                call = 'uncertain'; conf = 'low'; kary = 'XXY?';
+                note = 'two X and a Y: an XXY karyotype, a mixture of two people, or contamination';
+            } else if (V('xhet') === 'M' && V('xdp') === 'F' && V('y') !== 'M') {
+                call = 'female'; conf = 'medium'; kary = 'XX, X heterozygosity lost';
+                note = 'X is at full depth but has lost its heterozygosity: a female whose tumor has lost heterozygosity across X';
+            } else if (V('xdp') === 'M' && V('y') === 'F') {
+                call = 'uncertain'; conf = 'low'; kary = 'X0?';
+                note = 'one X and no Y: 45,X, or a male whose Y has been lost (common in tumors and with age)';
+            } else if (m >= 2 * fe) { call = 'male'; conf = 'low'; kary = 'XY'; note = 'most signals say male'; }
+            else if (fe >= 2 * m) { call = 'female'; conf = 'low'; kary = 'XX'; note = 'most signals say female'; }
+            else { call = 'uncertain'; conf = 'low'; note = 'the signals disagree'; }
+            if (noGt && call !== 'not determined') note = (note ? note + '; ' : '') + 'no genotypes, so only Y could be read';
+            const why = S.map((s) => s.text).join('; ') + (note ? (S.length ? '. ' : '') + note.charAt(0).toUpperCase() + note.slice(1) : '');
+            return { call: call, confidence: conf, karyotype: kary, why: why, signals: S, note: note,
+                y: yN, yHom: yHom, xCalls: xCalls, xHet: xHet, auto: auto, autoHet: autoHet, xRatio: rx, depthRatio: dx };
+        };
+        // One line: "male (high confidence)".
+        // The samples to call: every sample column that carries calls, or the file itself when
+        // it has none.
+        const sexSamples = () => {
+            const withCalls = SAMPLES.map((nm, si) => ({ nm: nm, si: si })).filter((x) => { const c3 = phaseCounts(x.si); return c3 && c3.all > 0; });
+            return withCalls.length ? withCalls.slice(0, GT_MAX) : (vtotal ? [{ nm: '', si: -1 }] : []);
+        };
+        // "germline: female (high confidence); tumor: female, XX, X heterozygosity lost" for an
+        // LOH pair, each sample read on its own column.
+        const sexLineFor = (spec) => {
+            const slot = (x) => spec.kind === 'sample' ? x : sideSlot(x);
+            const parts = [];
+            for (const [lab, x] of [[spec.labelN + ' (germline)', spec.normal], [spec.labelT + ' (tumor)', spec.tumor]]) {
+                const si = slot(x);
+                if (si < 0) continue;
+                const res = sexCall(si);
+                if (res.call !== 'not determined') parts.push(lab + ': ' + sexWord(res));
+            }
+            return parts.join('; ');
+        };
+        const sexWord = (res) => !res ? '' : res.call + (res.confidence ? ' (' + res.confidence + ' confidence)' : '')
+            + (res.karyotype && res.karyotype !== 'XY' && res.karyotype !== 'XX' ? ', ' + res.karyotype : '');
         const genotypesOfRow = (f, count, altIdx) => {
             if (f.length < 10) return null;
             if (!count.cols) {
@@ -4088,6 +4278,7 @@ function (path, config) {
                 if (code >= GT_HET) carriers++;
                 if (code === GT_HAP1 || code === GT_HAP2 || code === GT_HOMP) phased = true;
             }
+            try { if (any) sexAccumulate(f, ix, count, count.cols, gtRow); } catch (e) { }
             if (!any) return null;
             // What the file has to show: samples that differ, and phase. These decide the
             // color mode the load lands in. The carrier PATTERN is what matters: a file
@@ -4727,56 +4918,8 @@ function (path, config) {
             // silent sample speak. The answer is recomputed on the next question.
             gtSilent = null;
             vobjects = Math.min(vtotal, OBJECT_CAP);
-            // WHOSE GENOME IS THIS? Two signals, both read from what is already in memory:
-            //   chrY   a sample with calls on Y has a Y. Somatic callers emit few there, so
-            //          a handful is not evidence; a real count is.
-            //   chrX   two X chromosomes give heterozygous calls along X; one gives almost
-            //          none outside the pseudoautosomal regions, where X and Y still pair.
-            // They can disagree, and on a tumor they often do: a female tumor that has
-            // lost one X looks hemizygous on X while the donor is female. So the answer is
-            // hedged when the two signals do not agree, and it names the evidence either way.
-            // PAR coordinates are GRCh38; on another assembly the X test simply includes them.
-            const PAR1 = [10001, 2781479], PAR2 = [155701383, 156030895];
-            const inferSex = (si) => {
-                let yN = 0, xHet = 0, xCalls = 0, auto = 0;
-                for (let ci = 0; ci < drawn.length; ci++) {
-                    const d = vdata[ci];
-                    if (!d || !d.n) continue;
-                    const nm = drawn[ci].name;
-                    const isY = /^chrY$|^Y$/.test(nm), isX = /^chrX$|^X$/.test(nm);
-                    for (let k = 0; k < d.n; k++) {
-                        const gt = (si >= 0 && d.gtw > si) ? gtOf(d, k, si) : GT_HET;
-                        if (gt < GT_HET) continue;
-                        if (isY) { yN++; continue; }
-                        if (isX) {
-                            const p = d.pos[k];
-                            if ((p >= PAR1[0] && p <= PAR1[1]) || (p >= PAR2[0] && p <= PAR2[1])) continue;
-                            xCalls++;
-                            if (gt === GT_HET || gt === GT_HAP1 || gt === GT_HAP2) xHet++;
-                            continue;
-                        }
-                        auto++;
-                    }
-                }
-                const xFrac = xCalls ? xHet / xCalls : 0;
-                const pct = Math.round(xFrac * 100) + '% of ' + xCalls.toLocaleString() + ' X calls heterozygous';
-                const enough = xCalls >= 50;
-                const hasY = yN >= 20;
-                // Three bands, with the middle one named rather than hidden: a second X gives
-                // heterozygous calls freely, one X gives almost none, and anything between is a
-                // subclone, a contaminant or a partial loss — worth saying, not worth calling.
-                const twoX = enough && xFrac >= 0.20;
-                const oneX = enough && xFrac < 0.10;
-                let call = 'not determined', why = '';
-                if (!enough) { why = 'too few X calls to judge (' + xCalls + ')'; }
-                else if (twoX && !hasY) { call = 'female'; why = pct + ', and Y is empty'; }
-                else if (oneX && hasY) { call = 'male'; why = yN.toLocaleString() + ' calls on Y and almost none heterozygous on X'; }
-                else if (twoX && hasY) { call = 'uncertain'; why = 'Y carries ' + yN.toLocaleString() + ' calls yet ' + pct + ' — a sample mixture, or a Y that maps spuriously'; }
-                else if (oneX && !hasY) { call = 'uncertain'; why = 'one X and no Y (' + pct + ', ' + yN + ' on Y): a male whose Y went uncalled, or a female sample that has lost an X'; }
-                else if (hasY) { call = 'male'; why = yN.toLocaleString() + ' calls on Y, with X part-heterozygous (' + pct + ')'; }
-                else { call = 'uncertain'; why = pct + ' and Y is empty — between one X and two, so a subclone or a partial loss of X'; }
-                return { call: call, why: why, y: yN, xCalls: xCalls, xHet: xHet, auto: auto };
-            };
+            // Whose genome this is, per sample: sexCall (above genotypesOfRow) has the method.
+            const inferSex = (si) => sexCall(si);
             // A PILL THAT LEAVES ON ITS OWN. This is a fact about the file worth saying once,
             // not a control and not a panel: it appears under the toolbar, fades, and goes.
             const sexPill = (lines) => {
@@ -4836,13 +4979,13 @@ function (path, config) {
                 const said = [];
                 for (const x of who.slice(0, 4)) {
                     const r2 = inferSex(x.si);
-                    if (r2.call === 'not determined' && r2.xCalls < 50) continue;
+                    if (r2.call === 'not determined' && !r2.signals.length) continue;
                     said.push({ x: x, r: r2 });
                 }
                 if (said.length) {
-                    const head = said.map((q) => (q.x.nm ? q.x.nm + ': ' : '') + q.r.call).join('   ·   ');
-                    const why = said.map((q) => (q.x.nm ? q.x.nm + ' — ' : '') + q.r.why).join('; ');
-                    sexPill([head.charAt(0).toUpperCase() + head.slice(1), why + '. Read from X heterozygosity and Y calls in this file.']);
+                    const head = said.map((q) => (q.x.nm ? q.x.nm + ': ' : '') + sexWord(q.r)).join('   ·   ');
+                    const why = said.map((q) => (q.x.nm ? q.x.nm + ' — ' : '') + q.r.why).join('. ');
+                    sexPill([head.charAt(0).toUpperCase() + head.slice(1), why + '. The evidence stays under What is loaded.']);
                 }
             } catch (e) { step('sex inference failed: ' + e); }
             step('vcf: ' + count.added + ' placed, ' + count.offGenome + ' off-genome, '
@@ -6055,6 +6198,8 @@ function (path, config) {
             // profile, which "What is loaded" describes; without its header command lines
             // when those make it large, since those are the part nobody reads there.
             out.sideFiles = [sideFile[0] || '', sideFile[1] || ''];
+            // The depth and ploidy gathered for the sex call: not kept per variant, so saved here.
+            out.sexEvidence = SEX_EV.map((E) => E || null);
             out.sideSlots = [sideSlots[0].slice(), sideSlots[1].slice()];
             if (lastVcfProfile) {
                 try {
@@ -6374,6 +6519,8 @@ function (path, config) {
                 }
             }
             if (doc.vcfProfile && typeof doc.vcfProfile === 'object') lastVcfProfile = doc.vcfProfile;
+            SEX_EV.length = 0;
+            if (Array.isArray(doc.sexEvidence)) doc.sexEvidence.forEach((E, si) => { if (E && typeof E === 'object') SEX_EV[si] = E; });
             if (doc.colorMode && ['class', 'sample', 'phase'].indexOf(doc.colorMode) >= 0) {
                 try { setColorMode(doc.colorMode); } catch (e) { }
             }
@@ -8552,6 +8699,23 @@ function (path, config) {
         // is only asked for when wanted -- the interactive report offers it as a button, the
         // PDF reuses one already made.
         const lohSlKey = (spec) => spec.kind + ':' + spec.normal + ':' + spec.tumor;
+        // INSERTIONS AND DELETIONS FIRST, missense last: a frameshift or an in-frame indel is
+        // the change an allele-selective design has the most sequence to work with, and a
+        // missense of unknown effect the least. Within each class, the more damaging first;
+        // across genes, then, the genes the cells need most. Applied again where the list is
+        // shown, so an assessment saved in an older order is read in this one.
+        const essChangeRank = (v) => {
+            const indel = v.effect === 'frameshift' || v.effect === 'inframe_indel'
+                || (v.ref && v.alt && ('' + v.ref).length !== ('' + v.alt).length);
+            return indel ? 0 : /missense/.test('' + v.effect) ? 2 : 1;
+        };
+        const essOrder = (cands) => {
+            const byV = (a, b) => essChangeRank(a) - essChangeRank(b) || dmmSev(a.effect) - dmmSev(b.effect) || a.pos - b.pos;
+            for (const c of (cands || [])) if (Array.isArray(c.variants)) c.variants.sort(byV);
+            const best = (c) => (c.variants && c.variants.length) ? essChangeRank(c.variants[0]) : 9;
+            const sev = (c) => (c.variants && c.variants.length) ? dmmSev(c.variants[0].effect) : 99;
+            return (cands || []).slice().sort((a, b) => best(a) - best(b) || sev(a) - sev(b) || b.g.dep_frac - a.g.dep_frac);
+        };
         const lohEssentialScan = async (R, spec, tracts, say) => {
             const key = lohSlKey(spec);
             if (R.sl && R.sl.key === key && R.sl.res && !R.sl.res.error) return R.sl.res;
@@ -8576,9 +8740,7 @@ function (path, config) {
                 if (!vs.length) continue;
                 res.candidates.push({ g: g, loh: inTract(g), variants: vs });
             }
-            // Damaging changes first, then the genes the cells need most.
-            const worst = (c) => Math.min.apply(null, c.variants.map((v) => dmmSev(v.effect)));
-            res.candidates.sort((a, b) => worst(a) - worst(b) || b.g.dep_frac - a.g.dep_frac);
+            res.candidates = essOrder(res.candidates);
             const mutated = new Set(res.candidates.map((c) => c.g.gene));
             res.single = ess.filter((g) => !mutated.has(g.gene) && inTract(g)).sort((a, b) => b.dep_frac - a.dep_frac);
             R.sl = { key: key, res: res };
@@ -8953,7 +9115,10 @@ function (path, config) {
                 let fig = '';
                 try { fig = lohFigurePNG(R, tsgs, hits); } catch (e) { step('LOH figure: ' + e); }
                 if (fig) sheets.push({ name: 'Genome map', rows: [], images: [{ title: 'Figure 1. LOH tracts across the genome, tumor suppressors inside them, and the LOH fraction per chromosome.', png_b64: fig }] });
+                let sexLine = '';
+                try { sexLine = sexLineFor(spec); } catch (e) { sexLine = ''; }
                 sheets.push({ name: 'The numbers', rows: [{
+                    'Sex': sexLine || 'not determined from these calls',
                     'Heterozygous sites in the normal': R.het.toLocaleString(),
                     'Lost an allele in the tumor': R.loh.toLocaleString() + ' (' + pct(R.het ? R.loh / R.het : 0) + ')',
                     'Still heterozygous in the tumor': R.kept.toLocaleString(),
@@ -9006,7 +9171,8 @@ function (path, config) {
                             + (v.origin === 'somatic' ? 'somatic' : 'germline, other allele lost') + ', '
                             + ({ retained: 'on every copy left', both: 'tumor reads both alleles', lost: 'lost', uncalled: 'not called' }[v.state] || v.state)
                             + (v.baf >= 0 ? ' (VAF ' + Math.round(v.baf * 100) + '%)' : '');
-                        sheets.push({ name: 'Essential genes with tumor-specific changes', rows: SL.candidates.length ? SL.candidates.slice(0, 60).map((c) => ({
+                        const essShown = essOrder(SL.candidates);
+                        sheets.push({ name: 'Essential genes with tumor-specific changes', rows: essShown.length ? essShown.slice(0, 60).map((c) => ({
                             'Gene': c.g.gene + (c.loh ? ' (in an LOH tract)' : ''),
                             'DepMap': dep(c.g),
                             'Changes': c.variants.slice(0, 6).map(vw).join('; ') + (c.variants.length > 6 ? '; and ' + (c.variants.length - 6) + ' more' : ''),
@@ -9189,7 +9355,8 @@ function (path, config) {
                 + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
                 + '<div style="min-width:0;"><div style="font:700 20px Arial;">LOH Design Strategy</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">' + esc(spec.labelT) + ' (tumor) against ' + esc(spec.labelN) + ' (germline)'
-                + (spec.normal !== R.spec.normal ? ' &middot; the scan used ' + esc(R.spec.labelN) : '') + '</div></div>'
+                + (spec.normal !== R.spec.normal ? ' &middot; the scan used ' + esc(R.spec.labelN) : '')
+                + (() => { try { const sl = sexLineFor(spec); return sl ? '<br/>Sex: ' + esc(sl) : ''; } catch (e) { return ''; } })() + '</div></div>'
                 + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
                 + btn('lu-close', 'Close')
                 + btn('lu-pdf', 'PDF report', 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;')
@@ -9277,7 +9444,7 @@ function (path, config) {
                 // ESSENTIAL GENES
                 if (ESS) {
                     h += section('Essential genes with tumor-specific changes', 'DepMap dependencies the tumor has changed and the germline has not: the starting points for an allele-selective design.',
-                        ESS.error ? card(esc(ESS.error)) : ESS.candidates.length ? ESS.candidates.slice(0, 60).map((c) => geneRow(byGene.get(('' + c.g.gene).toUpperCase()),
+                        ESS.error ? card(esc(ESS.error)) : ESS.candidates.length ? essOrder(ESS.candidates).slice(0, 60).map((c) => geneRow(byGene.get(('' + c.g.gene).toUpperCase()),
                             chip(c.g.cls, '#60a5fa') + (c.loh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
                             esc('dependency in ' + Math.round(c.g.dep_frac * 100) + '% of cell lines, mean effect ' + c.g.effect_mean.toFixed(2)) + '<br/>' + c.variants.slice(0, 6).map(vLine).join('<br/>'))).join('')
                             : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
@@ -15148,6 +15315,21 @@ function (path, config) {
             const back = { section: 'Back', title: 'What is loaded', badge: 'info', icon: 'info_outline', back: true,
                 ready: true, blurb: 'The rest of what this genome is carrying.', open: () => { try { infoPanel(true); } catch (e) { } } };
             if (which === 'vcfinfo') { try { vcfProfileMenu(lastVcfProfile); } catch (e) { } return; }
+            if (which === 'sex') {
+                books.push({ section: 'Sex', note: true, title: 'Each sample is judged on its own X heterozygosity and X read depth against its own autosomes, '
+                    + 'on its Y calls outside the regions Y shares with X, and on whether the caller wrote haploid genotypes on X. '
+                    + 'Where the signals disagree, the likely reason is named rather than a guess made.' });
+                for (const x of sexSamples()) {
+                    const res = sexCall(x.si);
+                    books.push({ section: 'Sex', title: (x.nm || 'This file') + ': ' + res.call, icon: 'person', ready: true,
+                        badge: res.confidence ? res.confidence + ' confidence' : 'no call',
+                        swatch: res.call === 'male' ? '#60a5fa' : res.call === 'female' ? '#f472b6' : '#94a3b8',
+                        blurb: (res.karyotype ? res.karyotype + '. ' : '') + res.why + '.' });
+                }
+                books.push(back);
+                exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Sex', subtitle: 'From X, Y, depth and ploidy in the loaded calls', graph: graph, books: books });
+                return;
+            }
             if (which === 'variants') {
                 books.push({ section: 'Variants', note: true, title: vtotal.toLocaleString() + ' variant'
                     + (vtotal === 1 ? '' : 's') + ' on ' + vdata.filter((d) => d && d.n).length + ' chromosome(s).' });
@@ -15286,6 +15468,13 @@ function (path, config) {
                     } catch (e) { return 'nothing loaded'; }
                 })(), 'sources'],
                 ['Genotypes', hasGt ? (lastVcfProfile && lastVcfProfile.phased ? 'yes, phased' : 'yes') : 'no'],
+                ['Sex', (() => {
+                    try {
+                        const xs = sexSamples();
+                        if (!xs.length) return 'nothing loaded';
+                        return esc(xs.slice(0, 4).map((x) => (x.nm ? x.nm + ': ' : '') + sexWord(sexCall(x.si))).join('  ·  '));
+                    } catch (e) { return 'could not be read'; }
+                })(), 'sex'],
                 // WHAT THE FILE TURNED OUT TO BE, kept where it can be found again: the
                 // prompt at load time is a moment, and the answer is wanted later too.
                 ['About the file', lastVcfProfile
@@ -15535,7 +15724,7 @@ function (path, config) {
             sideSlots[0] = []; sideSlots[1] = [];
             regions = []; try { geneCache.clear(); } catch (e) { }
             bookmarks = []; activeRegion = null; hlActive = 0;
-            try { SAMPLES.length = 0; } catch (e) { }
+            try { SAMPLES.length = 0; SEX_EV.length = 0; } catch (e) { }
             try { setColorMode('class'); } catch (e) { }
             try { reindexHighlights(); } catch (e) { }
             try { const nav = document.getElementById('baja-karyo-booknav'); if (nav && nav.parentNode) nav.parentNode.removeChild(nav); } catch (e) { }
