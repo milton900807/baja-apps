@@ -6054,7 +6054,7 @@ function (path, config) {
             }
             out.highlight = hlActive || 0;
             out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '',
-                lof: rg.lof ? 1 : 0, dz: rg.dz ? 1 : 0, disease: rg.disease || '' }));
+                lof: rg.lof ? 1 : 0, dz: rg.dz ? 1 : 0, loh: rg.loh ? 1 : 0, disease: rg.disease || '' }));
             // The loss matrix goes with the file: it is a few hundred gene records at most,
             // and recomputing it means re-reading the annotation for every coding variant.
             if (lossMatrix && Array.isArray(lossMatrix.genes)) {
@@ -6067,6 +6067,13 @@ function (path, config) {
             }
             if (selGenes.size) out.selectedGenes = selectedList();
             if (diffResult) out.diffLoss = diffResult;
+            // THE LOH SCAN goes with the file: which pair was compared, every chromosome's
+            // counts and tracts, the genes read inside them, and the single-copy
+            // vulnerabilities found from those. The marks are not stored -- they are re-derived
+            // from the tracts and the variants, which are both here -- and neither is the
+            // report, which is built from this.
+            if (lohResult) out.loh = lohResult;
+            if (lohResult && lohSlResult) out.lohSl = lohSlResult;
             // The bookmarks go with the file. They are four numbers and a name each, so
             // they cost nothing next to the variants and are the part a reader opening
             // this tomorrow cannot reconstruct.
@@ -6333,7 +6340,7 @@ function (path, config) {
                 try {
                     regions = doc.regions.filter((rg) => rg && rg.i != null && isFinite(+rg.lo) && isFinite(+rg.hi))
                         .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '',
-                            lof: !!rg.lof, dz: !!rg.dz, disease: rg.disease || '' }));
+                            lof: !!rg.lof, dz: !!rg.dz, loh: !!rg.loh, disease: rg.disease || '' }));
                 } catch (e) { }
             }
             if (Array.isArray(doc.sampleColors)) {
@@ -6371,6 +6378,20 @@ function (path, config) {
                 } catch (e) { }
             }
             if (doc.diffLoss && doc.diffLoss.A && doc.diffLoss.B) { try { diffResult = doc.diffLoss; } catch (e) { } }
+            // The LOH scan, with its chromosome indices taken from the names rather than from
+            // the file: the indices are this session's order of the drawn chromosomes.
+            lohResult = null; lohSlResult = null;
+            if (doc.loh && doc.loh.spec && Array.isArray(doc.loh.chroms)) {
+                try {
+                    const L = doc.loh;
+                    L.chroms = L.chroms.map((c2) => Object.assign(c2, { ci: chromIndexOf(c2.name), runs: Array.isArray(c2.runs) ? c2.runs : [] }))
+                        .filter((c2) => c2.ci >= 0);
+                    if (Array.isArray(L.genes)) L.genes = L.genes.map((g) => Object.assign(g, { ci: chromIndexOf(g.chr) })).filter((g) => g.ci >= 0);
+                    lohResult = L;
+                    if (doc.lohSl && Array.isArray(doc.lohSl.cyclops)) lohSlResult = doc.lohSl;
+                    if (doc.highlight === HL_LOH) applyLOHHighlights(false);
+                } catch (e) { step('LOH result not restored: ' + e); lohResult = null; lohSlResult = null; }
+            }
             if (Array.isArray(doc.selectedGenes)) {
                 try { selGenes.clear(); doc.selectedGenes.forEach((g) => { if (g && g.gene) selGenes.set(('' + g.gene).toUpperCase(), g); }); } catch (e) { }
             }
