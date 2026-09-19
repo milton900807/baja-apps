@@ -17886,6 +17886,27 @@ function (path, config) {
             const lofPrivate = g.vars.some((x) => x.who !== 'S' && DMM_LOF.has(x.effect));
             return { n: n, worstA: worst('A'), worstB: worst('B'), call: call, lofPrivate: lofPrivate, shown: g.vars.filter(inF) };
         };
+        // THE MATRIX AS A FILE (.mutmax). Everything the matrix viewer needs without the genome
+        // it came from: the pair, the counts, the spectrum and every gene's variants as shown.
+        const MUTMAX_EXT = '.mutmax';
+        const mutmaxDoc = (R, headTitle, regs, protOnly) => {
+            const S = R.spec;
+            return {
+                type: 'baja-mut-matrix', version: 1, saved: new Date().toISOString(),
+                species: r.species || 'human', assembly: r.assembly || '',
+                region: headTitle || '', regions: (regs || []).map((g) => ({ chr: drawn[g.i] ? drawn[g.i].name : '', lo: g.lo, hi: g.hi })),
+                pair: { labelA: S.labelA, labelB: S.labelB, kind: S.kind },
+                tally: R.tally, sbs: R.sbs, sbsClasses: DMM_SBS, outside: R.outside, unread: R.unread,
+                highConfidenceOnly: !!lossConfOnly, proteinOnly: !!protOnly, max: DMM_MAX,
+                genes: R.genes.map((g) => ({
+                    gene: g.gene, transcript: g.transcript || '', chr: g.chr, start: g.start, end: g.end,
+                    all: g.all, prot: g.prot,
+                    vars: g.vars.map((v) => ({ chr: drawn[v.ci].name, pos: v.pos, ref: v.ref, alt: v.alt, effect: v.effect,
+                        hgvs_c: v.hgvs_c || '', hgvs_p: v.hgvs_p || '', who: v.who, absence: v.absence || '',
+                        gtA: dmmGtText(S, v, 'A') || '', gtB: dmmGtText(S, v, 'B') || '', sbs: dmmSbs(v.ref, v.alt) || '' })),
+                })),
+            };
+        };
         const dmmCSV = (R) => {
             const rows = [];
             for (const g of R.genes) {
@@ -17921,8 +17942,11 @@ function (path, config) {
                 + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
                 + btn('dmm-back', 'Back to the genes')
                 + btn('dmm-swap', 'Swap A and B', 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;')
+                + btn('dmm-save', 'Save as .mutmax', 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;')
+                + btn('dmm-share', 'Share', 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;')
                 + btn('dmm-csv', 'Download CSV', 'border:1px solid #22c55e;background:#22c55e;color:#04210f;')
                 + '</div></div>'
+                + '<div id="dmm-savebar" style="display:none;flex:0 0 auto;padding:10px 22px;background:#08203c;border-bottom:1px solid rgba(255,255,255,0.10);font:12.5px Arial;color:#cfe0f5;"></div>'
                 + '<div id="dmm-body" style="flex:1 1 auto;overflow:auto;padding:22px 22px 32px;"></div>';
             document.body.appendChild(panel);
             for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
@@ -18066,6 +18090,44 @@ function (path, config) {
             };
             q3('#dmm-back').onclick = () => close3();
             q3('#dmm-swap').onclick = () => { spec = dmmSwap(spec); pairs[pairIdx] = spec; compute(); };
+            // SAVE AS .mutmax, into My Files, and SHARE it the way a design strategy is shared.
+            const mutmaxName = () => dlSafe(dlSpecies() + '_' + spec.labelA + '_vs_' + spec.labelB + '_' + headTitle + '_mutational_matrix');
+            const saveBar3 = q3('#dmm-savebar');
+            q3('#dmm-save').onclick = () => {
+                if (!R || !R.recs) { graph.setMessage(' The matrix is still being built. '); return; }
+                saveBar3.style.display = 'block';
+                saveBar3.innerHTML = 'Save to My Files as <input id="dmm-name" value="' + esc3(mutmaxName()) + '" style="width:340px;margin:0 6px;padding:5px 8px;border-radius:6px;'
+                    + 'border:1px solid rgba(255,255,255,0.25);background:#071a30;color:#fff;font:12.5px Arial;"/>' + MUTMAX_EXT
+                    + ' <button id="dmm-save-go" style="cursor:pointer;margin-left:8px;border-radius:7px;padding:6px 14px;font:700 12px Arial;border:1px solid #f59e0b;background:#f59e0b;color:#1f1300;">Save</button>'
+                    + ' <a href="#" id="dmm-save-x" style="margin-left:8px;color:#8ab4ff;">cancel</a> <span id="dmm-save-msg" style="margin-left:10px;color:#9fb3c8;"></span>';
+                q3('#dmm-save-x').onclick = (e) => { e.preventDefault(); saveBar3.style.display = 'none'; };
+                q3('#dmm-save-go').onclick = async () => {
+                    const msg = q3('#dmm-save-msg');
+                    let name = ('' + (q3('#dmm-name').value || '')).trim().replace(/[\/]+/g, '_').replace(/\.json$/i, '').replace(/\.mutmax$/i, '');
+                    if (!name) { msg.textContent = 'A file name is needed.'; return; }
+                    name += MUTMAX_EXT;
+                    msg.textContent = 'Saving...';
+                    try {
+                        const text = JSON.stringify(mutmaxDoc(R, headTitle, regs, protOnly));
+                        let path = '';
+                        if (text.length > 6 * 1024 * 1024) {
+                            const up = await uploadToMyFiles(new File([text], name, { type: 'application/json' }), null, '');
+                            if (up && up.error) throw new Error(up.error);
+                            path = '/' + (up.folder || 'myfiles') + '/' + name;
+                        } else {
+                            const rs = await POSTJSON({ name: name, key: 'user', user: getUser(), spath: '', value: text }, window['env']['apiUrl'] + '/save-user-data');
+                            if (!rs || !(rs.status === 'saved' || rs.path)) throw new Error((rs && (rs.status || rs.error)) || 'the server did not save it');
+                            path = '' + (rs.path || name);
+                        }
+                        msg.innerHTML = 'Saved to My Files as <b>' + esc3(name) + '</b>. It opens in the matrix viewer.';
+                    } catch (e) { msg.innerHTML = '<span style="color:#fca5a5;">Could not save: ' + esc3(e && e.message ? e.message : e) + '</span>'; }
+                };
+            };
+            q3('#dmm-share').onclick = async () => {
+                if (!R || !R.recs) { graph.setMessage(' The matrix is still being built. '); return; }
+                try { const openShare = await exec('manchester/design-share.js'); openShare(mutmaxDoc(R, headTitle, regs, protOnly), mutmaxName() + MUTMAX_EXT); }
+                catch (e) { graph.setMessage(' Sharing could not open: ' + (e && e.message ? e.message : e) + ' '); }
+            };
             q3('#dmm-csv').onclick = () => {
                 if (!R || !R.recs) return;
                 try {

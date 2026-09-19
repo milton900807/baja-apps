@@ -31,6 +31,9 @@ function (graph, genegraph_panel_layout, __path) {
         // A .design file (an LOH design strategy saved from the Genome Viewer) opens in the
         // Design Viewer, which needs nothing but the file.
         const isDesign = (el) => /\.design$/i.test(('' + ((el && (el.name || el.path)) || '')).trim());
+        // A .mutmax file (a differential mutational matrix saved from a region) opens the
+        // matrix viewer, which likewise needs nothing but the file.
+        const isMutmax = (el) => /\.mutmax$/i.test(('' + ((el && (el.name || el.path)) || '')).trim());
         const isKaryotype = (el) => /\.(?:genome|karyotype(?:\.json)?)$/i.test(
             ('' + ((el && (el.name || el.path)) || '')).trim());
 
@@ -64,6 +67,12 @@ function (graph, genegraph_panel_layout, __path) {
                             const dpath = element.path;
                                                     window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
                             exec('manchester/design-viewer', dpath);
+                            return;
+                        }
+                        if (isMutmax(element)) {
+                            const mpath = element.path;
+                            window.history.pushState({ mutmax: mpath }, 'matrix', `/app/manchester/mutmatrix-viewer?path=${mpath}`);
+                            exec('manchester/mutmatrix-viewer', mpath);
                             return;
                         }
                         if (isKaryotype(element)) {
@@ -494,7 +503,7 @@ function (graph, genegraph_panel_layout, __path) {
                                         // '.genome' is what the Genome Viewer saves; '.karyotype'
                                         // and '.karyotype.json' are what it saved before, the same
                                         // format, listed separately because neither ends in the other.
-                                        filetype: '.baja,.genome,.karyotype,.karyotype.json,.design',
+                                        filetype: '.baja,.genome,.karyotype,.karyotype.json,.design,.mutmax',
                                         root: init_path,
                                         "ionfunction.cmd": createIonFunction((element) => {
                                         }),
@@ -504,6 +513,12 @@ function (graph, genegraph_panel_layout, __path) {
                                                 const dpath = element.path;
                                                                                             window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
                                                 exec('manchester/design-viewer', dpath);
+                                                return;
+                                            }
+                                            if (isMutmax(element)) {
+                                                const mpath = element.path;
+                                                window.history.pushState({ mutmax: mpath }, 'matrix', `/app/manchester/mutmatrix-viewer?path=${mpath}`);
+                                                exec('manchester/mutmatrix-viewer', mpath);
                                                 return;
                                             }
                                             if (isKaryotype(element)) {

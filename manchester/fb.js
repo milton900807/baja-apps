@@ -41,6 +41,9 @@ function (__path, __header) {
         // A .design file (an LOH design strategy saved from the Genome Viewer) opens in the
         // Design Viewer, which needs nothing but the file.
         const isDesign = (el) => /\.design$/i.test(('' + ((el && (el.name || el.path)) || '')).trim());
+        // A .mutmax file (a differential mutational matrix saved from a region) opens the
+        // matrix viewer, which likewise needs nothing but the file.
+        const isMutmax = (el) => /\.mutmax$/i.test(('' + ((el && (el.name || el.path)) || '')).trim());
         const isKaryotype = (el) => /\.(?:genome|karyotype(?:\.json)?)$/i.test(
             ('' + ((el && (el.name || el.path)) || '')).trim());
         // The file's own name, for a message. Escaped, because msgpanel takes HTML and a
@@ -89,6 +92,13 @@ function (__path, __header) {
                         clear();
                         window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
                         exec('manchester/design-viewer', dpath);
+                        return;
+                    }
+                    if (mode !== 'delete' && isMutmax(element)) {
+                        const mpath = element.path;
+                        clear();
+                        window.history.pushState({ mutmax: mpath }, 'matrix', `/app/manchester/mutmatrix-viewer?path=${mpath}`);
+                        exec('manchester/mutmatrix-viewer', mpath);
                         return;
                     }
                     if (mode !== 'delete' && isKaryotype(element)) {
@@ -510,6 +520,13 @@ function (__path, __header) {
                         clear();
                         window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
                         exec('manchester/design-viewer', dpath);
+                        return;
+                    }
+                    if (isMutmax(element)) {
+                        const mpath = element.path;
+                        clear();
+                        window.history.pushState({ mutmax: mpath }, 'matrix', `/app/manchester/mutmatrix-viewer?path=${mpath}`);
+                        exec('manchester/mutmatrix-viewer', mpath);
                         return;
                     }
                     if (isKaryotype(element)) {

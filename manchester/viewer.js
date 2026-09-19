@@ -84,6 +84,20 @@ function (path, config) {
             try { window.__bajaFreeTier = true; } catch (e) { }
             return await exec('manchester/design-viewer', decodeURIComponent('' + __dp), { shared: true });
         }
+        // A shared MUTATIONAL MATRIX: the matrix viewer, view-only and without sign-in.
+        const __isMx = (x) => { try { return /\.mutmax$/i.test(decodeURIComponent('' + (x || ''))); } catch (e) { return /\.mutmax$/i.test('' + (x || '')); } };
+        let __mp = '';
+        if (__code && __isMx(__p)) __mp = __p;
+        if (!__mp) { try { const __qp = new URL(window.location.href).searchParams.get('path'); if (__qp && __isMx(__qp)) __mp = __qp; } catch (e) { } }
+        if (__mp) {
+            try { __spin.stop(); } catch (e) { }
+            try {
+                const __clean = window.location.origin + '/app/manchester/viewer' + (__code ? ('?s=' + encodeURIComponent(__code)) : '');
+                if (window.location.href !== __clean) window.history.replaceState({}, document.title, __clean);
+            } catch (e) { }
+            try { window.__bajaFreeTier = true; } catch (e) { }
+            return await exec('manchester/mutmatrix-viewer', decodeURIComponent('' + __mp), { shared: true });
+        }
         if (__kp) {
             try { __spin.stop(); } catch (e) { }
             try {

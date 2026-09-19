@@ -10,8 +10,12 @@ function () {
         const user = ('' + ((typeof getUser === 'function' ? getUser() : '') || '')).trim();
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const body = (r) => (r && r.error && typeof r.error === 'object') ? r.error : r;
-        let fileName = ('' + (name || 'LOH_design_strategy')).replace(/[\\/]+/g, '_').replace(/\.design$/i, '').trim() || 'LOH_design_strategy';
-        fileName += '.design';
+        // The same dialog shares a design strategy (.design) and a mutational matrix (.mutmax):
+        // the extension comes from the name it is given, and only the wording follows it.
+        const ext = /\.mutmax$/i.test('' + (name || '')) ? '.mutmax' : '.design';
+        const what = ext === '.mutmax' ? 'mutational matrix' : 'design strategy';
+        let fileName = ('' + (name || 'LOH_design_strategy')).replace(/[\\/]+/g, '_').replace(/\.(design|mutmax)$/i, '').trim() || 'LOH_design_strategy';
+        fileName += ext;
 
         try { const old = document.getElementById('baja-design-share'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
         const wrap = document.createElement('div');
@@ -22,7 +26,7 @@ function () {
         const field = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:9px;font:13px Arial;';
         wrap.innerHTML = '<div style="position:absolute;top:70px;left:50%;transform:translateX(-50%);width:min(560px,94vw);max-height:calc(100vh - 100px);overflow:auto;'
             + 'background:#0b2545;color:#fff;border:1px solid rgba(255,255,255,0.14);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);padding:18px;">'
-            + '<div style="font:700 16px Arial;margin-bottom:4px;">Share this design strategy</div>'
+            + '<div style="font:700 16px Arial;margin-bottom:4px;">Share this ' + what + '</div>'
             + '<div style="font:12px Arial;color:#9fb3c8;margin-bottom:14px;">' + esc(fileName) + '</div>'
             + '<div style="font:700 13px Arial;margin-bottom:6px;">A public link</div>'
             + '<div style="font:12px Arial;color:#9fb3c8;margin-bottom:8px;">Anyone with the link can view it, without signing in.</div>'

@@ -46,7 +46,7 @@ function (pt, graph, pm) {
         panel.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;'
             + 'width:min(640px,94vw);max-height:calc(100vh - 90px);overflow:auto;background:#ffffff;color:#0a2540;border-radius:12px;'
             + 'box-shadow:0 12px 40px rgba(10,37,64,0.35);border:1px solid rgba(10,37,64,0.14);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:18px;';
-        const kindOf = (name) => /\.bjb$/i.test('' + name) ? 'workbook' : /\.(?:genome|karyotype(?:\.json)?)$/i.test('' + name) ? 'genome' : /\.baja$/i.test('' + name) ? 'design' : /\.design$/i.test('' + name) ? 'loh design' : '';
+        const kindOf = (name) => /\.bjb$/i.test('' + name) ? 'workbook' : /\.(?:genome|karyotype(?:\.json)?)$/i.test('' + name) ? 'genome' : /\.baja$/i.test('' + name) ? 'design' : /\.design$/i.test('' + name) ? 'loh design' : /\.mutmax$/i.test('' + name) ? 'mutational matrix' : '';
         const row = (title, sub, meta, code, name) => '<div class="sd-row" data-code="' + esc(code) + '" data-name="' + esc(name || '') + '" style="display:flex;align-items:center;gap:10px;padding:' + (mobile ? '12px 10px' : '9px 10px') + ';border:1px solid #dfe6ee;border-radius:8px;margin:6px 0;background:#f4f7fa;">'
             + '<div style="flex:1;min-width:0;"><div style="font:600 13px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(title) + '</div>'
             + '<div style="font-size:12px;color:#4a5a70;">' + sub + (meta ? ' &middot; <span style="color:#6b7a90;">' + esc(meta) + '</span>' : '') + '</div></div>'

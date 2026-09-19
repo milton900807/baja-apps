@@ -17,7 +17,7 @@ function (pt, graph, pm, startPath, opts) {
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const when = (t) => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); };
         const size = (n) => (n == null) ? '' : (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
-        const kindOf = (name) => /\.bjb$/i.test(name) ? 'workbook' : /\.baja$/i.test(name) ? 'design' : /\.(?:genome|karyotype(?:\.json)?)$/i.test(name) ? 'genome' : /\.design$/i.test(name) ? 'loh design' : /\.(vcf|vcf\.gz)$/i.test(name) ? 'vcf' : '';
+        const kindOf = (name) => /\.bjb$/i.test(name) ? 'workbook' : /\.baja$/i.test(name) ? 'design' : /\.(?:genome|karyotype(?:\.json)?)$/i.test(name) ? 'genome' : /\.design$/i.test(name) ? 'loh design' : /\.mutmax$/i.test(name) ? 'mutational matrix' : /\.(vcf|vcf\.gz)$/i.test(name) ? 'vcf' : '';
         // The listing, plus the server's message when it sends none: "Missing user id"
         // means the request went out before sign-in had settled, which is retried below.
         let lastListMsg = '';
@@ -180,6 +180,12 @@ function (pt, graph, pm, startPath, opts) {
                         close();
                         try { window.history.pushState({ design: node.path }, 'design', '/app/manchester/design-viewer?path=' + node.path); } catch (e) { }
                         exec('manchester/design-viewer', node.path);
+                    }
+                    else if (/\.mutmax$/i.test(node.name)) {
+                        // A saved differential mutational matrix opens in the matrix viewer.
+                        close();
+                        try { window.history.pushState({ mutmax: node.path }, 'matrix', '/app/manchester/mutmatrix-viewer?path=' + node.path); } catch (e) { }
+                        exec('manchester/mutmatrix-viewer', node.path);
                     }
                     else { try { pt && pt.setMessage('Only Baja workbooks (.bjb) open here. Designs open in the editor, genomes in the Genome Viewer.', 3); } catch (e) { } }
                 };

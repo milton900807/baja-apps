@@ -495,6 +495,13 @@ function (path, filebrowserplease) {
                                     window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
                                     exec('manchester/design-viewer', dpath);
                                 }
+                                else if (/\.mutmax$/i.test(element.path)) {
+                                    // A saved differential mutational matrix opens in the matrix viewer.
+                                    const mpath = element.path;
+                                    clear();
+                                    window.history.pushState({ mutmax: mpath }, 'matrix', `/app/manchester/mutmatrix-viewer?path=${mpath}`);
+                                    exec('manchester/mutmatrix-viewer', mpath);
+                                }
                                 else if (/\.(?:genome|karyotype(?:\.json)?)$/i.test(element.path)) {
                                     // A genome file (.genome, or the legacy .karyotype and
                                     // .karyotype.json) opens in the Genome Viewer, not the
