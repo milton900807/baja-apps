@@ -9266,6 +9266,7 @@ function (path, config) {
                             : 'none protein-altering',
                         'What the gene is for': fnPlain(DMo && DMo[('' + g.gene).toUpperCase()]),
                         'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMo && DMo[('' + g.gene).toUpperCase()]),
+                        'Stem and progenitor cells (ENCODE, TPM)': stemPlain(DMo && DMo[('' + g.gene).toUpperCase()]),
                     };
                 }) : [{ 'Result': genes.length ? 'No oncogene from the catalogue lies inside a tract.' : 'No tract, so no oncogene is affected.' }] });
                 let DMt = null;
@@ -9285,6 +9286,7 @@ function (path, config) {
                             : 'none in the coding sequence, splice sites or UTRs',
                         'What the gene is for': fnPlain(DMt && DMt[('' + g.gene).toUpperCase()]),
                         'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMt && DMt[('' + g.gene).toUpperCase()]),
+                        'Stem and progenitor cells (ENCODE, TPM)': stemPlain(DMt && DMt[('' + g.gene).toUpperCase()]),
                     };
                 }) : [{ 'Result': genes.length ? 'No gene on the tumor-suppressor list lies inside a tract.' : 'No tract, so no gene is down to one copy.' }] });
 
@@ -9308,6 +9310,7 @@ function (path, config) {
                             : 'none: one copy left, or two identical ones',
                         'What the gene is for': fnPlain(DMe && DMe[('' + x.gene).toUpperCase()]),
                         'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMe && DMe[('' + x.gene).toUpperCase()]),
+                        'Stem and progenitor cells (ENCODE, TPM)': stemPlain(DMe && DMe[('' + x.gene).toUpperCase()]),
                     })).concat(EIL0.length > 80 ? [{ 'More': (EIL0.length - 80) + ' further essential genes in the tracts.' }] : [])
                     : [{ 'Result': 'No essential gene lies inside an LOH tract.' }] });
                 if (O.claude) {
@@ -9326,8 +9329,7 @@ function (path, config) {
                             const t = DMp && DMp[('' + gene).toUpperCase()] && DMp[('' + gene).toUpperCase()].tpm;
                             if (!t) return '';
                             const list = (xs) => (xs || []).map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ');
-                            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.'
-                                + ((t.stem && t.stem.length) ? ' Stem and progenitor cells: ' + list(t.stem) + '.' : '');
+                            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.';
                         };
                         sheets.push({ name: 'Essential genes with tumor-specific changes', rows: (essShown.length ? essShown.slice(0, 60).map((c) => ({
                             'Gene': c.g.gene + (c.loh ? ' (in an LOH tract)' : ''),
@@ -9335,10 +9337,12 @@ function (path, config) {
                             'Changes': c.variants.slice(0, 6).map(vw).join('; ') + (c.variants.length > 6 ? '; and ' + (c.variants.length - 6) + ' more' : ''),
                             'What the gene is for': fnPlain(DMp && DMp[('' + c.g.gene).toUpperCase()]),
                             'Tissue expression (GTEx v10, median TPM)': tpmText(c.g.gene),
+                            'Stem and progenitor cells (ENCODE, TPM)': stemPlain(DMp && DMp[('' + c.g.gene).toUpperCase()]),
                         })).concat(SL.candidates.length > 60 ? [{ 'More': (SL.candidates.length - 60) + ' further genes, less damaging or less essential, were given to the model but are not listed here.' }] : [])
                             : [{ 'Result': 'None of the ' + SL.nEssential.toLocaleString() + ' essential genes carries a protein-altering change that is the tumor\'s own.' }])
                             .concat([{ 'Source': 'DepMap, ' + DEPMAP_PORTAL + ' . ' + DEPMAP_CITES.map((c) => c.text + ' https://doi.org/' + c.doi).join(' ')
                                 + ' Tissue expression: GTEx Portal, release v10, gene median TPM, https://gtexportal.org .'
+                                + ' Stem and progenitor cells: ENCODE RNA-seq gene quantifications (H1, H9, iPSC, neural progenitor, mesenchymal, haematopoietic progenitor), https://www.encodeproject.org .'
                                 + ' What the gene is for: NCBI Gene, and the Gene Ontology (GO annotations for human), https://geneontology.org .' }]) });
                         const As = SL.assessment || {};
                         sheets.push({ name: 'Selective lethality assessment', rows: [{
@@ -9498,12 +9502,18 @@ function (path, config) {
             if (!f) return '';
             return [f.desc || '', (f.cats || []).join(', '), (f.terms || []).join('; ')].filter(Boolean).join('. ');
         };
+        // The stem and progenitor panel as its own PDF column: a different source from the
+        // GTEx tissues, and the question it answers -- what renews the tissue -- is its own.
+        const stemPlain = (d) => {
+            const t = d && d.tpm;
+            if (!t || !t.stem || !t.stem.length) return '';
+            return t.stem.map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ') + '.';
+        };
         const tpmPlain = (d) => {
             const t = d && d.tpm;
             if (!t) return '';
             const list = (xs) => (xs || []).map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ');
-            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.'
-                + ((t.stem && t.stem.length) ? ' Stem and progenitor cells (' + (t.stem_source || 'ENCODE') + '): ' + list(t.stem) + '.' : '');
+            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.';
         };
         // A tract's genes against the tissues, from the compact 'tpm' action: one row per gene,
         // the CNS columns first. Cells are shaded by level so the pattern reads at a glance.
