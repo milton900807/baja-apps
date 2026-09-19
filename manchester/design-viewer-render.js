@@ -86,6 +86,20 @@ function () {
                     + t.genes.length + ' gene' + (t.genes.length === 1 ? '' : 's') + '</summary><div style="margin-top:6px;line-height:1.6;">' + esc(t.genes.join(', ')) + '</div></details>' : ''))).join('')
             : card('No tract.'));
 
+        // ONCOGENES
+        if (Array.isArray(doc.oncogenes)) {
+            const on = doc.oncogenes.slice().sort((a, b) => a.rank - b.rank);
+            h += section('Oncogenes in LOH', 'Did LOH leave an activating allele on every remaining copy? The wild-type partner that restrains it is then gone.',
+                on.length ? on.map((g) => {
+                    const col = g.rank === 0 ? '#fbbf24' : g.rank === 1 ? '#fb923c' : '#94a3b8';
+                    const w = g.rank === 0 ? 'activating, homozygous by LOH' : g.rank === 1 ? 'activating, both alleles read' : g.rank === 2 ? 'possible change' : g.rank === 3 ? 'no change' : 'not assessed';
+                    return geneRow(g.gene, chip(w, col), esc(g.status)
+                        + '<br/><span style="color:#9fb3c8;">' + ((g.lost + g.kept) ? esc(g.lost + ' of ' + (g.lost + g.kept) + ' heterozygous sites in the gene lost an allele (' + pct(g.frac) + ')')
+                            : 'No heterozygous site inside the gene; the tract around it carries the call') + '</span>'
+                        + ((g.variants || []).length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                }).join('') : card('No oncogene from the catalogue lies inside a tract.'));
+        }
+
         // TUMOR SUPPRESSORS
         const ts = (doc.tsg || []).slice().sort((a, b) => a.rank - b.rank);
         h += section('Tumor suppressors in LOH', 'Is the copy left also broken? A damaging change on the only copy left is biallelic inactivation.',
@@ -111,6 +125,15 @@ function () {
                 doc.essential.length ? doc.essential.slice(0, 60).map((c) => geneRow(c.gene, chip(c.cls, '#60a5fa') + (c.inLoh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
                     (c.variants || []).slice(0, 6).map(vLine).join('<br/>'))).join('')
                     : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
+            // Where the dependency numbers come from, as the strategy cited them when it was saved.
+            const cites = (doc.depmapCitations && doc.depmapCitations.length) ? doc.depmapCitations : [
+                { text: 'Tsherniak A, Vazquez F, Montgomery PG, et al. Defining a Cancer Dependency Map. Cell. 2017;170(3):564-576.e16.', doi: '10.1016/j.cell.2017.06.014' },
+                { text: 'Dempster JM, Boyle I, Vazquez F, et al. Chronos: a cell population dynamics model of CRISPR experiments that improves inference of gene fitness effects. Genome Biology. 2021;22:343.', doi: '10.1186/s13059-021-02540-7' }];
+            const portal = doc.depmapPortal || 'https://depmap.org/portal/';
+            h += '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 6px;line-height:1.55;">Dependency data: DepMap (<a href="' + esc(portal)
+                + '" target="_blank" rel="noopener" style="color:#8ab4ff;">depmap.org</a>). '
+                + cites.map((c) => esc(c.text) + ' <a href="https://doi.org/' + esc(c.doi) + '" target="_blank" rel="noopener" style="color:#8ab4ff;">doi:' + esc(c.doi) + '</a>').join(' ')
+                + '</div>';
         }
         if ((doc.singleCopy || []).length) {
             h += section('Essential genes at one copy, unmutated', 'Single-copy dependencies: a partial knockdown the diploid normal tissue tolerates.',

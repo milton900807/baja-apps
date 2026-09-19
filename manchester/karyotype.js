@@ -8918,6 +8918,47 @@ function (path, config) {
                 'LOH': gofStateWord(x),
             }))).concat(L.length > 40 ? [{ 'More': (L.length - 40) + ' further changes, all outside the tracts or of possible effect.' }] : []) };
         };
+        // ONCOGENES IN LOH. The tumor-suppressor section asks whether the copy LOH left is also
+        // broken. For an oncogene the question runs the other way: did LOH leave an ACTIVATING
+        // allele on every remaining copy -- the wild-type partner that restrains it gone, and after
+        // a copy-neutral loss the mutant at twice the dose? The oncogenes are the gain-of-function
+        // catalogue's (TP53 is read with the tumor suppressors); the changes come from its scan.
+        const LOH_ONCOGENES = Object.keys(GOF_HOTSPOTS).filter((g) => g !== 'TP53');
+        // WHERE THE ESSENTIALITY NUMBERS COME FROM, cited where they are used: the DepMap
+        // paper, and Chronos, the model that produces the gene-effect scores quoted.
+        const DEPMAP_CITES = [
+            { text: 'Tsherniak A, Vazquez F, Montgomery PG, et al. Defining a Cancer Dependency Map. Cell. 2017;170(3):564-576.e16.',
+              doi: '10.1016/j.cell.2017.06.014' },
+            { text: 'Dempster JM, Boyle I, Vazquez F, et al. Chronos: a cell population dynamics model of CRISPR experiments that improves inference of gene fitness effects. Genome Biology. 2021;22:343.',
+              doi: '10.1186/s13059-021-02540-7' },
+        ];
+        const DEPMAP_PORTAL = 'https://depmap.org/portal/';
+        const depmapCiteHtml = (esc) => '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 6px;line-height:1.55;">'
+            + 'Dependency data: DepMap (<a href="' + DEPMAP_PORTAL + '" target="_blank" rel="noopener" style="color:#8ab4ff;">depmap.org</a>). '
+            + DEPMAP_CITES.map((c) => esc(c.text) + ' <a href="https://doi.org/' + c.doi + '" target="_blank" rel="noopener" style="color:#8ab4ff;">doi:' + c.doi + '</a>').join(' ')
+            + '</div>';
+        const lohOncogenes = (R, GOF) => {
+            const set = new Set(LOH_ONCOGENES);
+            const list = [];
+            const assessed = !!(GOF && !GOF.error);
+            for (const g of ((R && R.genes) || [])) {
+                const G = ('' + g.gene).toUpperCase();
+                if (!set.has(G)) continue;
+                const vs = assessed ? GOF.list.filter((x) => ('' + x.gene).toUpperCase() === G) : [];
+                const act = vs.filter((x) => x.level !== 'possible');
+                const homo = act.find((x) => x.state === 'retained');
+                let rank, status;
+                if (!assessed) { rank = 4; status = 'Changes not assessed: ' + ((GOF && GOF.error) || 'the gain-of-function scan did not run'); }
+                else if (homo) { rank = 0; status = 'Activating change on every remaining copy: ' + homo.change + ' (' + homo.level + '). The wild-type allele that restrains it is gone'; }
+                else if (act.length) { rank = 1; status = 'Activating change, but the tumor still reads both alleles here: ' + act[0].change + ' (' + act[0].level + ')'; }
+                else if (vs.length) { rank = 2; status = 'A protein-altering change of uncertain effect: ' + vs[0].change; }
+                else { rank = 3; status = 'No change in the calls: one wild-type copy left, or two identical ones after a copy-neutral loss'; }
+                list.push({ gene: g.gene, ci: g.ci, chr: g.chr, start: g.start, end: g.end, het: g.het, lost: g.lost, kept: g.kept, uncalled: g.uncalled,
+                    frac: g.frac, rank: rank, status: status, variants: vs });
+            }
+            list.sort((a, b) => a.rank - b.rank || b.frac - a.frac || ('' + a.gene).localeCompare('' + b.gene));
+            return list;
+        };
         // For the reports that are not the LOH report: the scan's own pair, when there is one.
         const gofForReport = async () => {
             if (!lohResult) return gofSheet(null, null);
@@ -9148,6 +9189,20 @@ function (path, config) {
                     (bandSpan(t.c, t.lo, t.hi) || t.c.name) + ' ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + ' (' + mb(t.len) + ')').join('; ') }] : [])
                     : [{ 'Result': 'No tract: lost sites are scattered, not in runs of ' + LOH_RUN_MIN + ' or more. Scattered sites are more often noise than loss.' }] });
 
+                const oncs = lohOncogenes(R, GOF);
+                sheets.push({ name: 'Oncogenes in LOH', rows: oncs.length ? oncs.map((g) => {
+                    const c = drawn[g.ci];
+                    return {
+                        'Gene': g.gene,
+                        'Location': g.chr + ':' + human(g.start) + '-' + human(g.end) + (c ? ' (' + (bandSpan(c, g.start, g.start) || c.name) + ')' : ''),
+                        'Status': g.status,
+                        'LOH across the gene': (g.lost + g.kept) ? g.lost + ' of ' + (g.lost + g.kept) + ' heterozygous sites lost an allele (' + pct(g.frac) + ')'
+                            : 'no heterozygous site inside the gene; the tract around it carries the call',
+                        'Changes in the gene': g.variants.length ? g.variants.slice(0, 8).map((x) => x.change + ' (' + dmmWord(x.effect) + ', ' + x.level + ') - '
+                            + x.origin + ', ' + gofStateWord(x) + (x.baf >= 0 ? ' (tumor VAF ' + Math.round(x.baf * 100) + '%)' : '')).join('; ')
+                            : 'none protein-altering',
+                    };
+                }) : [{ 'Result': genes.length ? 'No oncogene from the catalogue lies inside a tract.' : 'No tract, so no oncogene is affected.' }] });
                 sheets.push({ name: 'Tumor suppressors in LOH', rows: tsgs.length ? tsgs.slice().sort((a, b) => (((hits.get(a.gene) || {}).rank ?? 9) - ((hits.get(b.gene) || {}).rank ?? 9)) || b.frac - a.frac).map((g) => {
                     const h = hits.get(g.gene) || { verdict: '', variants: [] };
                     const c = drawn[g.ci];
@@ -9175,12 +9230,13 @@ function (path, config) {
                             + ({ retained: 'on every copy left', both: 'tumor reads both alleles', lost: 'lost', uncalled: 'not called' }[v.state] || v.state)
                             + (v.baf >= 0 ? ' (VAF ' + Math.round(v.baf * 100) + '%)' : '');
                         const essShown = essOrder(SL.candidates);
-                        sheets.push({ name: 'Essential genes with tumor-specific changes', rows: essShown.length ? essShown.slice(0, 60).map((c) => ({
+                        sheets.push({ name: 'Essential genes with tumor-specific changes', rows: (essShown.length ? essShown.slice(0, 60).map((c) => ({
                             'Gene': c.g.gene + (c.loh ? ' (in an LOH tract)' : ''),
                             'DepMap': dep(c.g),
                             'Changes': c.variants.slice(0, 6).map(vw).join('; ') + (c.variants.length > 6 ? '; and ' + (c.variants.length - 6) + ' more' : ''),
                         })).concat(SL.candidates.length > 60 ? [{ 'More': (SL.candidates.length - 60) + ' further genes, less damaging or less essential, were given to the model but are not listed here.' }] : [])
-                            : [{ 'Result': 'None of the ' + SL.nEssential.toLocaleString() + ' essential genes carries a protein-altering change that is the tumor\'s own.' }] });
+                            : [{ 'Result': 'None of the ' + SL.nEssential.toLocaleString() + ' essential genes carries a protein-altering change that is the tumor\'s own.' }])
+                            .concat([{ 'Source': 'DepMap, ' + DEPMAP_PORTAL + ' . ' + DEPMAP_CITES.map((c) => c.text + ' https://doi.org/' + c.doi).join(' ') }]) });
                         const As = SL.assessment || {};
                         sheets.push({ name: 'Selective lethality assessment', rows: [{
                             'What this is': 'Hypotheses, not findings: a language model was given the genes above, the essential genes in LOH tracts with no mutation (' + SL.single.length + '), '
@@ -9365,6 +9421,8 @@ function (path, config) {
             const tsgList = (R.genes || []).filter(lossIsTsg);
             for (const g of tsgList) { const it = itemFor(g.gene, g.ci); for (const v of ((hits.get(g.gene) || {}).variants || [])) addVar(it, v); }
             for (const x of ((GOF && GOF.list) || [])) addVar(itemFor(x.gene, x.ci), x);
+            const ONC = lohOncogenes(R, GOF);
+            for (const g of ONC) itemFor(g.gene, g.ci);
             for (const c of ((ESS && ESS.candidates) || [])) { const it = itemFor(c.g.gene, c.g.ci); for (const v of c.variants) addVar(it, v); }
             for (const g of ((ESS && ESS.single) || []).slice(0, 40)) itemFor(g.gene, g.ci);
             let DM = null;
@@ -9533,6 +9591,18 @@ function (path, config) {
                         + '<button class="lu-tract" data-t="' + i + '" data-a="zoom" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Zoom</button></div>')).join('')
                     : card('No tract: lost sites are scattered, not in runs.'));
 
+                // ONCOGENES
+                h += section('Oncogenes in LOH', 'Did LOH leave an activating allele on every remaining copy? The wild-type partner that restrains it is then gone.',
+                    ONC.length ? ONC.map((g) => {
+                        const col = g.rank === 0 ? '#fbbf24' : g.rank === 1 ? '#fb923c' : '#94a3b8';
+                        const word = g.rank === 0 ? 'activating, homozygous by LOH' : g.rank === 1 ? 'activating, both alleles read' : g.rank === 2 ? 'possible change' : g.rank === 3 ? 'no change' : 'not assessed';
+                        return geneRow(byGene.get(('' + g.gene).toUpperCase()), chip(word, col),
+                            esc(g.status) + '<br/><span style="color:#9fb3c8;">' + ((g.lost + g.kept)
+                                ? esc(g.lost + ' of ' + (g.lost + g.kept) + ' heterozygous sites in the gene lost an allele (' + pct(g.frac) + ')')
+                                : 'No heterozygous site inside the gene; the tract around it carries the call') + '</span>'
+                            + (g.variants.length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                    }).join('') : card('No oncogene from the catalogue lies inside a tract.'));
+
                 // TUMOR SUPPRESSORS
                 h += section('Tumor suppressors in LOH', 'Is the copy left also broken? A damaging change on the only copy left is biallelic inactivation.',
                     tsgList.length ? tsgList.slice().sort((a, b) => ((hits.get(a.gene) || {}).rank ?? 9) - ((hits.get(b.gene) || {}).rank ?? 9)).map((g) => {
@@ -9561,6 +9631,7 @@ function (path, config) {
                             chip(c.g.cls, '#60a5fa') + (c.loh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
                             esc('dependency in ' + Math.round(c.g.dep_frac * 100) + '% of cell lines, mean effect ' + c.g.effect_mean.toFixed(2)) + '<br/>' + c.variants.slice(0, 6).map(vLine).join('<br/>'))).join('')
                             : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
+                    h += depmapCiteHtml(esc);
                     if (ESS.single && ESS.single.length) {
                         h += section('Essential genes at one copy, unmutated', 'Single-copy dependencies (CYCLOPS): a partial knockdown the diploid normal tissue tolerates. No mutation, so they open through their region panel.',
                             ESS.single.slice(0, 40).map((g) => geneRow(byGene.get(('' + g.gene).toUpperCase()), chip(g.cls, '#60a5fa'),
@@ -9672,6 +9743,8 @@ function (path, config) {
                     figure: fig,
                     tracts: trs.map((t) => ({ chr: t.c.name, lo: t.lo, hi: t.hi, bands: bandSpan(t.c, t.lo, t.hi), extent: t.ext.word, rank: t.ext.rank,
                         len: t.len, n: t.n, genes: (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi).map((g) => g.gene).slice(0, 400) })),
+                    oncogenes: ONC.map((g) => ({ gene: g.gene, chr: g.chr, start: g.start, end: g.end, rank: g.rank, status: g.status,
+                        lost: g.lost, kept: g.kept, frac: g.frac, variants: g.variants.map((x) => Object.assign(vD(x), { stateWord: gofStateWord(x) })) })),
                     tsg: tsgList.map((g) => { const hh = hits.get(g.gene) || {}; return { gene: g.gene, verdict: hh.verdict || '', rank: hh.rank == null ? 9 : hh.rank,
                         variants: (hh.variants || []).map(vD) }; }),
                     gof: (GOF && !GOF.error) ? { checked: GOF.checked, list: GOF.list.map((x) => Object.assign(vD(x), { gene: x.gene, inLoh: x.inLoh, stateWord: gofStateWord(x) })) } : null,
@@ -9680,6 +9753,7 @@ function (path, config) {
                     singleCopy: (ESS && ESS.single) ? ESS.single.slice(0, 40).map((g) => ({ gene: g.gene, cls: g.cls, dep_frac: g.dep_frac, effect_mean: g.effect_mean })) : [],
                     assessment: (ESS && ESS.assessment) ? Object.assign({}, ESS.assessment, { assessedAt: ESS.assessedAt || '' }) : null,
                     depmap: DM || {}, depmapModels: (lohResult && lohResult.dmModels) || 0,
+                    depmapCitations: DEPMAP_CITES, depmapPortal: DEPMAP_PORTAL,
                     handoff: handoff,
                 };
             };
