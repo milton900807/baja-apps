@@ -9250,6 +9250,8 @@ function (path, config) {
                     try { ESS0 = await lohEssentialScan(R, spec, tracts, (m) => dlMsg(m)); } catch (e) { ESS0 = { error: '' + (e && e.message ? e.message : e) }; }
                 }
                 const EIL0 = lohEssentialInTracts(R, ESS0, tracts);
+                let DMe = null;
+                if (EIL0 && EIL0.length) { try { DMe = await lohDepmapFor(EIL0.slice(0, 80).map((x) => x.gene), (m) => dlMsg(m)); } catch (e) { DMe = null; } }
                 sheets.push({ name: EIL_TITLE, rows: !ESS0 ? [{ 'Not assessed': 'DepMap is a human screen; there is no essentiality data for this genome.' }]
                     : ESS0.error ? [{ 'Not assessed': ESS0.error }]
                     : (EIL0 && EIL0.length) ? EIL0.slice(0, 80).map((x) => ({
@@ -9259,6 +9261,7 @@ function (path, config) {
                         'Changes': x.variants.length ? x.variants.slice(0, 6).map((v) => dmmWord(v.effect) + (v.hgvs ? ' ' + v.hgvs : '') + ' - '
                             + (v.origin === 'somatic' ? 'somatic' : 'germline, other allele lost') + (v.baf >= 0 ? ' (VAF ' + Math.round(v.baf * 100) + '%)' : '')).join('; ')
                             : 'none: one copy left, or two identical ones',
+                        'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMe && DMe[('' + x.gene).toUpperCase()]),
                     })).concat(EIL0.length > 80 ? [{ 'More': (EIL0.length - 80) + ' further essential genes in the tracts.' }] : [])
                     : [{ 'Result': 'No essential gene lies inside an LOH tract.' }] });
                 if (O.claude) {
@@ -9397,6 +9400,12 @@ function (path, config) {
         };
         // Tissue expression (GTEx median TPM) for a gene row: CNS first, then other tissues.
         const tpmFmt = (v) => v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(0) : v.toFixed(1);
+        const tpmPlain = (d) => {
+            const t = d && d.tpm;
+            if (!t) return '';
+            const list = (xs) => (xs || []).map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ');
+            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.';
+        };
         const tpmColor = (v) => v >= 100 ? '#fbbf24' : v >= 10 ? '#86efac' : v >= 1 ? '#8ab4ff' : '#64748b';
         const tpmHtml = (d, esc) => {
             const t = d && d.tpm;
@@ -9702,7 +9711,8 @@ function (path, config) {
                         return geneRow(byGene.get(('' + x.gene).toUpperCase()),
                             chip(x.cls, '#60a5fa') + ' ' + chip(changed ? 'tumor-specific change' : 'no change', changed ? '#fbbf24' : '#94a3b8'),
                             '<span style="color:#9fb3c8;">' + esc(eilLohText(x)) + '</span>'
-                            + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                            + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
+                            tpmHtml(DM && DM[('' + x.gene).toUpperCase()], esc));
                     }).join('') : card('No essential gene lies inside an LOH tract.'));
                 }
                 // ESSENTIAL GENES

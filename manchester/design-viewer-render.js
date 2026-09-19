@@ -133,7 +133,8 @@ function () {
                     + ((x.lost != null && (x.lost + x.kept)) ? x.lost + ' of ' + (x.lost + x.kept) + ' heterozygous sites in the gene lost an allele.'
                         : 'No heterozygous site inside the gene; the tract around it carries the call.');
                 return geneRow(x.gene, chip(x.cls, '#60a5fa') + ' ' + chip(changed ? 'tumor-specific change' : 'no change', changed ? '#fbbf24' : '#94a3b8'),
-                    '<span style="color:#9fb3c8;">' + esc(lohTxt) + '</span>' + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                    '<span style="color:#9fb3c8;">' + esc(lohTxt) + '</span>' + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
+                    tpmHtml(x.gene));
             }).join('') : card('No essential gene lies inside an LOH tract.'));
         }
         const gl = Array.isArray(doc.essentialInLoh) ? [] : ((doc.gof && doc.gof.list) || []);
