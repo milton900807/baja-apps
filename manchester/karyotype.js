@@ -11178,35 +11178,6 @@ function (path, config) {
                     + 'and nothing needing to have selected it.',
                 open: () => asGeneSearch(mode) });
 
-            // THE DIFFERENTIAL, AS A SCOPE OF ITS OWN.
-            //
-            // The other scopes say WHERE to look; this one also says who to spare. A gene the
-            // differential found changed in one sample and not the other is a gene where the
-            // two genomes differ in sequence -- which is the entire requirement for an oligo
-            // that binds one and not the other -- and the sample it is NOT changed in is the
-            // one the design has to leave alone. Two cards, because which sample is being
-            // spared is the question, and "only in A" and "only in B" are different answers.
-            if (diffResult) {
-                const nA = (diffResult.onlyA || []).length, nB = (diffResult.onlyB || []).length;
-                const A = (diffResult.A && diffResult.A.label) || 'A', B = (diffResult.B && diffResult.B.label) || 'B';
-                out.push({ title: 'Changed in ' + A + ' only', badge: nA ? nA + ' gene' + (nA === 1 ? '' : 's') : 'none', accent: 'run',
-                    icon: 'compare', ready: on && nA > 0, readyNote: on ? 'the differential found nothing private to ' + A : avail[mode].note,
-                    blurb: 'From the differential mutational matrix: the genes ' + A + ' carries a damaging change in and '
-                        + B + ' does not. An oligo aimed at one of these sites hits ' + A + ' and leaves ' + B + ' alone.',
-                    open: () => asRun(mode, 'diff') });
-                out.push({ title: 'Changed in ' + B + ' only', badge: nB ? nB + ' gene' + (nB === 1 ? '' : 's') : 'none', accent: 'run',
-                    icon: 'compare', ready: on && nB > 0, readyNote: on ? 'the differential found nothing private to ' + B : avail[mode].note,
-                    blurb: 'The other direction: the genes ' + B + ' carries a change in and ' + A + ' does not, for a design '
-                        + 'that spares ' + A + '.',
-                    open: () => asRun(mode, 'diffB') });
-            } else {
-                out.push({ title: 'Genes changed in one sample and not the other', badge: 'run the differential', accent: 'choose',
-                    icon: 'compare', ready: true,
-                    blurb: 'The differential mutational matrix compares two samples, or two files, and lists what each '
-                        + 'carries that the other does not. Those genes are where an oligo can tell the two apart — run it '
-                        + 'and come back, and the two directions appear here as scopes.',
-                    books: () => diffPickerBooks() });
-            }
             return out;
         };
 
@@ -11344,6 +11315,69 @@ function (path, config) {
             books.push(mechCard('somatic', 'Somatic retention · the tumor kept one allele'));
             books.push(mechCard('phased', 'Phased germline · the disease copy'));
             books.push(mechCard('mutation', 'The mutation itself'));
+
+            // THE DIFFERENTIAL, AT THE TOP RATHER THAN INSIDE EACH MECHANISM.
+            //
+            // Every other scope answers "where to look". This one answers something the
+            // mechanisms do not: WHICH SAMPLE TO SPARE. A gene the differential mutational
+            // matrix found changed in one sample and not the other is a gene where the two
+            // genomes differ in sequence -- the entire requirement for an oligo that binds one
+            // and leaves the other alone -- and the sample it is NOT changed in is the one
+            // being spared. That is a starting point of its own, so it sits beside the
+            // mechanisms instead of three levels down inside each of them.
+            //
+            // The mechanism is still needed, and is asked for after the direction: which copy
+            // to hit and which sample to spare are separate questions, and this one comes first
+            // when the differential is what you started from.
+            const asDiffCard = () => {
+                const avail2 = asAvail();
+                const ready = ['somatic', 'phased', 'mutation'].filter((m) => avail2[m].ok);
+                const runDirection = (scope, label) => ({
+                    section: 'Which sample to spare', title: label, accent: 'run',
+                    icon: 'compare', ready: true,
+                    blurb: 'Then choose which copy to aim at — the mechanisms that this file supports.',
+                    books: () => {
+                        if (!ready.length) {
+                            return [{ note: true, title: 'Nothing can say which copy to hit yet: '
+                                + ['somatic', 'phased', 'mutation'].map((m) => asW(m).name + ' — ' + avail2[m].note).join('; ') + '.' }];
+                        }
+                        return ready.map((m) => ({
+                            title: asW(m).name, badge: 'mechanism', icon: 'gps_fixed', accent: 'run', ready: true,
+                            blurb: asW(m).subtitle.charAt(0).toUpperCase() + asW(m).subtitle.slice(1) + '.',
+                            open: () => asRun(m, scope),
+                        }));
+                    },
+                });
+                if (!diffResult) {
+                    return { section: 'Which sample to spare',
+                        title: 'Genes changed in one sample and not the other', badge: 'run the differential',
+                        icon: 'compare', accent: 'choose', ready: true,
+                        blurb: 'The differential mutational matrix compares two samples, or two files, and lists what each '
+                            + 'carries that the other does not. Those genes are where an oligo can tell the two apart — run '
+                            + 'it and the two directions appear here.',
+                        books: () => diffPickerBooks() };
+                }
+                const nA = (diffResult.onlyA || []).length, nB = (diffResult.onlyB || []).length;
+                const A = (diffResult.A && diffResult.A.label) || 'A', B = (diffResult.B && diffResult.B.label) || 'B';
+                return { section: 'Which sample to spare',
+                    title: 'Genes changed in one sample and not the other',
+                    badge: nA + ' / ' + nB + ' genes', icon: 'compare', accent: 'run', ready: true,
+                    blurb: A + ' carries a damaging change in ' + nA + ' gene' + (nA === 1 ? '' : 's') + ' that ' + B
+                        + ' does not, and ' + B + ' in ' + nB + ' that ' + A + ' does not. Aim at one of those sites and the '
+                        + 'oligo hits that sample alone.',
+                    books: () => [
+                        { note: true, title: 'Which of the two is the one to hit? The other is the one left alone.' },
+                        runDirection('diff', 'Hit ' + A + ', spare ' + B + (nA ? '  ·  ' + nA + ' gene' + (nA === 1 ? '' : 's') : '  ·  none')),
+                        runDirection('diffB', 'Hit ' + B + ', spare ' + A + (nB ? '  ·  ' + nB + ' gene' + (nB === 1 ? '' : 's') : '  ·  none')),
+                        { note: true, title: 'Run the differential again to compare a different pair.', },
+                        { title: 'Choose another pair', badge: 'differential', icon: 'compare', accent: 'choose', ready: true,
+                            blurb: 'Two samples of one file, or two files.', books: () => diffPickerBooks() },
+                    ] };
+            };
+            books.push({ section: 'Which sample to spare', note: true,
+                title: 'The mechanisms above say which COPY to hit. This says which SAMPLE to spare, which is a different '
+                    + 'question and the one a differential answers: it names the genes where the two genomes differ.' });
+            books.push(asDiffCard());
             if (ph.length > 1) {
                 books.push({ section: 'Which sample', title: 'Read a different sample', badge: asSampleName(asSampleFor('phased')),
                     icon: 'person', ready: true,
