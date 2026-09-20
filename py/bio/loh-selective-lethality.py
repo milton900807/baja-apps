@@ -26,7 +26,9 @@ Six actions (param 1):
       -> { ok, genes: [[symbol, chr, start, end, strand], ...] }   protein-coding spans, for the
       gain-of-function scan's oncogene catalogue (any species with a gene-symbols table).
 
-  depmap      JSON { genes: [symbol, ...] }  (human; up to MAX_DEPMAP_GENES)
+  depmap      JSON { genes: [symbol, ...], lean: bool }  (human; up to MAX_DEPMAP_GENES,
+              or MAX_DEPMAP_GENES_LEAN when lean -- which drops tpm, fn and lineages, the
+              parts a table has no column for, and skips the file scans behind them)
       -> { ok, n_models, genes: JSON { SYMBOL: { effect_mean, effect_median, dep_frac, class,
                 n_models, lineages: [[lineage, mean_effect, n]], dosage: {...}, paralog: {...},
                 tpm: { source, cns: [[tissue, tpm]], other: [[tissue, tpm]], stem: [[type, tpm]] },
@@ -97,6 +99,12 @@ def first_existing(rel):
 
 
 MAX_DEPMAP_GENES = 200
+# A LEAN BULK READ, for a table rather than a card. The full row carries GTEx across every
+# tissue and the GO description, which is what a gene's own panel needs and roughly two
+# orders of magnitude more bytes than a CSV column does. A spreadsheet covering five
+# thousand genes wants five numbers each, so `lean` drops the prose, skips the two file
+# scans that produce it, and in exchange the cap goes up enough to cover a whole result.
+MAX_DEPMAP_GENES_LEAN = 8000
 MAX_TPM_GENES = 5000
 CN_LOW, CN_HI_LO, CN_HI_HI = 0.60, 0.85, 1.15      # copy number / ploidy: one copy of two; normal
 MIN_HEMI, MIN_NEUTRAL, CN_FDR = 10, 20, 0.25
@@ -268,21 +276,25 @@ def depmap(req):
     bd = os.path.dirname(first_existing("reference_data/depmap/gene_effect.npy"))
     if not bd:
         return {"ok": False, "error": "the DepMap bundle is not on this server"}
+    lean = bool(req.get("lean"))
     want = []
     for g in (req.get("genes") or []):
         g = str(g).strip().upper()
         if g and g not in want:
             want.append(g)
-    want = want[:MAX_DEPMAP_GENES]
+    want = want[:(MAX_DEPMAP_GENES_LEAN if lean else MAX_DEPMAP_GENES)]
     genes = [g.strip().upper() for g in open(os.path.join(bd, "genes.txt")).read().rstrip("\n").split("\n")]
     gidx = {g: i for i, g in enumerate(genes)}
     known = [g for g in want if g in gidx]
     res = {g: {"screened": False} for g in want if g not in gidx}
-    tpm = gtex_tpm(want)
-    fn = gene_function(want)
-    for g in res:
-        res[g]["tpm"] = tpm.get(g)          # always present, so a cached row shows it was looked up
-        res[g]["fn"] = fn.get(g)
+    # The two file scans are the expensive part of this call and produce only prose, so a
+    # lean read skips them outright rather than reading and discarding.
+    tpm = {} if lean else gtex_tpm(want)
+    fn = {} if lean else gene_function(want)
+    if not lean:
+        for g in res:
+            res[g]["tpm"] = tpm.get(g)      # always present, so a cached row shows it was looked up
+            res[g]["fn"] = fn.get(g)
     if not known:
         return {"ok": True, "n_models": 0, "genes": json.dumps(res)}
     works.msg("Reading DepMap for %d gene(s)…" % len(known))
@@ -324,14 +336,17 @@ def depmap(req):
         row = {"screened": True, "n_models": int(ok.sum()), "effect_mean": round(float(ev.mean()), 3) if len(ev) else None,
                "effect_median": round(float(np.median(ev)), 3) if len(ev) else None, "dep_frac": round(frac, 3),
                "class": ess_class(frac) if frac >= ESS_MIN_FRAC else ("rarely essential" if frac < 0.05 else "essential in a few lines")}
-        # Where it matters most: the lineages with the most negative mean effect.
-        lins = []
-        for c in cats:
-            m = (lin_arr == c) & ok
-            if c and m.sum() >= MIN_LINEAGE:
-                lins.append((c, float(e[m].mean()), int(m.sum())))
-        lins.sort(key=lambda x: x[1])
-        row["lineages"] = [[c, round(v, 3), n] for c, v, n in lins[:3]]
+        # Where it matters most: the lineages with the most negative mean effect. Per-gene
+        # work over every lineage, and a column in a table cannot hold it, so a lean read
+        # does not compute it.
+        if not lean:
+            lins = []
+            for c in cats:
+                m = (lin_arr == c) & ok
+                if c and m.sum() >= MIN_LINEAGE:
+                    lins.append((c, float(e[m].mean()), int(m.sum())))
+            lins.sort(key=lambda x: x[1])
+            row["lineages"] = [[c, round(v, 3), n] for c, v, n in lins[:3]]
         row["dosage"] = {"tested": False, "why": "no copy number in this DepMap bundle"}
         if C is not None:
             with np.errstate(invalid="ignore", divide="ignore"):
@@ -384,10 +399,11 @@ def depmap(req):
                         best[a] = (f[ib], pr)
         for a, (b2, pr) in best.items():
             res[a]["paralog"] = {"gene": b2, "pred": round(pr, 3)}
-    for g in known:
-        res[g]["tpm"] = tpm.get(g)
-        res[g]["fn"] = fn.get(g)
-    return {"ok": True, "n_models": int(n_models), "genes": json.dumps(res)}
+    if not lean:
+        for g in known:
+            res[g]["tpm"] = tpm.get(g)
+            res[g]["fn"] = fn.get(g)
+    return {"ok": True, "n_models": int(n_models), "lean": lean, "genes": json.dumps(res)}
 
 
 ANNOTATION = {"human": "reference_data/human.gencode.annotation.gff3.bgz", "mouse": "reference_data/mouse.annotation.gff3.bgz",

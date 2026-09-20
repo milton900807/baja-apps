@@ -9817,12 +9817,26 @@ function (path, config) {
                     // the normal state and says NOTHING about allele loss. Reading it as loss
                     // would aim a selective design at sites nobody looked at.
                     const twoFiles = (spec.kind !== 'sample');
-                    const caveat = nUncalled
+                    let caveat = nUncalled
                         ? (twoFiles
                             ? ' These are two separate VCFs, so a site missing from the tumor file is simply not recorded'
                               + ' there \u2014 that is not evidence the allele was lost.'
                             : ' A site with no call in the tumor was not assessed there, so it is not evidence of loss either way.')
                         : '';
+                    // WHEN ALMOST EVERYTHING IS A NO-CALL, the shape of the tumor track is a
+                    // fact about the FILE rather than about the tumor. A tumor sample called
+                    // against the reference carries its germline variants too, so a tumor
+                    // track holding only a handful of sites usually means the file is a
+                    // somatic-only callset -- tumor against normal, somatic calls only. The
+                    // track is then the tumor's CHANGES, not its sequence, and reading the
+                    // gap as allele loss would be wrong in the other direction.
+                    if (nUncalled && gOnly && (nUncalled / gOnly) >= 0.6 && nTum < nGerm * 0.5) {
+                        caveat += ' Nearly every one of them is a no-call, which is the signature of a SOMATIC-ONLY'
+                            + ' callset: a tumor file called against the normal holds the tumor\u2019s changes, not the'
+                            + ' germline variants it kept. If that is this file, the tumor track is showing what the tumor'
+                            + ' ADDED, and the sites it shares with the germline are absent because the file never listed'
+                            + ' them \u2014 not because the tumor lost them.';
+                    }
                     graph.setResultMessage(' Germline track ' + nGerm.toLocaleString() + ' site' + (nGerm === 1 ? '' : 's')
                         + ', tumor track ' + nTum.toLocaleString() + '.'
                         + (parts.length ? ' ' + parts.join('; ') + '.' : '')
@@ -12037,18 +12051,48 @@ function (path, config) {
             }
             return best;
         };
-        const diffVarCSV = () => dlToCSV((diffVarResult ? diffVarResult.sites : []).map((x) => ({
-            gene: x.gene || '', transcript: x.tx || '',
-            chrom: drawn[x.ci].name, pos: x.pos, ref: x.ref, alt: x.alt, id: x.name,
-            change: diffSiteKind(x), bases_changed: diffSiteSize(x),
-            difference: x.kind === 'onlyA' ? ('only in ' + diffVarResult.labelA)
-                : (x.kind === 'onlyB' ? ('only in ' + diffVarResult.labelB) : 'carried differently'),
-            [('genotype_' + dlSafe(diffVarResult.labelA))]: GT_TEXT[x.ga] || '',
-            [('genotype_' + dlSafe(diffVarResult.labelB))]: GT_TEXT[x.gb] || '',
-            what_to_do: x.kind === 'diff'
-                ? 'both carry it, in different dose: discriminates only where the dose does'
-                : 'one carries it and the other reads reference: an oligo on this allele hits that sample alone',
-        })));
+        const diffVarCSV = async (say) => {
+            const sites = (diffVarResult ? diffVarResult.sites : []) || [];
+            // Every gene named in the table, once, before a single row is written.
+            const genes = [];
+            const seenG = new Set();
+            for (const x of sites) {
+                const g = ('' + (x.gene || '')).toUpperCase();
+                if (g && !seenG.has(g)) { seenG.add(g); genes.push(g); }
+            }
+            if (genes.length) { try { await diffDepmapBulk(genes, say); } catch (e) { } }
+            // A gene beyond the cap, or one the screen never covered, gets empty cells
+            // rather than a zero: a blank says "not looked up", and 0 would say "nothing
+            // depends on it", which is a different claim entirely.
+            const dmCols = (x) => {
+                const d = dmAnyOf(x.gene);
+                if (!d) return { depmap: '', depmap_dependent_fraction: '', depmap_mean_effect: '',
+                    depmap_worse_at_one_copy: '', depmap_paralog: '' };
+                if (!d.screened) return { depmap: 'not screened', depmap_dependent_fraction: '',
+                    depmap_mean_effect: '', depmap_worse_at_one_copy: '', depmap_paralog: '' };
+                const dose = d.dosage && d.dosage.tested
+                    ? (d.dosage.confirmed ? 'yes' : 'no') : '';
+                return {
+                    depmap: d['class'] || 'screened',
+                    depmap_dependent_fraction: (d.dep_frac == null ? '' : d.dep_frac),
+                    depmap_mean_effect: (d.effect_mean == null ? '' : d.effect_mean),
+                    depmap_worse_at_one_copy: dose,
+                    depmap_paralog: (d.paralog && d.paralog.gene) ? d.paralog.gene : '',
+                };
+            };
+            return dlToCSV(sites.map((x) => Object.assign({
+                gene: x.gene || '', transcript: x.tx || '',
+                chrom: drawn[x.ci].name, pos: x.pos, ref: x.ref, alt: x.alt, id: x.name,
+                change: diffSiteKind(x), bases_changed: diffSiteSize(x),
+                difference: x.kind === 'onlyA' ? ('only in ' + diffVarResult.labelA)
+                    : (x.kind === 'onlyB' ? ('only in ' + diffVarResult.labelB) : 'carried differently'),
+                [('genotype_' + dlSafe(diffVarResult.labelA))]: GT_TEXT[x.ga] || '',
+                [('genotype_' + dlSafe(diffVarResult.labelB))]: GT_TEXT[x.gb] || '',
+                what_to_do: x.kind === 'diff'
+                    ? 'both carry it, in different dose: discriminates only where the dose does'
+                    : 'one carries it and the other reads reference: an oligo on this allele hits that sample alone',
+            }, dmCols(x))));
+        };
         // ONE SITE ON THE CHROMOSOMES. The other half of "where is this": the genome
         // browser frames it in place, without loading anything, which is the cheaper of the
         // two answers and often the one wanted first.
@@ -12112,6 +12156,49 @@ function (path, config) {
                 }
             } catch (e) { R.dmOff = true; R.dmWhy = 'DepMap could not be read: ' + e; }
             return R.dm;
+        };
+        // THE SAME NUMBERS, FOR A TABLE. The card lookup is capped at 200 genes because it
+        // brings back prose -- every GTEx tissue, the GO description -- which a spreadsheet
+        // has no column for. A CSV covering a whole result wants five fields per gene across
+        // thousands of them, so it asks for the lean form and gets a cap that covers the
+        // result instead of the first page of it.
+        //
+        // Kept in its own cache. A lean row has no tpm and no fn, and merging it into the
+        // one the cards read would leave a gene permanently missing its description because
+        // a CSV happened to touch it first.
+        const DEPMAP_CSV_CAP = 8000;
+        const diffDepmapBulk = async (genes, say) => {
+            const R = diffVarResult;
+            if (!R) return null;
+            if (('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
+            R.dmCsv = R.dmCsv || {};
+            const want = [];
+            for (const g of (genes || [])) {
+                const k = ('' + (g || '')).toUpperCase();
+                if (k && !R.dmCsv[k] && !(R.dm && R.dm[k]) && want.indexOf(k) < 0) want.push(k);
+            }
+            if (want.length) {
+                try {
+                    const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                    if (say) say('Reading DepMap for ' + Math.min(want.length, DEPMAP_CSV_CAP).toLocaleString() + ' genes\u2026');
+                    const rs = await exec(LOH_SL_SCRIPT, em, 'depmap',
+                        JSON.stringify({ genes: want.slice(0, DEPMAP_CSV_CAP), lean: true }));
+                    if (rs && rs.ok) {
+                        let got = {};
+                        try { got = JSON.parse(rs.genes || '{}'); } catch (e) { got = {}; }
+                        for (const k in got) R.dmCsv[k] = got[k];
+                        R.dmModels = +rs.n_models || R.dmModels || 0;
+                    } else { R.dmCsvWhy = (rs && rs.error) ? ('' + rs.error) : 'DepMap could not be read on this server'; }
+                } catch (e) { R.dmCsvWhy = 'DepMap could not be read: ' + e; }
+            }
+            return R.dmCsv;
+        };
+        // For the CSV: whichever cache has it, the full row first.
+        const dmAnyOf = (gene) => {
+            const R = diffVarResult;
+            if (!R) return null;
+            const k = ('' + (gene || '')).toUpperCase();
+            return (R.dm && R.dm[k]) || (R.dmCsv && R.dmCsv[k]) || null;
         };
         const dmOf = (gene) => {
             const R = diffVarResult;
@@ -12248,8 +12335,19 @@ function (path, config) {
                             + (R.genesTouched === 1 ? '' : 's') + '; ' + R.sitesNoGene.toLocaleString()
                             + ' sit outside any annotated gene.' : '') });
                 books.push({ section: 'Differential matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
-                    blurb: 'One row per differing site: position, alleles, both genotypes, and what it is good for.',
-                    open: () => { try { dlSaveText(diffVarCSV(), dlSafe(dlSpecies() + '_' + R.labelA + '_vs_' + R.labelB + '_differential_matrix') + '.csv', 'text/csv'); dlMsg('Differential matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+                    blurb: 'One row per differing site: gene and transcript, position, alleles, both genotypes, what the '
+                        + 'change does and how many bases it alters, what it is good for, and \u2014 for human genomes with '
+                        + 'the DepMap bundle \u2014 the gene\u2019s dependency class, the fraction of cell lines that depend '
+                        + 'on it, its mean gene effect, whether it gets worse at one copy, and its closest paralog.',
+                    open: async () => {
+                        try {
+                            dlMsg('Building the CSV\u2026');
+                            const text = await diffVarCSV((m) => dlMsg(m));
+                            dlSaveText(text, dlSafe(dlSpecies() + '_' + R.labelA + '_vs_' + R.labelB + '_differential_matrix') + '.csv', 'text/csv');
+                            const W = diffVarResult && diffVarResult.dmCsvWhy;
+                            dlMsg('Differential matrix downloaded.' + (W ? ' Without dependency columns: ' + W + '.' : ''));
+                        } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); }
+                    } });
                 books.push({ section: 'Differential matrix', title: 'Compare another pair', badge: 'pick', icon: 'compare', ready: true,
                     blurb: 'Two samples of this file, or two files.', open: () => { diffVarResult = null; diffVarMenu(); } });
                 // HOW MUCH OF THE CHROMOSOME DIFFERS, not just how many sites do. A count on its
