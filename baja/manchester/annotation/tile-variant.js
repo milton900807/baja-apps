@@ -143,9 +143,31 @@ function (variant, selectedTrack, graph, opposite, all) {
                 existingOligos.push(o.sequence);
             }
 
+            // ---- ONLY COMPOUNDS THAT CAN TELL THE TWO ALLELES APART ------------------------
+            //
+            // Tiling a window around a variant produces one register per base, and the ones at
+            // the ends of the walk do not reach the change at all -- or, for a deletion, reach
+            // only the anchoring base the two alleles share. Their target is a sequence the
+            // WILD-TYPE copy also presents, so they hybridise to both copies equally and
+            // knock down the allele the design is meant to spare. They are not weak
+            // discriminators; they are not discriminators.
+            //
+            // The test is the honest one: if the register's target occurs in the untouched
+            // window, that duplex exists on the other copy too. Nothing is scored or guessed.
+            // (On a DHODH ATAT>A walk this drops four of nineteen: three that stop just past
+            // the anchoring A without reaching a deleted base, and one lying wholly 3' of the
+            // junction.)
+            const wildType = ('' + trackseq).toUpperCase();
+            let notSelective = 0;
+            const selectiveAgainstWildType = (sequence) => wildType.indexOf(('' + sequence).toUpperCase()) < 0;
+
             for (let i = 1; i < splicedtrack.length - base_count; i++) {
 
                 let sequence = splicedtrack.slice(i, i + base_count)
+
+                // The register reads the same on both copies: making it would be making an
+                // oligo against the allele that has to survive.
+                if (!selectiveAgainstWildType(sequence)) { notSelective++; continue; }
 
                 let start = splicedindices[i]
                 let end = start + base_count
@@ -221,6 +243,24 @@ function (variant, selectedTrack, graph, opposite, all) {
                     }
                 }
             }
+
+            // SAID, RATHER THAN SILENTLY FEWER. A walk that returns 15 oligos where the window
+            // has 19 registers has made a decision, and which registers it dropped is the
+            // difference between a selective panel and one that also hits the wild type.
+            try {
+                if (notSelective) {
+                    const made = Math.max(0, (splicedtrack.length - base_count - 1) - notSelective);
+                    const msg = made
+                        ? (notSelective + ' register' + (notSelective === 1 ? ' was' : 's were')
+                            + ' not made: their target reads the same on both copies, so they cannot tell the alleles apart.')
+                        : ('No register in this window can tell the alleles apart \u2014 every one of the '
+                            + notSelective + ' reads the same on both copies. A change this small may need a '
+                            + 'shorter oligo, or discrimination from a neighbouring variant on the same copy.');
+                    if (made ? graph.setResultMessage : graph.setError) {
+                        (made ? graph.setResultMessage : graph.setError).call(graph, ' ' + msg + ' ');
+                    } else if (graph.setMessage) graph.setMessage(' ' + msg + ' ');
+                }
+            } catch (e) { }
         }
         resolve();
     })
