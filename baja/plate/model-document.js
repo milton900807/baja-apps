@@ -111,12 +111,14 @@ function () {
             const lines = [];
             const font = (s, r) => ((r && r.bold) || s.weight === '700' ? '700 ' : (r && r.italic ? 'italic ' : '')) +
                 Math.max(8, Math.round(base * s.size)) + 'px ' + ((r && r.mono) ? MONO : FAMILY);
+            let bi = -1;
             for (const b of blocks) {
+                bi++;
                 const s = STYLE[b.type] || STYLE.p;
                 const lh = Math.round(base * s.size * 1.45);
                 if (b.type === 'hr') { lines.push({ kind: 'hr', h: lh * 0.8 }); continue; }
                 if (b.type === 'row') {
-                    lines.push({ kind: 'row', cells: b.cells, head: b.head, h: lh, size: s, base });
+                    lines.push({ kind: 'row', cells: b.cells, head: b.head, h: lh, size: s, base, bi });
                     continue;
                 }
                 const indent = b.type === 'li' ? Math.round(base * 1.2) * (b.depth || 1) : (b.type === 'quote' ? Math.round(base * 0.9) : 0);
@@ -124,7 +126,7 @@ function () {
                 if (s.above) lines.push({ kind: 'gap', h: Math.round(base * s.above) });
                 let cur = [], curW = 0, first = true;
                 const flush = () => {
-                    lines.push({ kind: 'text', runs: cur, h: lh, style: s, indent, bullet: (b.type === 'li' && first) ? (b.ordered ? null : '•') : null, block: b.type });
+                    lines.push({ kind: 'text', runs: cur, h: lh, style: s, indent, bullet: (b.type === 'li' && first) ? (b.ordered ? null : '•') : null, block: b.type, bi });
                     cur = []; curW = 0; first = false;
                 };
                 for (const r of (b.runs || [])) {
@@ -143,6 +145,17 @@ function () {
                 if (s.below) lines.push({ kind: 'gap', h: Math.round(base * s.below) });
             }
             return lines;
+        };
+
+        // Text is measured outside the draw too (a press has to find the character under it),
+        // so the document keeps a small canvas of its own to measure with.
+        let MEASURE = null;
+        const widthOf = (font, text) => {
+            try {
+                if (!MEASURE) MEASURE = document.createElement('canvas').getContext('2d');
+                MEASURE.font = font;
+                return MEASURE.measureText(text).width;
+            } catch (e) { return ('' + text).length * 7; }
         };
 
         class ModelDocument {
@@ -236,6 +249,139 @@ function () {
                 } catch (e) { return false; }
             }
             onRightEdge() { return false; }          // no width-only drag: the corner does both
+
+            // ---- reading it with the mouse: select text, drag the scroll thumb -----------------
+            // The card is a drawing, so selection is built here: the draw records where each
+            // visible line sits (this.__rows) and the card's parts (this.__geom); a press finds
+            // the character under it by measuring the line's words in their own fonts. A
+            // position is { li, ci }: a line of this.__lines and a character offset in that
+            // line's text. The BODY selects text and the scroll bar scrolls; the card is moved
+            // by its title strip (and resized by its corner), so the two never compete.
+            __fontOf(line, piece) {
+                const base = this.__base || 14, st = line.style || {}, m = (piece && piece.mark) || {};
+                return (m.bold || st.weight === '700' ? '700 ' : (m.italic ? 'italic ' : '')) +
+                    Math.max(8, Math.round(base * (st.size || 1))) + 'px ' + (m.mono ? MONO : FAMILY);
+            }
+            __lineText(line) {
+                if (!line) return '';
+                if (line.kind === 'row') return (line.cells || []).join('\t');
+                if (line.kind !== 'text') return '';
+                return (line.runs || []).map((r) => r.text).join('');
+            }
+            // x of character offset ci on a text line whose text starts at x0
+            __xAt(line, ci, x0) {
+                if (!line || line.kind !== 'text') return x0;
+                let x = x0, left = ci;
+                for (const r of (line.runs || [])) {
+                    const n = r.text.length;
+                    if (left >= n) { x += r.w; left -= n; continue; }
+                    return x + (left > 0 ? widthOf(this.__fontOf(line, r), r.text.slice(0, left)) : 0);
+                }
+                return x;
+            }
+            // Which part of the card a canvas point is on: 'resize' | 'scrollbar' | 'header' | 'body' | null
+            hitPart(sx, sy, pt) {
+                const g = this.__geom;
+                if (!g || this.hidden || this.visible === false) return null;
+                if (sx < g.x || sx > g.x + g.w || sy < g.yTop || sy > g.yTop + g.h) return null;
+                try { if (pt && this.inResize(sx, sy, pt)) return 'resize'; } catch (e) { }
+                if (g.sb && sx >= g.x + g.w - 16 && sy >= g.sb.top && sy <= g.sb.top + g.sb.h) return 'scrollbar';
+                if (sy < g.top) return 'header';                       // the title strip: the card is moved by it
+                return 'body';
+            }
+            posAt(sx, sy) {
+                const rows = this.__rows || [];
+                if (!rows.length) return null;
+                let row = null;
+                for (const r of rows) if (sy >= r.y && sy < r.y + r.h) { row = r; break; }
+                if (!row) {
+                    // between lines (a gap) or past either end: the nearest line, at the end nearer the point
+                    let best = null, bd = Infinity;
+                    for (const r of rows) { const d = sy < r.y ? r.y - sy : sy - (r.y + r.h); if (d < bd) { bd = d; best = r; } }
+                    row = best;
+                    if (sy < row.y) return { li: row.li, ci: 0 };
+                    return { li: row.li, ci: this.__lineText(row.line).length };
+                }
+                const line = row.line, text = this.__lineText(line);
+                if (line.kind !== 'text') return { li: row.li, ci: sx < row.x0 + 20 ? 0 : text.length };
+                let x = row.x0, ci = 0;
+                if (sx <= x) return { li: row.li, ci: 0 };
+                for (const r of (line.runs || [])) {
+                    if (sx >= x + r.w) { x += r.w; ci += r.text.length; continue; }
+                    const font = this.__fontOf(line, r);
+                    let k = 0, prev = 0;
+                    for (k = 1; k <= r.text.length; k++) {
+                        const wk = widthOf(font, r.text.slice(0, k));
+                        if (x + (prev + wk) / 2 >= sx) { k--; break; }           // nearer the left edge of character k
+                        prev = wk;
+                    }
+                    return { li: row.li, ci: ci + Math.min(k, r.text.length) };
+                }
+                return { li: row.li, ci: text.length };
+            }
+            __ordered() {
+                const s = this.__sel;
+                if (!s || !s.a || !s.f) return null;
+                const before = (p, q) => p.li < q.li || (p.li === q.li && p.ci <= q.ci);
+                return before(s.a, s.f) ? [s.a, s.f] : [s.f, s.a];
+            }
+            hasSelection() { const o = this.__ordered(); return !!o && !(o[0].li === o[1].li && o[0].ci === o[1].ci); }
+            clearSelection() { this.__sel = null; }
+            beginSelect(sx, sy) { const p = this.posAt(sx, sy); this.__sel = p ? { a: p, f: p } : null; }
+            extendSelect(sx, sy) {
+                if (!this.__sel) return;
+                const g = this.__geom;
+                // dragged past the top or bottom of the text: it scrolls under the pointer
+                if (g && sy < g.top) this.scroll = Math.max(0, (this.scroll || 0) - Math.min(28, (g.top - sy) * 0.5 + 4));
+                else if (g && sy > g.bottom) this.scroll = Math.min(this.__scrollMax || 0, (this.scroll || 0) + Math.min(28, (sy - g.bottom) * 0.5 + 4));
+                const p = this.posAt(sx, Math.max(g ? g.top + 1 : sy, Math.min(g ? g.bottom - 1 : sy, sy)));
+                if (p) this.__sel.f = p;
+            }
+            selectWordAt(sx, sy) {
+                const p = this.posAt(sx, sy); if (!p) return;
+                const text = this.__lineText((this.__lines || [])[p.li]);
+                let a = p.ci, b = p.ci;
+                while (a > 0 && /\S/.test(text[a - 1])) a--;
+                while (b < text.length && /\S/.test(text[b])) b++;
+                this.__sel = { a: { li: p.li, ci: a }, f: { li: p.li, ci: b } };
+            }
+            selectAll() {
+                const L = this.__lines || [];
+                let first = -1, last = -1;
+                L.forEach((l, i) => { if (l.kind === 'text' || l.kind === 'row') { if (first < 0) first = i; last = i; } });
+                if (first < 0) return;
+                this.__sel = { a: { li: first, ci: 0 }, f: { li: last, ci: this.__lineText(L[last]).length } };
+            }
+            // The selected text, as text: a paragraph's wrapped lines rejoin with a space, and
+            // blocks (paragraphs, list items, headings, table rows) are separated by a new line.
+            selectedText() {
+                const o = this.__ordered(); if (!o) return '';
+                const L = this.__lines || [];
+                let out = '', prevBi = null;
+                for (let i = o[0].li; i <= o[1].li && i < L.length; i++) {
+                    const l = L[i];
+                    if (l.kind !== 'text' && l.kind !== 'row') continue;
+                    const t = this.__lineText(l);
+                    const from = i === o[0].li ? o[0].ci : 0, to = i === o[1].li ? o[1].ci : t.length;
+                    const part = (l.kind === 'text' && l.bullet && from === 0 ? '• ' : '') + t.slice(from, to);
+                    if (prevBi !== null) out += (l.bi === prevBi && l.kind === 'text') ? (/\s$/.test(out) ? '' : ' ') : '\n';
+                    out += part;
+                    prevBi = l.bi;
+                }
+                return out.replace(/[ \t]+\n/g, '\n').trim();
+            }
+            // Drag the scroll thumb: `grab` is where on the thumb the press landed (px from its top).
+            scrollThumbGrab(sy) {
+                const sb = this.__geom && this.__geom.sb; if (!sb) return 0;
+                const thumbTop = sb.top + sb.pos;
+                return (sy >= thumbTop && sy <= thumbTop + sb.thumb) ? (sy - thumbTop) : sb.thumb / 2;   // a press on the track jumps there
+            }
+            scrollThumbTo(sy, grab) {
+                const sb = this.__geom && this.__geom.sb; if (!sb) return;
+                const room = Math.max(1, sb.h - sb.thumb);
+                const pos = Math.max(0, Math.min(room, sy - grab - sb.top));
+                this.scroll = (pos / room) * sb.max;
+            }
             isMouseInTopRightHandle() { return false; }
 
             // ---- drawing -----------------------------------------------------------------
@@ -302,9 +448,10 @@ function () {
                 const pad = Math.max(10, Math.round(base * 1.4));
                 const innerW = maxed ? Math.min(w - pad * 2, Math.round(base * 40)) : (w - pad * 2);
                 const tx = maxed ? Math.round(x + (w - innerW) / 2) : (x + pad);      // where the text column starts
+                this.__base = base;                               // the hit tests measure with the same size
                 if (!this.__blocks) this.__blocks = parseHtml(this.html);
                 const key = Math.round(innerW) + ':' + Math.round(base) + ':' + this.html.length;
-                if (this.__layoutKey !== key) { this.__lines = layout(ctx, this.__blocks, innerW, base); this.__layoutKey = key; }
+                if (this.__layoutKey !== key) { this.__lines = layout(ctx, this.__blocks, innerW, base); this.__layoutKey = key; this.__sel = null; }   // a selection is positions in the old lines
 
                 // The name, then a rule, then the document.
                 ctx.textAlign = 'left'; ctx.textBaseline = 'top';
@@ -322,17 +469,37 @@ function () {
                 const total = (this.__lines || []).reduce((s, l) => s + l.h, 0);
                 const maxScroll = Math.max(0, total - (bottom - top));
                 this.__scrollMax = maxScroll;                 // for the wheel and the scroll zone (platetrack.__maxScroll)
+                // Where the card's parts are on the canvas, for the mouse (hitPart, posAt).
+                this.__geom = { x, yTop, w, h, top, bottom, sb: null };
+                this.__rows = [];
+                const selRange = this.hasSelection() ? this.__ordered() : null;
+                const paintSel = (li, line, x0) => {
+                    if (!selRange || li < selRange[0].li || li > selRange[1].li) return;
+                    const t = this.__lineText(line);
+                    let xa = x0, xb;
+                    if (line.kind === 'text') {
+                        xa = li === selRange[0].li ? this.__xAt(line, selRange[0].ci, x0) : x0;
+                        xb = li === selRange[1].li ? this.__xAt(line, selRange[1].ci, x0) : this.__xAt(line, t.length, x0) + 4;
+                    } else { xb = tx + innerW; }
+                    if (xb - xa < 1) return;
+                    ctx.fillStyle = 'rgba(26,163,189,0.28)';
+                    ctx.fillRect(xa, ly, xb - xa, line.h);
+                };
                 this.scroll = Math.max(0, Math.min(this.scroll || 0, maxScroll));
                 let ly = top - this.scroll;
 
                 ctx.save();
                 ctx.beginPath(); ctx.rect(x + 1, top, w - 2, bottom - top); ctx.clip();
-                for (const line of (this.__lines || [])) {
+                const LINES = this.__lines || [];
+                for (let li = 0; li < LINES.length; li++) {
+                    const line = LINES[li];
                     if (ly + line.h >= top - 40 && ly <= bottom + 40) {
                         if (line.kind === 'hr') {
                             ctx.beginPath(); ctx.moveTo(tx, ly + line.h / 2); ctx.lineTo(tx + innerW, ly + line.h / 2);
                             ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.stroke();
                         } else if (line.kind === 'row') {
+                            this.__rows.push({ li, y: ly, h: line.h, x0: tx, line });
+                            paintSel(li, line, tx);
                             const cols = Math.max(1, line.cells.length);
                             const cw = innerW / cols;
                             line.cells.forEach((c, i) => {
@@ -345,6 +512,7 @@ function () {
                             });
                         } else if (line.kind === 'text') {
                             let lx = tx + (line.indent || 0);
+                            this.__rows.push({ li, y: ly, h: line.h, x0: lx, line });
                             if (line.bullet) {
                                 ctx.font = Math.round(base) + 'px ' + FAMILY;
                                 ctx.fillStyle = C.cyan;
@@ -359,6 +527,7 @@ function () {
                                 ctx.fillStyle = C.code;
                                 ctx.fillRect(tx, ly - 2, innerW, line.h + 2);
                             }
+                            paintSel(li, line, lx);
                             for (const piece of line.runs) {
                                 const m = piece.mark || {};
                                 const st = line.style;
@@ -395,12 +564,17 @@ function () {
                     if (this.scroll < maxScroll - 0.5) fade(bottom, bottom - fadeH);
 
                     const trackH = bottom - top;
-                    const thumb = Math.max(18, trackH * (trackH / total));
+                    const thumb = Math.max(24, trackH * (trackH / total));
                     const pos = (this.scroll / maxScroll) * (trackH - thumb);
+                    // Wide enough to take hold of: it is dragged (platetrack: __docScroll), and
+                    // it widens under the pointer or while held.
+                    const hot = pt.__docBarHover === this || !!(pt.__docScroll && pt.__docScroll.o === this);
+                    const bw = hot ? 7 : 5;
+                    this.__geom.sb = { top, h: trackH, thumb, pos, max: maxScroll };
                     ctx.fillStyle = 'rgba(10,37,64,0.08)';
-                    ctx.fillRect(x + w - 6, top, 3, trackH);
-                    ctx.fillStyle = 'rgba(26,163,189,0.75)';
-                    ctx.fillRect(x + w - 6, top + pos, 3, thumb);
+                    ctx.fillRect(x + w - 4 - bw, top, bw, trackH);
+                    ctx.fillStyle = hot ? '#1aa3bd' : 'rgba(26,163,189,0.75)';
+                    ctx.fillRect(x + w - 4 - bw, top + pos, bw, thumb);
                 }
                 // The resize grip, bottom right (see inResize): three short diagonals, plain
                 // when the card is selected or the pointer is on the corner, faint otherwise.

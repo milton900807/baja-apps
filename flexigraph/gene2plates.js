@@ -3242,6 +3242,16 @@ function (plateManager, progress) {
                         try { const dx = evt.shiftKey ? dy : (evt.deltaX || 0); if (dx) plateManager.plateTrack.__maxScrollX(dx); } catch (e) { }
                         return;
                     }
+                    // Over the SELECTED document the wheel scrolls its text (plate-track __docWheel).
+                    try {
+                        const __pt = plateManager && plateManager.plateTrack;
+                        if (__pt && __pt.__docWheel) {
+                            const __r = evt.target.getBoundingClientRect();
+                            const __x = (evt.clientX - __r.left) * ((__pt.grid.width || __r.width) / Math.max(1, __r.width));
+                            const __y = (evt.clientY - __r.top) * ((__pt.grid.height || __r.height) / Math.max(1, __r.height));
+                            if (__pt.__docWheel(__x, __y, dy)) return;
+                        }
+                    } catch (e) { }
                     // Wheel forward (deltaY < 0) zooms IN, wheel back zooms OUT, the way maps
                     // and browsers do. Reversed on request: it used to be the other way round.
                     const direction = dy > 0 ? -1 : 1;

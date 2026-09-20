@@ -8508,6 +8508,13 @@ function (progress) {
                     }
                     this.__solidArmed = null;      // a press anywhere else calls the move off
                 } catch (e) { }
+                // A press inside a document's text or on its scroll bar is the document's.
+                try {
+                    const dh = this.__docHit(x, y);
+                    if (dh) { this.__docPress(dh, x, y); return; }
+                    // anywhere else lets go of a text selection
+                    for (const o of (this.root || [])) if (o && o.plateType === 'document' && o.__sel) o.clearSelection();
+                } catch (e) { console.warn('document press', e); }
                 // A press on a milestone of a timeline on the canvas picks it up (see __msDrag*).
                 // Not on a phone: there a finger pans the canvas, whatever it lands on.
                 if (!this.menu && !this.__maximized) {
@@ -8679,6 +8686,8 @@ function (progress) {
                 if (this.__tlCanvasDrag) return true;   // a drag through time, likewise
                 // A table drawn as a solid block: its cells, buttons and hover get nothing.
                 if (this.__solidDrag || this.__solidMenuPress || this.__solidResize) return true;
+                if (this.__docSel || this.__docScroll) return true;
+                try { if (this.__docHit(x, y)) return 'document'; } catch (e) { }
                 try { if (this.__solidCornerAt(x, y)) return 'solid'; } catch (e) { }
                 try { if (this.__solidAt(x, y)) return 'solid'; } catch (e) { }
                 // View only: nothing beneath the pointer takes a press, a move or a release.
@@ -8724,6 +8733,7 @@ function (progress) {
                 }
                 if (this.__solidDrag) { this.__solidDragEnd(); return; }
                 if (this.__solidResize) { this.__solidResizeEnd(); return; }
+                if (this.__docSel || this.__docScroll) { this.__docRelease(); return; }
                 if (this.__selectGesture) return;
                 // A press on a solid table: its Move / Maximize menu opens now, on the release
                 // (opened on the press, the same click's release would close it again). A
@@ -8914,6 +8924,7 @@ function (progress) {
                 // after that goes there instead of the canvas.
                 if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;   // the phone's cell field owns its keys
                 try { if (this.__solidKey(event)) { try { event.preventDefault(); } catch (e) { } return; } } catch (e) { }
+                try { if (this.__docKey(event)) { try { event.preventDefault(); } catch (e) { } return; } } catch (e) { }
                 // Escape on a table with selected cells: drop the selection and stop there.
                 if (event && event.key === 'Escape' && this.selectedPlate && !this.menu) {
                     try {
@@ -9383,6 +9394,18 @@ function (progress) {
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
                 if (this.__solidDrag) { this.__solidDragMove(x, y); return; }
                 if (this.__solidResize) { this.__solidResizeMove(x, y); return; }
+                if (this.__docScroll) { this.__docScroll.o.scrollThumbTo(y, this.__docScroll.grab); return; }
+                if (this.__docSel) { if (!this.__docSel.word || Math.abs(x - this.__docSel.sx) + Math.abs(y - this.__docSel.sy) > 4) { this.__docSel.word = false; this.__docSel.o.extendSelect(x, y); } return; }
+                try {
+                    const dh = this.__docHit(x, y);
+                    const bar = dh && dh.part === 'scrollbar' ? dh.o : null;
+                    if (bar !== (this.__docBarHover || null)) this.__docBarHover = bar;
+                    const want = dh ? (dh.part === 'body' ? 'text' : (dh.part === 'header' ? 'move' : 'default')) : null;
+                    if (want !== (this.__docCursor || null)) {
+                        this.__docCursor = want;
+                        if (this.__canvas__ && !this.__solidCornerHover && !this.__docResizeHover) this.__canvas__.style.cursor = want || '';
+                    }
+                } catch (e) { }
                 try {
                     const c = this.__solidCornerAt(x, y);
                     if (c !== (this.__solidCornerHover || null)) {
@@ -10899,6 +10922,107 @@ function (progress) {
                 const at = this.objectAt(x, y);
                 return (at && at.kind === 'plate' && this.__isSolidTable(at.obj)) ? at.obj : null;
             }
+            // ---- reading a document with the mouse ------------------------------------------
+            // A document (model-document.js) is a drawing, so the canvas routes the mouse to it:
+            // a press in its BODY selects text (drag; double click a word; Ctrl+A, Ctrl+C), a
+            // press on its SCROLL BAR drags the thumb, and the wheel scrolls it while it is the
+            // selected object. It is still moved by its title strip and resized by its corner,
+            // which is why those two parts are left to the ordinary handling. A document too
+            // small to read is a block instead (above) and takes none of this.
+            __docHit(x, y) {
+                if (this.menu || this.__selectGesture || this.__readOnly) return null;
+                const id = this.wbid;
+                if (id && id !== 'drag-navigate' && !('' + id).startsWith('click_and_drag')) return null;
+                let o = null;
+                if (this.__maximized) { if (this.__maximized.plateType === 'document') o = this.__maximized; else return null; }
+                else { const at = this.objectAt(x, y); if (at && at.kind === 'plate' && at.obj && at.obj.plateType === 'document') o = at.obj; }
+                if (!o || typeof o.hitPart !== 'function' || this.__isSolidTable(o)) return null;
+                const part = o.hitPart(x, y, this);
+                // (the title strip too, except maximized, where there is nowhere to move it to)
+                return (part === 'body' || part === 'scrollbar' || (part === 'header' && !this.__maximized)) ? { o, part } : null;
+            }
+            __docPress(hit, x, y) {
+                const o = hit.o;
+                if (this.selectedPlate !== o && !this.__maximized) {
+                    try { if (this.selectedPlate && this.selectedPlate.deselectAll) this.selectedPlate.deselectAll(); } catch (e) { }
+                    try { this.setSelected(o); o.last_touched = new Date(); } catch (e) { }
+                }
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+                // The TITLE STRIP moves the card: a document had no handle at all (a drag on it
+                // panned the canvas), and now that its body selects text it needs one.
+                if (hit.part === 'header') { this.__solidDragStart(o, x, y); return; }
+                if (hit.part === 'scrollbar') {
+                    const grab = o.scrollThumbGrab(y);
+                    this.__docScroll = { o, grab };
+                    o.scrollThumbTo(y, grab);
+                    return;
+                }
+                // a second press in the same place within a moment: the word under it
+                const now = Date.now(), last = this.__docLastPress;
+                this.__docLastPress = { t: now, x, y, o };
+                if (last && last.o === o && now - last.t < 380 && Math.abs(last.x - x) < 5 && Math.abs(last.y - y) < 5) {
+                    o.selectWordAt(x, y);
+                    this.__docSel = { o, word: true, sx: x, sy: y };
+                    return;
+                }
+                o.beginSelect(x, y);
+                this.__docSel = { o, sx: x, sy: y };
+            }
+            __docRelease() {
+                const had = this.__docSel || this.__docScroll;
+                this.__docSel = null; this.__docScroll = null;
+                if (!had) return false;
+                this.__gestureEndedAt = Date.now();                        // a quick drag over text is not a swipe
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = !!this.__maximized; } catch (e) { }
+                return true;
+            }
+            // The wheel over the SELECTED document scrolls its text instead of zooming the
+            // canvas (at either end it simply stops: a zoom that starts because the text ran
+            // out is a surprise). Any other document lets the wheel zoom as it always has.
+            __docWheel(x, y, dy) {
+                try {
+                    if (this.__maximized || this.menu) return false;
+                    const at = this.objectAt(x, y);
+                    const o = at && at.kind === 'plate' ? at.obj : null;
+                    if (!o || o.plateType !== 'document' || o !== this.selectedPlate || this.__isSolidTable(o)) return false;
+                    if (!(o.__scrollMax > 0)) return false;
+                    o.scroll = Math.max(0, Math.min(o.__scrollMax, (o.scroll || 0) + dy));
+                    return true;
+                } catch (e) { return false; }
+            }
+            // Ctrl/Cmd+C copies the selected text, Ctrl/Cmd+A selects all of it, Escape lets go.
+            __docKey(event) {
+                try {
+                    const o = (this.__maximized && this.__maximized.plateType === 'document') ? this.__maximized : this.selectedPlate;
+                    if (!o || o.plateType !== 'document' || typeof o.selectedText !== 'function') return false;
+                    const k = ('' + (event.key || '')).toLowerCase(), mod = event.ctrlKey || event.metaKey;
+                    if (mod && k === 'c' && o.hasSelection()) {
+                        const text = o.selectedText();
+                        // The async clipboard can refuse (no permission, no focus): the old
+                        // select-and-copy of a hidden field is the fallback, and neither may throw.
+                        const viaField = () => {
+                            try {
+                                const ta = document.createElement('textarea');
+                                ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+                                document.body.appendChild(ta); ta.select();
+                                try { document.execCommand('copy'); } catch (e) { }
+                                document.body.removeChild(ta);
+                                try { if (this.__canvas__ && this.__canvas__.focus) this.__canvas__.focus(); } catch (e) { }
+                            } catch (e) { }
+                        };
+                        try {
+                            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(viaField);
+                            else viaField();
+                        } catch (e) { viaField(); }
+                        try { this.setMessage('Copied ' + text.length.toLocaleString() + ' characters.', 2); } catch (e) { }
+                        return true;
+                    }
+                    if (mod && k === 'a') { o.selectAll(); return true; }
+                    if (k === 'escape' && o.hasSelection()) { o.clearSelection(); return true; }
+                } catch (e) { }
+                return false;
+            }
+
             // THE BLOCK'S RESIZE CORNER. A block (a table with sub-10 px rows, a document too
             // small to read) can be resized by its bottom right corner, as the object it
             // stands for can: press and drag, no menu first. The corner is tested before the
@@ -23899,7 +24023,7 @@ function (progress) {
                         // A quick drag that MOVED or RESIZED something is not a swipe: a block
                         // flicked into place, a column edge or a resize corner dragged fast all
                         // finish inside the swipe window, and the view slid away under them.
-                        if (this.__solidDrag || this.__solidResize || this.__msDrag || (Date.now() - (this.__gestureEndedAt || 0)) < 500) return;
+                        if (this.__solidDrag || this.__solidResize || this.__docSel || this.__docScroll || this.__msDrag || (Date.now() - (this.__gestureEndedAt || 0)) < 500) return;
 
                         this.panGridSlide(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
                         setTimeout(() => {
