@@ -608,6 +608,9 @@ function () {
             text = ''
             message;
             table_summary = false;
+            // Per-column widths, as relative weights (empty = every column the same). Dragging
+            // the edge between two columns sets them; see __colGeom. Saved with the table.
+            column_widths = [];
             textBoxX;
             textBoxWidth = 240;
             textBoxHeight = 40;
@@ -3449,7 +3452,7 @@ function () {
                 this.grid.rescale();
                 let xw = pt.grid.Xwc(xx);
                 let yw = pt.grid.Ywc(xy);
-                let x = Math.floor(this.grid.Xwc(xw - this.grid.xi * 2))
+                let x = this.__colAtUnit(this.grid.Xwc(xw - this.grid.xi * 2))
                 let y = Math.floor(this.grid.Ywc(yw - this.grid.yi * 2))
                 this.pwx = x
                 this.pwy = y
@@ -6951,7 +6954,7 @@ function () {
                     {
                         label: 'Paste into column',
                         click: async (x, y) => {
-                            let tx = Math.floor(this.grid.Xwc(smenu.x - this.grid.xi * 2))
+                            let tx = this.__colAtUnit(this.grid.Xwc(smenu.x - this.grid.xi * 2))
                             await exec('baja/table/io/paste-into-column.js', pt, this, tx, null)
                             pt.wb(null)
                         },
@@ -7037,7 +7040,7 @@ function () {
                             } else if (m == 96) {
                                 addr = generateWellAddresses(8, 12)
                             }
-                            let tx = Math.floor(this.grid.Xwc(smenu.x - this.grid.xi * 2))
+                            let tx = this.__colAtUnit(this.grid.Xwc(smenu.x - this.grid.xi * 2))
                             this.setValuesInOrderAndOverwriteForSelected(addr, tx, null)
 
                             pt.wb(null)
@@ -8882,6 +8885,12 @@ function () {
                         }
                         return;
                     }
+                    // A press on the edge between two columns drags that edge (see
+                    // __colResizeStart); it is not a press on either cell beside it.
+                    try {
+                        const edge = this.__colEdgeAt(pt, x, y);
+                        if (edge >= 0 && this.__colResizeStart(pt, edge, x)) return;
+                    } catch (e) { console.warn('column resize', e); }
 
                     // A press on a cell button only ARMS it: the action runs on release, and
                     // only if the release lands on the same button (see mouseUpListener). It
@@ -8993,6 +9002,8 @@ function () {
 
                 let mouseMoveListener = async (x, y) => {
                     const dragging = md && startIndex != null;
+                    // Over the edge between two columns the pointer says so.
+                    try { const cv = pt.__canvas__; if (cv && !dragging) cv.style.cursor = (this.__colEdgeAt(pt, x, y) >= 0) ? 'col-resize' : ''; } catch (e) { }
                     const hoverCellButton = dragging ? null : getCellButtonAt(x, y);
 
                     clearCellButtonHighlights();
@@ -12543,6 +12554,7 @@ function () {
                 plate.specialty_menu_items = jsonData.specialty_menu_items;
                 plate.visible = jsonData.visible;
                 plate.plateType = jsonData.plateType;
+                plate.column_widths = Array.isArray(jsonData.column_widths) ? jsonData.column_widths.slice() : [];
                 plate.grid = Object.assign(new MGrid(), jsonData.grid);
 
                 plate.visible_cell_aspect_ratio_max = jsonData.visible_cell_aspect_ratio_max;
@@ -12692,6 +12704,7 @@ function () {
                     wellannotations: this.wellannotations || {},
 
                     input_to: this.input_to || [],
+                    column_widths: (Array.isArray(this.column_widths) && this.column_widths.length) ? this.column_widths : undefined,
                     tag_formula: this.tag_formula || [],
                     actionGlyph: this.actionGlyph?.toJSON() || null,
 
@@ -13157,7 +13170,7 @@ function () {
 
             getWellInRange(xx, xy, ww, hh) {
                 this.grid.rescale();
-                let x = Math.floor(this.grid.Xwc(xx - this.grid.xi * 2))
+                let x = this.__colAtUnit(this.grid.Xwc(xx - this.grid.xi * 2))
                 let y = Math.floor(this.grid.Ywc(xy - this.grid.yi * 2))
                 let w = Math.ceil(this.grid.worldWidth(ww));
                 let h = Math.ceil(this.grid.worldHeight(hh));
@@ -13230,7 +13243,7 @@ function () {
 
             getWell(xx, xy) {
                 try {
-                    let x = Math.floor(this.grid.Xwc(xx - this.grid.xi * 2));
+                    let x = this.__colAtUnit(this.grid.Xwc(xx - this.grid.xi * 2));
                     let y = Math.floor(this.grid.Ywc(xy - this.grid.yi * 2));
 
                     if (!Array.isArray(this.wells) || !Array.isArray(this.wells[x])) return null;
@@ -15121,11 +15134,18 @@ function () {
                 this.draw(pt, ctx, scx, scy);
             }
 
-            // Per-column font size for the default cell painter: the largest size at which
-            // every cell's text in the column fits its cell, so a column reads at one size and
-            // nothing is cut off. Measured only when a column's cells or texts change.
+            // The font size of the plain (untyped) cells. ONE size for the whole table: a text
+            // label is the same size in every cell, set from the row height (55% of it, so it
+            // scales with the zoom like everything else on the canvas) and never grown to
+            // fill its cell -- fitting each cell on its own gave "Staff" at 30 px and "Legal"
+            // beside it at 26. A label too long for its cell is shortened with an ellipsis
+            // (or wraps, when it is a sentence). NUMBERS are never shortened, since a cut
+            // number is a wrong number: when a column's numbers do not fit at the table's
+            // size, that column alone steps down, together, to the size at which they all do.
+            // Measured only when a column's cells or texts change.
             __columnFonts(ctx, x0, x1, y0, y1) {
                 if (!this.__colFontCache) this.__colFontCache = {};
+                const NUMERIC = /^[-+]?[\d,.$%\s()]+(e[-+]?\d+)?$/i;
                 for (let x = x0; x < x1; x++) {
                     const col = this.wells && this.wells[x];
                     if (!col) continue;
@@ -15141,14 +15161,21 @@ function () {
                     let px;
                     if (c && c.key === key) px = c.px;
                     else {
-                        px = Infinity;
-                        for (const w of cells) {
-                            if (!w.fitFontPx || w.skin_transient || w.skin_type) continue;
-                            if (w.isHeader && w.isHeader()) continue;
-                            const f = w.fitFontPx(ctx);
-                            if (f != null) px = Math.min(px, f);
+                        let rowPx = 0;
+                        for (const w of cells) if (w.__screen_height > rowPx) rowPx = w.__screen_height;
+                        const target = rowPx > 0 ? Math.max(7, Math.round(rowPx * 0.55)) : null;
+                        px = target;
+                        if (target != null) {
+                            for (const w of cells) {
+                                if (!w.fitFontPx || w.skin_transient || w.skin_type) continue;
+                                if (w.isHeader && w.isHeader()) continue;
+                                const t = w.__displayText ? w.__displayText() : w.value;
+                                const numeric = typeof w.value === 'number' || NUMERIC.test(('' + (t == null ? '' : t)).trim());
+                                if (!numeric) continue;                              // labels keep the table's size
+                                const f = w.fitFontPx(ctx);
+                                if (f != null) px = Math.min(px, f);
+                            }
                         }
-                        if (!Number.isFinite(px)) px = null;
                         this.__colFontCache[x] = { key, px };
                     }
                     for (const w of cells) w.__colFontPx = (w.skin_transient || w.skin_type || (w.isHeader && w.isHeader())) ? null : px;
@@ -15199,6 +15226,117 @@ function () {
                 ctx.restore();
 
                 ctx.restore();
+            }
+
+            // ---- resizable columns ---------------------------------------------------------
+            // The table's own grid runs from xmin to xmax in whole columns, and everything
+            // used to assume column x sits at unit x and is one unit wide. column_widths
+            // holds a weight per column; __colGeom turns them into each column's left edge
+            // and width IN THOSE SAME UNITS, scaled so they still add up to the column count
+            // (so the table's outer box, grid.width, stays the single source of its size).
+            // With no weights it returns null and every caller keeps the old arithmetic.
+            __colCount() { return Math.max(0, Math.round((Number(this.grid.xmax) || 0) - (Number(this.grid.xmin) || 0))); }
+            __colGeom() {
+                const n = this.__colCount(), cw = this.column_widths;
+                if (!Array.isArray(cw) || !cw.length || n < 1) return null;
+                // Columns were added or removed since the widths were set: the weights no longer
+                // line up with the columns, so the table goes back to even columns.
+                if (cw.length !== n) { this.column_widths = []; return null; }
+                let sum = 0;
+                for (let i = 0; i < n; i++) { const v = Number(cw[i]); if (!(v > 0) || !Number.isFinite(v)) { this.column_widths = []; return null; } sum += v; }
+                const k = n / sum, x0 = Number(this.grid.xmin) || 0, w = new Array(n), left = new Array(n);
+                let at = x0;
+                for (let i = 0; i < n; i++) { w[i] = cw[i] * k; left[i] = at; at += w[i]; }
+                return { n, x0, w, left };
+            }
+            // The column whose span holds unit position u (what Math.floor(u) used to answer).
+            __colAtUnit(u) {
+                const g = this.__colGeom();
+                if (!g) return Math.floor(u);
+                if (!(u >= g.x0)) return Math.floor(u);                       // left of the table: as before
+                for (let i = 0; i < g.n; i++) if (u < g.left[i] + g.w[i]) return g.x0 + i;
+                return g.x0 + g.n + Math.floor(u - (g.x0 + g.n));             // right of it: keeps counting
+            }
+            // The boundary between two columns under a screen point, if the pointer is on one:
+            // returns the index of the column to its LEFT (the one a drag resizes), else -1.
+            // Only inner boundaries and the right edge of the last column; only within the
+            // table's height; and only when cells are big enough to be worked on.
+            __colEdgeAt(pt, sx, sy) {
+                try {
+                    const n = this.__colCount();
+                    if (n < 1 || !this.wells || !this.wells.length) return -1;
+                    if (this.plateType === 'package' || this.plateType === 'annotation' || this.plateType === 'document') return -1;
+                    if (pt.__isSolidTable && pt.__isSolidTable(this)) return -1;
+                    const G = pt.grid; this.grid.rescale();
+                    const top = G.Y(this.grid.yi + this.getHeight(pt)), bottom = G.Y(this.grid.yi);
+                    if (sy < Math.min(top, bottom) - 2 || sy > Math.max(top, bottom) + 2) return -1;
+                    const g = this.__colGeom(), x0 = Number(this.grid.xmin) || 0, TOL = 5;
+                    for (let i = 0; i < n; i++) {
+                        const rightUnit = g ? g.left[i] + g.w[i] : x0 + i + 1;
+                        const px = G.X(this.grid.X(rightUnit)) - 2.5;                 // the middle of the gap beside the column
+                        if (Math.abs(sx - px) <= TOL) return i;
+                    }
+                } catch (e) { }
+                return -1;
+            }
+            // Drag the right edge of column `col`. The column takes the drag; every other
+            // column KEEPS ITS WIDTH ON SCREEN, so the table grows or shrinks at its right
+            // side the way a spreadsheet's does (its left edge stays put). One undo step.
+            __colResizeStart(pt, col, sx) {
+                const n = this.__colCount(); if (!(col >= 0 && col < n)) return false;
+                const g = this.__colGeom();
+                const unitPx = pt.grid.screenWidth(this.grid.screenWidth(1));          // px per unit now
+                if (!(unitPx > 0)) return false;
+                const px0 = []; for (let i = 0; i < n; i++) px0.push((g ? g.w[i] : 1) * unitPx);
+                const worldPerPx = this.grid.width / (unitPx * n);
+                const MIN_PX = 24;
+                let pushed = false;
+                const apply = (x) => {
+                    const px = px0.slice();
+                    px[col] = Math.max(MIN_PX, px0[col] + (x - sx));
+                    if (!pushed && Math.abs(x - sx) >= 2) { pushed = true; try { pushHistory(HM(this)); } catch (e) { } }
+                    const total = px.reduce((a, c) => a + c, 0);
+                    this.column_widths = px.map(v => v / total * n);
+                    this.setWidth(total * worldPerPx);
+                    try { this.grid.rescale(); } catch (e) { }
+                    this.__colFontCache = null;
+                    for (const colCells of this.wells) for (const c of (colCells || [])) if (c) { c.__wrapKey = null; }   // wrapped text is laid out per width
+                };
+                const canvas = pt.__canvas__;
+                const done = () => {
+                    this.__colResizing = false;
+                    try { if (canvas) canvas.style.cursor = ''; } catch (e) { }
+                    try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
+                    // Every column even again (a drag back to where it began): no weights at all.
+                    try { const cwv = this.column_widths || []; if (cwv.length && cwv.every(v => Math.abs(v - 1) < 1e-3)) this.column_widths = []; } catch (e) { }
+                    pt.wb(null);
+                    try { this.clk_drag(pt); } catch (e) { }
+                    try { if (pushed) pt.setMessage('Column ' + getExcelColumnName(col + (Number(this.grid.xmin) || 0)) + ' resized (Ctrl+Z undoes).', 2); } catch (e) { }
+                };
+                this.__colResizing = true;
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+                try { if (canvas) canvas.style.cursor = 'col-resize'; } catch (e) { }
+                pt.wb({
+                    id: 'override-resize-column',
+                    priority: true,
+                    draw: (grid, ctx) => {
+                        // a guide down the edge being dragged
+                        try {
+                            const gm = this.__colGeom(), x0 = Number(this.grid.xmin) || 0;
+                            const u = gm ? gm.left[col] + gm.w[col] : x0 + col + 1;
+                            const x = pt.grid.X(this.grid.X(u)) - 2.5;
+                            const y1 = pt.grid.Y(this.grid.yi + this.getHeight(pt)), y2 = pt.grid.Y(this.grid.yi);
+                            ctx.save(); ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+                            ctx.beginPath(); ctx.moveTo(x, y1 - 6); ctx.lineTo(x, y2 + 6); ctx.stroke(); ctx.restore();
+                        } catch (e) { }
+                    },
+                    mouseDownListener: async () => { },
+                    mouseMoveListener: (x) => { apply(x); },
+                    mouseUpListener: async (x) => { apply(x); done(); },
+                    keydown: (ev) => { if (ev && ev.key === 'Escape') { apply(sx); done(); } },
+                    close: () => { this.__colResizing = false; try { if (canvas) canvas.style.cursor = ''; } catch (e) { } },
+                });
+                return true;
             }
 
             draw(pt, ctx, x, y) {
@@ -15310,7 +15448,7 @@ function () {
                         return;
                     }
 
-                    let min_x = Math.floor(this.grid.Xwc(vx - this.grid.xi * 2))
+                    let min_x = this.__colAtUnit(this.grid.Xwc(vx - this.grid.xi * 2))
                     if (min_x < 0) {
                         min_x = 0
                     }
@@ -15372,13 +15510,15 @@ function () {
                             this.menu.draw(ctx, graph);
                         }
 
+                        const __mg = this.__colGeom(), __mx0 = Number(this.grid.xmin) || 0;
                         for (let x = min_x; x < max_x; x++) {
+                            const __mi = x - __mx0, __mhas = !!(__mg && __mg.left[__mi] != null);
                             for (let y = Math.max(min_y, this.row_vis_start); y < Math.min(max_y, this.row_vis_stop); y++) {
                                 if (this.wells && this.wells[x] && this.wells[x][y] && this.wells[x][y].drawMinimal) {
                                     this.wells[x][y].drawMinimal(
                                         graph, this.grid, ctx,
-                                        this.min, this.max, x, y,
-                                        this.group_preferences
+                                        this.min, this.max, __mhas ? __mg.left[__mi] : x, y,
+                                        this.group_preferences, __mhas ? __mg.w[__mi] : undefined
                                     );
                                 }
                             }
@@ -15434,8 +15574,10 @@ function () {
                             const maxed = !!this.__maximizedView;
                             const labelInk = maxed ? '#ffffff' : 'gray';
                             const rowGap = maxed ? 36 : 20;
+                            const __lg = this.__colGeom();
                             for (let x = this.grid.xmin; x < this.grid.xmax; x++) {
-                                const textX = graph.X(this.grid.X(x + 0.5));
+                                const __li = x - (Number(this.grid.xmin) || 0);
+                                const textX = graph.X(this.grid.X(__lg && __lg.left[__li] != null ? __lg.left[__li] + __lg.w[__li] / 2 : x + 0.5));
                                 const textY = graph.Y((this.grid.yi + this.getHeight(pt))) - (maxed ? 26 : 15);
                                 const text = `${x} (${getExcelColumnName(x)})`;
 
@@ -15473,8 +15615,21 @@ function () {
                         // selection already shows in the table's buttons and its selected cells, and the
                         // ring sat outside the table's own edge, over whatever was beside it.)
 
+                        // Resized columns: each cell is drawn at its column's left edge and width
+                        // (null = even columns, and x / scrwidth are what they always were).
+                        const __cg = this.__colGeom(), __cx0 = Number(this.grid.xmin) || 0;
+                        const __unitPx = __cg ? graph.screenWidth(this.grid.screenWidth(1)) : 0;
                         if (cell_width > 50 || cell_height > 20) {
+                            // One font size for the plain cells (see __columnFonts). Not for a
+                            // sheet with thousands of cells in view: there each cell fits itself.
+                            try {
+                                const __fy0 = Math.max(min_y, this.row_vis_start), __fy1 = Math.min(max_y, this.row_vis_stop);
+                                if ((max_x - min_x) * (__fy1 - __fy0) <= 6000) this.__columnFonts(ctx, min_x, max_x, __fy0, __fy1);
+                            } catch (e) { }
                             for (let x = min_x; x < max_x; x++) {
+                                const __ci = x - __cx0, __has = !!(__cg && __cg.left[__ci] != null);
+                                const __px = __has ? __cg.left[__ci] : x;
+                                const __pw = __has ? Math.max(4, __cg.w[__ci] * __unitPx - 5) : scrwidth;
                                 for (let y = Math.max(min_y, this.row_vis_start); y < Math.min(max_y, this.row_vis_stop); y++) {
                                     if (this.wells && this.wells[x] != null && this.wells[x][y] != null) {
                                         if (this.wells[x][y].drawAnnotations) {
@@ -15484,9 +15639,9 @@ function () {
                                                 ctx,
                                                 this.min,
                                                 this.max,
-                                                x,
+                                                __px,
                                                 y,
-                                                scrwidth,
+                                                __pw,
                                                 scrheight,
                                                 this.group_preferences,
                                                 x,
@@ -15505,6 +15660,7 @@ function () {
                         } else {
 
                             for (let x = min_x; x < max_x; x++) {
+                                const __ci = x - __cx0, __has = !!(__cg && __cg.left[__ci] != null);
                                 for (let y = Math.max(min_y, this.row_vis_start); y < Math.min(max_y, this.row_vis_stop); y++) {
                                     if (this.wells && this.wells[x] && this.wells[x][y] && this.wells[x][y].drawMinimal) {
                                         this.wells[x][y].drawMinimal(
@@ -15513,9 +15669,10 @@ function () {
                                             ctx,
                                             this.min,
                                             this.max,
-                                            x,
+                                            __has ? __cg.left[__ci] : x,
                                             y,
-                                            this.group_preferences
+                                            this.group_preferences,
+                                            __has ? __cg.w[__ci] : undefined
                                         );
                                     }
                                 }

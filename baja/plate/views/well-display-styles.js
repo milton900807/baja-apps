@@ -90,7 +90,10 @@ function (deps) {
         // screen comes from the well, as it always has.
         const box = (graph, grid, well) => {
             const fin = (v, fb) => (typeof v === 'number' && isFinite(v)) ? v : fb;
-            const x = fin(graph.X(grid.X(well.x)), 0), y = fin(graph.Y(grid.Y(well.y)), 0);
+            // Where the cell was DRAWN this frame (the cell sets it just before calling its
+            // type). well.x is the column's index, and a table with resized columns does not
+            // draw column 3 at unit 3.
+            const x = fin(well.__screen_x, fin(graph.X(grid.X(well.x)), 0)), y = fin(graph.Y(grid.Y(well.y)), 0);
             const w = fin(well.__screen_width, 30), h = fin(well.__screen_height, 20);
             return { x, y, w, h, r: Math.max(2, Math.min(6, h * 0.18)), pad: Math.max(4, Math.min(10, w * 0.06)) };
         };

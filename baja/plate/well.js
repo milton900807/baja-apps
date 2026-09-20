@@ -12,16 +12,21 @@ function () {
         // are dots now, and where a cell is too small for them to be legible they are left
         // out rather than drawn as smudges.
         // A SELECTED cell: a light tint of the app's teal over the cell as it is, inside a crisp
+        // teal edge -- the same wash and edge the typed cells get (well-display-styles.js
+        // `selection`), so a table mixing typed and plain cells selects as one surface.
         // teal edge, the way a spreadsheet marks its selection. It used to be a flood of opaque
         // magenta that hid the cell's own colour and fought every other colour on the canvas.
         // The content is drawn after this and stays readable in its own colour. `dirty` (the
         // cell being typed into) is lighter still, so the text under the cursor has the most
         // contrast. Tiny cells (the zoomed-out draws) get the tint alone: an edge there is noise.
         const SELECT_EDGE = '#1aa3bd';
+        // The typeface of a plain cell: the one the typed cells are set in (well-display-styles.js
+        // FAMILY), so a table mixing the two reads in one face. A cell's own `font` still wins.
+        const CELL_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
         function drawCellSelection(ctx, x, y, w, h, dirty, tiny) {
             ctx.save();
             ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
-            ctx.fillStyle = tiny ? 'rgba(26,163,189,0.45)' : (dirty ? 'rgba(26,163,189,0.08)' : 'rgba(26,163,189,0.16)');
+            ctx.fillStyle = tiny ? 'rgba(26,163,189,0.45)' : (dirty ? 'rgba(26,163,189,0.08)' : 'rgba(26,163,189,0.14)');
             ctx.fillRect(x, y, w, h);
             if (!tiny && w > 6 && h > 6) {
                 const lw = dirty ? 2 : 1.5;
@@ -253,10 +258,15 @@ function () {
         const truncateTextCached = (text, maxWidth, ctx) => {
             if (!truncateTextCached.cache) truncateTextCached.cache = new Map();
 
-            const key = `${text}-${maxWidth}`;
+            // The FONT is part of the question: the same text in the same width is cut
+            // differently at 17 px and at 14 px, and without it a cell whose size had just
+            // changed kept the cut made for the old one. Every zoom level adds entries, so
+            // the cache is emptied when it gets large rather than growing for the session.
+            const key = `${text}-${Math.round(maxWidth)}-${ctx.font}`;
             if (truncateTextCached.cache.has(key)) {
                 return truncateTextCached.cache.get(key);
             }
+            if (truncateTextCached.cache.size > 8000) truncateTextCached.cache.clear();
 
             let truncated = text;
             while (ctx.measureText(truncated).width > maxWidth && truncated.length > 0) {
@@ -941,7 +951,7 @@ function () {
                 if (this.__wrapsText()) return null;
                 const w = (this.__screen_width || 0) * 0.85, h = (this.__screen_height || 0) * 0.85;
                 if (!(w > 0 && h > 0)) return null;
-                const fam = this.font || 'Arial';
+                const fam = this.font || CELL_FAMILY;
                 let lo = 6, hi = Math.min(48, Math.floor(h));
                 if (hi <= lo) return lo;
                 while (lo < hi) {
@@ -1068,7 +1078,13 @@ function () {
                 }
             }
 
-            drawAnnotations(graph, grid, ctx, min, max, x, y, scw, sch, preferences) {
+            // x, y: where the cell is DRAWN, in the table's units. A table with resized columns
+            // draws a cell at its column's left edge, which is not a whole number, so the
+            // cell's own column and row (this.x / this.y: formulas, ranges and the hover card
+            // index wells[][] with them) come from colIndex / rowIndex, which every caller
+            // passes. They used to be taken from x / y, and a resized column's cells ended up
+            // with a fractional this.x.
+            drawAnnotations(graph, grid, ctx, min, max, x, y, scw, sch, preferences, colIndex, rowIndex) {
                 if (!ctx) return;
                 if (!this.__previousValue || !this.select) {
                     this.__dirty = false;
@@ -1110,7 +1126,7 @@ function () {
                     this.skin_transient = WellDisplay[this.skin_type];
                 }
 
-                this.x = x; this.y = y;
+                this.x = Number.isInteger(colIndex) ? colIndex : x; this.y = Number.isInteger(rowIndex) ? rowIndex : y;
 
                 const screen_x = graph.X(grid.X(x));
                 const screen_y = graph.Y(grid.Y(y));
@@ -1120,7 +1136,9 @@ function () {
                 const screen_height = this.__screen_height || sch;
 
                 if (screen_height < 5 || screen_width < 10) {
-                    return this.drawMinimal(graph, grid, ctx, min, max, x, y, preferences);
+                    // the column's width, recovered from the pixels the table gave this cell
+                    const unitPx = graph.screenWidth(grid.screenWidth(1));
+                    return this.drawMinimal(graph, grid, ctx, min, max, x, y, preferences, (scw > 0 && unitPx > 0) ? (scw + 5) / unitPx : undefined);
                 }
 
                 const scaleFactor = Math.min(screen_width, screen_height) / 30;
@@ -1136,7 +1154,7 @@ function () {
 
                 const applyFontSize = (size) => {
                     // Honour the size (this was pinned to 10pt, so the fitting below never ran).
-                    ctx.font = `${Math.max(6, Math.round(size))}px ${this.font || 'Arial'}`;
+                    ctx.font = `${Math.max(6, Math.round(size))}px ${this.font || CELL_FAMILY}`;
                 };
 
                 applyFontSize(baseFontSize);
@@ -1218,7 +1236,7 @@ function () {
                 // the column's size when it has one (so it matches its neighbours) or smaller
                 // until it fits. Laid out once per text and cell size, then reused.
                 if (displayValue && this.__wrapsText()) {
-                    const fam = this.font || 'Arial';
+                    const fam = this.font || CELL_FAMILY;
                     const cap = Math.max(7, Math.min(
                         (Number.isFinite(this.__colFontPx) && this.__colFontPx > 0) ? this.__colFontPx : baseFontSize,
                         screen_height * 0.6));
@@ -1358,12 +1376,15 @@ function () {
                 return this.h;
             }
 
-            drawMinimal(graph, grid, ctx, min, max, x, y, preferences) {
+            // colW: the column's width in the table's units (1 = an even share). The table
+            // passes it when its columns have been resized; x is then the column's left edge.
+            drawMinimal(graph, grid, ctx, min, max, x, y, preferences, colW) {
 
                 this.w = updateNumbers()[0]
                 this.h = updateNumbers()[1]
                 if (this.w) {
-                    this.__screen_width = graph.screenWidth(grid.screenWidth(this.w));
+                    const cw = (colW > 0) ? Math.max(0.05, colW - (1 - this.w)) : this.w;   // the same gap beside every column
+                    this.__screen_width = graph.screenWidth(grid.screenWidth(cw));
                 }
                 if (this.h) {
                     this.__screen_height = graph.screenHeight(grid.screenHeight(this.h));

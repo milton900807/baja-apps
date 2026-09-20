@@ -203,7 +203,7 @@ function () {
             const cellPadding = 6;
             const inset = 2;
 
-            let screen_x = safeNumber(graph.X(grid.X(well.x)));
+            let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
             let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
             let screen_width = safeNumber(well.__screen_width, 30);
             let screen_height = safeNumber(well.__screen_height, 30);
@@ -293,7 +293,7 @@ function () {
             return (graph, grid, ctx, min, max, x, y, well) => {
                 const safeNumber = (v, fallback = 0) => typeof v === 'number' && !isNaN(v) ? v : fallback;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
@@ -303,7 +303,7 @@ function () {
                 let fontSize = 11 * scaleFactor;
                 if (fontSize < 9) fontSize = 11;
 
-                ctx.fillStyle = well.select ? 'magenta' : 'white';
+                ctx.fillStyle = well.select ? '#d8eff4' : 'white';
                 ctx.strokeStyle = 'transparent';
                 ctx.lineWidth = 0;
                 ctx.shadowBlur = 0;
@@ -341,7 +341,7 @@ function () {
                 let cellPadding = 6;
                 const safeNumber = (v, fallback = 0) => typeof v === 'number' && !isNaN(v) ? v : fallback;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
@@ -586,14 +586,14 @@ function () {
                         : (typeof v === 'string' && v.trim() !== '' && !isNaN(+v)) ? +v
                             : fb;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
 
                 const scaleFactor = Math.min(screen_width, screen_height) / 60;
 
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 ctx.shadowBlur = 0;
@@ -683,13 +683,13 @@ function () {
                 const safeNumber = (v, fb = 0) => (typeof v === 'number' && !isNaN(v)) ? v
                     : (typeof v === 'string' && v.trim() !== '' && !isNaN(+v)) ? +v : fb;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
 
                 const scaleFactor = Math.min(screen_width, screen_height) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, screen_x, screen_y, screen_width, screen_height, 10);
@@ -721,7 +721,7 @@ function () {
                 const safeNumber = (v, fb = 0) => (typeof v === 'number' && !isNaN(v)) ? v
                     : (typeof v === 'string' && v.trim() !== '' && !isNaN(+v)) ? +v : fb;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
@@ -733,7 +733,7 @@ function () {
                 const t = hi > lo ? Math.max(0, Math.min(1, (v - lo) / (hi - lo))) : 0;
                 const r = Math.round(255 * t);
                 const b = Math.round(255 * (1 - t));
-                ctx.fillStyle = well.select ? 'magenta' : `rgba(${r},80,${b},0.85)`;
+                ctx.fillStyle = well.select ? '#d8eff4' : `rgba(${r},80,${b},0.85)`;
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, screen_x, screen_y, screen_width, screen_height, 10);
@@ -766,14 +766,14 @@ function () {
                     (typeof v === 'number' && !isNaN(v)) ? v
                         : (typeof v === 'string' && v.trim() !== '' && !isNaN(+v)) ? +v : fb;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
 
                 const scaleFactor = Math.min(screen_width, screen_height) / 60;
 
-                ctx.fillStyle = well.select ? 'magenta' : 'rgba(255, 255, 180, 0.95)';
+                ctx.fillStyle = well.select ? '#d8eff4' : 'rgba(255, 255, 180, 0.95)';
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, screen_x, screen_y, screen_width, screen_height, 10);
@@ -813,13 +813,13 @@ function () {
                 const safeNumber = (v, fb = 0) => (typeof v === 'number' && !isNaN(v)) ? v
                     : (typeof v === 'string' && v.trim() !== '' && !isNaN(+v)) ? +v : fb;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
 
                 const scaleFactor = Math.min(screen_width, screen_height) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, screen_x, screen_y, screen_width, screen_height, 10);
@@ -852,11 +852,11 @@ function () {
                 if (!graph || !grid || !ctx || !well) return;
                 const safeBool = v => !!(v === true || v === 'true' || v === 1 || v === '1');
 
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
                 const scaleFactor = Math.min(sw, sh) / 60;
 
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -897,11 +897,11 @@ function () {
                     } catch { return null; }
                 };
 
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
 
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -919,11 +919,11 @@ function () {
 
             'BADGE': (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well) return;
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
 
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -951,7 +951,7 @@ function () {
             'BUTTON': (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well) return;
 
-                const sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                const sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 const sw = well.__screen_width ?? 74, sh = well.__screen_height ?? 32;
 
                 const scale = Math.min(sw, sh) / 60;
@@ -1048,11 +1048,11 @@ function () {
 
             'STATUS': (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well) return;
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
 
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -1082,11 +1082,11 @@ function () {
             'SPARKLINE': (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well || !Array.isArray(well.series) || well.series.length < 2) return;
                 const series = well.series.map(v => (typeof v === 'number' && !isNaN(v)) ? v : 0);
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 60, sh = well.__screen_height ?? 30;
 
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -1132,9 +1132,9 @@ function () {
 
                     const RADIUS = mobile ? 10 : 5;
                     const BORDER_W = mobile ? 2 : 1;
-                    const SELECT_FILL = mobile ? "rgba(255,0,255,0.25)" : "magenta";
+                    const SELECT_FILL = mobile ? "rgba(26,163,189,0.25)" : "#d8eff4";
 
-                    const screen_x = safeNumber(graph.X(grid.X(well.x)));
+                    const screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                     const screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                     const screen_width = safeNumber(well.__screen_width, 30);
                     const screen_height = safeNumber(well.__screen_height, 30);
@@ -1145,7 +1145,7 @@ function () {
                     ctx.shadowBlur = 0;
 
                     ctx.fillStyle = well.select
-                        ? (mobile ? SELECT_FILL : "magenta")
+                        ? SELECT_FILL
                         : (well.color || "white");
 
                     ctx.strokeStyle = mobile ? "rgba(70,70,70,0.9)" : "rgba(120,120,100,1)";
@@ -1332,7 +1332,7 @@ function () {
                     typeof value === 'number' && !isNaN(value) ? value : fallback;
 
                 well.attr__showBorder = false;
-                const screen_x = safeNumber(graph.X(grid.X(well.x)));
+                const screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 const screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 const screen_width = safeNumber(well.__screen_width, 30);
                 const screen_height = safeNumber(well.__screen_height, 30);
@@ -1352,7 +1352,7 @@ function () {
                 const contentH = Math.max(0, screen_height - 2 * PADDING);
 
                 ctx.font = `${fontSize}pt Arial`;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 ctx.shadowBlur = 0;
@@ -1480,7 +1480,7 @@ function () {
                 const safeNumber = (value, fallback = 0) =>
                     typeof value === 'number' && !isNaN(value) ? value : fallback;
 
-                const screen_x = safeNumber(graph.X(grid.X(well.x)));
+                const screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 const screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 const screen_width = safeNumber(well.__screen_width, 30);
                 const screen_height = safeNumber(well.__screen_height, 30);
@@ -1501,7 +1501,7 @@ function () {
                 ctx.font = `${fontSize}pt Arial`;
 
                 const bg = (well.color ?? 'rgba(245,245,250,1)');
-                ctx.fillStyle = well.select ? 'magenta' : bg;
+                ctx.fillStyle = well.select ? '#1aa3bd' : bg;   // selected header: the app's teal, its white text still reads
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 ctx.shadowBlur = 0;
@@ -1587,7 +1587,7 @@ function () {
                 const safeNumber = (value, fallback = 0) =>
                     typeof value === 'number' && !isNaN(value) ? value : fallback;
 
-                const screen_x = safeNumber(graph.X(grid.X(well.x)));
+                const screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 const screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 const screen_width = safeNumber(well.__screen_width, 30);
                 const screen_height = safeNumber(well.__screen_height, 30);
@@ -1607,7 +1607,7 @@ function () {
 
                 ctx.font = `${fontSize}pt Arial`;
                 const bg = (well.color ?? 'rgba(240,244,248,1)');
-                ctx.fillStyle = well.select ? 'magenta' : bg;
+                ctx.fillStyle = well.select ? '#1aa3bd' : bg;   // selected header: the app's teal, its white text still reads
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 ctx.shadowBlur = 0;
@@ -1771,7 +1771,7 @@ function () {
                 const safeNumber = (value, fallback = 0) =>
                     (typeof value === 'number' && !isNaN(value) ? value : fallback);
 
-                const sx = safeNumber(graph.X(grid.X(well.x)));
+                const sx = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 const sy = safeNumber(graph.Y(grid.Y(well.y)));
                 const sw = safeNumber(well.__screen_width, 30);
                 const sh = safeNumber(well.__screen_height, 30);
@@ -1783,7 +1783,7 @@ function () {
                 const cy = sy + sh / 2;
                 const squareSize = Math.max(6, Math.min(sw, sh) - 2 * cellPadding);
 
-                const bg = well.select ? 'magenta' : (well.color || 'white');
+                const bg = well.select ? '#d8eff4' : (well.color || 'white');
                 drawSquareBadge(ctx, cx, cy, squareSize, bg, "rgba(120, 120, 100, 1)", scaleFactor);
 
                 if (well.icon) {
@@ -1827,7 +1827,7 @@ function () {
                 const cellPadding = 4;
                 const minFontSize = 6;
 
-                const sx = graph.X(grid.X(well.x));
+                const sx = (well.__screen_x ?? graph.X(grid.X(well.x)));
                 const sy = graph.Y(grid.Y(well.y));
                 const sw = safeNumber(well.__screen_width, 30);
                 const sh = safeNumber(well.__screen_height, 30);
@@ -1839,7 +1839,7 @@ function () {
                 const cy = sy + sh / 2;
                 const squareSize = Math.max(6, Math.min(sw, sh) - 2 * cellPadding);
 
-                const bg = well.select ? 'magenta' : (well.color || 'white');
+                const bg = well.select ? '#d8eff4' : (well.color || 'white');
                 drawSquareBadge(ctx, cx, cy, squareSize, bg, "rgba(120, 120, 100, 1)", scaleFactor);
 
                 const text = well.value != null ? String(well.value) : '';
@@ -1871,7 +1871,7 @@ function () {
                 const cellPadding = 4;
                 const minFontSize = 6;
 
-                const sx = graph.X(grid.X(well.x));
+                const sx = (well.__screen_x ?? graph.X(grid.X(well.x)));
                 const sy = graph.Y(grid.Y(well.y));
                 const sw = well.__screen_width || 300;
                 const sh = well.__screen_height || 30;
@@ -1883,7 +1883,7 @@ function () {
                 const cy = sy + sh / 2;
                 const squareSize = Math.max(6, Math.min(sw, sh) - 2 * cellPadding);
 
-                const bg = well.select ? 'magenta' : (well.color || 'white');
+                const bg = well.select ? '#d8eff4' : (well.color || 'white');
                 drawSquareBadge(ctx, cx, cy, squareSize, bg, "rgba(120, 120, 100, 1)", scaleFactor);
 
                 const text = well.value != null ? String(well.value) : '';
@@ -1920,7 +1920,7 @@ function () {
                 const cellPadding = 6;
                 const minFontSize = 6;
 
-                const sx = graph.X(grid.X(well.x));
+                const sx = (well.__screen_x ?? graph.X(grid.X(well.x)));
                 const sy = graph.Y(grid.Y(well.y));
                 const sw = well.__screen_width;
                 const sh = well.__screen_height;
@@ -1932,7 +1932,7 @@ function () {
                 const cy = sy + sh / 2;
                 const squareSize = Math.max(6, Math.min(sw, sh) - 2 * cellPadding);
 
-                const bg = well.select ? 'magenta' : (well.color || 'white');
+                const bg = well.select ? '#d8eff4' : (well.color || 'white');
                 drawSquareBadge(ctx, cx, cy, squareSize, bg, "rgba(120, 120, 100, 1)", scaleFactor);
 
                 const text = well.value != null ? String(well.value) : '';
@@ -1978,7 +1978,7 @@ function () {
                         return n < 0 ? `(${currency}${s})` : `${currency}${s}`;
                     };
 
-                    let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                    let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                     let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                     let screen_width = safeNumber(well.__screen_width, 30);
                     let screen_height = safeNumber(well.__screen_height, 30);
@@ -1990,7 +1990,7 @@ function () {
                     let fontSize = Math.max(8, 9 * scaleFactor);
                     ctx.font = `${fontSize}pt Arial`;
 
-                    ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                    ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                     ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                     ctx.lineWidth = 1 * scaleFactor;
                     ctx.shadowBlur = 0;
@@ -2082,7 +2082,7 @@ function () {
                 const cellPadding = 6;
                 const inset = 2;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
@@ -2129,7 +2129,7 @@ function () {
 
                     const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-                    let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                    let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                     let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                     let screen_width = safeNumber(well.__screen_width, 30);
                     let screen_height = safeNumber(well.__screen_height, 30);
@@ -2238,7 +2238,7 @@ function () {
                 const cellPadding = 6;
                 const inset = 2;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
@@ -2278,7 +2278,7 @@ function () {
                 const safeNumber = (v, fallback = 0) => typeof v === 'number' && !isNaN(v) ? v : fallback;
                 const inset = 2;
 
-                let screen_x = safeNumber(graph.X(grid.X(well.x)));
+                let screen_x = safeNumber((well.__screen_x ?? graph.X(grid.X(well.x))));
                 let screen_y = safeNumber(graph.Y(grid.Y(well.y)));
                 let screen_width = safeNumber(well.__screen_width, 30);
                 let screen_height = safeNumber(well.__screen_height, 30);
@@ -2326,10 +2326,10 @@ function () {
             // decides what opening it means.
             LINK: (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well) return;
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -2356,10 +2356,10 @@ function () {
             // negative. Accepts a number or a string such as "12.5%" (the suffix is kept).
             DELTA: (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well) return;
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -2389,10 +2389,10 @@ function () {
             // A ratio as a multiple: 2.5x.
             MULTIPLE: (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well) return;
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -2410,10 +2410,10 @@ function () {
             // A score from 0 to 5 as filled dots; half values fill half a dot.
             RATING: (graph, grid, ctx, min, max, x, y, well) => {
                 if (!graph || !grid || !ctx || !well) return;
-                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sx = (well.__screen_x ?? graph.X(grid.X(well.x))), sy = graph.Y(grid.Y(well.y));
                 let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
                 const scaleFactor = Math.min(sw, sh) / 60;
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
                 ctx.strokeStyle = "rgba(120, 120, 100, 1)";
                 ctx.lineWidth = 1 * scaleFactor;
                 drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
@@ -2472,10 +2472,10 @@ function () {
         const createFormattedNumber = (format) => (graph, grid, ctx, min, max, x, y, well) => {
             if (!graph || !grid || !ctx || !well) return;
             const fin = (v, fb) => (typeof v === 'number' && isFinite(v)) ? v : fb;
-            const sx = fin(graph.X(grid.X(well.x)), 0), sy = fin(graph.Y(grid.Y(well.y)), 0);
+            const sx = fin((well.__screen_x ?? graph.X(grid.X(well.x))), 0), sy = fin(graph.Y(grid.Y(well.y)), 0);
             const sw = fin(well.__screen_width, 30), sh = fin(well.__screen_height, 30);
             const scale = Math.min(sw, sh) / 60;
-            ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+            ctx.fillStyle = well.select ? '#d8eff4' : (well.color || 'white');
             ctx.strokeStyle = 'rgba(120, 120, 100, 1)';
             ctx.lineWidth = 1 * scale;
             drawRoundedRect(ctx, sx, sy, sw, sh, 10);
