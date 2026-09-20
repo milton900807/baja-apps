@@ -9479,7 +9479,10 @@ pattern, GGGG | Required`
                     }
                     this.setMessage(' Lasso selected ' + n + ' item(s).');
                     pts.length = 0;
-                    this.post_graphics_modifications = null;
+                    // The lasso owns this hook while it draws its loop; handing it back to the
+                    // comparison overlay (when one is up) keeps the lines through a new
+                    // selection instead of clearing them behind the user's back.
+                    this.post_graphics_modifications = this.__compareDraw || null;
                     // Leave lasso mode immediately so hover's mode-guard unblocks...
                     this.graph.mode = 'navigate';
                     // ...but defer re-installing the mouse-over hover handler until this
@@ -11585,7 +11588,40 @@ pattern, GGGG | Required`
                             show(child, __tn + ' ▸');
                         };
                         if (picks.length === 1) { openOne(picks[0]); return; }
-                        if (picks.length > 1) { showTypePicker(picks, 'track', openOne, []); return; }
+                        if (picks.length > 1) {
+                            // COMPARE, above the tracks themselves.
+                            //
+                            // Selecting several tracks is usually a question about the set of
+                            // them -- which mutations do these samples share -- and every other
+                            // entry here acts on one track at a time. This one acts on all of
+                            // them and answers it on the canvas: see compare-tracks.js.
+                            const compare = (kind, match) => {
+                                close();
+                                const tks = picks.map((p) => p.track || p.ref).filter(Boolean);
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/compare-tracks.js',
+                                        this, tks, { kind: kind, match: match })).catch(() => { });
+                                } catch (e) { this.setMessage(' Could not compare these tracks: ' + e + ' '); }
+                            };
+                            const openCompare = () => show([
+                                { label: 'Mutations — same position and change', click: () => compare('variants', 'position'), move: () => { } },
+                                { label: 'Mutations — same rs number or protein change', click: () => compare('variants', 'change'), move: () => { } },
+                                { label: 'Annotations — same name', click: () => compare('annotations', 'name'), move: () => { } },
+                                { label: 'Oligos — same name', click: () => compare('oligos', 'name'), move: () => { } },
+                                { label: 'Oligos — same sequence', click: () => compare('oligos', 'sequence'), move: () => { } },
+                                {
+                                    label: 'Clear the comparison', click: () => {
+                                        close();
+                                        try { Promise.resolve(exec('baja/manchester/menu/compare-tracks.js', this, null, { clear: true })).catch(() => { }); } catch (e) { }
+                                        try { this.setMessage(' Comparison cleared. '); } catch (e) { }
+                                    }, move: () => { }
+                                },
+                                { label: '\u2039 Back', click: () => { showTypePicker(picks, 'track', openOne, compareTop); }, move: () => { } },
+                            ], 'Compare ' + picks.length + ' tracks \u25b8');
+                            const compareTop = [{ label: 'Compare (' + picks.length + ' tracks) \u25b8', click: () => { openCompare(); }, move: () => { } }];
+                            showTypePicker(picks, 'track', openOne, compareTop);
+                            return;
+                        }
                     }
                     // Annotations (e.g. exon features): pick a specific selected
                     // annotation, then show ITS type-specific menu (the exon menu that
