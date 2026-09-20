@@ -9753,17 +9753,47 @@ function (path, config) {
                     return;
                 }
                 const ids = [], vars = [], seenTx = new Set();
+                let nGerm = 0, nTum = 0;
                 for (const it of withTx) {
                     if (seenTx.has(it.transcript) || ids.length >= 12) continue;
                     seenTx.add(it.transcript);
                     const tv = trackVarsFor(it);
-                    ids.push({ id: it.transcript, group: GERM, label: 'Germline \u2014 ' + spec.labelN });
-                    ids.push({ id: it.transcript, group: TUM, label: 'Tumor \u2014 ' + spec.labelT });
-                    for (const v of tv.germ) vars.push(v);
-                    for (const v of tv.tum) vars.push(v);
+                    // THE COUNTS, ON THE TRACKS THEMSELVES. Inside an LOH tract the tumor
+                    // track carries FEWER sites than the germline one, and that is the
+                    // finding rather than a fault: at a site where the tumor lost the
+                    // variant allele it has nothing left to draw. Read off a canvas, though,
+                    // "fewer marks on the lower track" is indistinguishable from "the
+                    // hand-off dropped some", so each track now states its own number.
+                    nGerm += tv.germ.length; nTum += tv.tum.length;
+                    ids.push({ id: it.transcript, group: GERM,
+                        label: 'Germline \u2014 ' + spec.labelN + '  \u00b7  ' + tv.germ.length + ' site' + (tv.germ.length === 1 ? '' : 's') });
+                    ids.push({ id: it.transcript, group: TUM,
+                        label: 'Tumor \u2014 ' + spec.labelT + '  \u00b7  ' + tv.tum.length + ' site' + (tv.tum.length === 1 ? '' : 's') });
+                    // Interleaved rather than one track's worth after the other's, so that a
+                    // payload trimmed for size loses from both evenly even before the
+                    // round-robin above sees it.
+                    const n = Math.max(tv.germ.length, tv.tum.length);
+                    for (let i = 0; i < n; i++) {
+                        if (i < tv.germ.length) vars.push(tv.germ[i]);
+                        if (i < tv.tum.length) vars.push(tv.tum[i]);
+                    }
                 }
                 const first = vars.find((v) => v.group === TUM) || vars[0];
                 const f = first ? { chr: first.chr, pos: first.pos } : null;
+                // Said before the tab opens, in the words the difference actually has: the
+                // tumor carries fewer because it lost alleles, which is the thing being
+                // designed against.
+                if (nGerm !== nTum) {
+                    const lo = Math.min(nGerm, nTum), hi = Math.max(nGerm, nTum);
+                    graph.setResultMessage(' Germline ' + nGerm.toLocaleString() + ' site' + (nGerm === 1 ? '' : 's')
+                        + ', tumor ' + nTum.toLocaleString() + '. '
+                        + (nTum < nGerm
+                            ? ('The tumor carries ' + (hi - lo).toLocaleString() + ' fewer: at those sites it lost the '
+                               + 'variant allele, so there is nothing left on that copy to draw. That difference is what '
+                               + 'an allele-selective design is written against.')
+                            : ('The tumor carries ' + (hi - lo).toLocaleString() + ' more: changes the germline does not have.'))
+                        + ' ');
+                }
                 const ok = await handToEditor(ids, vars, f);
                 if (ok && !window.__bajaHandoffNewTab) close();
             };
@@ -18704,7 +18734,33 @@ function (path, config) {
                 if (text.length > HANDOFF_MAX_CHARS && payload.variants.length) {
                     const keep = Math.max(1, Math.floor(payload.variants.length * (HANDOFF_MAX_CHARS / text.length)));
                     payload.trimmed = payload.variants.length - keep;
-                    payload.variants = payload.variants.slice(0, keep);
+                    // EVENLY ACROSS THE TRACKS, not off the end. A grouped hand-off lists one
+                    // track's variants and then the next one's, so slicing the tail took the
+                    // LAST track's first -- the tumor's, every time, for every gene -- and the
+                    // result looked like the tumor track had simply not received its sites.
+                    // Round-robin over the groups drops the same share from each, so what
+                    // comes out is a smaller version of the same comparison rather than one
+                    // side of it.
+                    const byGroup = new Map();
+                    for (const v of payload.variants) {
+                        const k = '' + ((v && v.group) || '');
+                        if (!byGroup.has(k)) byGroup.set(k, []);
+                        byGroup.get(k).push(v);
+                    }
+                    if (byGroup.size > 1) {
+                        const lanes = Array.from(byGroup.values());
+                        const out = [];
+                        for (let i = 0; out.length < keep; i++) {
+                            let any = false;
+                            for (const lane of lanes) {
+                                if (i < lane.length) { any = true; out.push(lane[i]); if (out.length >= keep) break; }
+                            }
+                            if (!any) break;
+                        }
+                        payload.variants = out;
+                    } else {
+                        payload.variants = payload.variants.slice(0, keep);
+                    }
                     text = JSON.stringify(payload);
                 }
                 const key = 'baja.editorHandoff.' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

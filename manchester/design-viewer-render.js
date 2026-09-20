@@ -232,13 +232,28 @@ function () {
         const HANDOFF_MAX_VARIANTS = 3000;
         const design = async (keys) => {
             const ids = [], vars = [];
+            let nGerm = 0, nTum = 0;
             for (const k of keys) {
                 const g = handoff[k];
                 if (!g || !g.transcript || ids.length >= 12) continue;
-                ids.push({ id: g.transcript, group: 'germline', label: 'Germline — ' + (doc.germline || 'normal') });
-                ids.push({ id: g.transcript, group: 'tumor', label: 'Tumor — ' + (doc.tumor || 'tumor') });
-                for (const v of (g.germline || [])) vars.push(v);
-                for (const v of (g.tumor || [])) vars.push(v);
+                const gv = g.germline || [], tv = g.tumor || [];
+                // THE COUNTS, ON THE TRACKS. Inside an LOH tract the tumor track carries
+                // FEWER sites than the germline one -- at a site where the tumor lost the
+                // variant allele there is nothing left to draw -- and that difference is the
+                // finding. On a canvas, though, "fewer marks" cannot be told apart from
+                // "the hand-off dropped some", so each track states its own number.
+                nGerm += gv.length; nTum += tv.length;
+                ids.push({ id: g.transcript, group: 'germline',
+                    label: 'Germline — ' + (doc.germline || 'normal') + '  ·  ' + gv.length + ' site' + (gv.length === 1 ? '' : 's') });
+                ids.push({ id: g.transcript, group: 'tumor',
+                    label: 'Tumor — ' + (doc.tumor || 'tumor') + '  ·  ' + tv.length + ' site' + (tv.length === 1 ? '' : 's') });
+                // Interleaved, because the cap below is a prefix: listing one track's
+                // variants and then the other's meant the cap fell entirely on the tumor.
+                const n = Math.max(gv.length, tv.length);
+                for (let i = 0; i < n; i++) {
+                    if (i < gv.length) vars.push(gv[i]);
+                    if (i < tv.length) vars.push(tv[i]);
+                }
             }
             if (!ids.length) { say('Nothing here can go to the editor: the file carries no transcript for it.'); return; }
             const first = vars.find((v) => v.group === 'tumor') || vars[0];
@@ -251,7 +266,13 @@ function () {
             const genes = keys.map((k) => (handoff[k] && handoff[k].gene) || k).join(', ');
             let win = null;
             try { win = window.open(url, '_blank'); } catch (e) { win = null; }
-            if (win) { say('Opening ' + genes + ' in the oligo editor in a new tab: a germline track and a tumor track for each.'); return; }
+            const note = (nGerm === nTum) ? ''
+                : (nTum < nGerm
+                    ? ' Germline ' + nGerm + ' sites, tumor ' + nTum + ': the tumor carries ' + (nGerm - nTum)
+                      + ' fewer because it lost the variant allele there, which is what the design is written against.'
+                    : ' Germline ' + nGerm + ' sites, tumor ' + nTum + ': the tumor carries ' + (nTum - nGerm)
+                      + ' more, changes the germline does not have.');
+            if (win) { say('Opening ' + genes + ' in the oligo editor in a new tab: a germline track and a tumor track for each.' + note); return; }
             window.location.assign(url);
         };
         const sync = () => {
