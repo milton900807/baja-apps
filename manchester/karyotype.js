@@ -4544,6 +4544,12 @@ function (path, config) {
         // itself and says what it was derived FROM, because "this is a somatic callset" is
         // worth nothing to someone deciding whether to trust the analysis that follows.
         let lastVcfProfile = null;
+        // ONE VERDICT PER SIDE, not just for whatever was loaded last. Two files is the
+        // ordinary tumour/normal shape, and the single `lastVcfProfile` meant the second
+        // file's verdict overwrote the first's -- so the app knew perfectly well that a file
+        // was a somatic callset and had no way to say WHICH of the two it was. That is the
+        // fact that explains a lopsided pair of tracks, and it was being thrown away.
+        const sideProfiles = [null, null];
         const vcfVerdict = (P, fileName) => {
             const M = P.meta || {};
             const samples = P.samples || [];
@@ -4830,6 +4836,7 @@ function (path, config) {
                 if (!count || !count.prof || !count.prof.records) return;
                 lastVcfProfile = vcfVerdict(count.prof, name);
                 const V = lastVcfProfile;
+                try { sideProfiles[loadSide] = V; } catch (e) { }
                 const notable = V.phased || V.somaticSigns.length || V.sitesOnly || V.nSamples > 1;
                 graph.setMessage(' ' + (name || 'That file') + ' \u2014 ' + V.kind + (V.phased ? ', phased' : '') + '. '
                     + (notable ? 'Opening what was read from it\u2026' : 'See Info \u203a About this file.') + ' ');
@@ -6256,13 +6263,16 @@ function (path, config) {
             // The depth and ploidy gathered for the sex call: not kept per variant, so saved here.
             out.sexEvidence = SEX_EV.map((E) => E || null);
             out.sideSlots = [sideSlots[0].slice(), sideSlots[1].slice()];
-            if (lastVcfProfile) {
+            const trimProfile = (vp) => {
                 try {
-                    let vp = lastVcfProfile;
-                    if (JSON.stringify(vp).length > 64 * 1024) vp = Object.assign({}, vp, { commands: [], versions: [] });
-                    out.vcfProfile = vp;
-                } catch (e) { }
-            }
+                    if (!vp) return null;
+                    return JSON.stringify(vp).length > 64 * 1024 ? Object.assign({}, vp, { commands: [], versions: [] }) : vp;
+                } catch (e) { return null; }
+            };
+            if (lastVcfProfile) { const vp = trimProfile(lastVcfProfile); if (vp) out.vcfProfile = vp; }
+            // What each SIDE was read from, kept beside which file it was: a reopened genome
+            // can then still say that one of its two files is a somatic callset.
+            if (sideProfiles[0] || sideProfiles[1]) out.sideProfiles = [trimProfile(sideProfiles[0]), trimProfile(sideProfiles[1])];
             out.highlight = hlActive || 0;
             out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '',
                 lof: rg.lof ? 1 : 0, dz: rg.dz ? 1 : 0, loh: rg.loh ? 1 : 0, disease: rg.disease || '' }));
@@ -6579,6 +6589,9 @@ function (path, config) {
                 }
             }
             if (doc.vcfProfile && typeof doc.vcfProfile === 'object') lastVcfProfile = doc.vcfProfile;
+            if (Array.isArray(doc.sideProfiles)) {
+                for (let i = 0; i < 2; i++) if (doc.sideProfiles[i] && typeof doc.sideProfiles[i] === 'object') sideProfiles[i] = doc.sideProfiles[i];
+            }
             SEX_EV.length = 0;
             if (Array.isArray(doc.sexEvidence)) doc.sexEvidence.forEach((E, si) => { if (E && typeof E === 'object') SEX_EV[si] = E; });
             if (doc.colorMode && ['class', 'sample', 'phase'].indexOf(doc.colorMode) >= 0) {
@@ -9857,6 +9870,31 @@ function (path, config) {
                     // the normal state and says NOTHING about allele loss. Reading it as loss
                     // would aim a selective design at sites nobody looked at.
                     const twoFiles = (spec.kind !== 'sample');
+                    // WHAT EACH FILE IS. A somatic callset records only the sites where the
+                    // tumour differs, so one of the two tracks being near-empty is what the
+                    // FILE is, not what the samples are. The verdict is already worked out at
+                    // load (vcfVerdict); this is the moment it decides how to read a pair of
+                    // tracks, so it is said here rather than left in a panel nobody reopens.
+                    let callsetNote = '';
+                    try {
+                        const pn = twoFiles ? sideProfiles[spec.normal] : lastVcfProfile;
+                        const pt = twoFiles ? sideProfiles[spec.tumor] : lastVcfProfile;
+                        const somatic = (v) => !!(v && v.somaticSigns && v.somaticSigns.length);
+                        const nameOf = (v, fallback) => (v && v.file) ? v.file : fallback;
+                        if (twoFiles && (somatic(pn) || somatic(pt))) {
+                            const which = somatic(pt) ? nameOf(pt, spec.labelT) : nameOf(pn, spec.labelN);
+                            const other = somatic(pt) ? 'germline' : 'tumor';
+                            callsetNote = ' ' + which + ' is a somatic callset \u2014 it records only the sites where the '
+                                + 'tumor differs, so the ' + other + ' track can only hold what that file happens to list. '
+                                + 'Read the gap as the callset, not as the samples.';
+                        } else if (!twoFiles && somatic(pt)) {
+                            callsetNote = ' This is a somatic callset in one file: the normal column reads reference at '
+                                + 'every site it contains, so the germline track is sparse by construction.';
+                        } else if (twoFiles && pn && pt) {
+                            callsetNote = ' Both files are full callsets (' + pn.kind + '; ' + pt.kind + '), so a site '
+                                + 'missing from one is a fact about that sample rather than about the file.';
+                        }
+                    } catch (e) { callsetNote = ''; }
                     let caveat = nUncalled
                         ? (twoFiles
                             ? ' These are two separate VCFs, so a site missing from the tumor file is simply not recorded'
@@ -9878,7 +9916,7 @@ function (path, config) {
                             + ' them \u2014 not because the tumor lost them.';
                     }
                     graph.setResultMessage(' Germline track ' + nGerm.toLocaleString() + ' site' + (nGerm === 1 ? '' : 's')
-                        + ', tumor track ' + nTum.toLocaleString() + '.'
+                        + ', tumor track ' + nTum.toLocaleString() + '.' + callsetNote
                         + (parts.length ? ' ' + parts.join('; ') + '.' : '')
                         + (nLost ? ' The ' + nLost.toLocaleString() + ' the tumor is called at without the variant allele'
                             + ' are the allele loss a selective design is written against.' : '')
@@ -17187,6 +17225,29 @@ function (path, config) {
                     } catch (e) { return 'nothing loaded'; }
                 })(), 'sources'],
                 ['Genotypes', hasGt ? (lastVcfProfile && lastVcfProfile.phased ? 'yes, phased' : 'yes') : 'no'],
+                // WHAT KIND OF CALLSET EACH SIDE IS. The single most consequential fact about
+                // a pair of files, and the one that explains a lopsided pair of tracks before
+                // anyone reads it as biology: a somatic callset lists only where the tumor
+                // differs, so the other sample looks empty however good the data is.
+                ['Callsets', (function () {
+                    try {
+                        const rows = [];
+                        for (let i = 0; i < 2; i++) {
+                            const V = sideProfiles[i];
+                            if (!V) continue;
+                            const som = V.somaticSigns && V.somaticSigns.length;
+                            rows.push(esc((V.file || sideName(i ? 1 : 0) || ('side ' + i)) + ': ' + V.kind
+                                + (V.caller ? ' (' + V.caller + ')' : ''))
+                                + (som ? ' <b style="color:#fbbf24;">somatic only</b>' : ''));
+                        }
+                        if (!rows.length && lastVcfProfile) {
+                            const V = lastVcfProfile, som = V.somaticSigns && V.somaticSigns.length;
+                            rows.push(esc((V.file || 'the file') + ': ' + V.kind + (V.caller ? ' (' + V.caller + ')' : ''))
+                                + (som ? ' <b style="color:#fbbf24;">somatic only</b>' : ''));
+                        }
+                        return rows.length ? rows.join('<br>') : 'not read from a VCF';
+                    } catch (e) { return 'could not be read'; }
+                })(), 'vcfinfo'],
                 ['Sex', (() => {
                     try {
                         const xs = sexSamples();
