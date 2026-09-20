@@ -1439,6 +1439,9 @@ function (path, config) {
                 } else {
                     if ((currentWorkbench === null) || (currentWorkbench && currentWorkbench.id === 'drag-navigate')) {
                         let new_selected = pm.plateTrack.getPlate(pm.plateTrack.grid.Xwc(scx), pm.plateTrack.grid.Ywc(scy))
+                        // A table drawn as a solid block (rows under 10 px) is not selected by a
+                        // press: the press opens its Move / Maximize menu (plate-track mouseDown).
+                        if (new_selected && pm.plateTrack.__isSolidTable && pm.plateTrack.__isSolidTable(new_selected)) new_selected = null;
                         if (new_selected) {
                             pm.plateTrack.setSelected(new_selected)
                             if (pm.plateTrack.clk_drag)

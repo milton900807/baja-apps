@@ -8269,6 +8269,14 @@ function (progress) {
             }
             keydown(event) {
                 if (!event) return;
+                if (event.key === 'Escape' && (this.__solidArmed || this.__solidDrag)) {
+                    if (this.__solidDrag) { const d = this.__solidDrag; if (d.moved) { d.o.grid.xi = d.ox; d.o.grid.yi = d.oy; } d.moved = false; this.__solidDragEnd(); }
+                    this.__solidArmed = null;
+                    try { this.setMessage('Move cancelled.', 2); } catch (e) { }
+                    return;
+                }
+                // A selected table that has shrunk to a solid block takes no typing.
+                try { if (this.selectedPlate && !event.ctrlKey && !event.metaKey && this.__isSolidTable(this.selectedPlate)) return; } catch (e) { }
 
 
 
@@ -8449,6 +8457,19 @@ function (progress) {
 
                 // View only: a press on the canvas selects and edits nothing; the graph pans.
                 if (this.__readOnly) return;
+                // A press on a table drawn as a solid block (rows under 10 px): its menu opens
+                // on the release, or, armed by that menu's Move, the press picks it up. Either
+                // way the press goes no further, so the table is not selected and no cell is.
+                try {
+                    const solid = this.__solidAt(x, y);
+                    if (solid) {
+                        if (this.__solidArmed === solid) { this.__solidDragStart(solid, x, y); return; }
+                        this.__solidArmed = null;
+                        this.__solidMenuPress = { o: solid, x, y };
+                        return;
+                    }
+                    this.__solidArmed = null;      // a press anywhere else calls the move off
+                } catch (e) { }
                 // A press on a milestone of a timeline on the canvas picks it up (see __msDrag*).
                 // Not on a phone: there a finger pans the canvas, whatever it lands on.
                 if (!this.menu && !this.__maximized) {
@@ -8618,6 +8639,9 @@ function (progress) {
                 // A held milestone owns the pointer: the plot's own listeners must not also run.
                 if (this.__msDrag) return true;
                 if (this.__tlCanvasDrag) return true;   // a drag through time, likewise
+                // A table drawn as a solid block: its cells, buttons and hover get nothing.
+                if (this.__solidDrag || this.__solidMenuPress) return true;
+                try { if (this.__solidAt(x, y)) return 'solid'; } catch (e) { }
                 // View only: nothing beneath the pointer takes a press, a move or a release.
                 if (this.__readOnly) return true;
                 const gridX = this.grid.Xwc(x);
@@ -8659,7 +8683,21 @@ function (progress) {
                     if (d.moved) { try { this.setMessage((d.o.name || 'Timeline') + ': ' + this.__tlFmt(new Date(d.o.startDate).getTime()) + ' to ' + this.__tlFmt(new Date(d.o.endDate).getTime()) + (d.zoom ? '' : '  (Ctrl+drag zooms the timescale)'), 2); } catch (e) { } }
                     return;
                 }
+                if (this.__solidDrag) { this.__solidDragEnd(); return; }
                 if (this.__selectGesture) return;
+                // A press on a solid table: its Move / Maximize menu opens now, on the release
+                // (opened on the press, the same click's release would close it again). A
+                // press that turned into a drag was a pan, and opens nothing.
+                if (this.__solidMenuPress) {
+                    const sp = this.__solidMenuPress; this.__solidMenuPress = null;
+                    // On the next tick: the app's release handler calls mouseUp a second time when
+                    // it finds a menu open (to hand the release to it), and a menu opened here,
+                    // synchronously, was closed by that second call within the same click.
+                    if (Math.abs(x - sp.x) + Math.abs(y - sp.y) < 8 && this.__isSolidTable(sp.o)) {
+                        setTimeout(() => { try { if (!this.menu && !this.__maximized) this.__solidOpenMenu(sp.o, x, y); } catch (e) { console.warn('solid table menu', e); } }, 0);
+                    }
+                    return;
+                }
                 // A press on a milestone pill: its menu opens now, on the release, and stays
                 // until an item is chosen or the next click lands outside it.
                 if (this.__msMenuPress) {
@@ -9275,6 +9313,9 @@ function (progress) {
             mouseMove(x, y) {
                 if (this.__msHold && Math.abs(x - this.__msHold.x) + Math.abs(y - this.__msHold.y) > 10) this.__msHoldCancel();   // a pan, not a hold
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
+                if (this.__solidDrag) { this.__solidDragMove(x, y); return; }
+                if (this.__solidMenuPress && Math.abs(x - this.__solidMenuPress.x) + Math.abs(y - this.__solidMenuPress.y) >= 8) this.__solidMenuPress = null;   // a pan, not a click
+                try { this.__solidHover = this.__solidAt(x, y); } catch (e) { this.__solidHover = null; }
                 if (this.__tlCanvasDrag) { this.__tlDragMove(this.__tlCanvasDrag, x, y); return; }
                 if (this.__msMenuPress && Math.abs(x - this.__msMenuPress.x) + Math.abs(y - this.__msMenuPress.y) >= 8) this.__msMenuPress = null;   // a drag, not a click
                 this.__msHoverUpdate(x, y);
@@ -10736,6 +10777,81 @@ function (progress) {
                 try { this.setMessage((d.p.name || 'Milestone') + ' moved to ' + this.__tlFmt(new Date(d.p.date).getTime()) + note + ' (Ctrl+Z undoes)', 3); } catch (e) { }
             }
 
+            // ---- tables too small to read: the solid view ---------------------------------
+            // Once a table's rows are under 10 px on screen (or a column under 10 px wide) it
+            // is drawn as one rectangle (__drawTinyTable) and behaves as one block: a press on it
+            // opens a two-item menu, Move and Maximize, and nothing reaches its cells, its
+            // buttons or its own menu. Move arms ONE drag (the next press picks the table
+            // up), the way a milestone's Move does. Folder cards, documents and notes are
+            // not tables and are never solid; nothing is while an object is maximized.
+            __isSolidTable(pl) {
+                try {
+                    if (!pl || this.__maximized || pl.hidden || pl.__maximizedView || !this.__layoutIsTable(pl)) return false;
+                    return !!this.__tinyTableBox(pl);        // exactly what __drawTinyTable draws as a block
+                } catch (e) { return false; }
+            }
+            // The solid table under a screen point, when the pointer is the canvas's to give:
+            // no menu open, nothing maximized, and no drawing / selecting tool holding it.
+            __solidAt(x, y) {
+                if (this.menu || this.__maximized || this.__selectGesture || this.__readOnly) return null;
+                const id = this.wbid;
+                if (id && id !== 'drag-navigate' && !('' + id).startsWith('click_and_drag')) return null;
+                const at = this.objectAt(x, y);
+                return (at && at.kind === 'plate' && this.__isSolidTable(at.obj)) ? at.obj : null;
+            }
+            __solidOpenMenu(o, x, y) {
+                const close = () => { this.menu = null; this.menu_vis = false; };
+                const ml = [
+                    {
+                        label: 'Move',
+                        click: () => {
+                            close();
+                            this.__solidArmed = o;
+                            try { this.setMessage('Drag ' + (o.name || 'the table') + ' to where it should go. Esc cancels.', 4); } catch (e) { }
+                        },
+                        bg: 'rgba(26,163,189,0.18)', fg: '#0a2540'
+                    },
+                    {
+                        label: 'Maximize',
+                        click: () => {
+                            close();
+                            this.__solidArmed = null;
+                            try { this.setSelected(o); } catch (e) { }
+                            try { this.maximizeObject(o); } catch (e) { console.warn('maximize', e); }
+                        },
+                        bg: 'rgba(26,163,189,0.10)', fg: '#0a2540'
+                    },
+                ];
+                this.__solidArmed = null;   // opening the menu cancels any earlier arming
+                this.menu = new Menu(ml, this.grid.Xwc(x), this.grid.Ywc(y), 'rgba(255,255,255,0.98)', '#0a2540', 1);
+                this.menu.title = ('' + (o.name || 'Table')).replace(/_/g, ' ');
+                this.menu.titleColor = '#ffffff';     // the title band is navy; the default title colour is near-black
+                this.menu_vis = true;
+            }
+            __solidDragStart(o, x, y) {
+                this.__solidDrag = { o, sx: x, sy: y, ox: o.grid.xi, oy: o.grid.yi, moved: false };
+                try { this.cancelLayoutAnimation(); } catch (e) { }
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+            }
+            __solidDragMove(x, y) {
+                const d = this.__solidDrag; if (!d) return;
+                if (!d.moved) {
+                    if (Math.abs(x - d.sx) + Math.abs(y - d.sy) < 3) return;
+                    d.moved = true;
+                    try { pushHistory(HM(this)); } catch (e) { }      // one undo puts it back
+                    try { if (this.__collab && this.__collab.holds && !this.__collab.holds(d.o)) this.__collab.acquire(d.o); } catch (e) { }
+                }
+                const g = this.grid;
+                d.o.grid.xi = d.ox + g.worldWidth(x - d.sx);
+                d.o.grid.yi = d.oy - g.worldHeight(y - d.sy);             // screen y runs down, world y up
+            }
+            __solidDragEnd() {
+                const d = this.__solidDrag; this.__solidDrag = null;
+                this.__solidArmed = null;   // one move per "Move": the next press reopens the menu
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
+                if (d && d.moved) { try { this.setMessage((d.o.name || 'Table') + ' moved (Ctrl+Z undoes).', 2); } catch (e) { } }
+            }
+
             // The topmost object under a screen point: a note, a chart or timeline, or a table.
             objectAt(x, y) {
                 try { const g = this.getGlyph(x, y); if (g) return { obj: g, kind: 'glyph' }; } catch (e) { }
@@ -11096,15 +11212,19 @@ function (progress) {
             // A table whose cells have shrunk below MIN_W x MIN_H screen pixels is drawn as a
             // placeholder: a see-through rectangle on its footprint with its name. Returns
             // true when it drew the placeholder (the caller then skips the table itself).
-            __drawTinyTable(obj, ctx, MIN_W = 10, MIN_H = 5) {
-                if (!obj || !obj.wells || !obj.wells.length || !obj.grid || obj.shape) return false;
-                if (this.__maximized === obj) return false;
+            // A row under 10 px is already unreadable (it was 5), so that is where the
+            // placeholder takes over; from there the table is also ONE BLOCK to the pointer
+            // (see __isSolidTable): the same test decides both, so what is drawn as a block
+            // is what behaves as one.
+            __tinyTableBox(obj, MIN_W = 10, MIN_H = 10) {
+                if (!obj || !obj.wells || !obj.wells.length || !obj.grid || obj.shape) return null;
+                if (this.__maximized === obj) return null;
                 const b = this.__maxWorldBounds(obj);
-                if (!b) return false;
+                if (!b) return null;
                 const g = this.grid;
                 const x0 = g.X(b.x0), x1 = g.X(b.x1), y0 = g.Y(b.yTop), y1 = g.Y(b.yBot);
                 const left = Math.min(x0, x1), top = Math.min(y0, y1), w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
-                if (!(w > 0 && h > 0)) return false;
+                if (!(w > 0 && h > 0)) return null;
                 const cols = Math.max(1, (obj.grid.xmax - obj.grid.xmin) || obj.wells.length);
                 const rows = Math.max(1, (obj.grid.ymax - obj.grid.ymin) || (obj.wells[0] ? obj.wells[0].length : 1));
                 // The SMALLEST cell decides, and EITHER dimension is enough: one column under
@@ -11127,7 +11247,13 @@ function (progress) {
                     }
                 } catch (e) { }
                 const tooNarrow = minW < MIN_W, tooShort = minH < MIN_H;
-                if (!(tooNarrow || tooShort)) return false;
+                if (!(tooNarrow || tooShort)) return null;
+                return { left, top, w, h };
+            }
+            __drawTinyTable(obj, ctx, MIN_W = 10, MIN_H = 10) {
+                const box = this.__tinyTableBox(obj, MIN_W, MIN_H);
+                if (!box) return false;
+                const { left, top, w, h } = box;
                 // A table never shrinks out of sight: its placeholder is at least 10 x 10 px,
                 // grown about the footprint's centre, however far the canvas is zoomed out.
                 const FLOOR = 10;
@@ -11137,12 +11263,16 @@ function (progress) {
                 // Off screen: nothing to draw, and the table itself is skipped too.
                 if (dl > ctx.canvas.width || dt > ctx.canvas.height || dl + dw < 0 || dt + dh < 0) return true;
                 const selected = this.selectedPlate === obj;
+                // Armed by its menu's Move (or being dragged): dashed and teal, so it is plain
+                // which block the next press picks up. Under the pointer: a shade darker.
+                const armed = this.__solidArmed === obj || !!(this.__solidDrag && this.__solidDrag.o === obj);
+                const hover = this.__solidHover === obj;
                 ctx.save();
-                ctx.setLineDash([]);
+                ctx.setLineDash(armed ? [6, 4] : []);
                 ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
-                ctx.fillStyle = selected ? 'rgba(26,163,189,0.16)' : 'rgba(26,163,189,0.07)';
-                ctx.strokeStyle = selected ? '#1aa3bd' : 'rgba(10,37,64,0.45)';
-                ctx.lineWidth = selected ? 2 : 1;
+                ctx.fillStyle = armed ? 'rgba(26,163,189,0.30)' : (selected ? 'rgba(26,163,189,0.16)' : (hover ? 'rgba(26,163,189,0.13)' : 'rgba(26,163,189,0.07)'));
+                ctx.strokeStyle = (selected || armed) ? '#1aa3bd' : 'rgba(10,37,64,0.45)';
+                ctx.lineWidth = (selected || armed) ? 2 : 1;
                 const r = Math.min(6, dw / 4, dh / 4);
                 ctx.beginPath();
                 if (typeof ctx.roundRect === 'function') ctx.roundRect(dl, dt, dw, dh, r); else ctx.rect(dl, dt, dw, dh);
