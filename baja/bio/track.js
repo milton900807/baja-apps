@@ -3779,10 +3779,28 @@ return new Promise(async (resolve, reject) => {
     }
 
     // Is this track a spliced child (cDNA / mRNA) rendered in local coordinates?
+    //
+    // AN EXON WITH A GENOMIC COORDINATE IS NOT EVIDENCE OF SPLICING. A pre-mRNA track --
+    // the whole genomic window of a transcript, introns and all, which is exactly what the
+    // transcript endpoint returns (39,394 bases for a 39,394 bp gene) -- carries exon
+    // annotations with gxi set too. Testing for that alone called EVERY transcript track a
+    // spliced child, and a spliced child has no room for an intron: variantWorldX sent the
+    // position through genomicToLocal, which returns null between exons.
+    //
+    // That is why an intronic difference would not open in the editor. A 40 bp insertion in
+    // an intron of ZNF430 -- only in the tumor, and a perfectly good allele-selective target
+    // -- was handed over, mapped to null, and dropped. Exonic sites on the same track placed
+    // normally, which is what made the hand-off look like it had worked.
+    //
+    // What makes a track spliced is that its LOCAL coordinates differ from the genomic ones.
+    // When the exons put xi where gxi is, local IS genomic: nothing was spliced out.
     isChildCDNATrack() {
       if (this.track_type === 'CDNA') return true;
       if (this.trackRef && this.trackRef.genomeMap && this.trackRef.genomeMap.length) return true;
-      return (this.annotations || []).some(a => a && String(a.type).toLowerCase() === 'exon' && a.gxi != null);
+      const ex = (this.annotations || []).filter(a => a && String(a.type).toLowerCase() === 'exon'
+          && a.gxi != null && a.xi != null && isFinite(+a.gxi) && isFinite(+a.xi));
+      if (!ex.length) return false;
+      return ex.some(a => Math.abs((+a.xi) - (+a.gxi)) > 1);
     }
 
     // Can a variant at chromosome `chr`, 1-based genomic position `G` live on this track,

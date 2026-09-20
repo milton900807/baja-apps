@@ -14778,22 +14778,6 @@ function (path, config) {
             books.push({ section: 'This genome', title: 'Label the samples and files', badge: SAMPLES.length ? String(SAMPLES.length) : '', icon: 'edit', ready: true,
                 blurb: 'Give each VCF sample column and each loaded file the name you use for it -- "tumour", "the normal", "day 14" -- and every panel, report and saved file follows.',
                 open: () => { try { labelSamplesDialog(); } catch (e) { } } });
-            // THE TWO DIFFERENTIALS, WHERE THEY ARE LOOKED FOR. Both lived under "What is
-            // loaded" — the panel that says what a file HAS, not what can be done with it —
-            // so a panel people ask for by name was three steps away from Analyze.
-            if (SAMPLES.length > 1 || (sideCounts().left && sideCounts().right)) {
-                books.push({ section: 'What differs between two', title: 'Differential matrix',
-                    badge: diffVarResult ? 'done · show' : 'the sites', icon: 'difference', accent: 'run', ready: true,
-                    blurb: 'Every site the two samples do not share, damaging or not. An oligo tells two genomes apart '
-                        + 'on sequence, so a silent change discriminates as well as a nonsense one — these are the sites '
-                        + 'a selective design can be built on, and each one opens its gene as two tracks.',
-                    open: () => diffVarMenu() });
-                books.push({ section: 'What differs between two', title: 'Differential loss matrix',
-                    badge: diffResult ? 'done · show' : 'pick the pair', icon: 'compare', accent: 'run', ready: true,
-                    blurb: 'The narrower question: which GENES one of them has lost that the other has not, by '
-                        + 'loss-of-function change. Genes there open as two tracks as well.',
-                    open: () => { if (diffResult) diffMenu(); else exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Differential loss matrix', subtitle: 'Choose the two to compare', graph: graph, books: diffPickerBooks() }); } });
-            }
             books.push({ section: 'This genome', title: 'What is loaded', badge: 'info', icon: 'info_outline',
                 blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
                 open: () => { try { infoPanel(); } catch (e) { } } });
@@ -14868,6 +14852,25 @@ function (path, config) {
                 blurb: 'Somatic calls the normal carries, genotypes the reads contradict, the mutational spectrum, and one callset '
                     + 'against another or against a truth set.',
                 open: () => qcMenu() });
+            // AFTER the whole of "This genome", not in the middle of it. The shelf heads a
+            // RUN of cards that share a section, so a card from another section pushed between
+            // them printed "This genome" twice, once above each piece.
+            // THE TWO DIFFERENTIALS, WHERE THEY ARE LOOKED FOR. Both lived under "What is
+            // loaded" — the panel that says what a file HAS, not what can be done with it —
+            // so a panel people ask for by name was three steps away from Analyze.
+            if (SAMPLES.length > 1 || (sideCounts().left && sideCounts().right)) {
+                books.push({ section: 'What differs between two', title: 'Differential matrix',
+                    badge: diffVarResult ? 'done · show' : 'the sites', icon: 'difference', accent: 'run', ready: true,
+                    blurb: 'Every site the two samples do not share, damaging or not. An oligo tells two genomes apart '
+                        + 'on sequence, so a silent change discriminates as well as a nonsense one — these are the sites '
+                        + 'a selective design can be built on, and each one opens its gene as two tracks.',
+                    open: () => diffVarMenu() });
+                books.push({ section: 'What differs between two', title: 'Differential loss matrix',
+                    badge: diffResult ? 'done · show' : 'pick the pair', icon: 'compare', accent: 'run', ready: true,
+                    blurb: 'The narrower question: which GENES one of them has lost that the other has not, by '
+                        + 'loss-of-function change. Genes there open as two tracks as well.',
+                    open: () => { if (diffResult) diffMenu(); else exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Differential loss matrix', subtitle: 'Choose the two to compare', graph: graph, books: diffPickerBooks() }); } });
+            }
             // PATENTS ARE NOT LISTED HERE. The toolbar above the chromosomes has its own
             // Patents button, and the same switch in two places reads as two different things.
             // LOSS OF HETEROZYGOSITY, AT THE TOP. It was a step inside "Find the losses", two
