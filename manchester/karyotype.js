@@ -11730,7 +11730,7 @@ function (path, config) {
                     const d = vdata[ci];
                     if (!d || !d.n) continue;
                     if (ci % 4 === 0) { graph.setMessage(' Comparing ' + drawn[ci].name + '\u2026 '); await new Promise((r) => setTimeout(r, 0)); }
-                    let cA = 0, cB = 0, cD = 0;
+                    let cA = 0, cB = 0, cD = 0, cS = 0;
                     // BY POSITION AND ALLELE, NOT BY ROW.
                     //
                     // Two samples of ONE file share a row and can be read off its genotype
@@ -11761,7 +11761,7 @@ function (path, config) {
                             if (!hasA && !hasB) continue;
                             counts.scanned++;
                             let kind = '';
-                            if (hasA && hasB) { if (rec.ga === rec.gb) { counts.shared++; continue; } kind = 'diff'; cD++; counts.diff++; }
+                            if (hasA && hasB) { if (rec.ga === rec.gb) { counts.shared++; cS++; continue; } kind = 'diff'; cD++; counts.diff++; }
                             else if (hasA) { kind = 'onlyA'; cA++; counts.onlyA++; }
                             else { kind = 'onlyB'; cB++; counts.onlyB++; }
                             if (sites.length < DIFFVAR_CAP) {
@@ -11772,7 +11772,8 @@ function (path, config) {
                         }
                         k = e;
                     }
-                    if (cA + cB + cD) byChr.push({ ci: ci, name: drawn[ci].name, onlyA: cA, onlyB: cB, diff: cD });
+                    if (cA + cB + cD) byChr.push({ ci: ci, name: drawn[ci].name, onlyA: cA, onlyB: cB, diff: cD,
+                        shared: cS, called: cA + cB + cD + cS });
                 }
                 // Neither side recorded a genotype anywhere: the comparison is not empty
                 // because they agree, it is empty because nothing was asked of it, and those
@@ -11808,6 +11809,22 @@ function (path, config) {
                 ? 'both carry it, in different dose: discriminates only where the dose does'
                 : 'one carries it and the other reads reference: an oligo on this allele hits that sample alone',
         })));
+        // ONE SITE ON THE CHROMOSOMES. The other half of "where is this": the genome
+        // browser frames it in place, without loading anything, which is the cheaper of the
+        // two answers and often the one wanted first.
+        const diffVarShowSite = async (x, note) => {
+            const ci = x.ci, pos = +x.pos;
+            if (!(ci >= 0) || !isFinite(pos)) return;
+            const pad = Math.max(20000, 2000) / MB;
+            try {
+                await goView({ x0: barLeft(ci) - 0.5 * SLOT, x1: barRight(ci) + 0.5 * SLOT,
+                    y0: wy(pos) - pad, y1: wy(pos) + pad });
+            } catch (e) { }
+            try {
+                graph.setMessage(' ' + drawn[ci].name + ':' + human(pos) + '  ' + (x.ref || '?') + ' > ' + (x.alt || '?')
+                    + (note ? ' \u2014 ' + note : '') + '. ');
+            } catch (e) { }
+        };
         // ONE SITE INTO THE EDITOR, BOTH SAMPLES. The gene under the site is looked up in the
         // annotation, and its transcript opens twice -- once per sample, each carrying that
         // sample's own differing sites inside the gene. That pair IS the design problem.
@@ -11880,21 +11897,57 @@ function (path, config) {
                     open: () => { try { dlSaveText(diffVarCSV(), dlSafe(dlSpecies() + '_' + R.labelA + '_vs_' + R.labelB + '_differential_matrix') + '.csv', 'text/csv'); dlMsg('Differential matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
                 books.push({ section: 'Differential matrix', title: 'Compare another pair', badge: 'pick', icon: 'compare', ready: true,
                     blurb: 'Two samples of this file, or two files.', open: () => { diffVarResult = null; diffVarMenu(); } });
-                if (R.byChr.length) books.push({ section: 'By chromosome', note: true, mono: true,
-                    title: R.byChr.slice(0, 30).map((q) => (q.name + '            ').slice(0, 8)
-                        + ('        ' + q.onlyA.toLocaleString()).slice(-9)
-                        + ('        ' + q.onlyB.toLocaleString()).slice(-9)
-                        + ('        ' + q.diff.toLocaleString()).slice(-9)).join('\n') });
+                // HOW MUCH OF THE CHROMOSOME DIFFERS, not just how many sites do. A count on its
+                // own says as much about how many variants were called there as about how alike
+                // the two samples are: chr2 differs at more sites than chr21 mostly because it
+                // is ten times the size. The share of the sites CALLED on that chromosome is
+                // the comparable number, and it is what makes an outlier visible -- a
+                // chromosome the tumour has rearranged stands out of a column of percentages
+                // and disappears into a column of counts.
+                if (R.byChr.length) {
+                    const pc = (q) => q.called ? ((q.onlyA + q.onlyB + q.diff) * 100 / q.called) : 0;
+                    const rows = R.byChr.slice().sort((a, b) => pc(b) - pc(a));
+                    const num = (n, w) => (('            ' + n.toLocaleString()).slice(-w));
+                    const col = (t) => ('         ' + t).slice(-9);
+                    const head = ('chrom' + '            ').slice(0, 8) + col('only A') + col('only B') + col('diff') + col('% diff');
+                    books.push({ section: 'By chromosome', note: true, mono: true,
+                        title: head + '\n' + rows.slice(0, 30).map((q) => (q.name + '            ').slice(0, 8)
+                            + num(q.onlyA, 9) + num(q.onlyB, 9) + num(q.diff, 9)
+                            + ('        ' + (pc(q) >= 10 ? pc(q).toFixed(0) : pc(q).toFixed(1)) + '%').slice(-9)).join('\n')
+                            + '\n' + ('all' + '            ').slice(0, 8) + num(c.onlyA, 9) + num(c.onlyB, 9) + num(c.diff, 9)
+                            + ('        ' + (((c.onlyA + c.onlyB + c.diff) * 100 / Math.max(1, c.onlyA + c.onlyB + c.diff + c.shared)).toFixed(1)) + '%').slice(-9) });
+                    books.push({ section: 'By chromosome', note: true,
+                        title: '% diff is the share of the sites called on that chromosome where the two do not agree \u2014 '
+                            + 'sorted by it, so the chromosome they differ over most is first. A: ' + R.labelA + ', B: ' + R.labelB + '.' });
+                }
                 // THE SITES, EACH ONE A WAY INTO THE EDITOR.
+                // TWO WAYS TO LOOK AT A SITE, and they answer different questions: the genome
+                // browser says WHERE it is, in place, without loading anything; the editor says
+                // WHAT IT LOOKS LIKE in sequence, which is what a design is written against.
+                // Offering only the second made the cheap answer the expensive one.
+                const siteWord = (x) => x.kind === 'onlyA' ? ('only in ' + R.labelA)
+                    : (x.kind === 'onlyB' ? ('only in ' + R.labelB) : 'carried differently');
                 const siteCard = (x) => ({
                     section: x.kind === 'onlyA' ? ('Only in ' + R.labelA) : (x.kind === 'onlyB' ? ('Only in ' + R.labelB) : 'Carried differently'),
                     title: drawn[x.ci].name + ':' + human(x.pos) + '  ' + (x.ref || '?') + ' > ' + (x.alt || '?'),
                     badge: (GT_TEXT[x.ga] || './.') + ' vs ' + (GT_TEXT[x.gb] || './.'),
-                    icon: 'edit', accent: 'design', ready: true,
+                    icon: 'gps_fixed', ready: true,
                     swatch: x.kind === 'onlyA' ? '#dc2626' : (x.kind === 'onlyB' ? '#2563eb' : '#7c3aed'),
-                    blurb: 'Opens the gene here as two tracks \u2014 ' + R.labelA + ' and ' + R.labelB + ' \u2014 each with its own '
-                        + 'sites, which is what a selective design is written against.',
-                    open: () => diffVarOpenSite(x),
+                    blurb: siteWord(x).charAt(0).toUpperCase() + siteWord(x).slice(1)
+                        + '. Show it on the genome, or open the gene here as two tracks.',
+                    books: () => [
+                        { note: true, mono: true, title: drawn[x.ci].name + ':' + human(x.pos) + '  ' + (x.ref || '?') + ' > ' + (x.alt || '?')
+                            + '\n  ' + R.labelA + '   ' + (GT_TEXT[x.ga] || './.')
+                            + '\n  ' + R.labelB + '   ' + (GT_TEXT[x.gb] || './.')
+                            + '\n  ' + siteWord(x) },
+                        { title: 'Show on the genome', badge: 'browser', icon: 'my_location', accent: 'choose', ready: true,
+                            blurb: 'Frames it on ' + drawn[x.ci].name + ' in this view. Nothing is loaded and nothing moves but the camera.',
+                            open: () => diffVarShowSite(x, siteWord(x)) },
+                        { title: 'Open the gene in the oligo editor', badge: 'two tracks', icon: 'edit', accent: 'design', ready: true,
+                            blurb: 'Opens the gene here as two tracks \u2014 ' + R.labelA + ' and ' + R.labelB + ' \u2014 each with its own '
+                                + 'sites, which is what a selective design is written against.',
+                            open: () => diffVarOpenSite(x) },
+                    ],
                 });
                 const kinds = [['onlyA', 'Only in ' + R.labelA, c.onlyA], ['onlyB', 'Only in ' + R.labelB, c.onlyB],
                     ['diff', 'Carried differently', c.diff]];
@@ -12008,15 +12061,32 @@ function (path, config) {
                         + (noTx ? noTx + ' had no transcript to open. ' : ''));
                 }
             };
+            // THE SAME TWO DESTINATIONS AS A SITE: where it is, and what it looks like. A gene
+            // named in a report is a place on a chromosome before it is a design problem, and
+            // the browser answers that without loading anything.
             const diffGeneCards = (rows, sec) => rows.map((x) => {
                 const sides = [x.A ? R.A.label : null, x.B ? R.B.label : null].filter(Boolean);
                 const nv = ((x.A && x.A.variants) || []).length + ((x.B && x.B.variants) || []).length;
+                const g = x.A || x.B;
+                const canEdit = !!((x.A && x.A.transcript) || (x.B && x.B.transcript));
                 return { section: sec, title: x.gene, badge: sides.length === 2 ? 'both sides' : sides[0],
-                    icon: 'edit', accent: 'design', ready: !!((x.A && x.A.transcript) || (x.B && x.B.transcript)),
-                    readyNote: 'no transcript in this file for ' + x.gene,
-                    blurb: 'Opens ' + (sides.length === 2 ? 'two tracks — ' + sides.join(' and ') : 'one track — ' + sides[0])
-                        + ', carrying ' + nv + ' mutation' + (nv === 1 ? '' : 's') + ' between them.',
-                    open: () => diffOpenInEditor([x], x.gene) };
+                    icon: 'gps_fixed', ready: true,
+                    blurb: (sides.length === 2 ? 'Changed in both, each its own way' : 'Changed in ' + sides[0])
+                        + ' · ' + nv + ' mutation' + (nv === 1 ? '' : 's') + '. Show it on the genome, or open it as '
+                        + (sides.length === 2 ? 'two tracks' : 'a track') + ' in the editor.',
+                    books: () => [
+                        { note: true, title: x.gene + ' — ' + g.chr + ':' + human(g.start) + '-' + human(g.end)
+                            + (x.evidence ? ' · other side ' + x.evidence : '') },
+                        { title: 'Show on the genome', badge: 'browser', icon: 'my_location', accent: 'choose', ready: true,
+                            blurb: 'Frames ' + x.gene + ' on ' + g.chr + ' in this view. Nothing is loaded.',
+                            open: () => { try { gotoLostGene(g); } catch (e) { try { gotoSymbol(x.gene); } catch (e2) { } } } },
+                        { title: 'Open in the oligo editor', badge: sides.length === 2 ? 'two tracks' : 'one track',
+                            icon: 'edit', accent: 'design', ready: canEdit,
+                            readyNote: 'no transcript in this file for ' + x.gene,
+                            blurb: 'Opens ' + (sides.length === 2 ? 'two tracks — ' + sides.join(' and ') : 'one track — ' + sides[0])
+                                + ', each with its own mutations, which is what a selective design is written against.',
+                            open: () => diffOpenInEditor([x], x.gene) },
+                    ] };
             });
             const diffOpenBooks = () => {
                 const out = [{ note: true, title: 'A gene opens as one track per sample, each carrying that sample\u2019s own '
