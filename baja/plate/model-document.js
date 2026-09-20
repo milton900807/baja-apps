@@ -266,7 +266,7 @@ function () {
                 // Too small to read: the name alone, in the placeholder a tiny table gets
                 // (platetrack.__drawTinyTable: the same tint, edge and states), because from
                 // here the two behave alike -- a press offers Move and Maximize.
-                const base = Math.max(7, Math.min(16, h * 0.045, w * 0.028));
+                let base = Math.max(7, Math.min(16, h * 0.045, w * 0.028));
                 if (w < 90 || h < 60 || base < 8) {
                     const armed = pt.__solidArmed === this || !!(pt.__solidDrag && pt.__solidDrag.o === this);
                     const hover = pt.__solidHover === this;
@@ -294,8 +294,14 @@ function () {
                 }
                 card(C.card, this.selected ? C.cyan : C.rule, this.selected ? 2 : 1);
 
+                // MAXIMIZED the card is the whole window. Text set at the card's usual size in
+                // lines as wide as the screen cannot be read, so the page gets a larger size
+                // and a measure: a column of about seventy characters, centred.
+                const maxed = !!this.__maximizedView;
+                if (maxed) base = Math.max(15, Math.min(21, h * 0.03, w * 0.017));
                 const pad = Math.max(10, Math.round(base * 1.4));
-                const innerW = w - pad * 2;
+                const innerW = maxed ? Math.min(w - pad * 2, Math.round(base * 40)) : (w - pad * 2);
+                const tx = maxed ? Math.round(x + (w - innerW) / 2) : (x + pad);      // where the text column starts
                 if (!this.__blocks) this.__blocks = parseHtml(this.html);
                 const key = Math.round(innerW) + ':' + Math.round(base) + ':' + this.html.length;
                 if (this.__layoutKey !== key) { this.__lines = layout(ctx, this.__blocks, innerW, base); this.__layoutKey = key; }
@@ -306,15 +312,16 @@ function () {
                 if (this.name) {
                     ctx.font = '700 ' + Math.round(base * 1.05) + 'px ' + FAMILY;
                     ctx.fillStyle = C.muted;
-                    ctx.fillText(this.name, x + pad, cy);
+                    ctx.fillText(this.name, tx, cy);
                     cy += Math.round(base * 1.6);
-                    ctx.beginPath(); ctx.moveTo(x + pad, cy - 4); ctx.lineTo(x + w - pad, cy - 4);
+                    ctx.beginPath(); ctx.moveTo(tx, cy - 4); ctx.lineTo(tx + innerW, cy - 4);
                     ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.stroke();
                     cy += 4;
                 }
                 const top = cy, bottom = yTop + h - pad;
                 const total = (this.__lines || []).reduce((s, l) => s + l.h, 0);
                 const maxScroll = Math.max(0, total - (bottom - top));
+                this.__scrollMax = maxScroll;                 // for the wheel and the scroll zone (platetrack.__maxScroll)
                 this.scroll = Math.max(0, Math.min(this.scroll || 0, maxScroll));
                 let ly = top - this.scroll;
 
@@ -323,7 +330,7 @@ function () {
                 for (const line of (this.__lines || [])) {
                     if (ly + line.h >= top - 40 && ly <= bottom + 40) {
                         if (line.kind === 'hr') {
-                            ctx.beginPath(); ctx.moveTo(x + pad, ly + line.h / 2); ctx.lineTo(x + w - pad, ly + line.h / 2);
+                            ctx.beginPath(); ctx.moveTo(tx, ly + line.h / 2); ctx.lineTo(tx + innerW, ly + line.h / 2);
                             ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.stroke();
                         } else if (line.kind === 'row') {
                             const cols = Math.max(1, line.cells.length);
@@ -334,10 +341,10 @@ function () {
                                 let t = c;
                                 while (t.length > 1 && ctx.measureText(t).width > cw - 8) t = t.slice(0, -1);
                                 if (t !== c) t = t.slice(0, -1) + '…';
-                                ctx.fillText(t, x + pad + i * cw, ly);
+                                ctx.fillText(t, tx + i * cw, ly);
                             });
                         } else if (line.kind === 'text') {
-                            let lx = x + pad + (line.indent || 0);
+                            let lx = tx + (line.indent || 0);
                             if (line.bullet) {
                                 ctx.font = Math.round(base) + 'px ' + FAMILY;
                                 ctx.fillStyle = C.cyan;
@@ -345,12 +352,12 @@ function () {
                             }
                             if (line.block === 'quote') {
                                 ctx.fillStyle = C.quote;
-                                ctx.fillRect(x + pad, ly - 2, innerW, line.h + 2);
+                                ctx.fillRect(tx, ly - 2, innerW, line.h + 2);
                                 ctx.fillStyle = C.cyan;
-                                ctx.fillRect(x + pad, ly - 2, 2.5, line.h + 2);
+                                ctx.fillRect(tx, ly - 2, 2.5, line.h + 2);
                             } else if (line.block === 'code') {
                                 ctx.fillStyle = C.code;
-                                ctx.fillRect(x + pad, ly - 2, innerW, line.h + 2);
+                                ctx.fillRect(tx, ly - 2, innerW, line.h + 2);
                             }
                             for (const piece of line.runs) {
                                 const m = piece.mark || {};

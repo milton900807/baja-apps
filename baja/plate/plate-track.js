@@ -9614,11 +9614,14 @@ function (progress) {
             // box, so they get more room than a table.
             __maxTopPx(obj) {
                 const o = obj || this.__maximized;
+                // A document has no buttons above it to leave room for: it starts just under the
+                // title bar, so that maximized it fills the window rather than sitting in a band.
+                if (o && o.plateType === 'document') return 46 + 8;
                 return 46 + 50 + ((o && typeof o.drawPlot === 'function') ? 40 : 0);
             }
             __maxBottomPx(obj) {
                 const o = obj || this.__maximized;
-                let px = 50 + ((o && typeof o.drawPlot === 'function') ? 120 : 0);
+                let px = ((o && o.plateType === 'document') ? 8 : 50) + ((o && typeof o.drawPlot === 'function') ? 120 : 0);
                 // The navigation bar floats over the bottom of the canvas: leave room for it
                 // (its measured height, or a phone-sized allowance) so the last rows and the
                 // chart labels can scroll clear of it. Larger again on a phone, where the bar
@@ -9729,7 +9732,13 @@ function (progress) {
                 const width = Math.max(1e-6, b.x1 - b.x0);
                 // Charts and timelines fit the width almost edge to edge (1% each side); tables
                 // keep the 4% breathing room around their buttons.
-                const sideFrac = (typeof obj.drawPlot === 'function') ? 0.01 : 0.04;
+                // A DOCUMENT is prose, not a grid: it carries an empty `wells` (so the table
+                // routines pass it by), and was fitted as a one-cell table -- whose 40 px cell cap
+                // shrank the whole document to 40 px tall in an empty window. It fills the
+                // window instead, both ways, the way a timeline does (below): it lays its text
+                // out in screen pixels, so stretching the view over it distorts nothing.
+                const isDoc = obj.plateType === 'document';
+                const sideFrac = (typeof obj.drawPlot === 'function' || isDoc) ? 0.01 : 0.04;
                 let xRange = width * (1 + 2 * sideFrac);
                 let yRange = xRange * (ch / cw);
                 // A table's cells are capped at 40px tall: a narrow table fitted to the
@@ -9743,7 +9752,7 @@ function (progress) {
                 const MIN_CELL_W_PX = 40, MIN_CELL_H_PX = 10;
                 let hscroll = false;
                 let tlFill = false;   // a timeline fills both axes: x and y ranges are set independently
-                if (!(typeof obj.drawPlot === 'function') && obj.grid && obj.wells) {
+                if (!(typeof obj.drawPlot === 'function') && !isDoc && obj.grid && obj.wells) {
                     const rows = Math.max(1, (obj.grid.ymax - obj.grid.ymin) || (obj.wells[0] ? obj.wells[0].length : 1));
                     const cols = Math.max(1, (obj.grid.xmax - obj.grid.xmin) || obj.wells.length || 1);
                     const cellWorldH = obj.grid.height / rows;
@@ -9794,8 +9803,8 @@ function (progress) {
                 // shown whole between the title bar and the bottom chrome (the free-plan
                 // banner included), with a buffer, rather than fitted to the width and
                 // scrolled. A table keeps the width fit and scrolls: it can be any height.
-                if (this.__tlIs(obj)) {
-                    // A maximized timeline fills the window in BOTH directions rather than
+                if (this.__tlIs(obj) || isDoc) {
+                    // A maximized timeline (and a document) fills the window in BOTH directions rather than
                     // being fitted to one and letting the other run short. MGrid scales x and
                     // y independently, and the timeline sizes its markers from grid.xscale
                     // alone, so stretching y costs no distortion: x is fitted to the
@@ -11608,6 +11617,12 @@ function (progress) {
             // Dragging the scroll indicator: a canvas y maps to a position in the scroll range.
             __maxScrollTo(py) {
                 if (!this.__maximized) return;
+                if (this.__maximized.plateType === 'document') {                 // its text, as in __maxScroll
+                    const o = this.__maximized, chh = Math.max(1, this.grid.height);
+                    const pos = Math.max(0, Math.min(1, (py - 52) / Math.max(1, chh - 64)));
+                    o.scroll = pos * (Number.isFinite(o.__scrollMax) ? o.__scrollMax : 0);
+                    return;
+                }
                 const g = this.grid;
                 g.rescale();
                 const ch = Math.max(1, g.height);
@@ -11668,6 +11683,13 @@ function (progress) {
             }
             __maxScroll(deltaPx) {
                 if (!this.__maximized || !this.__maxBounds) return;
+                // A document fills the window exactly, so the view has nowhere to scroll to:
+                // the wheel moves its TEXT (the draw clamps it to the text's length).
+                if (this.__maximized.plateType === 'document') {
+                    const o = this.__maximized;
+                    o.scroll = Math.max(0, Math.min((o.scroll || 0) + deltaPx, Number.isFinite(o.__scrollMax) ? o.__scrollMax : Infinity));
+                    return;
+                }
                 const g = this.grid;
                 g.rescale();
                 // Bounds are read live: rows added or removed while maximized change the
@@ -11730,7 +11752,7 @@ function (progress) {
                 ctx.fillStyle = '#1aa3bd'; ctx.fillRect(0, 44, W, 2);
                 ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                 ctx.fillStyle = '#eaf6f9'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-                const kind = typeof obj.drawPlot === 'function' ? (obj.type === 'timeline' ? 'Timeline' : 'Chart') : (obj.shape ? 'Object' : 'Table');
+                const kind = typeof obj.drawPlot === 'function' ? (obj.type === 'timeline' ? 'Timeline' : 'Chart') : (obj.shape ? 'Object' : (obj.plateType === 'document' ? 'Document' : 'Table'));
                 ctx.fillText(kind + ': ' + (obj.name || 'untitled'), 16, 22);
                 ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                 ctx.fillStyle = 'rgba(234,246,249,0.7)';
