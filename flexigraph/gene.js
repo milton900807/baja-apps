@@ -2269,9 +2269,14 @@ function (progress, options) {
                 }
             }
 
-            // If this track's name already belongs to one on the canvas, append an incrementing
-            // integer until it does not -- "SCN9A" -> "SCN9A2" -> "SCN9A3" -- leaving the
+            // If this track's name already belongs to one on the canvas, add an incrementing
+            // suffix until it does not -- "ACVR1" -> "ACVR1.1" -> "ACVR1.2" -- leaving the
             // existing tracks' names alone. Case-insensitive.
+            //
+            // DOTTED, and counting from 1. It used to append a bare integer, so a second SCN9A
+            // became "SCN9A2", which reads as a different gene rather than as a second copy of
+            // this one -- and beside SCN9A, SCN9A2 IS a different gene. The dot says "another
+            // one of these" and cannot be mistaken for part of a symbol.
             //
             // A method rather than a block inside addTrack, because addTrack is not the only
             // way a track reaches this.track: several paths push straight onto the array, and
@@ -2290,8 +2295,16 @@ function (progress, options) {
                     const taken = (nm) => (this.track || []).some(t =>
                         t && t !== newTrack && t.name && ('' + t.name).toUpperCase() === ('' + nm).toUpperCase());
                     if (taken(base)) {
-                        let n = 2, candidate = base + n;
-                        while (taken(candidate)) { n++; candidate = base + n; }
+                        // A name that is already one of a family -- "ACVR1.2" -- continues that
+                        // family rather than starting "ACVR1.2.1", but only when the family's
+                        // own name is on the canvas. Otherwise the suffix is left alone: an
+                        // Ensembl id carries its version that way ("ENST00000261769.3"), and
+                        // that number is part of the identifier, not a copy count.
+                        let family = base;
+                        const m = /^(.*)\.(\d+)$/.exec(base);
+                        if (m && m[1] && taken(m[1])) family = m[1];
+                        let n = 1, candidate = family + '.' + n;
+                        while (taken(candidate)) { n++; candidate = family + '.' + n; }
                         newTrack.name = candidate;
                     }
                 } catch (e) { }

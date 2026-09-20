@@ -10962,6 +10962,14 @@ function (path, config) {
                 return asDedupe(placed);
             }
             if (scope === 'regions') return await asGenesInRegions(em);
+            // THE DIFFERENTIAL, AS A SCOPE. A gene changed in one sample and not the other is
+            // a gene where the two differ in SEQUENCE, which is the whole requirement for an
+            // allele-selective oligo -- and it says which sample to spare. 'diff' reads the
+            // ones private to A, 'diffB' the ones private to B.
+            if (scope === 'diff' || scope === 'diffB') {
+                const list = (diffResult && (scope === 'diff' ? diffResult.onlyA : diffResult.onlyB)) || [];
+                return asDedupe(list.map((x) => asSpan(scope === 'diff' ? x.A : x.B)).filter(Boolean));
+            }
             if (scope === 'gene') {
                 const sym = ('' + (symbol || '')).trim().toUpperCase();
                 if (!sym) return [];
@@ -10972,7 +10980,8 @@ function (path, config) {
             return asDedupe(((lossMatrix && lossMatrix.genes) || []).map(asSpan).filter(Boolean));
         };
         const AS_SCOPE_NAME = { genome: 'the whole genome', selected: 'the selected genes',
-            regions: 'the selected regions', gene: 'one gene' };
+            regions: 'the selected regions', gene: 'one gene',
+            diff: 'the genes changed in one sample only', diffB: 'the genes changed in the other sample only' };
 
         // ---- RUN ONE ----------------------------------------------------------------
         const asRun = async (mode, scope, symbol) => {
@@ -11064,7 +11073,12 @@ function (path, config) {
                 parsed.forEach((x) => { x.as = meta[x.chr + ':' + x.pos] || null; });
                 lohAlleleResult = { sites: parsed, notes: J(rs.notes, '[]'), genes: +rs.n_genes || nGenes,
                     source: 'level', mode: mode, scope: scope,
-                    scopeLabel: AS_SCOPE_NAME[scope] + (scope === 'gene' ? ' (' + spans.map((s) => s.gene).join(', ') + ')' : '')
+                    // The differential scopes name the SAMPLES: which one is being spared
+                    // is the point of choosing them.
+                    scopeLabel: ((scope === 'diff' || scope === 'diffB') && diffResult)
+                        ? ('the genes changed only in ' + (((scope === 'diff' ? diffResult.A : diffResult.B) || {}).label || '?')
+                            + ', sparing ' + (((scope === 'diff' ? diffResult.B : diffResult.A) || {}).label || '?'))
+                        : (AS_SCOPE_NAME[scope] + (scope === 'gene' ? ' (' + spans.map((s) => s.gene).join(', ') + ')' : ''))
                         + (mode === 'somatic' ? '' : ', on ' + asSampleName(si))
                         + (nWanted > spans.length ? ', and only the first ' + spans.length + ' of ' + nWanted + ' genes in it' : ''),
                     truncated: nWanted > spans.length ? nWanted : 0,
@@ -11163,6 +11177,36 @@ function (path, config) {
                 blurb: 'Type a symbol. The gene is placed on the genome and read on its own, with no scan run first '
                     + 'and nothing needing to have selected it.',
                 open: () => asGeneSearch(mode) });
+
+            // THE DIFFERENTIAL, AS A SCOPE OF ITS OWN.
+            //
+            // The other scopes say WHERE to look; this one also says who to spare. A gene the
+            // differential found changed in one sample and not the other is a gene where the
+            // two genomes differ in sequence -- which is the entire requirement for an oligo
+            // that binds one and not the other -- and the sample it is NOT changed in is the
+            // one the design has to leave alone. Two cards, because which sample is being
+            // spared is the question, and "only in A" and "only in B" are different answers.
+            if (diffResult) {
+                const nA = (diffResult.onlyA || []).length, nB = (diffResult.onlyB || []).length;
+                const A = (diffResult.A && diffResult.A.label) || 'A', B = (diffResult.B && diffResult.B.label) || 'B';
+                out.push({ title: 'Changed in ' + A + ' only', badge: nA ? nA + ' gene' + (nA === 1 ? '' : 's') : 'none', accent: 'run',
+                    icon: 'compare', ready: on && nA > 0, readyNote: on ? 'the differential found nothing private to ' + A : avail[mode].note,
+                    blurb: 'From the differential mutational matrix: the genes ' + A + ' carries a damaging change in and '
+                        + B + ' does not. An oligo aimed at one of these sites hits ' + A + ' and leaves ' + B + ' alone.',
+                    open: () => asRun(mode, 'diff') });
+                out.push({ title: 'Changed in ' + B + ' only', badge: nB ? nB + ' gene' + (nB === 1 ? '' : 's') : 'none', accent: 'run',
+                    icon: 'compare', ready: on && nB > 0, readyNote: on ? 'the differential found nothing private to ' + B : avail[mode].note,
+                    blurb: 'The other direction: the genes ' + B + ' carries a change in and ' + A + ' does not, for a design '
+                        + 'that spares ' + A + '.',
+                    open: () => asRun(mode, 'diffB') });
+            } else {
+                out.push({ title: 'Genes changed in one sample and not the other', badge: 'run the differential', accent: 'choose',
+                    icon: 'compare', ready: true,
+                    blurb: 'The differential mutational matrix compares two samples, or two files, and lists what each '
+                        + 'carries that the other does not. Those genes are where an oligo can tell the two apart — run it '
+                        + 'and come back, and the two directions appear here as scopes.',
+                    books: () => diffPickerBooks() });
+            }
             return out;
         };
 
