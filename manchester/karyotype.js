@@ -34,6 +34,10 @@ function (path, config) {
             if (config && config.shared) { __karyoShared = true; try { window.__bajaFreeTier = true; } catch (e) { } }
             let __sc = '';
             try { __sc = ('' + (new URL(window.location.href).searchParams.get('share') || '')).trim(); } catch (e) { }
+            // ?gene=SYMBOL, read HERE rather than where it is used: the url is rewritten
+            // during load (the share code is swapped for the path it resolved to), so by the
+            // time the genome is up the parameter has gone and reading it then found nothing.
+            try { window.__karyoFocusGene = ('' + (new URL(window.location.href).searchParams.get('gene') || '')).trim(); } catch (e) { }
             if (__sc) {
                 const __who = (typeof getUser === 'function') ? ('' + (getUser() || '')).trim() : '';
                 if (!__who) {
@@ -9734,8 +9738,17 @@ function (path, config) {
                     + '<input type="checkbox" class="lu-pick" data-i="' + it.idx + '" style="margin-top:4px;"' + (picked.has(it.idx) ? ' checked' : '') + '/>'
                     + '<div style="flex:1;min-width:0;"><span style="font:700 14px Arial;color:#e8f0fb;">' + esc(it.gene) + '</span> ' + chips
                     + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + dmLine(it.gene) + (after || '') + '</div></div>'
-                    + '<button class="lu-design" data-i="' + it.idx + '" style="flex:0 0 auto;cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'
-                    + 'border:1px solid #22c55e;background:transparent;color:#86efac;">' + (can ? 'Design in editor' : 'Open gene') + '</button></div>');
+                    // The two things to do with a gene on this list: take it to the editor, or
+                    // go and look at it. The strategy names a gene and says what happened to
+                    // it; where that is on the genome -- which tract, how much of the arm went
+                    // with it -- was a thing you had to go and find for yourself, in the view
+                    // sitting behind this panel.
+                    + '<div style="flex:0 0 auto;display:flex;flex-direction:column;gap:6px;align-items:stretch;">'
+                    + '<button class="lu-design" data-i="' + it.idx + '" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'
+                    + 'border:1px solid #22c55e;background:transparent;color:#86efac;">' + (can ? 'Design in editor' : 'Open gene') + '</button>'
+                    + '<button class="lu-show" data-i="' + it.idx + '" style="cursor:pointer;border-radius:8px;padding:6px 12px;font:600 11.5px Arial;'
+                    + 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Show on Genome</button>'
+                    + '</div></div>');
             };
             const vLine = (v) => esc((v.hgvs || v.change || (v.ref + '>' + v.alt)) + ' (' + dmmWord(v.effect) + ')') + ' &middot; ' + esc(v.origin === 'somatic' ? 'somatic' : 'germline')
                 + ' &middot; ' + esc({ retained: 'on every copy left', both: 'tumor reads both alleles', lost: 'on the copy lost', uncalled: 'not called in the tumor' }[v.state] || v.state || '')
@@ -9842,6 +9855,26 @@ function (path, config) {
                 });
                 Array.prototype.forEach.call(panel.querySelectorAll('.lu-design'), (b2) => {
                     b2.onclick = () => { const it = items[+b2.getAttribute('data-i')]; if (it) design([it]); };
+                });
+                // SHOW IT ON THE GENOME. The panel covers the view, so this closes it: the
+                // answer to "where is this" is the chromosome with the gene framed on it, not
+                // a coordinate written in a card. The gene's own record has the span when the
+                // scan found one; failing that the symbol is looked up, which is what every
+                // other "zoom into" in this file falls back to.
+                Array.prototype.forEach.call(panel.querySelectorAll('.lu-show'), (b2) => {
+                    b2.onclick = async () => {
+                        const it = items[+b2.getAttribute('data-i')];
+                        if (!it) return;
+                        close();
+                        const key = ('' + it.gene).toUpperCase();
+                        let g = null;
+                        try { g = (R.genes || []).find((y) => ('' + y.gene).toUpperCase() === key) || null; } catch (e) { g = null; }
+                        if (g && isFinite(+g.start) && isFinite(+g.end)) {
+                            try { await gotoLostGene(lohSelRecord(g)); return; } catch (e) { }
+                        }
+                        try { await gotoSymbol(it.gene); }
+                        catch (e) { try { graph.setError(' Could not find ' + it.gene + ' on this genome. '); } catch (e2) { } }
+                    };
                 });
                 const tr = tracts.slice().sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
                 Array.prototype.forEach.call(panel.querySelectorAll('.lu-tract'), (b2) => {
@@ -17741,7 +17774,8 @@ function (path, config) {
             }
             try {
                 await exec('baja/data/load-transcripts-with-variants.js', server, g2,
-                    g2.genegraph_panel_layout, list, inRange || []);
+                    g2.genegraph_panel_layout, list, inRange || [],
+                    { species: (r && r.species) || 'human' });
             } catch (e) {
                 step('load failed: ' + (e && e.message ? e.message : e));
                 return false;
@@ -18401,7 +18435,18 @@ function (path, config) {
                 + (empty ? ' · ' + empty + ' of ' + asked + ' with none' : '')
                 + (inRange.length ? ' · ' + inRange.length.toLocaleString() + ' variant'
                     + (inRange.length === 1 ? '' : 's') + ' in range' : ' · no variants loaded here')
-                + '</div></div>'
+                + '</div>'
+                // HOW MANY OF THEM WILL ACTUALLY ARRIVE.
+                //
+                // A variant can only be placed on a transcript it falls inside: that is what
+                // the editor's tracks are. Ticking the coding transcripts and pressing Open
+                // therefore carries the whole range across and silently leaves behind every
+                // variant that sits in a gene nobody ticked, or between genes -- which on a
+                // wide selection is most of them, and looks exactly like variants failing to
+                // load. This counts them before the button is pressed, and updates as the
+                // ticks change, so the choice is made with the number in view.
+                + (inRange.length ? '<div id="kr-vcount" style="font:12.5px Arial;color:#fbbf24;margin-top:3px;"></div>' : '')
+                + '</div>'
                 + '<div style="margin-left:auto;display:flex;gap:10px;">'
                 + '<button id="kr-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
                 + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>'
@@ -18445,11 +18490,46 @@ function (path, config) {
             const close2 = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
             panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') close2(); });
             q2('#kr-cancel').onclick = () => close2();
-            q2('#kr-all').onclick = (e) => { e.preventDefault(); qa2('.kr-g').forEach((cb) => { if (!cb.disabled) cb.checked = true; }); };
-            q2('#kr-none').onclick = (e) => { e.preventDefault(); qa2('.kr-g').forEach((cb) => { cb.checked = false; }); };
+            // A variant lands on a transcript whose genomic span contains it -- the same test
+            // the editor makes with variantWorldX when it places them.
+            const ticked = () => qa2('.kr-g').filter((cb) => cb.checked && !cb.disabled)
+                .map((cb) => genes[+cb.getAttribute('data-i')]).filter(Boolean);
+            const landing = () => {
+                const spans = ticked().map((gn) => ({
+                    chr: ('' + (gn.__chr || '')).replace(/^chr/, ''),
+                    a: Math.min(+gn.start, +gn.end), b: Math.max(+gn.start, +gn.end),
+                })).filter((sp) => isFinite(sp.a) && isFinite(sp.b));
+                if (!spans.length) return [];
+                const out = [];
+                for (const v of inRange) {
+                    const vc = ('' + (v.chr || '')).replace(/^chr/, '');
+                    for (const sp of spans) {
+                        if ((!sp.chr || !vc || sp.chr === vc) && v.pos >= sp.a && v.pos <= sp.b) { out.push(v); break; }
+                    }
+                }
+                return out;
+            };
+            const willLand = () => landing().length;
+            const updateCount = () => {
+                const el = q2('#kr-vcount');
+                if (!el) return;
+                const n = willLand(), m = inRange.length;
+                el.textContent = n === m
+                    ? (m.toLocaleString() + ' of ' + m.toLocaleString() + ' variants will be placed.')
+                    : (n.toLocaleString() + ' of ' + m.toLocaleString() + ' variants fall on the ticked transcripts'
+                        + ' — the other ' + (m - n).toLocaleString() + ' sit outside them and cannot be placed.'
+                        + ' Select all to carry more.');
+                el.style.color = (n === m) ? '#8ff0b0' : '#fbbf24';
+            };
+            panel.addEventListener('change', (e) => { try { if (e.target && e.target.classList.contains('kr-g')) updateCount(); } catch (er) { } });
+            q2('#kr-all').onclick = (e) => { e.preventDefault(); qa2('.kr-g').forEach((cb) => { if (!cb.disabled) cb.checked = true; }); updateCount(); };
+            q2('#kr-none').onclick = (e) => { e.preventDefault(); qa2('.kr-g').forEach((cb) => { cb.checked = false; }); updateCount(); };
+            // With the panel's own defaults applied, before anything is touched.
+            try { updateCount(); } catch (e) { }
             q2('#kr-coding').onclick = (e) => {
                 e.preventDefault();
                 qa2('.kr-g').forEach((cb) => { cb.checked = !cb.disabled && !!genes[+cb.getAttribute('data-i')].coding; });
+                updateCount();
             };
             q2('#kr-save').onclick = () => {
                 try {
@@ -18568,7 +18648,14 @@ function (path, config) {
                 };
                 arm(false);
                 let ok = false;
-                try { ok = await handToEditor(ids, inRange, null); }
+                // ONLY WHAT CAN ARRIVE. Handing over the whole range meant the size limit
+                // trimmed a list that was mostly unplaceable -- and it trims from the front,
+                // so the editor got a prefix of the left-hand end of the selection while the
+                // variants that would have landed on the ticked transcripts were dropped for
+                // want of room. A 148 Mb selection carried 275,011 variants of which 78,440
+                // could be placed; now those are the ones that travel.
+                const carry = landing();
+                try { ok = await handToEditor(ids, carry, null); }
                 catch (e) {
                     graph.setMessage(' The editor could not open: ' + (e && e.message ? e.message : e) + ' ');
                     ok = false;
@@ -18689,6 +18776,23 @@ function (path, config) {
                     } catch (e2) { }
                 }
             }
+
+            // ?gene=SYMBOL — FRAME THAT GENE ONCE THE GENOME IS UP.
+            //
+            // So that a link can point at a gene rather than at the whole genome: the LOH
+            // strategy names genes, and "show me that one" is a link, not a search the reader
+            // has to repeat by hand. Only after the file is restored, because framing a gene
+            // on an empty genome frames nothing.
+            try {
+                let __g = '';
+                try { __g = ('' + (window.__karyoFocusGene || '')).trim(); } catch (e) { __g = ''; }
+                try { window.__karyoFocusGene = ''; } catch (e) { }   // once, not on every redraw
+                if (__g) {
+                    step('framing ' + __g + ' from the url');
+                    const ok = await gotoSymbol(__g);
+                    if (!ok) { try { graph.setError(' ' + __g + ' was not found on this genome. '); } catch (e) { } }
+                }
+            } catch (e) { step('gene= framing threw: ' + e); }
 
             // THE PUBLIC IP VIEWER auto-setup: turn the patent (IP) layer on, drop a bookmark
             // on the whole genome and on every chromosome, and open the lower-left navigator so

@@ -15,11 +15,17 @@ Params (after the EngineMonitor):
     param(3) : end
     param(4) : optional species (default human)
     param(5) : optional maximum genes (default 200)
+    param(6) : optional "1" to list EVERY transcript of each gene, not only the best one
 
 Resolves:
     { ok, chr, start, end, count, truncated, genes, error }
   genes is a JSON array, each
     {gene, transcript, biotype, strand, start, end, coding}
+  and, when param(6) is "1", each gene also carries
+    transcripts: [ids, best first]
+  which is what lets a caller try another isoform when a variant does not fall on the one
+  it already has -- an exon in one isoform is an intron in the next, and the position is a
+  fact about the isoform rather than about the gene.
 """
 import json
 import os
@@ -55,6 +61,7 @@ try:
 except Exception:
     max_genes = 200
 max_genes = max(1, min(1000, max_genes))
+all_isoforms = str(works.param(6) or "").strip() in ("1", "true", "yes")
 
 out = {"ok": False, "chr": chrom, "start": start, "end": end, "count": 0,
        "truncated": False, "genes": "[]", "error": None}
@@ -144,6 +151,7 @@ else:
     works.msg("Reading %s:%s-%s…" % (q, start, end))
     genes = {}          # name -> record
     tx = {}             # name -> (rank, id, length)
+    iso = {}            # name -> {transcript id: sort key}, only when every one is wanted
     gid2name = {}       # gene_id -> name, for transcripts that only name their Parent
     for row in fetch(gff, q, start, end):
         f = row.split("\t")
@@ -226,6 +234,8 @@ else:
             cur = tx.get(tkey)
             if cur is None or (rank, -length) < (cur[0], -cur[2]):
                 tx[tkey] = (rank, tid, length)
+            if all_isoforms:
+                iso.setdefault(tkey, {})[tid] = (rank, -length)
 
     rows = []
     for key, g in genes.items():
@@ -233,6 +243,9 @@ else:
         # not, so both spellings are tried before falling back to the name.
         t = tx.get(key) or tx.get(('' + key).split(".")[0]) or tx.get(g.get("__name") or g["gene"])
         g["transcript"] = t[1] if t else ""
+        if all_isoforms:
+            d = iso.get(key) or iso.get(('' + key).split(".")[0]) or iso.get(g.get("__name") or g["gene"]) or {}
+            g["transcripts"] = [tid for tid, _ in sorted(d.items(), key=lambda kv: kv[1])]
         g.pop("__key", None)
         g.pop("__name", None)
         rows.append(g)

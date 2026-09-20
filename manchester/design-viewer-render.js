@@ -97,8 +97,15 @@ function () {
                 + (can ? '<input type="checkbox" class="dv-pick" data-g="' + esc(('' + gene).toUpperCase()) + '" style="margin-top:4px;"/>' : '<span style="width:13px;"></span>')
                 + '<div style="flex:1;min-width:0;"><span style="font:700 14px Arial;color:#e8f0fb;">' + esc(gene) + '</span> ' + chips
                 + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + dmLine(gene) + (after || '') + '</div></div>'
-                + (can ? '<button class="dv-design" data-g="' + esc(('' + gene).toUpperCase()) + '" style="flex:0 0 auto;cursor:pointer;border-radius:8px;padding:7px 12px;'
+                // The two things to do with a gene: take it to the editor, or go and look at
+                // it on the genome this strategy came from. The second only exists when the
+                // file remembers that genome -- a strategy read without it has nowhere to go.
+                + '<div style="flex:0 0 auto;display:flex;flex-direction:column;gap:6px;align-items:stretch;">'
+                + (can ? '<button class="dv-design" data-g="' + esc(('' + gene).toUpperCase()) + '" style="cursor:pointer;border-radius:8px;padding:7px 12px;'
                     + 'font:700 12px Arial;border:1px solid #22c55e;background:transparent;color:#86efac;">Design in editor</button>' : '')
+                + (doc.genome ? '<button class="dv-show" data-g="' + esc('' + gene) + '" style="cursor:pointer;border-radius:8px;padding:6px 12px;'
+                    + 'font:600 11.5px Arial;border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Show on Genome</button>' : '')
+                + '</div>'
                 + '</div>');
         };
 
@@ -278,6 +285,18 @@ function () {
         const bc = q('#dv-close');
         if (bc && O.onClose) bc.onclick = () => O.onClose();
         const bg = q('#dv-genome');
-        if (bg) bg.onclick = () => { try { window.open(window.location.origin + '/app/manchester/karyotype?path=' + doc.genome, '_blank'); } catch (e) { } };
+        const openGenome = (gene) => {
+            try {
+                window.open(window.location.origin + '/app/manchester/karyotype?path=' + doc.genome
+                    + (gene ? '&gene=' + encodeURIComponent(gene) : ''), '_blank');
+            } catch (e) { }
+        };
+        if (bg) bg.onclick = () => openGenome('');
+        // Per gene: the same genome, framed on that gene. The viewer stays where it is --
+        // the strategy is a document, and going to look at one of its genes should not close
+        // it.
+        Array.prototype.forEach.call(root.querySelectorAll('.dv-show'), (b) => {
+            b.onclick = () => openGenome(b.getAttribute('data-g') || '');
+        });
     };
 }

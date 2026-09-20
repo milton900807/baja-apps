@@ -3692,8 +3692,13 @@ function (path, config) {
                                         graph.setMessage(' Loading ' + __ids.length + ' transcript' + (__ids.length === 1 ? '' : 's')
                                             + ' from the genome viewer\u2026 ');
                                         await __editorOnScreen(12000);
+                                        // The species travels with the hand-off, and the second
+                                        // pass -- the one that goes looking for isoforms carrying
+                                        // the variants these transcripts could not take -- has to
+                                        // search the right annotation.
                                         await exec('baja/data/load-transcripts-with-variants.js',
-                                            window['env']['apiUrl'], graph, genegraph_panel_layout, __ids, __vars);
+                                            window['env']['apiUrl'], graph, genegraph_panel_layout, __ids, __vars,
+                                            { species: (H && H.species) || 'human' });
                                         // LAND ON THE CHANGE, not merely in the right gene. The
                                         // same two steps the viewer used to take here itself: light
                                         // the variant and frame it through the TRACK's x-scale,
