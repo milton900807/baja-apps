@@ -9716,16 +9716,36 @@ function (path, config) {
             //             aimed at nothing.
             // Reporting only "23 fewer" invites the first reading for both.
             const trackVarsFor = (it, cap) => {
-                const out = { germ: [], tum: [], lost: 0, uncalled: 0, tumOnly: 0 }, seen = new Set();
+                const out = { germ: [], tum: [], lost: 0, uncalled: 0, tumOnly: 0 };
                 const sp = spanOf.get(('' + it.gene).toUpperCase());
                 const lim = cap || SPAN_CAP;
-                const push = (v, inG, inT) => {
+                // ONE SITE CAN BE ON BOTH TRACKS, and usually should be. A single `seen` set
+                // keyed on pos:ref:alt meant the first track to claim a site locked the other
+                // one out -- and with two VCFs loaded as two sides, EVERY shared site is two
+                // records, the germline's read first. The tumor track was therefore left with
+                // only the variants the germline file never listed, which looks exactly like a
+                // somatic-only callset and is not one: DHODH's tumor track held 6 of the 46
+                // sites its own VCF records.
+                const seenG = new Set(), seenT = new Set();
+                const push = (v, inG, inT, pair) => {
                     const key = v.pos + ':' + v.ref + ':' + v.alt;
-                    if (seen.has(key)) return;
-                    seen.add(key);
+                    const wantG = inG && !seenG.has(key) && out.germ.length < lim;
+                    const wantT = inT && !seenT.has(key) && out.tum.length < lim;
+                    if (!wantG && !wantT) return;
                     const base = lohHandoffVariant(it.ci, v, it.gene);
-                    if (inG && out.germ.length < lim) out.germ.push(Object.assign({}, base, { group: GERM }));
-                    if (inT && out.tum.length < lim) out.tum.push(Object.assign({}, base, { group: TUM }));
+                    // WHOSE GENOTYPES. lohHandoffVariant reads them off the first record at
+                    // the position, which across two sides is one sample's record and carries
+                    // './.' for the other. Where the two sides have been paired, the pair is
+                    // what the track should say.
+                    if (pair) {
+                        const names = [spec.labelN, spec.labelT];
+                        const gts = [GT_TEXT[pair.gN] || './.', GT_TEXT[pair.gT] || './.'];
+                        base.samples = names; base.genotypes = gts;
+                        base.annotations = (base.annotations || []).filter((a) => !/^(SAMPLES|GT)=/.test('' + a))
+                            .concat(['SAMPLES=' + names.join(','), 'GT=' + gts.join(',')]);
+                    }
+                    if (wantG) { seenG.add(key); out.germ.push(Object.assign({}, base, { group: GERM })); }
+                    if (wantT) { seenT.add(key); out.tum.push(Object.assign({}, base, { group: TUM })); }
                 };
                 // The report's own variants first: they carry the consequence and the reason.
                 for (const v of it.variants) {
@@ -9739,22 +9759,42 @@ function (path, config) {
                     const d = vdata[sp.ci];
                     let a = 0, z = d.n;
                     while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < sp.lo) a = m + 1; else z = m; }
-                    for (let k = a; k < d.n && d.pos[k] <= sp.hi; k++) {
+                    // BY POSITION, PAIRING THE SIDES. Two files give two records for a site
+                    // both samples carry -- one holding the germline's genotype, one the
+                    // tumor's -- and judging them one at a time makes each look like a site
+                    // only its own sample has. The run at a position is gathered first and
+                    // matched on the ALLELE, exactly as the differential matrix does, so that
+                    // a shared variant is one site with two genotypes rather than two sites
+                    // with one each.
+                    for (let k = a; k < d.n && d.pos[k] <= sp.hi;) {
                         if (out.germ.length >= lim && out.tum.length >= lim) break;
-                        const ab = allelesAt(sp.ci, k);
-                        let gN = GT_NONE, gT = GT_NONE, bT = -1;
-                        if (spec.kind === 'sample') { gN = gtOf(d, k, spec.normal); gT = gtOf(d, k, spec.tumor); bT = bafOf(d, k, spec.tumor); }
-                        else {
-                            const sd = d.side ? d.side[k] : 0;
-                            if (sd === spec.normal) gN = d.gtw ? gtOfSide(d, k, spec.normal) : GT_HET;
-                            if (sd === spec.tumor) { gT = d.gtw ? gtOfSide(d, k, spec.tumor) : GT_HET; bT = bafOfSide(d, k, spec.tumor); }
+                        const p0 = d.pos[k];
+                        let e = k; while (e < d.n && d.pos[e] === p0) e++;
+                        const byAllele = new Map();
+                        for (let j = k; j < e; j++) {
+                            const ab = allelesAt(sp.ci, j);
+                            const ak = ab[0] + '>' + ab[1];
+                            let slot = byAllele.get(ak);
+                            if (!slot) { slot = { ref: ab[0], alt: ab[1], gN: GT_NONE, gT: GT_NONE, bT: -1 }; byAllele.set(ak, slot); }
+                            if (spec.kind === 'sample') {
+                                slot.gN = gtOf(d, j, spec.normal); slot.gT = gtOf(d, j, spec.tumor); slot.bT = bafOf(d, j, spec.tumor);
+                            } else {
+                                const sd = d.side ? d.side[j] : 0;
+                                if (sd === spec.normal) slot.gN = d.gtw ? gtOfSide(d, j, spec.normal) : GT_HET;
+                                if (sd === spec.tumor) { slot.gT = d.gtw ? gtOfSide(d, j, spec.tumor) : GT_HET; slot.bT = bafOfSide(d, j, spec.tumor); }
+                            }
                         }
-                        const inG = gN >= GT_HET, inT = gT >= GT_HET;
-                        if (!inG && !inT) continue;
-                        if (inG && !inT) { if (gT === GT_NONE) out.uncalled++; else out.lost++; }
-                        if (inT && !inG) out.tumOnly++;
-                        push({ pos: d.pos[k], ref: ab[0], alt: ab[1], hgvs: '', effect: '', origin: inG ? 'germline' : 'somatic',
-                            state: tumorAlleleState(gT, bT), baf: bT }, inG, inT);
+                        for (const slot of byAllele.values()) {
+                            const gN = slot.gN, gT = slot.gT, bT = slot.bT;
+                            const inG = gN >= GT_HET, inT = gT >= GT_HET;
+                            if (!inG && !inT) continue;
+                            if (inG && !inT) { if (gT === GT_NONE) out.uncalled++; else out.lost++; }
+                            if (inT && !inG) out.tumOnly++;
+                            push({ pos: p0, ref: slot.ref, alt: slot.alt, hgvs: '', effect: '',
+                                origin: inG ? 'germline' : 'somatic', state: tumorAlleleState(gT, bT), baf: bT },
+                                inG, inT, slot);
+                        }
+                        k = e;
                     }
                 }
                 return out;
