@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from ion import works
 
@@ -677,6 +677,7 @@ def generate_steric_blocking_aso_candidates(
     backbone_pattern: Any = None,
     helm_symbols: Dict[str, Any] | None = None,
     annotations: Optional[List[Dict[str, Any]]] = None,
+    exclude_regions: Sequence[Sequence[int]] | None = None,
 ) -> List[StericBlockingASOCandidate]:
     seq_rna = clean_sequence(long_sequence)
     lengths = list(lengths)
@@ -694,8 +695,35 @@ def generate_steric_blocking_aso_candidates(
 
     results: List[StericBlockingASOCandidate] = []
 
+    # Sites the caller has withheld: half-open [from, to) index ranges of this sequence that
+    # no candidate may overlap -- a position that is a variant on another track of the
+    # workbench, or an indel the design must not cross. Generated-out rather than filtered
+    # afterwards, so the ranking is over allowed sites only. See design.py for the same.
+    blocked_upto = None
+    if exclude_regions:
+        flags = bytearray(len(seq_rna))
+        for region in exclude_regions:
+            try:
+                a, b = int(region[0]), int(region[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            a = max(0, min(len(seq_rna), a))
+            b = max(0, min(len(seq_rna), b))
+            for k in range(a, b):
+                flags[k] = 1
+        blocked_upto = [0] * (len(seq_rna) + 1)
+        for k in range(len(seq_rna)):
+            blocked_upto[k + 1] = blocked_upto[k] + flags[k]
+
+    def _is_blocked(start: int, end: int) -> bool:
+        if blocked_upto is None:
+            return False
+        return blocked_upto[min(end, len(seq_rna))] - blocked_upto[max(0, start)] > 0
+
     for length in lengths:
         for i in range(0, len(seq_rna) - length + 1):
+            if _is_blocked(i, i + length):
+                continue
             target_site_rna = seq_rna[i:i + length]
 
             if strand == 1:
@@ -850,6 +878,13 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "output_alphabet": str(payload.get("output_alphabet", "DNA")).upper(),
             "helm_symbols": helm_symbols,
             "annotations": annotations,
+            # [[from, to), …] index ranges of this sequence no candidate may overlap: the
+            # caller's business (a variant on another track, an indel), not the designer's.
+            "exclude_regions": [
+                [int(r[0]), int(r[1])]
+                for r in (payload.get("exclude_regions") or [])
+                if isinstance(r, (list, tuple)) and len(r) >= 2
+            ],
             # DEFAULT TRUE. See the note on the selection step: the global top N with overlaps
             # allowed is the best site written out N times, not the best N ASOs.
             "enforce_non_overlapping": bool(payload.get("enforce_non_overlapping", True)),
@@ -886,6 +921,7 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     output_alphabet = request["output_alphabet"]
     helm_symbols = request["helm_symbols"]
     annotations = request["annotations"]
+    exclude_regions = request.get("exclude_regions") or []
     enforce_non_overlapping = request["enforce_non_overlapping"]
     min_separation = request["min_separation"]
     offtarget_index = request["offtarget_index"]
@@ -936,6 +972,7 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
         backbone_pattern=backbone_pattern,
         helm_symbols=helm_symbols,
         annotations=annotations,
+        exclude_regions=exclude_regions,
     )
 
     works.progress(70)

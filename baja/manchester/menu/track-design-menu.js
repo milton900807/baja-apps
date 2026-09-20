@@ -733,9 +733,37 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     await __zoomToDesignScope();
                     let va = parseInt(__p.top_n) || 100;
                     let _sequence = __wholeTrackSequence();
+                    // THE WORKBENCH'S ANSWER TO WHAT THIS DESIGN IS AGAINST.
+                    //
+                    // Two options from the dialog, both about sequence rather than chemistry:
+                    // design on this track's own alleles instead of the reference it was built
+                    // from, and keep off every site that carries a variant on another track of
+                    // this workbench -- a site whose sequence is not the same in every sample
+                    // is a site an oligo cannot be specific to. The designer is handed the
+                    // sequence and the index ranges it may not use, and generates nothing
+                    // there, so the ranking is over allowed sites only.
+                    // See baja/manchester/menu/design-scope-from-workbench.js.
+                    let __scope = null;
+                    if (__p.use_track_alleles || __p.avoid_other_track_variants) {
+                        try {
+                            __scope = await exec('baja/manchester/menu/design-scope-from-workbench.js',
+                                graph, selectedTrack, _sequence, {
+                                alleles: !!__p.use_track_alleles,
+                                avoidOthers: !!__p.avoid_other_track_variants,
+                                offset: (typeof __designOffset === 'function' ? __designOffset() : 0),
+                            });
+                        } catch (e) { console.warn('[design scope]', e); }
+                        if (__scope) {
+                            _sequence = __scope.sequence;
+                            if (__scope.note) { try { graph.setResultMessage(' ' + __scope.note + ' '); } catch (e) { } }
+                        }
+                    }
 
                     let json_input = {
                         "sequence": _sequence,
+                        // Index ranges of that sequence no candidate may overlap (empty unless
+                        // the workbench options above asked for some).
+                        "exclude_regions": (__scope && __scope.exclude_regions) || [],
                         // Sense mRNA — the ASO is the reverse-complement of the target regardless of
                         // the gene's genomic strand (same fix as siRNA; minus-strand genes otherwise
                         // got complement(target), which is wrong and finds no off-targets).
@@ -1030,9 +1058,35 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();
                     let _sequence = __wholeTrackSequence();
+                    // THE WORKBENCH'S ANSWER TO WHAT THIS DESIGN IS AGAINST.
+                    //
+                    // Two options from the dialog, both about sequence rather than chemistry:
+                    // design on this track's own alleles instead of the reference it was built
+                    // from, and keep off every site that carries a variant on another track of
+                    // this workbench -- a site whose sequence is not the same in every sample
+                    // is a site an oligo cannot be specific to. The designer is handed the
+                    // sequence and the index ranges it may not use, and generates nothing
+                    // there, so the ranking is over allowed sites only.
+                    // See baja/manchester/menu/design-scope-from-workbench.js.
+                    let __scope = null;
+                    if (__p.use_track_alleles || __p.avoid_other_track_variants) {
+                        try {
+                            __scope = await exec('baja/manchester/menu/design-scope-from-workbench.js',
+                                graph, selectedTrack, _sequence, {
+                                alleles: !!__p.use_track_alleles,
+                                avoidOthers: !!__p.avoid_other_track_variants,
+                                offset: (typeof __designOffset === 'function' ? __designOffset() : 0),
+                            });
+                        } catch (e) { console.warn('[design scope]', e); }
+                        if (__scope) {
+                            _sequence = __scope.sequence;
+                            if (__scope.note) { try { graph.setResultMessage(' ' + __scope.note + ' '); } catch (e) { } }
+                        }
+                    }
 
                     let json_input = {
                         sequence: _sequence,
+                        exclude_regions: (__scope && __scope.exclude_regions) || [],
                         // Sense mRNA — ASO is the reverse-complement of the target (same fix as siRNA).
                         strand: 1,
                         top_n: parseInt(__p.top_n) || 100,

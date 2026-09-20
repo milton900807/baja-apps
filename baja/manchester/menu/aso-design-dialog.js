@@ -90,6 +90,18 @@ function (kind) {
                 + '</div>'
                 + '<label style="' + lbl + '">Maximum candidates</label>'
                 + '<input id="ad-topn" type="number" min="1" max="1000" value="100" style="' + inp + '"/>'
+                // THE TRACK'S OWN ALLELE, AND THE OTHER TRACKS' VARIANTS.
+                //
+                // Two separate questions about the same workbench. The first is what to design
+                // AGAINST: the reference the track was built from, or the sequence this sample
+                // actually carries. The second is what to design AROUND: a site that is a
+                // variant on another track is a site whose sequence is not the same in every
+                // sample, and an oligo that lands on one will behave differently in each.
+                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-allele"/> Design against this track\'s alleles</label>'
+                + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">The track\'s own substitutions are applied to the sequence first, so the oligos match what this sample carries rather than the reference. Indels are left alone: they shift everything downstream and a design built on a guessed frame is worse than none.</div>'
+                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-avoid"/> Avoid sites carrying variants on other tracks</label>'
+                + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">Every variant on every other track of this workbench is mapped onto this one, and no candidate is allowed to overlap one. What comes back binds the same sequence in all of them.</div>'
+
                 // Default mode takes every parameter out of the user's hands, which is the point
                 // of it, and used to leave them with no way to see what it chose -- the Advanced
                 // tab at least showed the numbers. The rules go here, where the choice is made.
@@ -270,6 +282,10 @@ function (kind) {
                     // overlapping layouts, which is the exception rather than the default.
                     params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
                 }
+                // Asked on both tabs: they are about the workbench, not about the chemistry,
+                // so a Default-tab run can use them without going through Advanced.
+                params.use_track_alleles = !!(q('#ad-allele') && q('#ad-allele').checked);
+                params.avoid_other_track_variants = !!(q('#ad-avoid') && q('#ad-avoid').checked);
                 close(); resolve(params);
             };
         } catch (e) { resolve(null); }

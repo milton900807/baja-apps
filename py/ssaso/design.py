@@ -755,6 +755,7 @@ def generate_gapmer_candidates(
     helm_symbols: Dict[str, Any] | None = None,
     endonuclease_motifs: Sequence[str] | None = None,
     exclude_gap_cleavage_motif_hits: bool = True,
+    exclude_regions: Sequence[Sequence[int]] | None = None,
     tissue: str = "",
 ) -> List[GapmerCandidate]:
     seq_rna = clean_sequence(long_sequence)
@@ -775,12 +776,47 @@ def generate_gapmer_candidates(
 
     results: List[GapmerCandidate] = []
 
+    # SITES THE CALLER HAS WITHHELD.
+    #
+    # Half-open [from, to) index ranges into this sequence -- a position that is a variant on
+    # another track of the workbench, or an indel this design must not cross. A candidate
+    # overlapping one is never generated, so the ranking is over allowed sites only: filtering
+    # afterwards would spend the top N on sites the caller has already ruled out.
+    #
+    # Kept as a prefix sum of blocked bases, so testing a window is one subtraction however
+    # many thousands of variants a VCF brought with it.
+    blocked_upto = None
+    if exclude_regions:
+        flags = bytearray(len(seq_rna))
+        for region in exclude_regions:
+            try:
+                a, b = int(region[0]), int(region[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            a = max(0, min(len(seq_rna), a))
+            b = max(0, min(len(seq_rna), b))
+            for k in range(a, b):
+                flags[k] = 1
+        blocked_upto = [0] * (len(seq_rna) + 1)
+        for k in range(len(seq_rna)):
+            blocked_upto[k + 1] = blocked_upto[k] + flags[k]
+
+    def _is_blocked(start: int, end: int) -> bool:
+        if blocked_upto is None:
+            return False
+        return blocked_upto[min(end, len(seq_rna))] - blocked_upto[max(0, start)] > 0
+
+    excluded_by_region = 0
+
     for length in lengths:
         valid_gap_sizes = [g for g in gap_sizes if g < length]
         for gap_size in valid_gap_sizes:
             left_wing_size, right_wing_size = choose_gap_layout(length, gap_size)
 
             for i in range(0, len(seq_rna) - length + 1):
+                if _is_blocked(i, i + length):
+                    excluded_by_region += 1
+                    continue
                 target_site_rna = seq_rna[i:i + length]
                 antisense_core_rna = reverse_complement_rna(target_site_rna) if strand == 1 else complement_rna(target_site_rna)
                 antisense_display = to_requested_alphabet(antisense_core_rna, output_alphabet)
@@ -939,6 +975,13 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "min_separation": int(payload.get("min_separation", 0)),
             "endonuclease_motifs": list(motifs),
             "exclude_gap_cleavage_motif_hits": bool(payload.get("exclude_gap_cleavage_motif_hits", True)),
+            # [[from, to), …] index ranges of this sequence no candidate may overlap: the
+            # caller's business (a variant on another track, an indel), not the designer's.
+            "exclude_regions": [
+                [int(r[0]), int(r[1])]
+                for r in (payload.get("exclude_regions") or [])
+                if isinstance(r, (list, tuple)) and len(r) >= 2
+            ],
             # Off-target screen. No index named, no screen -- and the design then runs exactly
             # as it did before this existed, which is what makes it safe to ask for by default
             # from a caller that may or may not have an index to offer.
@@ -978,6 +1021,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     min_separation = request["min_separation"]
     endonuclease_motifs = normalize_motif_list(request["endonuclease_motifs"])
     exclude_gap_cleavage_motif_hits = request["exclude_gap_cleavage_motif_hits"]
+    exclude_regions = request.get("exclude_regions") or []
     tissue = request.get("tissue", "")
     offtarget_index = request["offtarget_index"]
     offtarget_edit_distance = request["offtarget_edit_distance"]
@@ -1034,6 +1078,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         helm_symbols=helm_symbols,
         endonuclease_motifs=endonuclease_motifs,
         exclude_gap_cleavage_motif_hits=exclude_gap_cleavage_motif_hits,
+        exclude_regions=exclude_regions,
         tissue=tissue,
     )
 
@@ -1263,6 +1308,14 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
                 "is the best one that is not the same ASO again."
             ),
             "hard_filter_note": "Candidates are excluded by default if the internal DNA gap matches any configured endonuclease cleavage motif.",
+        },
+        # Sites the caller withheld (a variant on another track, an indel the design must not
+        # cross). Reported so a run that comes back with fewer candidates than expected says
+        # why -- see the note on _is_blocked in generate_gapmer_candidates.
+        "withheld_sites": {
+            "regions": len(exclude_regions),
+            "bases": sum(max(0, int(r[1]) - int(r[0])) for r in exclude_regions),
+            "rule": "no candidate may overlap a withheld [from, to) range of the input sequence",
         },
         "endonuclease_screen": {
             "enabled": True,
