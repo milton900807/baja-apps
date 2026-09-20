@@ -9071,10 +9071,11 @@ function (path, config) {
         // opts: { germ: { normal, label }, claude: true|false }. The germline is the track
         // every variant's origin is read against (somatic = absent from it); the tumor is the
         // LOH scan's. Without opts, the scan's own normal and no Claude assessment.
-        // BEFORE THE REPORT: WHICH TRACK IS THE GERMLINE. Every variant's origin is read
-        // against it -- somatic means absent from it -- and with more than two samples loaded
-        // the LOH scan's normal is not necessarily the one to compare against. The scan's
-        // normal comes first and is the default.
+        // BEFORE THE REPORT: WHICH SAMPLE IS THE TUMOUR'S OWN NORMAL TISSUE. Every change is
+        // read against it: present in both means inherited, present only in the tumour means
+        // acquired, and only the acquired ones are worth designing against. With more than two
+        // samples loaded, the one the scan compared against is not necessarily the right one
+        // here -- it is offered first, and is the default, but the choice is its own.
         const lohReportStart = (mode) => {
             const ui = mode === 'ui';
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
@@ -9091,13 +9092,18 @@ function (path, config) {
             }
             opts.sort((x, y) => (y.normal === R.spec.normal) - (x.normal === R.spec.normal));
             const isHuman = ('' + (r.species || 'human')).toLowerCase() === 'human';
-            const books = [{ section: 'Germline', note: true, title: 'Which track is the germline for ' + R.spec.labelT + '? Each variant\'s origin is read against it, '
-                + 'and the essential genes carrying a change the tumor has and the germline does not are assessed for whether any of them '
-                + 'could make the tumor selectively lethal. That takes a minute or two.' + (isHuman ? '' : ' (Essentiality comes from DepMap, a human screen, so it is left out for this genome.)') }];
+            const books = [{ section: 'Germline', note: true, title: 'Which sample is ' + R.spec.labelT + '\'s own normal tissue? '
+                + 'A change present in it as well is one ' + R.spec.labelT + ' was born with; a change absent from it is one the tumor acquired, '
+                + 'and only those are worth designing against. The loss-of-heterozygosity scan compared ' + R.spec.labelT + ' against '
+                + R.spec.labelN + ', and that sample is offered first, but the comparison made here is a separate choice. '
+                + 'Building the report takes a minute or two.' + (isHuman ? '' : ' (Essentiality comes from DepMap, a human screen, so it is left out for this genome.)') }];
             opts.forEach((o) => books.push({ section: 'Germline', accent: 'run', title: o.label, icon: 'person',
-                badge: o.normal === R.spec.normal ? 'the LOH scan\'s normal' : 'germline', ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
-                blurb: ui ? 'Compare ' + R.spec.labelT + ' against ' + o.label + ' and open the report on screen, where each gene and its mutation can go to the oligo editor.'
-                    : 'Compare ' + R.spec.labelT + ' against ' + o.label + ', then build the report with the selective-lethality assessment.',
+                badge: o.normal === R.spec.normal ? 'the scan used this one' : 'another sample', ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
+                blurb: 'Read ' + R.spec.labelT + ' against ' + o.label + ': a change in ' + R.spec.labelT + ' that ' + o.label + ' also carries is inherited, '
+                    + 'one it does not carry is the tumor\'s own. '
+                    + (o.normal === R.spec.normal ? 'This is the sample the scan itself compared against. ' : 'This is not the sample the scan compared against. ')
+                    + (ui ? 'Opens the strategy on screen, where each gene and its mutation can go to the oligo editor.'
+                        : 'Then builds the report with the selective-lethality assessment.'),
                 open: () => { if (ui) { try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { } lohReportUI({ germ: o }); return; }
                     lohMenu(); lohReportPDF({ germ: o, claude: isHuman }); } }));
             if (!ui) books.push({ section: 'Germline', title: 'The report without the selective-lethality assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
@@ -9198,10 +9204,9 @@ function (path, config) {
                 let fig = '';
                 try { fig = lohFigurePNG(R, tsgs, hits); } catch (e) { step('LOH figure: ' + e); }
                 if (fig) sheets.push({ name: 'Genome map', rows: [], images: [{ title: 'Figure 1. LOH tracts across the genome, tumor suppressors inside them, and the LOH fraction per chromosome.', png_b64: fig }] });
-                let sexLine = '';
-                try { sexLine = sexLineFor(spec); } catch (e) { sexLine = ''; }
+                // No sex call in an LOH report: what is being read here is the loss, and the
+                // sex of the sample is judged elsewhere (What is loaded → Sex).
                 sheets.push({ name: 'The numbers', rows: [{
-                    'Sex': sexLine || 'not determined from these calls',
                     'Heterozygous sites in the normal': R.het.toLocaleString(),
                     'Lost an allele in the tumor': R.loh.toLocaleString() + ' (' + pct(R.het ? R.loh / R.het : 0) + ')',
                     'Still heterozygous in the tumor': R.kept.toLocaleString(),
@@ -9728,7 +9733,7 @@ function (path, config) {
                 + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
                 + '<div style="min-width:0;"><div style="font:700 20px Arial;">LOH Design Strategy</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">' + esc(spec.labelT) + ' (tumor) against ' + esc(spec.labelN) + ' (germline)'
-                + (spec.normal !== R.spec.normal ? ' &middot; the scan used ' + esc(R.spec.labelN) : '')
+                + (spec.normal !== R.spec.normal ? ' &middot; the loss-of-heterozygosity scan itself compared against ' + esc(R.spec.labelN) : '')
                 + '</div></div>'
                 + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
                 + btn('lu-close', 'Close')
@@ -9928,12 +9933,10 @@ function (path, config) {
                 const trs = tracts.slice().sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
                 let genomePath = '';
                 try { genomePath = '' + ((window.history.state || {}).karyotype || ''); } catch (e) { genomePath = ''; }
-                let sex = '';
-                try { sex = sexLineFor(spec); } catch (e) { sex = ''; }
                 return {
                     type: 'baja-loh-design', version: 1, saved: new Date().toISOString(),
                     species: r.species || 'human', assembly: r.assembly || '',
-                    tumor: spec.labelT, germline: spec.labelN, scanNormal: R.spec.labelN, sex: sex, genome: genomePath,
+                    tumor: spec.labelT, germline: spec.labelN, scanNormal: R.spec.labelN, genome: genomePath,
                     numbers: { het: R.het, loh: R.loh, kept: R.kept, uncalled: R.uncalled, tracts: tracts.length,
                         lohBp: tracts.reduce((a, t) => a + t.len, 0),
                         biallelic: tsgList.filter((g) => (hits.get(g.gene) || {}).rank === 0).length,
