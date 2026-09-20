@@ -10876,7 +10876,16 @@ function (progress) {
                         try { this.lassoSelect(poly, this.grid); } catch (e) { console.warn('select', e); }
                         let n = 0;
                         try { for (const p of (this.m_plots || [])) for (const q of ((p.scatterData && p.scatterData.points) || [])) if (q && q.isSelected) n++; } catch (e) { }
-                        try { this.setMessage(n ? (n + ' point' + (n === 1 ? '' : 's') + ' selected') : 'No points inside; tables and notes inside are selected', 2); } catch (e) { }
+                        // The real count of whatever lassoSelect found -- tables, documents,
+                        // charts, timelines, notes -- not just the points, which were the only
+                        // thing this message used to report.
+                        const __sel = this.__lassoSelection;
+                        const objN = __sel ? (__sel.plates.length + __sel.plots.length + __sel.glyphs.length) : 0;
+                        try {
+                            if (n) this.setMessage(n + ' point' + (n === 1 ? '' : 's') + ' selected', 2);
+                            else if (objN) this.setMessage(objN + (objN === 1 ? ' object' : ' objects') + ' selected. "Put in a Folder" groups them.', 2);
+                            else this.setMessage('Nothing inside the selection.', 2);
+                        } catch (e) { }
                     },
                     keydown: (ev) => {
                         if (ev && ev.key === 'Escape') { drawing = false; release(); try { this.wb(null); } catch (e) { } try { this.setMessage('Selection cancelled', 2); } catch (e) { } }
@@ -12327,6 +12336,22 @@ function (progress) {
 
             lassoSelect(lassoPolygon, graph, x, y) {
                 selected_glyphs = []
+                // The lasso/rect polygon is built from raw SCREEN pixels (startSelectGesture's
+                // mouseMoveListener pushes x, y straight from the mouse event). A plate's own
+                // grid.xi/yi/width/height stay in WORLD units (unlike a plot, which overwrites
+                // its .grid with screen values during its own draw), so testing a plate's grid
+                // rect against a screen polygon compared units that do not match: the rect only
+                // ever looked wrong except by coincidence. __maxWorldBounds already gives one
+                // world-space box for a plate, a plot (.x/.y/.w/.h, top-left/world) or a glyph
+                // (.shape.getX/getXf), so converting THAT to screen once, here, is what fixes
+                // plates and is what lets plots (charts, timelines) join the same test.
+                const screenBoxOf = (obj) => {
+                    const b = this.__maxWorldBounds(obj);
+                    if (!b) return null;
+                    const g = this.grid;
+                    const sx0 = g.X(b.x0), sx1 = g.X(b.x1), sy0 = g.Y(b.yTop), sy1 = g.Y(b.yBot);
+                    return { x: Math.min(sx0, sx1), y: Math.min(sy0, sy1), w: Math.abs(sx1 - sx0), h: Math.abs(sy1 - sy0) };
+                };
                 let isPlotPointInPolygon = (plot, point, polygon) => {
                     let inside = false;
                     const x_ = (plot.grid.X(point.x));
@@ -12347,7 +12372,8 @@ function (progress) {
                 let findPlatesInLasso = (objects, plates, lassoPolygon) => {
                     let checkPlates = (plateArray) => {
                         for (let plate of plateArray) {
-                            if (isRectangleInPolygon(plate.grid.xi, plate.grid.yi, plate.grid.width, plate.grid.height, lassoPolygon)) {
+                            const box = screenBoxOf(plate);
+                            if (box && isRectangleInPolygon(box.x, box.y, box.w, box.h, lassoPolygon)) {
                                 objects.push(plate);
                             }
                             if (Array.isArray(plate.plates) && plate.plates.length > 0) {
@@ -12444,18 +12470,21 @@ function (progress) {
                     return objects;
                 };
 
+                // CHARTS AND TIMELINES fully inside the drag, the same "all four corners in"
+                // test a table gets. This used to compare a plot's .grid.xi (screen pixels, a
+                // plot overwrites its own .grid with them every frame it draws) against the
+                // world-unit box a table's .grid holds -- two different things that happened to
+                // share a property name -- so no plot was ever found. screenBoxOf sidesteps
+                // that entirely by reading world position from .x/.y/.w/.h through
+                // __maxWorldBounds, never from .grid.
                 let findPlotsInLasso = (objects, plots, lassoPolygon) => {
-                    let checkPlots = (pArray) => {
-                        for (let plate of pArray) {
-                            if (isRectangleInPolygon(plate.grid.xi, plate.grid.yi, plate.grid.width, plate.grid.height, lassoPolygon)) {
-                                objects.push(plate);
-                            }
-                            if (Array.isArray(plate.plates) && plate.plates.length > 0) {
-                                checkPlates(plate.plates);
-                            }
+                    for (const plot of (plots || [])) {
+                        if (!plot) continue;
+                        const box = screenBoxOf(plot);
+                        if (box && isRectangleInPolygon(box.x, box.y, box.w, box.h, lassoPolygon)) {
+                            objects.push(plot);
                         }
-                    };
-                    checkPlots(plots);
+                    }
                     return objects;
                 };
 
@@ -12469,13 +12498,22 @@ function (progress) {
                         }
                     });
                 };
-                let findaObjectsLasso = (plot, points, lassoPolygon) => {
-                };
 
                 let objects = [];
                 objects = findPlatesInLasso(objects, this.root, lassoPolygon);
 
+                let selectedPlots = [];
+                selectedPlots = findPlotsInLasso(selectedPlots, this.m_plots, lassoPolygon);
+
                 selected_glyphs = findGlyphsInLasso(selected_glyphs, this.glyphs, lassoPolygon);
+
+                // A teal outline around every kind of object this drag found -- tables,
+                // documents, charts, timelines, notes -- so "select entire objects" is SEEN,
+                // not just usable from the menu below (see __drawLassoSelection). Tied to the
+                // menu this call is about to build: it disappears the instant that menu closes,
+                // by any path, because the draw check is simply "is this still pt.menu".
+                this.__lassoSelection = { plates: objects.slice(), plots: selectedPlots.slice(), glyphs: selected_glyphs.slice(), menu: null };
+
                 let menuList = [
                 ]
 
@@ -12901,13 +12939,6 @@ function (progress) {
                         }
                     })
                     menuList.push({
-                        label: `New Folder`,
-                        click: async (xwc, ywc) => {
-                            const a = await exec('baja/package/trackpack', graph, this, objects);
-
-                        }
-                    })
-                    menuList.push({
                         label: `Copy...`,
                         click: async (xwc, ywc) => {
 
@@ -12932,6 +12963,29 @@ function (progress) {
                             pushHistory(HM(this))   // undo restores the track with them
                             for (let o of objects) {
                                 this.removePlate(o)
+                            }
+                        }
+                    })
+                }
+                // PUT IN A FOLDER: the whole selection this drag found -- tables, documents,
+                // charts, timelines, notes together -- packed into one folder card that
+                // replaces them (packSelectionIntoFolder). "New Folder" used to sit here and
+                // call the same shared trackpack() as "New Workbench" above: tables only, no
+                // undo, and it carried every glyph and plot on the WHOLE canvas into the folder
+                // (not just the ones selected) because it only ever overwrote the packed
+                // canvas's root. This is the one option the whole combined selection gets.
+                if (objects.length + selectedPlots.length + selected_glyphs.length > 0) {
+                    menuList.push({
+                        label: `Put in a Folder`,
+                        click: async (xwc, ywc) => {
+                            try {
+                                const n = objects.length + selectedPlots.length + selected_glyphs.length;
+                                const pack = this.packSelectionIntoFolder(objects, selectedPlots, selected_glyphs);
+                                if (pack) this.setMessage(n + (n === 1 ? ' object' : ' objects') + ' put in "' + ('' + pack.name).replace(/^Folder:/i, '') + '" (Ctrl+Z undoes it)', 2);
+                                else this.setMessage('Nothing to put in a folder.', 2);
+                            } catch (err) {
+                                console.error('Failed to fold the selection: ', err);
+                                this.setMessage('Could not put the selection in a folder.', 2);
                             }
                         }
                     })
@@ -13637,8 +13691,152 @@ function (progress) {
 
                 this.menu = new Menu(menuList, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * menuList.length / 2))
                 this.menu_vis = true;
+                if (this.__lassoSelection) this.__lassoSelection.menu = this.menu;   // draw() clears it once this is no longer pt.menu
                 if (this.wb)
                     this.wb(null)
+            }
+
+            // The teal outline around every object a rect/lasso drag found (lassoSelect sets
+            // this.__lassoSelection right before building its menu), for exactly as long as
+            // that menu is still the one open: __drawLassoSelection checks "is this still
+            // pt.menu" every frame, so choosing any item, or dismissing the menu any other way,
+            // clears the highlight on its own -- nothing else has to know this ran.
+            __drawLassoSelection(ctx) {
+                const sel = this.__lassoSelection;
+                if (!sel) return;
+                if (!sel.menu || this.menu !== sel.menu) { this.__lassoSelection = null; return; }
+                const all = [].concat(sel.plates || [], sel.plots || [], sel.glyphs || []);
+                if (!all.length) return;
+                const g = this.grid;
+                ctx.save();
+                ctx.setLineDash([6, 4]);
+                ctx.strokeStyle = '#1aa3bd';
+                ctx.lineWidth = 2;
+                const pad = 5;
+                for (const obj of all) {
+                    try {
+                        const b = this.__maxWorldBounds(obj);
+                        if (!b) continue;
+                        const x0 = g.X(b.x0), x1 = g.X(b.x1), y0 = g.Y(b.yTop), y1 = g.Y(b.yBot);
+                        const l = Math.min(x0, x1) - pad, t = Math.min(y0, y1) - pad;
+                        const w = Math.abs(x1 - x0) + pad * 2, h = Math.abs(y1 - y0) + pad * 2;
+                        ctx.strokeRect(l, t, w, h);
+                    } catch (e) { }
+                }
+                ctx.restore();
+            }
+
+            // Pack a selection -- tables, documents, charts, timelines, notes, any mix -- into
+            // ONE folder card that replaces them on the canvas. Built the same way the
+            // Indication market flow publishes its "Competition" folder: this track's own
+            // root / m_plots / glyphs are swapped to just the selection, serialized whole with
+            // HM (so the folder's inner canvas is a real, independently loadable PlateTrack),
+            // then swapped back -- in a try/finally, so the live canvas is untouched even if
+            // something in the serialize throws. Only formulas that reference solely the
+            // packed tables travel with them; the rest, which would point at tables no longer
+            // inside this folder, are left on the canvas where they still resolve.
+            // Returns the new folder Plate, or null if there was nothing to pack.
+            packSelectionIntoFolder(plates, plots, glyphs, opts) {
+                const o = opts || {};
+                plates = (plates || []).filter(p => p && this.root.includes(p));
+                plots = (plots || []).filter(p => p && this.m_plots.includes(p));
+                glyphs = (glyphs || []).filter(g => g && this.glyphs.includes(g));
+                if (!plates.length && !plots.length && !glyphs.length) return null;
+
+                const filterFormulasByAllTableNames = (formulas, allowedTableNames) => {
+                    const allowedSet = new Set(allowedTableNames);
+                    const tableRegex = /([a-zA-Z_][a-zA-Z0-9_]*)\[/g;
+                    const containsOnlyAllowedTables = (str) => {
+                        const tables = [...('' + str).matchAll(tableRegex)].map((m) => m[1]);
+                        return tables.every((t) => allowedSet.has(t));
+                    };
+                    const filtered = {};
+                    for (const [key, value] of Object.entries(formulas || {})) {
+                        if (containsOnlyAllowedTables(key) && containsOnlyAllowedTables(value)) filtered[key] = value;
+                    }
+                    return filtered;
+                };
+
+                try { pushHistory(HM(this)); } catch (e) { }   // one undo puts everything back, in place
+
+                const keep = { root: this.root, plots: this.m_plots, glyphs: this.glyphs, formulas: this.formulas };
+                let payload = null;
+                try {
+                    this.root = plates; this.m_plots = plots; this.glyphs = glyphs;
+                    this.formulas = filterFormulasByAllTableNames(keep.formulas, plates.map((p) => p.name));
+                    payload = compressbinaryData(compressString(HM(this)));
+                } catch (e) {
+                    console.error('[pack selection] serialize failed: ', e);
+                } finally {
+                    this.root = keep.root; this.m_plots = keep.plots; this.glyphs = keep.glyphs; this.formulas = keep.formulas;
+                }
+                if (!payload) return null;
+
+                // Where the folder appears: the top left of everything going into it, so it
+                // stands roughly where the selection was.
+                let x0 = Infinity, yTop = -Infinity;
+                for (const item of [].concat(plates, plots, glyphs)) {
+                    const b = this.__maxWorldBounds(item);
+                    if (!b) continue;
+                    x0 = Math.min(x0, b.x0);
+                    yTop = Math.max(yTop, b.yTop);
+                }
+                if (!Number.isFinite(x0)) x0 = this.grid.xi;
+                if (!Number.isFinite(yTop)) yTop = this.grid.yi + this.grid.height;
+
+                // Not this.removePlate() / this.removePlot(): both open with this.deselectAll(),
+                // which walks EVERY object still in root and pushes a PER-OBJECT undo snapshot
+                // for each one it deselects -- on top of the one whole-canvas snapshot above,
+                // on the SAME stack. With several objects selected that buried the one undo
+                // step that actually restores everything several presses deep, most of which
+                // did nothing visible (a lone "this table was deselected" is not a canvas
+                // state worth returning to). A direct splice removes exactly what this call
+                // means to remove and nothing else runs.
+                for (const p of plates) {
+                    const i = this.root.indexOf(p);
+                    if (i >= 0) this.root.splice(i, 1);
+                    if (this.__collab && p && p.uid) { try { this.__collab.broadcastRemove(p.uid, 'plate'); } catch (e) { } }
+                }
+                for (const p of plots) {
+                    const i = this.m_plots.indexOf(p);
+                    if (i >= 0) this.m_plots.splice(i, 1);
+                    if (this.__collab && p && p.uid) { try { this.__collab.broadcastRemove(p.uid, 'plot'); } catch (e) { } }
+                }
+                if (glyphs.length) { try { this.removeGlyphs(glyphs); } catch (e) { } }   // no deselectAll cascade in this one
+
+                const parts = [];
+                if (plates.length) parts.push(plates.length + (plates.length === 1 ? ' table' : ' tables'));
+                if (plots.length) parts.push(plots.length + (plots.length === 1 ? ' chart' : ' charts'));
+                if (glyphs.length) parts.push(glyphs.length + (glyphs.length === 1 ? ' note' : ' notes'));
+                const label = o.name || ((plates.length === 1 && !plots.length && !glyphs.length) ? plates[0].name : parts.join(', '));
+                const name = 'Folder:' + label;
+
+                const pack = new Plate(name, 1, 1);
+                pack.plateType = 'package';
+                pack.completeNullValues();
+                // Not pack.setWellValue(): a cell's own setValue() pushes ITS OWN undo snapshot
+                // unless told not to (its second argument) -- a well being typed into is
+                // independently undoable in ordinary use, which is exactly what made the one
+                // undo step above not enough on its own; the well this folder card is named
+                // after was never meant to be a separate undo step.
+                pack.wells[0][0].setValue(name, true);
+                pack.wells[0][0].properties['package'] = payload;
+                pack.setWellType(0, 0, 'PACKAGE');
+                pack.grid.width = this.grid.worldWidth(200);
+                pack.grid.height = this.grid.worldHeight(100);
+                pack.grid.xi = x0;
+                pack.grid.yi = yTop - pack.grid.height;
+                try { this.addNextAvailableX(pack); } catch (e) { this.root.push(pack); }
+                if (this.root.indexOf(pack) < 0) this.root.push(pack);
+
+                // Not this.deselectAll() either, for the same reason as the removal above: it
+                // would walk this.root AGAIN (now just whatever was left, plus pack) and push
+                // more per-object snapshots. Clearing the stale menu/selection state directly
+                // costs nothing extra on the undo stack.
+                this.menu = null; this.menu_vis = false; this.side_menu = null;
+                try { this.selectPlate(pack); } catch (e) { }
+                try { this.generateTables(); } catch (e) { }
+                return pack;
             }
 
             showMenuOptionsForImageExport() {
@@ -24538,6 +24736,7 @@ function (progress) {
                         if (!this.__maximized) this.drawPackageExportParentLine(obj, ctx);
                         drawObj(obj);
                     }
+                    if (this.__lassoSelection && !this.__maximized) { try { this.__drawLassoSelection(ctx); } catch (e) { } }
                     // The active plot (a timeline or chart being edited) is redrawn on top of
                     // the other canvas items, and the lock badges over it. Both belong HERE,
                     // before the chrome: drawn any later they covered the side menu, the
