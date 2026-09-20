@@ -108,9 +108,13 @@ function (server, graph, genegraph_panel_layout, ids, variants, options) {
             const fresh = (graph.track || []).filter((t) => t && !before.has(t));
             if (!fresh.length) continue;
             loaded += fresh.length;
-            // The label goes in the track's DESCRIPTION, which is drawn beside its name. The
-            // name is what other tools match a track by, so it is left alone.
+            // The label goes in the track's DESCRIPTION, which is drawn beside its name.
+            // The NAME is still made unique: a grouped hand-off asks for the same transcript
+            // twice on purpose (germline and tumor), and two tracks called ACVR1 cannot be
+            // told apart by any tool that addresses a track by name. So the second becomes
+            // ACVR1.1, the third ACVR1.2, and the label says which is which.
             if (E.label) for (const t of fresh) { try { t.description = E.label + (t.description ? '  ·  ' + t.description : ''); } catch (e) { } }
+            for (const t of fresh) { try { if (graph.ensureUniqueTrackName) graph.ensureUniqueTrackName(t); } catch (e) { } }
             // A grouped entry takes its own group's variants; an ungrouped one takes them all,
             // which is what every caller before this did.
             const mine = E.group ? vs.filter((v) => v && v.group === E.group) : vs;

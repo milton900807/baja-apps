@@ -14,7 +14,7 @@ Params (after the EngineMonitor):
     param(2) : start (1-based)
     param(3) : end
     param(4) : optional species (default human)
-    param(5) : optional maximum genes (default 200)
+    param(5) : optional maximum genes (default 200, up to 40000 for a whole chromosome)
     param(6) : optional "1" to list EVERY transcript of each gene, not only the best one
 
 Resolves:
@@ -60,7 +60,11 @@ try:
     max_genes = int(float(works.param(5) or 200))
 except Exception:
     max_genes = 200
-max_genes = max(1, min(1000, max_genes))
+# 1000 was enough for a window someone had drawn by hand. A caller that wants to LABEL
+# every variant on a chromosome with the gene it sits in asks for the whole chromosome at
+# once -- one request instead of one per variant -- and a chromosome carries a few thousand
+# genes, so the ceiling is the number of genes that exist rather than a page size.
+max_genes = max(1, min(40000, max_genes))
 all_isoforms = str(works.param(6) or "").strip() in ("1", "true", "yes")
 
 out = {"ok": False, "chr": chrom, "start": start, "end": end, "count": 0,

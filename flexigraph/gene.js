@@ -2311,6 +2311,20 @@ function (progress, options) {
                 return newTrack;
             }
 
+            // Rename a track that is already on the canvas, keeping names unique. Assigning
+            // .name directly is what broke: the uniqueness check runs in addTrack, and a
+            // later rename walks straight past it.
+            renameTrack(track, name) {
+                try {
+                    if (!track) return track;
+                    const want = ('' + (name == null ? '' : name)).trim();
+                    if (!want) return track;
+                    track.name = want;
+                    this.ensureUniqueTrackName(track);
+                } catch (e) { }
+                return track;
+            }
+
             addTrack(newTrack) {
                 if (!this.isValidTrack(newTrack)) {
                     console.warn('[track] rejected invalid track (NaN/zero coordinates or dimensions):',
@@ -3386,7 +3400,7 @@ function (progress, options) {
                                 try {
                                     const _sym = ('' + ((jsm.attributes && (jsm.attributes.gene_name || jsm.attributes.Name))
                                         || (desc ? ('' + desc).split(';')[0] : '') || '')).trim();
-                                    if (_sym) t.name = _sym;
+                                    if (_sym) this.renameTrack(t, _sym);
                                 } catch (e) { }
                                 // Species from the Ensembl transcript-id prefix (ENST=human,
                                 // ENSMUST=mouse, ENSRNOT=rat, ENSCAFT=dog, ...), falling back
@@ -3606,7 +3620,7 @@ function (progress, options) {
                 // Prefer a canonical gene symbol as the track name; fall back to the id.
                 try {
                     const _sym = ('' + (js['gene_symbol'] || js['display_name'] || '')).replace(/-\d+$/, '').trim();
-                    if (_sym) t.name = _sym;
+                    if (_sym) this.renameTrack(t, _sym);
                 } catch (e) { }
 
                 applyTrackViewport(t);

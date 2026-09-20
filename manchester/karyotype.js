@@ -4083,11 +4083,13 @@ function (path, config) {
         //                      credible heterozygotes count (allele fraction 0.2-0.8 where the
         //                      reads are known, and not a low-confidence call).
         //   X depth            one X is read at half the autosomal depth, two at the same.
-        //   Y                  a real Y gives calls outside the pseudoautosomal regions and the
-        //                      X-transposed stretch, and they are homozygous or haploid (one
-        //                      Y, one allele). Calls that are mostly heterozygous are X reads
-        //                      mismapped onto Y. An EMPTY Y is only evidence when the callset
-        //                      is large enough that a male would have produced Y calls.
+        //   Y                  a real Y gives calls on sequence ONLY a Y carries -- outside the
+        //                      pseudoautosomal regions, the X-transposed stretch and the X-Y
+        //                      gametologs, all of which X carries too (SEX_REGIONS says why) --
+        //                      and they are homozygous or haploid (one Y, one allele). Calls
+        //                      that are mostly heterozygous are X reads mismapped onto Y. An
+        //                      EMPTY Y is only evidence when the callset is large enough that a
+        //                      male would have produced Y calls.
         //   Haploid X          a caller that wrote "1" rather than "1/1" on X was told the
         //                      sample has one X.
         // Where they disagree the disagreement is the finding, and it is named: two X and a
@@ -4099,15 +4101,48 @@ function (path, config) {
         // go past: X and Y on every row, the autosomes on one row in eight.
         const SEX_EV = [];                    // per sample slot
         const sexEvOf = (si) => SEX_EV[si] || (SEX_EV[si] = { aDp: 0, aN: 0, xDp: 0, xN: 0, yDp: 0, yN: 0, xHap: 0, xGt: 0, yHap: 0, yGt: 0 });
-        // Pseudoautosomal regions (X and Y still pair there) and the X-transposed region of Y
-        // (99% identical to X, so female reads land on it), per assembly.
+        // WHICH STRETCHES OF Y SAY NOTHING ABOUT A Y.
+        //
+        // Three separate reasons a call on Y is not evidence of Y material, and all three are
+        // ordinary, not edge cases:
+        //   yPar  PSEUDOAUTOSOMAL. X and Y still pair here and carry the same genes, so every
+        //         female has two copies of this sequence. A variant here is a variant in a
+        //         region X also carries -- it demonstrates nothing about Y. (The same spans are
+        //         excluded on the X side, xPar, for the mirror reason: they are not haploid in
+        //         a male, so they do not speak to X copy number either.)
+        //   yXtr  X-TRANSPOSED. ~99% identical to Xq21 after a recent transposition, so reads
+        //         from X land on it whatever the sample's sex.
+        //   yGam  THE X-Y GAMETOLOGS. RPS4Y1, ZFY, TBL1Y, USP9Y, DDX3Y, UTY, TMSB4Y, NLGN4Y,
+        //         KDM5D, EIF1AY, RPS4Y2 -- each the surviving Y copy of a gene X still carries
+        //         (RPS4X, ZFX, TBL1X, USP9X, DDX3X, KDM6A/UTX, TMSB4X, NLGN4X, KDM5C, EIF1AX,
+        //         RPS4X again). ZFY and TBL1Y flank the X-transposed region rather than sitting
+        //         inside it, so they need windows of their own. They are
+        //         similar enough to their X partners that a short read from the X gene is
+        //         routinely assigned to the Y one. This is the commonest way a female sample
+        //         acquires thousands of "Y" calls, and it is why HCC1395 -- a female line --
+        //         carries 16k of them.
+        //
+        // The gametolog windows are deliberately GENEROUS (rounded outward, tens of kb of
+        // padding, neighbours merged). The purpose is to DISCARD, not to annotate: losing a
+        // little real Y-unique sequence costs nothing here, while keeping one mismapped gene
+        // flips the call. Spans are 1-based inclusive, per assembly.
         const SEX_REGIONS = {
-            GRCh38: { xPar: [[10001, 2781479], [155701383, 156030895]], yPar: [[10001, 2781479], [56887903, 57217415]], yXtr: [[2950000, 6800000]] },
-            GRCh37: { xPar: [[60001, 2699520], [154931044, 155260560]], yPar: [[10001, 2649520], [59034050, 59363566]], yXtr: [[2820000, 6700000]] },
+            GRCh38: {
+                xPar: [[10001, 2781479], [155701383, 156030895]], yPar: [[10001, 2781479], [56887903, 57217415]],
+                yXtr: [[2950000, 6800000]],
+                yGam: [[2800000, 3000000], [6890000, 7110000], [12680000, 12940000], [13210000, 13500000],
+                       [13680000, 13730000], [14500000, 14870000], [19680000, 19770000], [20550000, 20800000]],
+            },
+            GRCh37: {
+                xPar: [[60001, 2699520], [154931044, 155260560]], yPar: [[10001, 2649520], [59034050, 59363566]],
+                yXtr: [[2820000, 6700000]],
+                yGam: [[2670000, 2870000], [6760000, 6980000], [14790000, 15060000], [15340000, 15620000],
+                       [15790000, 15840000], [16610000, 16980000], [21840000, 21930000], [22710000, 22970000]],
+            },
         };
         const sexRegions = () => {
             const sp = ('' + (r.species || 'human')).toLowerCase();
-            if (sp !== 'human') return { xPar: [], yPar: [], yXtr: [] };
+            if (sp !== 'human') return { xPar: [], yPar: [], yXtr: [], yGam: [] };
             return /37|hg19/i.test('' + (r.assembly || '')) ? SEX_REGIONS.GRCh37 : SEX_REGIONS.GRCh38;
         };
         const inSpans = (spans, p) => { for (const s of spans) if (p >= s[0] && p <= s[1]) return true; return false; };
@@ -4121,11 +4156,16 @@ function (path, config) {
             return c;
         };
         // '' where a site says nothing about sex: off the autosomes and sex chromosomes, or in
-        // a pseudoautosomal or X-transposed stretch.
+        // a pseudoautosomal, X-transposed or X-Y gametolog stretch (see SEX_REGIONS).
         const sexClassAt = (chrom, pos) => {
             const c = sexChromClass(chrom);
             if (c === 'X' && inSpans(sexRegions().xPar, pos)) return '';
-            if (c === 'Y') { const R0 = sexRegions(); if (inSpans(R0.yPar, pos) || inSpans(R0.yXtr, pos)) return ''; }
+            if (c === 'Y') {
+                // Depth on Y is averaged only over Y-UNIQUE sequence. Including the shared and
+                // gametolog stretches averages in reads that came from X.
+                const R0 = sexRegions();
+                if (inSpans(R0.yPar, pos) || inSpans(R0.yXtr, pos) || inSpans(R0.yGam, pos)) return '';
+            }
             return c;
         };
         // One row's depth and ploidy, per sample, into SEX_EV.
@@ -4156,7 +4196,11 @@ function (path, config) {
         const sexCall = (si) => {
             const noGt = !(si >= 0);
             const R0 = sexRegions();
+            // yN counts Y-UNIQUE calls only. The discards are counted too, and separately,
+            // because "1,400 calls on Y, every one of them in sequence X also carries" is the
+            // finding -- reporting it as "no Y calls" would hide why.
             let auto = 0, autoHet = 0, xCalls = 0, xHet = 0, yN = 0, yHom = 0;
+            let yShared = 0, yGamN = 0, yGamHet = 0;
             for (let ci = 0; ci < drawn.length; ci++) {
                 const d = vdata[ci];
                 if (!d || !d.n) continue;
@@ -4168,7 +4212,12 @@ function (path, config) {
                     if (!noGt && confOf(d, k, si) === CONF_LOW) continue;
                     const p = d.pos[k];
                     if (cls === 'Y') {
-                        if (inSpans(R0.yPar, p) || inSpans(R0.yXtr, p)) continue;
+                        if (inSpans(R0.yPar, p) || inSpans(R0.yXtr, p)) { yShared++; continue; }
+                        if (inSpans(R0.yGam, p)) {
+                            yGamN++;
+                            if (gt === GT_HET || gt === GT_HAP1 || gt === GT_HAP2) yGamHet++;
+                            continue;
+                        }
                         yN++; if (gt === GT_HOM || gt === GT_HOMP) yHom++;
                         continue;
                     }
@@ -4200,16 +4249,37 @@ function (path, config) {
                 S.push({ key: 'xdp', vote: vote, w: 2, text: 'X is read at ' + dx.toFixed(2) + 'x the autosomal depth' + (vote === 'F' ? ' (two copies)' : vote === 'M' ? ' (one copy)' : '')
                     + (dy >= 0 ? ', Y at ' + dy.toFixed(2) + 'x' : '') });
             }
-            // 3. Y
+            // 3. Y -- read only over Y-unique sequence
             const homFrac = yN ? yHom / yN : 0;
+            const ySet = yShared + yGamN;
+            // What was set aside, in words, so a reader can see the count they would get from
+            // a naive "calls on chrY" query and why it is not the number used here.
+            const setAside = ySet ? ' (' + ySet.toLocaleString() + ' more set aside: '
+                + [yShared ? yShared.toLocaleString() + ' pseudoautosomal or X-transposed' : '',
+                   yGamN ? yGamN.toLocaleString() + ' in X-Y gametologs such as DDX3Y or KDM5D, where X reads mismap' : '']
+                  .filter(Boolean).join(', ') + ')' : '';
             if (yN >= 20 && auto && yN / auto >= 0.0003 && (noGt || homFrac >= 0.6)) {
-                S.push({ key: 'y', vote: 'M', w: noGt ? 2 : 2, text: yN.toLocaleString() + ' calls on Y outside its X-shared regions' + (noGt ? '' : ', ' + pct(homFrac) + ' homozygous: a Y') });
+                S.push({ key: 'y', vote: 'M', w: 2, text: yN.toLocaleString() + ' calls on Y-unique sequence'
+                    + (noGt ? '' : ', ' + pct(homFrac) + ' homozygous: a Y') + setAside });
             } else if (yN >= 20 && !noGt && homFrac < 0.6) {
-                S.push({ key: 'y', vote: '', w: 0, text: yN.toLocaleString() + ' calls on Y, but only ' + pct(homFrac) + ' homozygous: X reads mismapped onto Y, not a Y' });
+                S.push({ key: 'y', vote: '', w: 0, text: yN.toLocaleString() + ' calls on Y-unique sequence, but only '
+                    + pct(homFrac) + ' homozygous: X reads mismapped onto Y, not a Y' + setAside });
+            } else if (yN < 5 && ySet >= 200) {
+                // The case this whole table exists for: plenty of chrY calls, none of them on
+                // sequence only a Y carries.
+                S.push({ key: 'y', vote: 'F', w: 1, text: ySet.toLocaleString() + ' calls on Y, but '
+                    + (yN ? 'only ' + yN : 'none')
+                    + ' outside the regions X also carries \u2014 pseudoautosomal, X-transposed, or an X-Y gametolog'
+                    + (yGamHet ? ' (' + pct(yGamHet / Math.max(1, yGamN)) + ' of the gametolog calls are heterozygous, which one Y cannot be)' : '')
+                    + ': no Y material' });
             } else if (yN < 5 && auto >= 50000) {
-                S.push({ key: 'y', vote: 'F', w: 1, text: 'Y is empty, though ' + auto.toLocaleString() + ' autosomal calls mean a male would show Y calls' });
+                S.push({ key: 'y', vote: 'F', w: 1, text: 'Y is empty, though ' + auto.toLocaleString()
+                    + ' autosomal calls mean a male would show Y calls' + setAside });
             } else if (yN) {
-                S.push({ key: 'y', vote: '', w: 0, text: yN + ' calls on Y: too few to read either way' });
+                S.push({ key: 'y', vote: '', w: 0, text: yN + ' calls on Y-unique sequence: too few to read either way' + setAside });
+            } else if (ySet) {
+                S.push({ key: 'y', vote: '', w: 0, text: ySet.toLocaleString()
+                    + ' calls on Y, all of them in sequence X also carries: they say nothing either way' });
             }
             // 4. haploid genotypes on X
             if (E && E.xGt >= 30 && E.xHap / E.xGt >= 0.5) {
@@ -11786,7 +11856,31 @@ function (path, config) {
                     diffVarMenu();
                     return;
                 }
+                // The genes, once per chromosome, for the sites that were kept.
+                try {
+                    const em2 = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                    const chrs = Array.from(new Set(sites.map((x) => x.ci)));
+                    for (let i = 0; i < chrs.length; i++) {
+                        const ci = chrs[i];
+                        graph.setMessage(' Naming the genes on ' + drawn[ci].name + ' \u2014 ' + (i + 1) + ' of ' + chrs.length + '\u2026 ');
+                        const rows = await diffGeneIndexFor(ci, em2);
+                        if (!rows.length) continue;
+                        for (const x of sites) {
+                            if (x.ci !== ci) continue;
+                            const g = diffGeneAt(rows, x.pos);
+                            if (g) { x.gene = g.gene; x.tx = g.tx; x.coding = g.coding; }
+                        }
+                        await new Promise((res) => setTimeout(res, 0));
+                    }
+                } catch (e) { step('naming genes threw: ' + e); }
+                let genesTouched = 0, sitesNoGene = 0;
+                try {
+                    const seenG = new Set();
+                    for (const x of sites) { if (x.gene) seenG.add(x.gene); else sitesNoGene++; }
+                    genesTouched = seenG.size;
+                } catch (e) { }
                 diffVarResult = { spec: spec, labelA: spec.labelA, labelB: spec.labelB, sites: sites, counts: counts,
+                    genesTouched: genesTouched, sitesNoGene: sitesNoGene,
                     byChr: byChr, capped: counts.onlyA + counts.onlyB + counts.diff > sites.length, at: new Date().toISOString() };
                 step('differential matrix ' + spec.labelA + ' vs ' + spec.labelB + ': '
                     + counts.onlyA + '/' + counts.onlyB + '/' + counts.diff);
@@ -11799,8 +11893,88 @@ function (path, config) {
             diffVarBusy = false;
             diffVarMenu();
         };
+        // HOW BIG A DIFFERENCE IS, as a number to sort by.
+        //
+        // Six hundred thousand differences cannot be read in the order they occur on the
+        // chromosomes: the first three hundred of chr1 are not the three hundred worth
+        // looking at. Size is the one ranking that needs no model -- a 200 bp deletion is a
+        // different gene product, a single base substitution usually is not -- so the length
+        // the change adds or removes is the score, and a substitution scores zero.
+        const diffSiteSize = (x) => {
+            const r = ('' + (x.ref || '')).replace(/[^A-Za-z]/g, '').length;
+            const a = ('' + (x.alt || '')).replace(/[^A-Za-z]/g, '').length;
+            return Math.abs(a - r);
+        };
+        const diffSiteKind = (x) => {
+            const r = ('' + (x.ref || '')).replace(/[^A-Za-z]/g, '').length;
+            const a = ('' + (x.alt || '')).replace(/[^A-Za-z]/g, '').length;
+            if (a > r) return a - r >= 50 ? 'large insertion' : 'insertion';
+            if (r > a) return r - a >= 50 ? 'large deletion' : 'deletion';
+            return r > 1 ? 'multi-base substitution' : 'substitution';
+        };
+        const diffAllele = (v) => {
+            const t = ('' + (v == null ? '' : v)).replace(/[^A-Za-z*.\-]/g, '');
+            if (!t) return '?';
+            return t.length <= 12 ? t : (t.slice(0, 8) + '\u2026' + t.length + 'bp');
+        };
+        // ORDER OF ATTENTION. Bases changed is not the whole ranking: an insertion and a
+        // deletion of the same length are not equally interesting to read first, and a
+        // substitution -- however many bases it spans -- never rearranges anything. So the
+        // class leads (insertions, then deletions, then multi-base substitutions, then single
+        // substitutions) and size orders WITHIN a class.
+        const DIFF_RANK = { 'large insertion': 0, 'insertion': 0, 'large deletion': 1, 'deletion': 1, 'multi-base substitution': 2, 'substitution': 3 };
+        const diffSiteRank = (x) => { const k = DIFF_RANK[diffSiteKind(x)]; return k == null ? 4 : k; };
+        const diffBySize = (p, q) => (diffSiteRank(p) - diffSiteRank(q))
+            || (diffSiteSize(q) - diffSiteSize(p)) || (p.ci - q.ci) || (p.pos - q.pos);
+
+        // WHICH GENE EACH DIFFERENCE IS IN.
+        //
+        // A position is not a finding. "chr16:68,771,195 C>T" says nothing a reader can act
+        // on until it says CDH1, and a list of six hundred thousand coordinates cannot be read
+        // any other way. The gene is looked up ONCE PER CHROMOSOME -- the whole chromosome's
+        // genes in a single request, then a binary search per site -- rather than once per
+        // site, which would be a request for every row in the table.
+        //
+        // Overlaps are real: genes sit inside other genes' introns, and a site can be in two.
+        // The protein-coding one wins, because that is the one a design is usually aimed at,
+        // and the other is still there in the annotation for anyone who looks.
+        const diffGeneIndexCache = new Map();     // ci -> [{lo, hi, gene, tx, coding}] by lo
+        const diffGeneIndexFor = async (ci, em) => {
+            if (diffGeneIndexCache.has(ci)) return diffGeneIndexCache.get(ci);
+            const c = drawn[ci];
+            let rows = [];
+            try {
+                const res = await exec(server + '/py/bio/genes-in-range.py', em,
+                    c.name.replace(/^chr/, ''), '1', '' + Math.max(1, Math.round(c.length || 0)),
+                    (r.species || 'human'), '40000');
+                const gs = JSON.parse((res && res.genes) || '[]');
+                rows = gs.map((g) => ({ lo: Math.min(+g.start, +g.end), hi: Math.max(+g.start, +g.end),
+                    gene: g.gene, tx: g.transcript || '', coding: !!g.coding }))
+                    .filter((g) => isFinite(g.lo) && isFinite(g.hi));
+                rows.sort((a, b) => a.lo - b.lo);
+            } catch (e) { rows = []; }
+            diffGeneIndexCache.set(ci, rows);
+            return rows;
+        };
+        const diffGeneAt = (rows, pos) => {
+            if (!rows || !rows.length) return null;
+            let a = 0, b = rows.length;
+            while (a < b) { const m = (a + b) >> 1; if (rows[m].lo <= pos) a = m + 1; else b = m; }
+            // Walk back over the genes that start before this position and see which contain
+            // it. Bounded: the deepest nesting in the annotation is a handful, not hundreds.
+            let best = null;
+            for (let i = a - 1, seen = 0; i >= 0 && seen < 80; i--, seen++) {
+                const g = rows[i];
+                if (g.hi < pos) continue;
+                if (!best || (g.coding && !best.coding)) best = g;
+                if (best && best.coding) break;
+            }
+            return best;
+        };
         const diffVarCSV = () => dlToCSV((diffVarResult ? diffVarResult.sites : []).map((x) => ({
+            gene: x.gene || '', transcript: x.tx || '',
             chrom: drawn[x.ci].name, pos: x.pos, ref: x.ref, alt: x.alt, id: x.name,
+            change: diffSiteKind(x), bases_changed: diffSiteSize(x),
             difference: x.kind === 'onlyA' ? ('only in ' + diffVarResult.labelA)
                 : (x.kind === 'onlyB' ? ('only in ' + diffVarResult.labelB) : 'carried differently'),
             [('genotype_' + dlSafe(diffVarResult.labelA))]: GT_TEXT[x.ga] || '',
@@ -11833,14 +12007,24 @@ function (path, config) {
             if (!R) return;
             const chr = drawn[x.ci].name.replace(/^chr/, '');
             graph.setMessage(' Finding the transcript at ' + drawn[x.ci].name + ':' + human(x.pos) + '\u2026 ');
-            let genes = [];
-            try {
-                const em = new EngineMonitor(() => { });
-                const res = await exec(server + '/py/bio/genes-in-range.py', em, chr,
-                    '' + Math.max(1, x.pos - 1), '' + (x.pos + 1), (r.species || 'human'), '20');
-                genes = JSON.parse((res && res.genes) || '[]');
-            } catch (e) { genes = []; }
-            const g = genes.find((q) => q.transcript && q.coding) || genes.find((q) => q.transcript);
+            let g = null;
+            // The scan already named the gene for this site; only a site it could not name
+            // needs asking about again.
+            if (x.gene && x.tx) {
+                const rows = diffGeneIndexCache.get(x.ci) || [];
+                const hit = rows.find((q) => q.gene === x.gene && q.tx === x.tx);
+                if (hit) g = { gene: hit.gene, transcript: hit.tx, start: hit.lo, end: hit.hi, coding: hit.coding };
+            }
+            if (!g) {
+                let genes = [];
+                try {
+                    const em = new EngineMonitor(() => { });
+                    const res = await exec(server + '/py/bio/genes-in-range.py', em, chr,
+                        '' + Math.max(1, x.pos - 1), '' + (x.pos + 1), (r.species || 'human'), '20');
+                    genes = JSON.parse((res && res.genes) || '[]');
+                } catch (e) { genes = []; }
+                g = genes.find((q) => q.transcript && q.coding) || genes.find((q) => q.transcript) || null;
+            }
             if (!g) { graph.setError(' Nothing with a transcript is annotated at ' + drawn[x.ci].name + ':' + human(x.pos) + '. ', 10); return; }
             const lo = Math.min(+g.start, +g.end), hi = Math.max(+g.start, +g.end);
             const inGene = R.sites.filter((y) => y.ci === x.ci && y.pos >= lo && y.pos <= hi);
@@ -11891,7 +12075,10 @@ function (path, config) {
                         + (c.onlyA === 1 ? '' : 's') + ' only in ' + R.labelA + ', ' + c.onlyB.toLocaleString() + ' only in '
                         + R.labelB + ', ' + c.diff.toLocaleString() + ' carried by both in a different genotype, and '
                         + c.shared.toLocaleString() + ' identical. Every one of the first three can discriminate; the last cannot.'
-                        + (R.capped ? ' The first ' + DIFFVAR_CAP.toLocaleString() + ' are listed.' : '') });
+                        + (R.capped ? ' The first ' + DIFFVAR_CAP.toLocaleString() + ' are listed.' : '')
+                        + (R.genesTouched ? ' They fall in ' + R.genesTouched.toLocaleString() + ' gene'
+                            + (R.genesTouched === 1 ? '' : 's') + '; ' + R.sitesNoGene.toLocaleString()
+                            + ' sit outside any annotated gene.' : '') });
                 books.push({ section: 'Differential matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
                     blurb: 'One row per differing site: position, alleles, both genotypes, and what it is good for.',
                     open: () => { try { dlSaveText(diffVarCSV(), dlSafe(dlSpecies() + '_' + R.labelA + '_vs_' + R.labelB + '_differential_matrix') + '.csv', 'text/csv'); dlMsg('Differential matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
@@ -11927,16 +12114,37 @@ function (path, config) {
                 // Offering only the second made the cheap answer the expensive one.
                 const siteWord = (x) => x.kind === 'onlyA' ? ('only in ' + R.labelA)
                     : (x.kind === 'onlyB' ? ('only in ' + R.labelB) : 'carried differently');
-                const siteCard = (x) => ({
-                    section: x.kind === 'onlyA' ? ('Only in ' + R.labelA) : (x.kind === 'onlyB' ? ('Only in ' + R.labelB) : 'Carried differently'),
-                    title: drawn[x.ci].name + ':' + human(x.pos) + '  ' + (x.ref || '?') + ' > ' + (x.alt || '?'),
+                // The heading a card sits under depends on how the list around it is ordered.
+                // Grouped by kind, the kind is the heading. Ordered by size across kinds --
+                // which is what "insertions first, then deletions" means -- the kind would
+                // alternate on every card and print a heading above each one, so the CHANGE
+                // CLASS heads it instead and each heading appears once. Which sample carries
+                // the site is still on the card, in its colour, its badge and its blurb.
+                const diffClassHead = (x) => {
+                    const k = diffSiteKind(x);
+                    return /insertion/.test(k) ? 'Insertions' : /deletion/.test(k) ? 'Deletions'
+                        : k === 'multi-base substitution' ? 'Multi-base substitutions' : 'Substitutions';
+                };
+                const siteCard = (x, sec) => ({
+                    section: sec ? (typeof sec === 'function' ? sec(x) : sec)
+                        : (x.kind === 'onlyA' ? ('Only in ' + R.labelA) : (x.kind === 'onlyB' ? ('Only in ' + R.labelB) : 'Carried differently')),
+                    // THE GENE FIRST. A coordinate is not a finding until it is placed in
+                    // something a reader recognises, and every row of this table is one.
+                    title: (x.gene ? x.gene + '  \u00b7  ' : '') + drawn[x.ci].name + ':' + human(x.pos)
+                        + '  ' + diffAllele(x.ref) + ' > ' + diffAllele(x.alt),
                     badge: (GT_TEXT[x.ga] || './.') + ' vs ' + (GT_TEXT[x.gb] || './.'),
                     icon: 'gps_fixed', ready: true,
                     swatch: x.kind === 'onlyA' ? '#dc2626' : (x.kind === 'onlyB' ? '#2563eb' : '#7c3aed'),
-                    blurb: siteWord(x).charAt(0).toUpperCase() + siteWord(x).slice(1)
+                    blurb: diffSiteKind(x).charAt(0).toUpperCase() + diffSiteKind(x).slice(1)
+                        + (diffSiteSize(x) ? ' of ' + diffSiteSize(x).toLocaleString() + ' bp' : '')
+                        + ' \u00b7 ' + siteWord(x)
                         + '. Show it on the genome, or open the gene here as two tracks.',
                     books: () => [
-                        { note: true, mono: true, title: drawn[x.ci].name + ':' + human(x.pos) + '  ' + (x.ref || '?') + ' > ' + (x.alt || '?')
+                        { note: true, mono: true, title: drawn[x.ci].name + ':' + human(x.pos)
+                            + '\n  ref       ' + (('' + (x.ref || '?')).match(/.{1,60}/g) || ['?']).join('\n            ')
+                            + '\n  alt       ' + (('' + (x.alt || '?')).match(/.{1,60}/g) || ['?']).join('\n            ')
+                            + '\n  change    ' + diffSiteKind(x) + (diffSiteSize(x) ? ' of ' + diffSiteSize(x).toLocaleString() + ' bp' : '')
+                            + (x.gene ? ('\n  gene      ' + x.gene + (x.tx ? '  (' + x.tx + ')' : '') + (x.coding ? '' : '  non-coding')) : '\n  gene      not annotated here')
                             + '\n  ' + R.labelA + '   ' + (GT_TEXT[x.ga] || './.')
                             + '\n  ' + R.labelB + '   ' + (GT_TEXT[x.gb] || './.')
                             + '\n  ' + siteWord(x) },
@@ -11949,10 +12157,78 @@ function (path, config) {
                             open: () => diffVarOpenSite(x) },
                     ],
                 });
+                // ---- NAVIGATION, BECAUSE THE LIST IS TOO LONG TO WALK --------------------
+                //
+                // Half a million differences is not a list, it is a haystack, and the first
+                // three hundred by position are not the three hundred to look at. Two ways
+                // through it, neither of which needs the user to know a coordinate:
+                //
+                //   by size   the changes that alter the most sequence first -- a large
+                //             deletion is a different gene product; a substitution usually
+                //             is not. This is the ranking that needs no model.
+                //   by gene   the genes carrying differences, worst first, each opening only
+                //             its own sites. The Search box above filters these by symbol,
+                //             which is how you find a gene that is nowhere near the top.
+                const sized = R.sites.slice().sort(diffBySize);
+                const structural = sized.filter((x) => diffSiteSize(x) > 0);
+                books.push({ section: 'Where to look', note: true,
+                    title: 'Ordered by what a design has to work around: insertions first, then deletions, '
+                        + 'then substitutions, each largest first. '
+                        + 'Type a gene symbol in the Search box to go straight to one.' });
+                if (structural.length) {
+                    books.push({ section: 'Where to look', title: 'The biggest structural differences',
+                        badge: structural.length.toLocaleString() + ' indel' + (structural.length === 1 ? '' : 's'),
+                        icon: 'straighten', accent: 'run', ready: true,
+                        blurb: (() => {
+                            // The head of the list is now the largest INSERTION, so naming
+                            // "the largest" alone would misdescribe it. Both are named.
+                            const big = (pred) => { for (const x of structural) if (pred(x)) return x; return null; };
+                            const ins = big((x) => /insertion/.test(diffSiteKind(x)));
+                            const del = big((x) => /deletion/.test(diffSiteKind(x)));
+                            const of = (x) => diffSiteSize(x).toLocaleString() + ' bp' + (x.gene ? ' in ' + x.gene : '');
+                            return 'Every difference that adds or removes bases: insertions first, then deletions, '
+                                + 'largest first within each \u2014 up to ' + Math.min(300, structural.length) + ' of them.'
+                                + (ins ? ' Largest insertion ' + of(ins) + '.' : '')
+                                + (del ? ' Largest deletion ' + of(del) + '.' : '');
+                        })(),
+                        books: () => structural.slice(0, 300).map((x) => siteCard(x, diffClassHead)) });
+                }
+                // BY GENE. Built from the labelled sites, ranked by the biggest change in the
+                // gene and then by how many it carries.
+                const byGene = new Map();
+                for (const x of R.sites) {
+                    if (!x.gene) continue;
+                    let g = byGene.get(x.gene);
+                    if (!g) { g = { gene: x.gene, ci: x.ci, tx: x.tx, n: 0, worst: 0, onlyA: 0, onlyB: 0, diff: 0, sites: [] }; byGene.set(x.gene, g); }
+                    g.n++;
+                    g.worst = Math.max(g.worst, diffSiteSize(x));
+                    g[x.kind]++;
+                    if (g.sites.length < 400) g.sites.push(x);
+                }
+                if (byGene.size) {
+                    const genes = Array.from(byGene.values()).sort((p, q) => (q.worst - p.worst) || (q.n - p.n) || p.gene.localeCompare(q.gene));
+                    books.push({ section: 'Where to look', title: 'By gene',
+                        badge: genes.length.toLocaleString() + ' gene' + (genes.length === 1 ? '' : 's'),
+                        icon: 'search', accent: 'run', ready: true,
+                        blurb: 'The genes these differences fall in, the one with the largest change first. Search by symbol '
+                            + 'inside, and a gene opens only its own sites.',
+                        books: () => [{ note: true, title: 'Type a symbol above to filter. ' + genes.length.toLocaleString()
+                            + ' genes carry a difference; the first 400 are here, worst first.' }].concat(
+                            genes.slice(0, 400).map((g) => ({
+                                title: g.gene,
+                                badge: g.worst ? (g.worst.toLocaleString() + ' bp · ' + g.n) : (g.n + ' site' + (g.n === 1 ? '' : 's')),
+                                icon: 'gps_fixed', ready: true,
+                                blurb: drawn[g.ci].name + ' · ' + g.onlyA + ' only in ' + R.labelA + ', ' + g.onlyB + ' only in '
+                                    + R.labelB + ', ' + g.diff + ' carried differently'
+                                    + (g.worst ? '. Largest change ' + g.worst.toLocaleString() + ' bp.' : '.'),
+                                books: () => g.sites.slice().sort(diffBySize).map((x) => siteCard(x, diffClassHead)),
+                            }))) });
+                }
+
                 const kinds = [['onlyA', 'Only in ' + R.labelA, c.onlyA], ['onlyB', 'Only in ' + R.labelB, c.onlyB],
                     ['diff', 'Carried differently', c.diff]];
                 for (const [kind, name, total] of kinds) {
-                    const list = R.sites.filter((x) => x.kind === kind);
+                    const list = sized.filter((x) => x.kind === kind);
                     if (!total) continue;
                     // THE COUNT IN THE HEADING IS THE REAL ONE. The list is capped twice over --
                     // at the scan's own ceiling and again at 300 cards -- and printing the
@@ -11960,9 +12236,9 @@ function (path, config) {
                     // which it is not.
                     books.push({ section: name, note: true, title: total.toLocaleString() + ' site'
                         + (total === 1 ? '' : 's') + (list.length < total
-                            ? (' \u2014 ' + Math.min(300, list.length).toLocaleString() + ' shown here, and the CSV carries '
+                            ? (' \u2014 the 300 largest are shown here, and the CSV carries '
                                 + list.length.toLocaleString() + '.')
-                            : (list.length > 300 ? ' \u2014 the first 300 are shown; the CSV has them all.' : '.')) });
+                            : (list.length > 300 ? ' \u2014 the 300 largest are shown; the CSV has them all.' : '.')) });
                     list.slice(0, 300).forEach((x) => books.push(siteCard(x)));
                 }
             }
