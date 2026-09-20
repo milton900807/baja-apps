@@ -14,7 +14,13 @@ function (pt, graph) {
         try { if (window.__bajaFolderBack && window.__bajaFolderBack.destroy) window.__bajaFolderBack.destroy(); } catch (e) { }
 
         const fb = { timer: null, destroy: null };
+        // Inside a folder at all: there is a canvas to go back to.
         const depth = () => (pt && Array.isArray(pt.ptracks)) ? pt.ptracks.length : 0;
+        // HOW deep. pt.ptracks is a chain one link long however deep you are (each entry
+        // carries the stack that came before it inside its saved canvas), so its length
+        // only ever says "inside". pt.folderDepth is the count, kept by pushFolder; a
+        // document saved inside a folder before that existed has none, and falls back.
+        const levels = () => Math.max(depth(), (pt && Number(pt.folderDepth)) || 0);
 
         // ---- the button ---------------------------------------------------------------
         const mobile = (typeof isMobile === 'function') && isMobile();
@@ -98,8 +104,9 @@ function (pt, graph) {
             if (shownFor === entry) return;
             shownFor = entry;
 
-            badge.hidden = d < 2;
-            if (d >= 2) badge.textContent = d + ' deep';
+            const n = levels();
+            badge.hidden = n < 2;
+            if (n >= 2) { badge.textContent = n + ' deep'; badge.title = n + ' folders deep: Back goes up one at a time'; }
 
             const cached = labelCache.get(entry);
             const paint = (nm) => {

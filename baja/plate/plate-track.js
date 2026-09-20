@@ -4248,6 +4248,14 @@ function (progress) {
                 } else {
                     this.ptracks.push(uid + ':' + previousState);
                 }
+                // How many folders deep this canvas is. pt.ptracks cannot say: every entry
+                // holds the canvas that was left, and THAT canvas's own ptracks rides inside
+                // it, so the list is a chain one link long however deep you go (the way back
+                // still works, link by link). The number is kept beside it instead, saved
+                // with the canvas (toJSON), so popFolder's restore brings the parent's back.
+                // It is set here, from the canvas just left, never trusted from the folder's
+                // own saved state: a folder copied to another level would carry a stale one.
+                this.folderDepth = (Number(this.__folderDepthBefore) || 0) + 1;
                 // The camera always goes back to where it was: leaving restores the canvas
                 // that was left, camera included, and a folder that has been visited opens
                 // on the spot it was left at (popFolder saves it). A folder that has NEVER
@@ -4294,8 +4302,12 @@ function (progress) {
                     this.udi = fs.uid;
                 }
 
+                // How deep in folders the canvas being REPLACED was: pushFolder, which the
+                // folder ops call right after this, makes the new canvas one deeper.
+                this.__folderDepthBefore = Number(this.folderDepth) || 0;
                 Object.assign(this, fs);
                 this.folderVisited = !!fs.folderVisited;      // not inherited from the canvas being replaced
+                this.folderDepth = Number(fs.folderDepth) || 0;
                 let gggrid = Object.assign(new MGrid(), fs.grid);
                 const xmax = gggrid.xmax;
                 const xmin = gggrid.xmin;
@@ -18274,6 +18286,7 @@ function (progress) {
                         : null,
                     fixedAspectRatio: this.fixedAspectRatio,
                     folderVisited: this.folderVisited ? true : undefined,
+                    folderDepth: this.folderDepth > 0 ? this.folderDepth : undefined,
                     ptracks: this.ptracks,
                     formulas: this.formulas,
                     attr__showTablesMenu: this.attr__showTablesMenu,
