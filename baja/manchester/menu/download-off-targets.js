@@ -11,6 +11,11 @@ function (graph, genegraph_panel_layout, oligoList) {
         return;
     }
 
+    return (async () => {
+    // Every sequence the compound carries, named the same way here as in every other
+    // download (baja/bio/compound-sequences.js).
+    const SEQ = await exec('baja/bio/compound-sequences.js');
+
     // ---- helpers --------------------------------------------------------------
 
     // Find the track that owns an oligo (oligos don't reliably back-reference
@@ -62,7 +67,6 @@ function (graph, genegraph_panel_layout, oligoList) {
         return isNaN(p) ? 0 : p;
     };
 
-    const seqOf = (o) => (o && (o.synthesisSequence || o.sequence || o.guide || o.sense)) || '';
     const nameOf = (o) => (o && (o.name || o.id)) || 'oligo';
 
     const esc = (d) => {
@@ -73,12 +77,17 @@ function (graph, genegraph_panel_layout, oligoList) {
 
     // ---- build rows -----------------------------------------------------------
 
+    // WHAT IT BINDS AND WHAT YOU WOULD ORDER, not just the one strand. A single `sequence`
+    // column was the ordering strand and nothing else: the site on the transcript was
+    // nowhere in the sheet, and for a duplex there was no way to tell which strand it held.
+    // baja/bio/compound-sequences.js names them all, in one place, for every download.
     const header = [
         'oligo_name', 'track', 'transcript_id', 'chr', 'strand',
         'oligo_start_tx', 'oligo_end_tx', 'oligo_start_genomic', 'oligo_end_genomic',
-        'sequence', 'offtarget_gene_count', 'offtarget_symbols',
+    ].concat(SEQ.COLUMNS).concat([
+        'offtarget_gene_count', 'offtarget_symbols',
         'hit_chr', 'hit_start', 'hit_end', 'hit_strand', 'hit_editdistance', 'hit_gene',
-    ];
+    ]);
     const rows = [header.map(esc).join(',')];
 
     let totalHits = 0, oligosWithHits = 0;
@@ -100,10 +109,10 @@ function (graph, genegraph_panel_layout, oligoList) {
             (track ? track.strand : (o.strand != null ? o.strand : '')),
             txLo, txHi,
             (gLo != null ? gLo : ''), (gHi != null ? gHi : ''),
-            seqOf(o),
+        ].concat(SEQ.row(SEQ.of(o, track))).concat([
             geneCount(o),
             (o.offtargetsymbols && o.offtargetsymbols.length ? o.offtargetsymbols.join('; ') : ''),
-        ];
+        ]);
 
         const off = o.offtarget;
         if (Array.isArray(off) && off.length) {
@@ -148,4 +157,5 @@ function (graph, genegraph_panel_layout, oligoList) {
     } catch (e) {
         graph.setMessage(' Could not export CSV: ' + e);
     }
+    })().catch((e) => { try { graph.setMessage(' Could not export CSV: ' + e); } catch (e2) { } });
 }

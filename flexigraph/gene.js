@@ -12114,7 +12114,24 @@ pattern, GGGG | Required`
                     // opposed to the molecule that was synthesised. Both are wanted, and they
                     // are not the same string: a gapmer's synthesis sequence is the reverse
                     // complement of its target, and carries chemistry that the target does not.
+                    // The same answers as every other download: what the compound was DESIGNED
+                    // against when it recorded that, read off the track when it did not.
+                    // Reading the track unconditionally, which is what this did, gives nothing
+                    // for a compound on a track whose sequence is not loaded -- and disagrees
+                    // with the off-target CSV, which had the designed value all along.
+                    try {
+                        if (!this.__seqHelper) exec('baja/bio/compound-sequences.js')
+                            .then((h) => { this.__seqHelper = h; }).catch(() => { });
+                    } catch (e) { }
+                    const seqsOf = (e) => {
+                        try {
+                            const r = e && e.entry && e.entry.ref;
+                            return (this.__seqHelper && r) ? this.__seqHelper.of(r, e.entry.track) : null;
+                        } catch (er) { return null; }
+                    };
                     const targetSeqOf = (e) => {
+                        const q = seqsOf(e);
+                        if (q && q.target) return q.target.toUpperCase();
                         try {
                             const pe = e.entry, t = pe && pe.track;
                             if (!t || !t.getSequenceRange) return '';
@@ -12124,6 +12141,8 @@ pattern, GGGG | Required`
                         } catch (er) { return ''; }
                     };
                     const synthSeqOf = (e) => {
+                        const q = seqsOf(e);
+                        if (q && q.synthesis) return q.synthesis;
                         const r = e.entry && e.entry.ref;
                         return '' + ((r && (r.synthesisSequence || r.sequence)) || '');
                     };
@@ -12630,22 +12649,36 @@ pattern, GGGG | Required`
 
             // Rows [chr, start, end, name, type, track] for the current selection.
             // Optional `kind` restricts the rows to one object type.
+            // The rows behind every selection download. `seqs` carries what the compound
+            // binds and what you would order alongside the bare sequence -- see
+            // baja/bio/compound-sequences.js. Loaded lazily and cached, because this is
+            // called from synchronous export paths.
             _selectionRows(kind) {
-                const seqOf = (s) => {
+                const S = this.__seqHelper || null;
+                const seqsOf = (s) => {
                     try {
-                        const o = s && s.ref; if (!o) return '';
-                        return ('' + (o.synthesisSequence || o.sequence || o.guide || o.antisense || o.sense || o.seq || '')).trim();
-                    } catch (e) { return ''; }
+                        const o = s && s.ref;
+                        if (!o) return null;
+                        if (S) return S.of(o, s.track);
+                        const one = ('' + (o.synthesisSequence || o.sequence || o.guide || o.antisense || o.sense || o.seq || '')).trim();
+                        return { sequence: one, target: '', synthesis: one, sense: '', antisense: '', duplex: '', chemistry: '' };
+                    } catch (e) { return null; }
                 };
-                return (this.__lassoSelection || []).filter((s) => !kind || s.kind === kind).map((s) => ({
-                    chr: s.chr != null ? ('' + s.chr) : '',
-                    start: Math.floor(Math.min(s.xi, s.xf)),
-                    end: Math.floor(Math.max(s.xi, s.xf)),
-                    name: s.label || '',
-                    type: s.kind || '',
-                    track: (s.track && s.track.name) || '',
-                    sequence: seqOf(s),
-                }));
+                return (this.__lassoSelection || []).filter((s) => !kind || s.kind === kind).map((s) => {
+                    const q = seqsOf(s) || { sequence: '', target: '', synthesis: '', sense: '', antisense: '', duplex: '', chemistry: '' };
+                    return {
+                        chr: s.chr != null ? ('' + s.chr) : '',
+                        start: Math.floor(Math.min(s.xi, s.xf)),
+                        end: Math.floor(Math.max(s.xi, s.xf)),
+                        name: s.label || '',
+                        type: s.kind || '',
+                        track: (s.track && s.track.name) || '',
+                        sequence: q.sequence,
+                        seqs: q,
+                        ref: s.ref,
+                        trackRef: s.track,
+                    };
+                });
             }
 
             _download(filename, content, mime) {
@@ -12661,17 +12694,25 @@ pattern, GGGG | Required`
                 } catch (e) { this.setMessage(' Download failed: ' + e); }
             }
 
-            exportSelection(fmt, kind) {
+            async exportSelection(fmt, kind) {
+                // The sequence helper, once per graph: every format below wants the same
+                // columns and a download should not be the thing that loads it twice.
+                if (!this.__seqHelper) {
+                    try { this.__seqHelper = await exec('baja/bio/compound-sequences.js'); } catch (e) { this.__seqHelper = null; }
+                }
+                const S = this.__seqHelper;
                 const rows = this._selectionRows(kind);
                 if (!rows.length) return;
+                const SEQCOLS = S ? S.COLUMNS.slice(1) : ['target_sequence', 'synthesis_sequence', 'sense_strand', 'antisense_strand', 'synthesis_duplex', 'chemistry_helm'];
+                const seqVals = (r) => [r.seqs.target, r.seqs.synthesis, r.seqs.sense, r.seqs.antisense, r.seqs.duplex, r.seqs.chemistry];
                 const name = kind ? ('selection-' + kind) : 'selection';
                 if (fmt === 'bed') {
                     const txt = rows.map((r) => [r.chr || '.', r.start, r.end, ('' + (r.name || '.')).replace(/\s+/g, '_')].join('\t')).join('\n') + '\n';
                     this._download(name + '.bed', txt, 'text/plain');
                 } else if (fmt === 'csv') {
                     const esc = (v) => { v = '' + (v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-                    const head = ['chr', 'start', 'end', 'name', 'type', 'track', 'sequence'];
-                    const txt = [head.join(',')].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track, r.sequence].map(esc).join(','))).join('\n') + '\n';
+                    const head = ['chr', 'start', 'end', 'name', 'type', 'track', 'sequence'].concat(SEQCOLS);
+                    const txt = [head.join(',')].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track, r.sequence].concat(seqVals(r)).map(esc).join(','))).join('\n') + '\n';
                     this._download(name + '.csv', txt, 'text/csv');
                 } else if (fmt === 'txt') {
                     const txt = rows.map((r) => (r.name || '') + '\t' + (r.chr ? r.chr + ':' : '') + r.start + '-' + r.end + '\t' + r.type + (r.track ? '\t' + r.track : '')).join('\n') + '\n';
@@ -12679,14 +12720,25 @@ pattern, GGGG | Required`
                 } else if (fmt === 'xlsx') {
                     try {
                         if (typeof XLSX === 'undefined') { this.setMessage(' XLSX library not available. '); return; }
-                        const aoa = [['chr', 'start', 'end', 'name', 'type', 'track', 'sequence']].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track, r.sequence]));
+                        const aoa = [['chr', 'start', 'end', 'name', 'type', 'track', 'sequence'].concat(SEQCOLS)]
+                            .concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track, r.sequence].concat(seqVals(r))));
                         const ws = XLSX.utils.aoa_to_sheet(aoa);
                         const wb = XLSX.utils.book_new();
                         XLSX.utils.book_append_sheet(wb, ws, 'Selection');
                         XLSX.writeFile(wb, name + '.xlsx');
                     } catch (e) { this.setMessage(' XLSX export failed: ' + e); return; }
                 } else if (fmt === 'fasta') {
-                    const txt = rows.filter((r) => r.sequence).map((r) => '>' + (('' + (r.name || 'seq')).replace(/\s+/g, '_')) + (r.chr ? ' ' + r.chr + ':' + r.start + '-' + r.end : '') + '\n' + r.sequence).join('\n') + '\n';
+                    // A compound becomes one record per sequence it HAS -- what you order,
+                    // what it binds, and each strand of a duplex -- because a FASTA of
+                    // antisense strands alone cannot be ordered from or blasted against.
+                    const recs = [];
+                    for (const r of rows) {
+                        const where = r.chr ? ' ' + r.chr + ':' + r.start + '-' + r.end : '';
+                        const made = (S && r.ref) ? S.records(r.ref, r.trackRef, r.name || 'seq') : [];
+                        if (made.length) { for (const m of made) recs.push('>' + m.name + where + '\n' + m.sequence); }
+                        else if (r.sequence) recs.push('>' + (('' + (r.name || 'seq')).replace(/\s+/g, '_')) + where + '\n' + r.sequence);
+                    }
+                    const txt = recs.join('\n') + '\n';
                     if (!('' + txt).trim()) { this.setMessage(' No sequences to export. '); return; }
                     this._download(name + '.fasta', txt, 'text/plain');
                 }
