@@ -4206,6 +4206,10 @@ function (progress) {
                     return jsonString;
                 }
 
+                // The state saved back into the folder carries the camera as it is now, and
+                // says so: the next time the folder is opened it comes back to this spot
+                // instead of being framed afresh (see pushFolder).
+                this.folderVisited = true;
                 const previousState = this.capturestate();
                 const udata = __decompress(content)
                 this.copyFromJSON(udata)
@@ -4244,6 +4248,41 @@ function (progress) {
                 } else {
                     this.ptracks.push(uid + ':' + previousState);
                 }
+                // The camera always goes back to where it was: leaving restores the canvas
+                // that was left, camera included, and a folder that has been visited opens
+                // on the spot it was left at (popFolder saves it). A folder that has NEVER
+                // been opened has no spot of its own -- its saved camera is the default
+                // view (a drawn folder) or wherever the parent happened to be looking when a
+                // build packed it (Competition), which showed an empty canvas with the
+                // tables thousands of units away. So the first visit frames what is inside.
+                if (!this.folderVisited) { try { this.__frameFolderContents(); } catch (e) { console.warn('[folder] frame', e); } }
+            }
+
+            // Put the camera on everything in the canvas, at once (the canvas has just been
+            // swapped, so there is nothing to animate from). Keeps the view's proportions.
+            __frameFolderContents() {
+                let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+                const take = (l, r, b, t) => { if ([l, r, b, t].every(Number.isFinite)) { x0 = Math.min(x0, l); x1 = Math.max(x1, r); y0 = Math.min(y0, b); y1 = Math.max(y1, t); } };
+                for (const p of (this.root || [])) {
+                    if (!p || !p.grid || p.hidden) continue;
+                    take(p.grid.xi, p.grid.xi + Math.abs(p.grid.width), p.grid.yi, p.grid.yi + Math.abs(p.grid.height));
+                }
+                for (const m of (this.m_plots || [])) {
+                    if (!m || m.hidden) continue;
+                    take(m.x, m.x + m.w, m.y - m.h, m.y);                 // a chart's x / y is its top left
+                }
+                if (!(x1 > x0 && y1 > y0)) return false;                  // an empty folder keeps its view
+                const g = this.grid;
+                let ar = (g.xmax - g.xmin) / (g.ymax - g.ymin);
+                if (!(ar > 0 && Number.isFinite(ar))) ar = 1;
+                // Room around the block, and a little more above for the titles and buttons.
+                let w = (x1 - x0) * 1.16, h = (y1 - y0) * 1.24;
+                if (w / h > ar) h = w / ar; else w = h * ar;
+                const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2 + (y1 - y0) * 0.03;
+                g.setxmin(cx - w / 2); g.setxmax(cx + w / 2);
+                g.setymin(cy - h / 2); g.setymax(cy + h / 2);
+                try { g.rescale(); } catch (e) { }
+                return true;
             }
 
             copyFromJSON(fs) {
@@ -4256,6 +4295,7 @@ function (progress) {
                 }
 
                 Object.assign(this, fs);
+                this.folderVisited = !!fs.folderVisited;      // not inherited from the canvas being replaced
                 let gggrid = Object.assign(new MGrid(), fs.grid);
                 const xmax = gggrid.xmax;
                 const xmin = gggrid.xmin;
@@ -18103,6 +18143,7 @@ function (progress) {
                         ? JSON.stringify({ __function__: this.background_function.toString() })
                         : null,
                     fixedAspectRatio: this.fixedAspectRatio,
+                    folderVisited: this.folderVisited ? true : undefined,
                     ptracks: this.ptracks,
                     formulas: this.formulas,
                     attr__showTablesMenu: this.attr__showTablesMenu,
