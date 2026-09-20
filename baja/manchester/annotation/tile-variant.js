@@ -60,26 +60,56 @@ function (variant, selectedTrack, graph, opposite, all) {
             let trackseq = selectedTrack.getSequenceRange(tiles, tilef);
             let indices = Array(trackseq.length).fill(tiles).map((x, y) => x + y);
 
+            // WHERE THE REFERENCE ALLELE ACTUALLY SITS, rather than where the variant is drawn.
+            //
+            // A VCF quotes the base BEFORE a deleted run, so ATAT>A at 72,015,985 removes the
+            // TAT that follows the anchoring A. The editor deliberately draws that variant one
+            // base later, over the first base actually removed (snpindel's del placement adds
+            // +1 on a plus-strand track), and it does NOT shift an insertion, or a deletion on
+            // a minus-strand track. Splicing at the drawn position therefore kept the anchor,
+            // wrote the alternate -- a second copy of that same anchor base -- and resumed one
+            // base too far, so the designed target read ...TTTGA·A·ATTTTC where the real
+            // deleted allele reads ...TTTG·A·TATTTTC. Every oligo tiled over it then matched
+            // NEITHER allele: one base wrong against the mutant it was aimed at, and one base
+            // wrong against the wild type it was meant to spare.
+            //
+            // Rather than keep a table of which cases are shifted, the reference allele is
+            // looked for in the sequence: it sits either at the drawn position or one base
+            // before it, and the sequence says which. Then the splice is the plain VCF one --
+            // replace the whole reference span with the alternate.
+            // One variant written into a sequence, with its index map kept alongside. Used for
+            // the variant being designed against and for every neighbour written in after it,
+            // so a neighbouring indel cannot go in by one rule and the primary by another.
+            const spliceVariant = (seq, idx, v, altRaw) => {
+                const ref = ('' + ((v && (v.reference0 || v.reference)) || '')).toUpperCase();
+                const alt = ('' + (altRaw != null ? altRaw : ((v && (v.alternate0 || v.alternate)) || ''))).toUpperCase();
+                let at = idx.indexOf(v.xi);
+                if (at < 0) return { seq: seq, idx: idx };
+                // Where the reference allele ACTUALLY sits: at the drawn position, or one base
+                // before it. The sequence decides, so no table of conventions is needed.
+                if (ref.length >= 2) {
+                    const reads = (i) => seq.slice(i, i + ref.length).toUpperCase();
+                    if (reads(at) !== ref && at > 0 && reads(at - 1) === ref) at -= 1;
+                }
+                const end = ref.length ? (at + ref.length) : idx.indexOf(v.xf);
+                if (!(end >= at)) return { seq: seq, idx: idx };
+                return {
+                    seq: seq.slice(0, at) + alt + seq.slice(end),
+                    idx: idx.slice(0, at).concat(
+                        Array(alt.length).fill(idx[at] != null ? idx[at] : v.xi),
+                        idx.slice(end)),
+                };
+            };
+            const spliceWith = (alt) => spliceVariant(trackseq, indices, variant, alt);
+
             let splicedtrack = null;
             let splicedindices = null;
             if (!opposite) {
                 if (!variant.alternate0) {
-                    splicedtrack = trackseq.slice(0, indices.indexOf(variant.xi))
-                        + variant.alternate
-                        + trackseq.slice(indices.indexOf(variant.xf));
-                    splicedindices = indices.slice(0, indices.indexOf(variant.xi)).concat(
-                        Array(variant.alternate.length).fill(variant.xi),
-                        indices.slice(indices.indexOf(variant.xf))
-                    );
+                    { const r = spliceWith(('' + variant.alternate).toUpperCase()); splicedtrack = r.seq; splicedindices = r.idx; }
 
                 } else {
-                    splicedtrack = trackseq.slice(0, indices.indexOf(variant.xi))
-                        + variant.alternate0
-                        + trackseq.slice(indices.indexOf(variant.xf));
-                    splicedindices = indices.slice(0, indices.indexOf(variant.xi)).concat(
-                        Array(variant.alternate0.length).fill(variant.xi),
-                        indices.slice(indices.indexOf(variant.xf))
-                    );
+                    { const r = spliceWith(('' + variant.alternate0).toUpperCase()); splicedtrack = r.seq; splicedindices = r.idx; }
                 }
             } else {
                 // "All mutations at this location" must still reflect the PRIMARY mutation --
@@ -89,45 +119,22 @@ function (variant, selectedTrack, graph, opposite, all) {
                 // the primary alternate here, exactly as the "this phase only" branch does; the
                 // neighbour loop then writes the other-phase mutations on top.
                 if (!variant.alternate0) {
-                    splicedtrack = trackseq.slice(0, indices.indexOf(variant.xi))
-                        + variant.alternate
-                        + trackseq.slice(indices.indexOf(variant.xf));
-                    splicedindices = indices.slice(0, indices.indexOf(variant.xi)).concat(
-                        Array(variant.alternate.length).fill(variant.xi),
-                        indices.slice(indices.indexOf(variant.xf))
-                    );
+                    { const r = spliceWith(('' + variant.alternate).toUpperCase()); splicedtrack = r.seq; splicedindices = r.idx; }
                 } else {
-                    splicedtrack = trackseq.slice(0, indices.indexOf(variant.xi))
-                        + variant.alternate0
-                        + trackseq.slice(indices.indexOf(variant.xf));
-                    splicedindices = indices.slice(0, indices.indexOf(variant.xi)).concat(
-                        Array(variant.alternate0.length).fill(variant.xi),
-                        indices.slice(indices.indexOf(variant.xf))
-                    );
+                    { const r = spliceWith(('' + variant.alternate0).toUpperCase()); splicedtrack = r.seq; splicedindices = r.idx; }
                 }
             }
 
             if (neighbors.length > 0) {
                 for (let sid of neighbors) {
-                    if (!variant.alternate0) {
-                        splicedtrack = trackseq.slice(0, indices.indexOf(variant.xi))
-                            + variant.alternate
-                            + trackseq.slice(indices.indexOf(variant.xf));
-                        splicedindices = indices.slice(0, indices.indexOf(variant.xi)).concat(
-                            Array(variant.alternate.length).fill(variant.xi),
-                            indices.slice(indices.indexOf(variant.xf))
-                        );
-
-                    } else {
-
-                        splicedtrack = splicedtrack.slice(0, splicedindices.indexOf(sid.xi))
-                            + sid.alternate0
-                            + splicedtrack.slice(splicedindices.indexOf(sid.xf));
-                        splicedindices = splicedindices.slice(0, splicedindices.indexOf(sid.xi)).concat(
-                            Array(sid.alternate0.length).fill(sid.xi),
-                            splicedindices.slice(splicedindices.indexOf(sid.xf))
-                        );
-                    }
+                    // THE NEIGHBOUR, onto what is already there. One branch here used to
+                    // re-splice the PRIMARY variant instead -- ignoring `sid` entirely and
+                    // throwing away every neighbour written before it -- so a window with two
+                    // neighbours ended up carrying neither.
+                    if (!sid) continue;
+                    const r = spliceVariant(splicedtrack, splicedindices, sid,
+                        (sid.alternate0 || sid.alternate || ''));
+                    splicedtrack = r.seq; splicedindices = r.idx;
                 }
             }
 
