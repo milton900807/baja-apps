@@ -11,6 +11,28 @@ function () {
         // the whole background of every tagged cell and made the value hard to read. They
         // are dots now, and where a cell is too small for them to be legible they are left
         // out rather than drawn as smudges.
+        // A SELECTED cell: a light tint of the app's teal over the cell as it is, inside a crisp
+        // teal edge, the way a spreadsheet marks its selection. It used to be a flood of opaque
+        // magenta that hid the cell's own colour and fought every other colour on the canvas.
+        // The content is drawn after this and stays readable in its own colour. `dirty` (the
+        // cell being typed into) is lighter still, so the text under the cursor has the most
+        // contrast. Tiny cells (the zoomed-out draws) get the tint alone: an edge there is noise.
+        const SELECT_EDGE = '#1aa3bd';
+        function drawCellSelection(ctx, x, y, w, h, dirty, tiny) {
+            ctx.save();
+            ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+            ctx.fillStyle = tiny ? 'rgba(26,163,189,0.45)' : (dirty ? 'rgba(26,163,189,0.08)' : 'rgba(26,163,189,0.16)');
+            ctx.fillRect(x, y, w, h);
+            if (!tiny && w > 6 && h > 6) {
+                const lw = dirty ? 2 : 1.5;
+                ctx.setLineDash([]);
+                ctx.lineWidth = lw;
+                ctx.strokeStyle = SELECT_EDGE;
+                ctx.strokeRect(x + lw / 2, y + lw / 2, w - lw, h - lw);      // inside the cell, so neighbours keep their own edge
+            }
+            ctx.restore();
+        }
+
         function drawTagDots(ctx, x, y, w, h, groups, preferences, bg) {
             ctx.fillStyle = bg || '#ffffff';
             ctx.fillRect(x, y, w, h);
@@ -805,13 +827,7 @@ function () {
                 }
 
                 if (this.select) {
-
-                    if (this.__dirty) {
-                        ctx.fillStyle = 'rgba(255, 0, 255, 0.3)'
-                    } else
-                        ctx.fillStyle = 'magenta';
-
-                    ctx.fillRect(screen_x, screen_y, screen_width, screen_height);
+                    drawCellSelection(ctx, screen_x, screen_y, screen_width, screen_height, !!this.__dirty, screen_height < 10 || screen_width < 10);
                 } else {
                     ctx.strokeStyle = this.equations ? "rgba(120, 120, 100, 1)" : '#D3D3D3';
                     ctx.lineWidth = this.equations ? 1 * scaleFactor : 1;
@@ -1185,8 +1201,7 @@ function () {
                 }
 
                 if (this.select) {
-                    ctx.fillStyle = this.__dirty ? 'rgba(255, 0, 255, 0.3)' : 'magenta';
-                    ctx.fillRect(screen_x, screen_y, screen_width, screen_height);
+                    drawCellSelection(ctx, screen_x, screen_y, screen_width, screen_height, !!this.__dirty, false);
                 } else if (this.attr__showBorder) {
                     ctx.strokeStyle = this.equations ? "rgba(85, 125, 255, 0.7)" : '#D3D3D3';
                     ctx.lineWidth = this.equations ? scaleFactor : 1;
@@ -1365,7 +1380,7 @@ function () {
 
                 if (this.__highlight__) {
                     ctx.shadowBlur = 20;
-                    ctx.shadowColor = "magenta";
+                    ctx.shadowColor = SELECT_EDGE;
                 } else {
                     ctx.shadowBlur = 0;
                 }
@@ -1421,8 +1436,7 @@ function () {
                     }
 
                 if (this.select) {
-                    ctx.fillStyle = 'magenta';
-                    ctx.fillRect(screen_x, screen_y, screen_width, screen_height);
+                    drawCellSelection(ctx, screen_x, screen_y, screen_width, screen_height, false, screen_height < 10 || screen_width < 10);
                 }
 
                 ctx.shadowBlur = 0;
