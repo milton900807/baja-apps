@@ -896,19 +896,37 @@ function (expression, pt) {
                     return getColumnValuesFromEncodedRange(conditionPart, table)
                 }
 
+                // Inputs[Gland_cancer_Patients,Value] arrives here as
+                // "Gland_cancer_Patients and Value" -- replaceCommaInBrackets put the
+                // spaces in. Read the SPACED word as the separator, so an ordinary tag
+                // that happens to contain one of these words -- Gland, Brand, Annotation,
+                // Sponsor -- is not cut in half. Only a string with no spaces at all can
+                // be the old hand-typed shape (whitespace is stripped upstream, turning
+                // "a not b" into "anotb"), and only that falls back to a bare match.
+                const spacedRe = (word) => new RegExp(`\\s+${word}\\s+`);
+                const bareOnly = !/\s/.test(conditionPart);
+                const has = (word) => spacedRe(word).test(conditionPart) || (bareOnly && conditionPart.includes(word));
+                const splitOn = (text, word) => {
+                    const s = String(text);
+                    const parts = spacedRe(word).test(s) ? s.split(spacedRe(word))
+                        : (/\s/.test(s) ? [s] : s.split(word));
+                    return parts.map(x => x.trim());
+                };
+                const tagsOf = (text, word) => splitOn(text, word).filter(Boolean);
+
                 let condition = 'and';
                 let groups = [];
                 let notGroups = [];
-                if (conditionPart.includes('and')) {
-                    groups = conditionPart.split('and').map(group => group.trim());
-                } else if (conditionPart.includes('or')) {
-                    groups = conditionPart.split('or').map(group => group.trim());
+                if (has('and')) {
+                    groups = tagsOf(conditionPart, 'and');
+                } else if (has('or')) {
+                    groups = tagsOf(conditionPart, 'or');
                     condition = 'or';
                 }
-                if (conditionPart.includes('not')) {
-                    const parts = conditionPart.split('not');
-                    groups = parts[0].split('and').map(group => group.trim());
-                    notGroups = parts[1].split('and').map(group => group.trim());
+                if (has('not')) {
+                    const parts = splitOn(conditionPart, 'not');
+                    groups = tagsOf(parts[0] || '', 'and');
+                    notGroups = tagsOf(parts[1] || '', 'and');
                 }
                 let ngroups = []
                 let i = 0;
@@ -1095,6 +1113,16 @@ function (expression, pt) {
 
             if (!tableData || !tableData.wells) {
                 console.error(`Table ${table} not found or has no wells`);
+                return [];
+            }
+
+            // "Matches every group in an empty list" is true of every cell, so a
+            // reference whose tags all fell away would quietly evaluate to the whole
+            // table. Nothing asked for is nothing found -- let the caller report the
+            // missing reference instead. (T[not X] is still a real ask: no groups,
+            // but an exclusion.)
+            if ((!groups || groups.length === 0) && (!notGroups || notGroups.length === 0)) {
+                console.error(`Reference into ${table} named no row or column`);
                 return [];
             }
 

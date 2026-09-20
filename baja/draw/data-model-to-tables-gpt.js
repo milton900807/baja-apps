@@ -529,11 +529,125 @@ function (platetrack, model, option) {
             return platetrack.root;
         }
 
+        // The tables this model is responsible for, so the pass below only rewrites
+        // formulas the model itself wrote and never a table the user typed by hand.
+        function modelTableNames(m) {
+            const names = new Set();
+            const take = (obj) => {
+                for (const k of Object.keys(obj || {})) {
+                    const hit = /^([A-Za-z_]\w*)\[/.exec(k);
+                    if (hit) names.add(hit[1]);
+                }
+            };
+            take(m?.tables);
+            take(m?.formulas);
+            for (const n of (m?.names || [])) names.add(n);
+            return names;
+        }
+
+        // ---- a one-tag reference into a table wider than Label | Value ---------------
+        // A reference carrying one tag, Inputs[Peak_Share], means "the cells tagged
+        // Peak_Share". A row's label tags every OTHER cell in its row, so while the
+        // table is Label | Value that is exactly one cell and the reference reads as
+        // the value. Give the table a third column -- a unit, a source, a note -- and
+        // the same reference is the whole row, and arithmetic that wanted one number
+        // is handed three. The model cannot always know the shape when it writes the
+        // formula, but by here the tables are on the canvas and the shape is settled,
+        // so name the column the reference meant: Inputs[Peak_Share,Value].
+        function qualifyAmbiguousReferences(platetrack, ownTables) {
+            const notes = [];
+            const plates = (platetrack?.root || []).filter(p => p && Array.isArray(p.wells));
+            const byName = new Map(plates.map(p => [p.name, p]));
+
+            const textOf = (w) => (w && w.value != null) ? String(w.value).trim() : '';
+            const headerOf = (plate, c) => textOf(plate.wells[c]?.[0]);
+            const lastColOf = (plate) => plate.wells.length - 1;
+            const isNumeric = (v) => v !== '' && !isNaN(parseFloat(v)) && isFinite(v);
+
+            const rowOfLabel = (plate, label) => {
+                const col0 = plate.wells[0] || [];
+                const target = label.toLowerCase();
+                for (let r = 1; r < col0.length; r++) {
+                    if (textOf(col0[r]).toLowerCase() === target) return r;
+                }
+                return -1;
+            };
+            const columnOfHeader = (plate, header) => {
+                const target = header.toLowerCase();
+                for (let c = 1; c <= lastColOf(plate); c++) {
+                    if (headerOf(plate, c).toLowerCase() === target) return c;
+                }
+                return -1;
+            };
+
+            // Which column the reference meant: the first one holding a number on that
+            // row, or failing that the first one a formula will put a number into.
+            // Column 1 when nothing says otherwise -- the Label | Value convention.
+            const valueColumnOf = (plate, row) => {
+                for (let c = 1; c <= lastColOf(plate); c++) {
+                    if (isNumeric(textOf(plate.wells[c]?.[row]))) return c;
+                }
+                for (let c = 1; c <= lastColOf(plate); c++) {
+                    if (plate.formula && plate.formula[`[${c}:${c}][${row}:${row}]`]) return c;
+                }
+                return 1;
+            };
+
+            // Tags are matched by name against the sanitised group keys, which are bare
+            // words. Anything else -- a space, a dot, a bracket -- could not be written
+            // as a tag, so it falls back to the column/row index form, which no amount
+            // of text can confuse, at the cost of not following the row if it moves.
+            const tagSafe = (s) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s);
+
+            const refRe = /([A-Za-z_]\w*)\[([^\[\]]+)\](?!\s*\[)/g;
+
+            for (const plate of plates) {
+                if (ownTables && ownTables.size && !ownTables.has(plate.name)) continue;
+                if (!plate.formula || typeof plate.formula !== 'object') continue;
+
+                for (const key of Object.keys(plate.formula)) {
+                    const before = plate.formula[key];
+                    if (typeof before !== 'string' || before.indexOf('[') < 0) continue;
+
+                    const after = before.replace(refRe, (whole, tableName, inner) => {
+                        const tag = inner.trim();
+                        const target = byName.get(tableName);
+                        if (!target || !Array.isArray(target.wells) || !tag) return whole;
+                        if (tag.includes(',')) return whole;            // already qualified
+                        if (/^\d+\s*:/.test(tag)) return whole;         // an index range
+                        if (lastColOf(target) <= 1) return whole;       // Label | Value: unambiguous
+                        if (columnOfHeader(target, tag) >= 0) return whole;  // names a column: the whole column is meant
+
+                        const row = rowOfLabel(target, tag);
+                        if (row < 0) return whole;                      // names neither: leave it to be reported
+
+                        const col = valueColumnOf(target, row);
+                        const header = headerOf(target, col);
+                        const qualified = (header && tagSafe(header) && tagSafe(tag))
+                            ? `${tableName}[${tag},${header}]`
+                            : `${tableName}[${col}:${col}][${row}:${row}]`;
+                        notes.push(
+                            `${tableName}[${tag}] is a whole row of a ${lastColOf(target) + 1}-column table; read as ${qualified}`
+                        );
+                        return qualified;
+                    });
+
+                    if (after !== before) plate.formula[key] = after;
+                }
+            }
+            return notes;
+        }
+
         function validatePlatetrackFormulas(dataset, platetrack) {
             const { tables = {}, formulas = {}, annotations } = dataset || {};
 
             let fixed_formulas = normalizeFormulas(model.formulas);
             preseedTablesIntoPlatetrack(model.tables, platetrack, fixed_formulas, model.annotations);
+
+            // The tables are on the canvas now, so their shape is known: name the column
+            // for any one-tag reference that turned out to be a whole row. Everything
+            // below -- and the evaluator after it -- then reads settled references.
+            const qualifiedNotes = qualifyAmbiguousReferences(platetrack, modelTableNames(model));
 
             const cellRefRe = /^([A-Za-z_]\w*)\[(\d+:\d+)\]\[(\d+:\d+)\]$/;
             const tableRefRe = /([A-Za-z_]\w*)\s*(\[(?:[^\[\]\r\n]|\\\]|\\\[)+\]+)/g;
@@ -567,6 +681,15 @@ function (platetrack, model, option) {
                 for (let r = 0; r < plate.wells[0].length; r++) {
                     const w = plate.wells[0][r];
                     if (w && w.value === label) return r;
+                }
+                return -1;
+            }
+
+            function findColIndexByHeader(plate, header) {
+                if (!plate || !Array.isArray(plate.wells)) return -1;
+                for (let c = 1; c < plate.wells.length; c++) {
+                    const w = plate.wells[c]?.[0];
+                    if (w && w.value === header) return c;
                 }
                 return -1;
             }
@@ -641,7 +764,12 @@ function (platetrack, model, option) {
 
                     const inner = parseBracketGroups(bracketGroup);
 
-                    if (inner.length === 1 && !isRange(inner[0])) {
+                    if (inner.length === 1 && !isRange(inner[0]) && inner[0].includes(',')) {
+                        // Inputs[Peak_Share,Value] -- the one cell where the row and the
+                        // column meet. The tags are a set, so their order does not matter.
+                        const tags = inner[0].split(',').map(t => t.trim()).filter(Boolean);
+                        refs.push({ table, kind: 'cell', info: { tags } });
+                    } else if (inner.length === 1 && !isRange(inner[0])) {
                         refs.push({ table, kind: 'label', info: { label: inner[0] } });
                     } else if (inner.length === 2 && isRange(inner[0]) && isRange(inner[1])) {
                         refs.push({
@@ -673,6 +801,7 @@ function (platetrack, model, option) {
                 warnings: [],
                 details: [],
             };
+            for (const n of qualifiedNotes) report.warnings.push(n);
 
             function err(msg, ctx) {
                 report.errors.push(ctx ? `${msg} — ${ctx}` : msg);
@@ -705,7 +834,32 @@ function (platetrack, model, option) {
                         continue;
                     }
 
-                    if (ref.kind === 'label') {
+                    if (ref.kind === 'cell') {
+                        // One tag names the row, the other the column; either order.
+                        const tags = ref.info.tags || [];
+                        const rowTag = tags.find(t => findRowIndexByLabel(plate, t) >= 0);
+                        const colTag = tags.find(t => t !== rowTag && findColIndexByHeader(plate, t) >= 0);
+                        const shown = `${ref.table}[${tags.join(',')}]`;
+
+                        if (!rowTag) {
+                            entry.ok = false;
+                            entry.messages.push(`No row of "${ref.table}" is labelled ${tags.map(t => `"${t}"`).join(' or ')}.`);
+                            err(`Unknown row label in ${shown}`, `formula: ${item.formula}`);
+                        } else if (!colTag) {
+                            entry.ok = false;
+                            entry.messages.push(`No column of "${ref.table}" is headed ${tags.filter(t => t !== rowTag).map(t => `"${t}"`).join(' or ') || '(nothing)'}.`);
+                            err(`Unknown column header in ${shown}`, `formula: ${item.formula}`);
+                        } else {
+                            const r = findRowIndexByLabel(plate, rowTag);
+                            const c = findColIndexByHeader(plate, colTag);
+                            entry.info.at = { col: c, row: r };
+                            if (!hasCell(plate, c, r)) {
+                                entry.ok = false;
+                                entry.messages.push(`Missing cell at column ${c}, row ${r} in "${ref.table}" for ${shown}.`);
+                                err(`Missing cell in "${ref.table}" (c=${c}, r=${r})`, `formula: ${item.formula}`);
+                            }
+                        }
+                    } else if (ref.kind === 'label') {
                         const r = findRowIndexByLabel(plate, ref.info.label);
                         if (r < 0) {
                             entry.ok = false;
@@ -848,18 +1002,24 @@ function (platetrack, model, option) {
             for (const d of details) {
 
                 for (const ref of (d.refs || [])) {
-                    if (ref.kind !== 'label') continue;
+                    if (ref.kind !== 'label' && ref.kind !== 'cell') continue;
 
                     const table = ref.table;
-                    const label = ref.info?.label;
                     const plate = findPlate(table);
 
                     if (!plate) continue;
 
-                    let row = findRowIndexByLabelExact(plate, label);
+                    // A qualified reference already resolved to a cell during validation;
+                    // a bare label still means column 1, the Label | Value convention.
+                    const qualified = ref.kind === 'cell';
+                    const label = qualified ? (ref.info?.tags || []).join(',') : ref.info?.label;
+                    const col = qualified ? ref.info?.at?.col : 1;
+                    if (qualified && !Number.isInteger(col)) continue;
+
+                    let row = qualified ? ref.info?.at?.row : findRowIndexByLabelExact(plate, label);
                     let caseNote = null;
 
-                    if (row < 0) {
+                    if (!qualified && row < 0) {
                         const ci = findRowIndexByLabelCaseInsensitive(plate, label);
                         if (ci.row >= 0) {
                             row = ci.row;
@@ -867,15 +1027,15 @@ function (platetrack, model, option) {
                         }
                     }
 
-                    if (row < 0) continue;
+                    if (!Number.isInteger(row) || row < 0) continue;
 
-                    const { exists, value } = readWell(plate, 1, row);
+                    const { exists, value } = readWell(plate, col, row);
                     const good = exists && hasConcreteValue(value);
 
                     if (!good) {
                         result.ok = false;
                         const msg =
-                            `Missing value for ${table}[${label}] at (col=1,row=${row})`
+                            `Missing value for ${table}[${label}] at (col=${col},row=${row})`
                             + (exists ? ' (cell exists but is empty)' : ' (cell does not exist)');
                         result.report.errors.push(
                             `${msg} — referenced by ${d.source} ${d.key}`
@@ -885,7 +1045,7 @@ function (platetrack, model, option) {
                             label,
                             source: d.source,
                             formulaKey: d.key,
-                            at: { col: 1, row }
+                            at: { col, row }
                         };
                         if (caseNote) {
                             entry.note = caseNote;

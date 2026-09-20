@@ -653,7 +653,12 @@ def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict
     formulas: Dict[str, str] = {}
     ann: Dict[str, str] = {}
     units: Dict[str, Dict[str, str]] = {I: {}, S: {}, C: {}, M: {}}
-    ref = lambda lab: f"{I}[{lab}]"
+    # A row's label tags every OTHER cell in its row, so Inputs[Peak_Share] means "the
+    # cells tagged Peak_Share" -- one cell only while the table is Label | Value. This
+    # table also carries Unit and Basis, so the bare label is the whole row and the
+    # arithmetic reading it gets three values where it wanted one. Name the column.
+    INPUT_COLS = ["Label", "Value", "Unit", "Basis"]
+    ref = lambda lab: f"{I}[{lab},{INPUT_COLS[1]}]"
 
     inputs: List[Tuple[str, Any, str, str]] = []
     rows: List[Tuple[str, str]] = []           # (label, kind)
@@ -701,7 +706,7 @@ def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict
             else:
                 inputs.append((f"{lab}_Success_Rate", rate, "fraction", dbasis))
 
-    for c, h in enumerate(["Label", "Value", "Unit", "Basis"]):
+    for c, h in enumerate(INPUT_COLS):
         tables[_key(I, c, 0)] = h
     for r, (lab, val, unit, basis) in enumerate(inputs, start=1):
         tables[_key(I, 0, r)] = lab
