@@ -10879,7 +10879,7 @@ function (progress) {
                         // The real count of whatever lassoSelect found -- tables, documents,
                         // charts, timelines, notes -- not just the points, which were the only
                         // thing this message used to report.
-                        const __sel = this.__lassoSelection;
+                        const __sel = this.__lassoFind;
                         const objN = __sel ? (__sel.plates.length + __sel.plots.length + __sel.glyphs.length) : 0;
                         try {
                             if (n) this.setMessage(n + ' point' + (n === 1 ? '' : 's') + ' selected', 2);
@@ -12512,7 +12512,7 @@ function (progress) {
                 // not just usable from the menu below (see __drawLassoSelection). Tied to the
                 // menu this call is about to build: it disappears the instant that menu closes,
                 // by any path, because the draw check is simply "is this still pt.menu".
-                this.__lassoSelection = { plates: objects.slice(), plots: selectedPlots.slice(), glyphs: selected_glyphs.slice(), menu: null };
+                this.__lassoFind = { plates: objects.slice(), plots: selectedPlots.slice(), glyphs: selected_glyphs.slice(), menu: null };
 
                 let menuList = [
                 ]
@@ -13691,20 +13691,20 @@ function (progress) {
 
                 this.menu = new Menu(menuList, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * menuList.length / 2))
                 this.menu_vis = true;
-                if (this.__lassoSelection) this.__lassoSelection.menu = this.menu;   // draw() clears it once this is no longer pt.menu
+                if (this.__lassoFind) this.__lassoFind.menu = this.menu;   // draw() clears it once this is no longer pt.menu
                 if (this.wb)
                     this.wb(null)
             }
 
             // The teal outline around every object a rect/lasso drag found (lassoSelect sets
-            // this.__lassoSelection right before building its menu), for exactly as long as
+            // this.__lassoFind right before building its menu), for exactly as long as
             // that menu is still the one open: __drawLassoSelection checks "is this still
             // pt.menu" every frame, so choosing any item, or dismissing the menu any other way,
             // clears the highlight on its own -- nothing else has to know this ran.
             __drawLassoSelection(ctx) {
-                const sel = this.__lassoSelection;
+                const sel = this.__lassoFind;
                 if (!sel) return;
-                if (!sel.menu || this.menu !== sel.menu) { this.__lassoSelection = null; return; }
+                if (!sel.menu || this.menu !== sel.menu) { this.__lassoFind = null; return; }
                 const all = [].concat(sel.plates || [], sel.plots || [], sel.glyphs || []);
                 if (!all.length) return;
                 const g = this.grid;
@@ -24736,7 +24736,7 @@ function (progress) {
                         if (!this.__maximized) this.drawPackageExportParentLine(obj, ctx);
                         drawObj(obj);
                     }
-                    if (this.__lassoSelection && !this.__maximized) { try { this.__drawLassoSelection(ctx); } catch (e) { } }
+                    if (this.__lassoFind && !this.__maximized) { try { this.__drawLassoSelection(ctx); } catch (e) { } }
                     // The active plot (a timeline or chart being edited) is redrawn on top of
                     // the other canvas items, and the lock badges over it. Both belong HERE,
                     // before the chrome: drawn any later they covered the side menu, the
