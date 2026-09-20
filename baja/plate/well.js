@@ -128,59 +128,32 @@ function () {
             return [randomNumber, secondNumber]
         }
 
+        // A DISCREET INPUT MARK. This was a full-width arrow -- bright green, drop
+        // shadow, black outline -- drawn across the middle of the cell, and in the
+        // skinned path it is drawn AFTER the cell has painted its own text, so it sat
+        // on top of the value and you could not read it. The mark only has to say "you
+        // can type here", so it is a small chevron held in a narrow gutter at the left
+        // edge, clear of the text, in a muted green. arrowDepthPct is still honoured,
+        // but only to nudge it within that gutter.
         function drawPunchyArrow(ctx, x, y, w, h, opts = {}) {
             const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-            const arrowDepthPct = clamp(opts.arrowDepthPct ?? 0.10, 0.05, 0.35);
+            // Below this there is no gutter to put it in without covering the value.
+            if (!(w > 26 && h > 9)) return;
 
-            const shaftLen = clamp(h * 0.55, 8, 36);
-            const headSize = clamp(h * 0.35, 6, 18);
-            const thickness = clamp(h * 0.18, 2, 8);
-            const innerPad = clamp(h * 0.08, 2, 8);
-
-            const tipX = clamp(
-                x + w * arrowDepthPct,
-                x + innerPad + headSize,
-                x + w - innerPad - headSize
-            );
-            const tipY = y + h / 2;
-
-            const shaftEndX = tipX - headSize;
-            const startX = Math.max(x + innerPad, shaftEndX - shaftLen);
-            const startY = tipY;
-            const halfT = thickness / 2;
-
-            const pathShaft = () => {
-                ctx.beginPath();
-                ctx.moveTo(startX, startY - halfT);
-                ctx.lineTo(shaftEndX, startY - halfT);
-                ctx.arc(shaftEndX, startY, halfT, -Math.PI / 2, Math.PI / 2);
-                ctx.lineTo(startX, startY + halfT);
-                ctx.arc(startX, startY, halfT, Math.PI / 2, -Math.PI / 2, true);
-                ctx.closePath();
-            };
-
-            const pathHead = () => {
-                ctx.beginPath();
-                ctx.moveTo(tipX, tipY);
-                ctx.lineTo(shaftEndX, tipY - headSize * 0.6);
-                ctx.lineTo(shaftEndX, tipY + headSize * 0.6);
-                ctx.closePath();
-            };
+            const gutter = clamp(w * 0.14, 5, 11);
+            const size = clamp(Math.min(h * 0.32, gutter), 3.5, 8);
+            const cx = x + clamp(w * (opts.arrowDepthPct ?? 0.04), 3.5, gutter);
+            const cy = y + h / 2;
 
             ctx.save();
-
-            ctx.fillStyle = "rgba(140, 255, 0, 0.35)";
-            ctx.strokeStyle = "rgba(11, 9, 4, 0.4)";
-            ctx.lineWidth = clamp(thickness * 0.33, 1, 2);
-
-            pathShaft();
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = '#4aa564';
+            ctx.beginPath();
+            ctx.moveTo(cx - size * 0.34, cy - size * 0.62);
+            ctx.lineTo(cx + size * 0.56, cy);
+            ctx.lineTo(cx - size * 0.34, cy + size * 0.62);
+            ctx.closePath();
             ctx.fill();
-            ctx.stroke();
-
-            pathHead();
-            ctx.fill();
-            ctx.stroke();
-
             ctx.restore();
         }
 

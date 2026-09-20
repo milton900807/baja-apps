@@ -132,68 +132,32 @@ function () {
             return { lines, lineHeight, maxLines, fitsHeight, truncated };
         }
 
+        // A DISCREET INPUT MARK. This was a full-width arrow -- bright green, drop
+        // shadow, black outline -- drawn across the middle of the cell, and in the
+        // skinned path it is drawn AFTER the cell has painted its own text, so it sat
+        // on top of the value and you could not read it. The mark only has to say "you
+        // can type here", so it is a small chevron held in a narrow gutter at the left
+        // edge, clear of the text, in a muted green. arrowDepthPct is still honoured,
+        // but only to nudge it within that gutter.
         function drawPunchyArrow(ctx, x, y, w, h, opts = {}) {
             const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-            const arrowDepthPct = clamp(opts.arrowDepthPct ?? 0.10, 0.05, 0.35);
+            // Below this there is no gutter to put it in without covering the value.
+            if (!(w > 26 && h > 9)) return;
 
-            const shaftLen = clamp(h * 0.85, 14, 54);
-            const headSize = clamp(h * 0.55, 10, 30);
-            const thickness = clamp(h * 0.28, 3, 14);
-            const innerPad = clamp(h * 0.12, 3, 12);
-
-            const tipX = clamp(
-                x + w * arrowDepthPct,
-                x + innerPad + headSize,
-                x + w - innerPad - headSize
-            );
-            const tipY = y + h / 2;
-
-            const shaftEndX = tipX - headSize;
-            const startX = Math.max(x + innerPad, shaftEndX - shaftLen);
-            const startY = tipY;
-            const halfT = thickness / 2;
-
-            const pathShaft = () => {
-                ctx.beginPath();
-                ctx.moveTo(startX, startY - halfT);
-                ctx.lineTo(shaftEndX, startY - halfT);
-                ctx.arc(shaftEndX, startY, halfT, -Math.PI / 2, Math.PI / 2);
-                ctx.lineTo(startX, startY + halfT);
-                ctx.arc(startX, startY, halfT, Math.PI / 2, -Math.PI / 2, true);
-                ctx.closePath();
-            };
-            const pathHead = () => {
-                ctx.beginPath();
-                ctx.moveTo(tipX, tipY);
-                ctx.lineTo(shaftEndX, tipY - headSize * 0.7);
-                ctx.lineTo(shaftEndX, tipY + headSize * 0.7);
-                ctx.closePath();
-            };
+            const gutter = clamp(w * 0.14, 5, 11);
+            const size = clamp(Math.min(h * 0.32, gutter), 3.5, 8);
+            const cx = x + clamp(w * (opts.arrowDepthPct ?? 0.04), 3.5, gutter);
+            const cy = y + h / 2;
 
             ctx.save();
-            ctx.shadowColor = 'rgba(0,0,0,0.55)';
-            ctx.shadowBlur = clamp(h * 0.22, 4, 16);
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = clamp(h * 0.08, 1, 8);
-            ctx.fillStyle = '#FFE769';
-            pathShaft(); ctx.fill();
-            pathHead(); ctx.fill();
-            ctx.restore();
-
-            ctx.save();
-            ctx.fillStyle = '#8cff00ff';
-            ctx.strokeStyle = '#0b0904ff';
-            ctx.lineWidth = clamp(thickness * 0.33, 1.5, 3);
-            pathShaft(); ctx.fill(); ctx.stroke();
-            pathHead(); ctx.fill(); ctx.stroke();
-
-            ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-            ctx.lineWidth = clamp(thickness * 0.18, 1, 2);
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = '#4aa564';
             ctx.beginPath();
-            ctx.moveTo(tipX - headSize * 0.15, tipY - headSize * 0.58);
-            ctx.lineTo(tipX, tipY);
-            ctx.lineTo(tipX - headSize * 0.15, tipY + headSize * 0.58);
-            ctx.stroke();
+            ctx.moveTo(cx - size * 0.34, cy - size * 0.62);
+            ctx.lineTo(cx + size * 0.56, cy);
+            ctx.lineTo(cx - size * 0.34, cy + size * 0.62);
+            ctx.closePath();
+            ctx.fill();
             ctx.restore();
         }
 
