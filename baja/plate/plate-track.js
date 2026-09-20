@@ -8329,6 +8329,12 @@ function (progress) {
                     try { if (this.__bookmark_menu && !this.__objectOnly && !this.__readOnly && this.__bookmark_menu.isIn && this.__bookmark_menu.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) return; } catch (e) { }
                     // The scroll indicator on the right edge: press to jump, drag to scroll.
                     if (x >= this.grid.width - 18 && y > 46) { this.__maxScrollDrag = true; this.__maxScrollTo(y); return; }
+                    // The same along the BOTTOM edge, for a table wider than the window.
+                    // Tested before the body press below, so it takes the gesture rather than
+                    // starting a cell selection in the last row.
+                    if (this.__maxBounds && this.__maxBounds.hscroll && y >= this.grid.height - 18 && x < this.grid.width - 18) {
+                        this.__maxScrollXDrag = true; this.__maxScrollXTo(x); return;
+                    }
                     // A press on the BODY of a maximized chart or timeline starts a drag that
                     // moves it: the canvas cannot pan while maximized, so the drag is the
                     // object's. Tabs and buttons above the body keep their own handling.
@@ -8621,11 +8627,13 @@ function (progress) {
                 if (this.__readOnly) {
                     // Only the maximized scroll and pan gestures end here; taps edit nothing.
                     if (this.__maxScrollDrag) this.__maxScrollDrag = false;
+                    if (this.__maxScrollXDrag) this.__maxScrollXDrag = false;
                     if (this.__maxDrag) { this.__maxDrag = null; this.__tlCancelPress(); }
                     return;
                 }
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollDrag = false; return; }
+                    if (this.__maxScrollXDrag) { this.__maxScrollXDrag = false; return; }
                     // A bookmark chosen from the maximized view: a bookmark is a place on the
                     // whole canvas, so the maximized view is left first, then the jump is made.
                     try {
@@ -9230,6 +9238,7 @@ function (progress) {
                 if (this.__selectGesture) return;
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
+                    if (this.__maxScrollXDrag) { this.__maxScrollXTo(x); return; }
                     if (this.__maxTap && (Math.abs(x - this.__maxTap.x) > 6 || Math.abs(y - this.__maxTap.y) > 6)) this.__maxTap = null;
                     if (this.__maxDrag) {
                         const d = this.__maxDrag, o = this.__maximized, g = this.grid;
@@ -9568,6 +9577,28 @@ function (progress) {
                     const cols = Math.max(1, (obj.grid.xmax - obj.grid.xmin) || obj.wells.length || 1);
                     const cellWorldH = obj.grid.height / rows;
                     const cellWorldW = obj.grid.width / cols;
+                    // FILL THE ROOM. The width fit sets the scale from the table's width and
+                    // nothing else, so a table with few rows sat in a band across the top with
+                    // the rest of the window empty under it -- a maximize that did not
+                    // maximize. Grow it until its last row reaches the bottom of the room.
+                    //
+                    // Past the width fit the table is wider than the window, which is what
+                    // hscroll is for; how far past is bounded by the cell cap immediately
+                    // below, so this is a step up to the cap rather than an unbounded zoom.
+                    // A table TALLER than the room is untouched: it already fills the height
+                    // and keeps the width fit, scrolling down as it always has.
+                    const availPx = Math.max(120, ch - HEADER - this.__maxBottomPx(obj));
+                    const objH = Math.max(1e-6, b.yTop - b.yBot);
+                    const yRangeFill = objH * ch / availPx;
+                    if (Number.isFinite(yRangeFill) && yRangeFill > 0 && yRangeFill < yRange) {
+                        yRange = yRangeFill;
+                        xRange = yRange * (cw / ch);
+                    }
+                    // THE CAP, and it is what stops the fill running away: no cell is drawn
+                    // taller than this however much room is going spare, because a three-row
+                    // table stretched over a whole screen is three bands of colour and not a
+                    // table. It bounds the width too -- a cell keeps its shape, so holding the
+                    // height at 40px holds the width at 40px times the cell's own aspect.
                     const minYRange = cellWorldH * ch / MAX_CELL_PX;
                     if (Number.isFinite(minYRange) && yRange < minYRange) {
                         yRange = minYRange;
@@ -9580,8 +9611,13 @@ function (progress) {
                     if (Number.isFinite(maxXRange) && maxXRange > 0 && xRange > maxXRange) {
                         xRange = maxXRange;
                         yRange = xRange * (ch / cw);
-                        hscroll = true;
                     }
+                    // Whichever of the three set the scale, the question for the x clamp is
+                    // the same one: is the table wider than the window? Asked of the result
+                    // rather than set by the branch that happened to fire last, so the fill
+                    // gets its sideways scroll and a table the minimum-size rule left NARROWER
+                    // than the window no longer claims one it does not need.
+                    hscroll = xRange < width * (1 + 2 * sideFrac) - 1e-9;
                 }
                 // A TIMELINE FITS THE WINDOW'S HEIGHT. It grows sideways, not down, so it is
                 // shown whole between the title bar and the bottom chrome (the free-plan
@@ -10110,7 +10146,7 @@ function (progress) {
             __msHoverUpdate(x, y) {
                 // Not while another gesture owns the pointer: panning a timeline through time
                 // or dragging a selection would otherwise light up whatever it passed over.
-                if (this.__msDrag || this.__selectGesture || this.__maxScrollDrag
+                if (this.__msDrag || this.__selectGesture || this.__maxScrollDrag || this.__maxScrollXDrag
                     || (this.__maxDrag && this.__maxDrag.moved)) { this.__msHover = null; return; }
                 // View only: nothing lights up under the pointer; there is nothing to pick up.
                 if (this.__readOnly) { this.__msHover = null; return; }
@@ -11126,6 +11162,7 @@ function (progress) {
                 this.__maxRestoreRect = null;
                 try { if (window.__bajaNavPanel && window.__bajaNavPanel.refresh) setTimeout(() => window.__bajaNavPanel && window.__bajaNavPanel.refresh(), 0); } catch (e) { }
                 this.__maxScrollDrag = false;
+                this.__maxScrollXDrag = false;
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 this.__maxExitRect = null;
                 this.__maxMenuRect = null;
@@ -11221,8 +11258,33 @@ function (progress) {
                 g.rescale();
             }
             // Wheel while maximized: vertical scroll within the object, clamped to its extent.
+            // The sideways twin of __maxScrollTo: a canvas x maps to a position in the
+            // horizontal scroll range. Drives the bottom-edge drag zone, which is the only
+            // way to reach the far columns of a wide maximized table with a mouse -- the
+            // canvas cannot pan while maximized, and __maxScrollX is reached only by a touch
+            // drag, so before this a table wider than the window stranded its right-hand
+            // columns on every desktop.
+            __maxScrollXTo(px) {
+                if (!this.__maximized || !this.__maxBounds || !this.__maxBounds.hscroll) return;
+                const g = this.grid;
+                g.rescale();
+                const cwp = Math.max(1, g.width);
+                const xRange = g.xmax - g.xmin;
+                const bb = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
+                if (!bb) return;
+                const pad = (bb.x1 - bb.x0) * (this.__maxBounds.sideFrac || 0);
+                const lo = bb.x0 - pad, hi = bb.x1 + pad;
+                const total = hi - lo;
+                if (!(total > xRange)) return;
+                const trackX = 12, trackW = Math.max(1, cwp - 36);
+                const pos = Math.max(0, Math.min(1, (px - trackX) / trackW));
+                g.xmin = lo + pos * (total - xRange);
+                g.xmax = g.xmin + xRange;
+                g.rescale();
+            }
             // Sideways scroll of a maximized table wider than the view (cells at their
-            // minimum size). Positive deltaPx moves the view right. Clamped to the table.
+            // minimum size, or grown to fill the height). Positive deltaPx moves the view
+            // right. Clamped to the table.
             __maxScrollX(deltaPx) {
                 if (!this.__maximized || !this.__maxBounds || !this.__maxBounds.hscroll) return;
                 const g = this.grid;
