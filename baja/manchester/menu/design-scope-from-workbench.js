@@ -45,40 +45,10 @@ function (graph, track, sequence, opts) {
         const bare = (v) => ('' + (v == null ? '' : v)).trim().toLowerCase().replace(/^chr/, '');
         const num = (v) => { const n = +v; return isFinite(n) ? n : null; };
 
-        // ---- track coordinates <-> genomic -------------------------------------------------
-        // variantWorldX(chr, pos) is the forward direction and the track already owns it.
-        // This is the inverse, over the same exon spans: linear within an exon between its
-        // genomic span (gxi..gxf) and its track span (xi..xf). A track with no exon map is
-        // a plain window onto the genome, where the two differ by the track's origin.
-        const genomicOf = (t, localX) => {
-            const x = num(localX);
-            if (x == null) return null;
-            let exons = [];
-            try { exons = t.getExons ? (t.getExons() || []) : []; } catch (e) { exons = []; }
-            for (const a of exons) {
-                const gi = num(a.gxi), gf = num(a.gxf), xi = num(a.xi), xf = num(a.xf);
-                if (gi == null || gf == null || xi == null || xf == null) continue;
-                const lo = Math.min(xi, xf), hi = Math.max(xi, xf);
-                if (x < lo || x > hi) continue;
-                const span = (xf - xi);
-                if (!span) return gi;
-                return gi + ((x - xi) / span) * (gf - gi);
-            }
-            const base = num(t.xi);
-            return (base == null) ? null : base + x;
-        };
-        // Genomic -> this track, preferring the track's own exon-aware mapping.
-        const localOf = (t, chr, genomicPos) => {
-            let v = null;
-            try { v = t.variantWorldX ? t.variantWorldX(chr, genomicPos) : null; } catch (e) { v = null; }
-            if (v != null && isFinite(+v)) return +v;
-            const a = bare(chr), b = bare(t.chr);
-            if (a && b && a !== b) return null;
-            const base = num(t.xi);
-            if (base == null) return null;
-            const x = genomicPos - base;
-            return (x >= 0) ? x : null;
-        };
+        // Track x <-> genomic, shared with everything else that compares positions across
+        // tracks (baja/bio/track-coords.js), so the conversion cannot drift between them.
+        const C = await exec('baja/bio/track-coords.js');
+        const genomicOf = C.genomicOf, localOf = C.localOf;
 
         // A variant's footprint in track coordinates: where it sits, and how many bases of
         // the track it covers (a deletion covers the bases it removes).
@@ -139,8 +109,7 @@ function (graph, track, sequence, opts) {
             const pad = Math.max(0, Math.round(o.pad != null ? +o.pad : 1));
             for (const u of all) {
                 if (!u || u === track) continue;
-                const uchr = bare(u.chr), tchr = bare(track.chr);
-                if (uchr && tchr && uchr !== tchr) continue;     // cannot overlap
+                if (!C.sameChromosome(u, track)) continue;     // cannot overlap
                 let used = 0;
                 for (const s of (u.snpindels || [])) {
                     const f = footprint(s);

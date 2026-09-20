@@ -25,6 +25,10 @@ function (graph, tracks, opts) {
     //              tie every track to every other one.
     //   name       for annotations and oligos, the name they were given.
     //
+    // Positions are always reduced to GENOMIC coordinates first (baja/bio/track-coords.js):
+    // a track's own x is measured from its own origin, so the same base has a different
+    // number on a gene track and on its mRNA track.
+    //
     // A line drawn in full colour joins something present on EVERY selected track; a
     // dashed, warmer line joins one that is on some of them but not all. The two together
     // read as "shared by all" against "shared by some", which is the distinction a
@@ -35,6 +39,19 @@ function (graph, tracks, opts) {
     // can put it back when it clears its own.
     return (async () => {
         const o = opts || {};
+        // WHICH OF THESE IS ACTUALLY DRAWN. The editor's canvas does not paint setMessage --
+        // only setError (orange) and setResultMessage (cyan) become toasts, as the note at the
+        // top of allele-selective-design.js says. Every line this file wrote went through
+        // setMessage, so a comparison that found nothing said nothing, and one that found
+        // something never reported it either: it looked exactly like a feature doing nothing.
+        const tell = (m) => { try { graph.setResultMessage(' ' + m + ' '); } catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } } };
+        const warn = (m) => { try { graph.setError(' ' + m + ' '); } catch (e) { tell(m); } };
+        // Positions are compared ACROSS tracks, and a track's own x is measured from its own
+        // origin -- see baja/bio/track-coords.js. Keying on the raw xi, which is what this
+        // did, meant two tracks of the same gene never agreed about the same base unless
+        // their origins happened to match, so "same position" found nothing and no line was
+        // ever drawn between two mutations.
+        const C = await exec('baja/bio/track-coords.js');
 
         // ---- clearing -------------------------------------------------------------------
         if (o.clear) {
@@ -47,7 +64,7 @@ function (graph, tracks, opts) {
 
         const ts = (tracks || []).filter((t) => t && t.tgraph);
         if (ts.length < 2) {
-            try { graph.setMessage(' Select two or more tracks to compare. '); } catch (e) { }
+            warn('Select two or more tracks to compare.');
             return { shared: 0, tracks: ts.length };
         }
         const kind = o.kind || 'variants';
@@ -76,8 +93,11 @@ function (graph, tracks, opts) {
                     const named = clean(s.name || s.id);
                     const keys = [];
                     if (match === 'position') {
+                        // THE GENOME'S NUMBER FOR THIS BASE, not the track's.
                         const chr = up(s.chr || t.chr || '').replace(/^CHR/, '');
-                        keys.push(chr + ':' + Math.round(+s.xi) + (change ? (':' + change) : ''));
+                        const gp = C.genomicOf(t, +s.xi);
+                        if (gp == null) continue;
+                        keys.push(chr + ':' + Math.round(gp) + (change ? (':' + change) : ''));
                     } else {
                         // NOT the bare nucleotide change. Almost every SNV is one of twelve
                         // substitutions, so keying on "G>A" ties a variant in BRCA2 to an
@@ -178,6 +198,31 @@ function (graph, tracks, opts) {
         // The summary speaks from the TOP track, because "12 shared" says nothing about
         // which 12 of what: of the mutations on the first track, how many are also on the
         // others, and how many of those are on all of them.
+        // Do any two of them even LOOK at the same stretch of genome? A "nothing in common"
+        // means something quite different when the answer is no: comparing BRCA2 with EGFR
+        // by position is a question with no possible yes, and saying so is more use than
+        // reporting an empty result as though the samples simply disagreed.
+        const spanOf = (t) => {
+            try {
+                const ex = t.getExons ? (t.getExons() || []) : [];
+                if (ex.length) {
+                    const gs = ex.flatMap((a) => [+a.gxi, +a.gxf]).filter(isFinite);
+                    if (gs.length) return [Math.min.apply(null, gs), Math.max.apply(null, gs)];
+                }
+                const a = +t.xi, b = +t.xf;
+                if (isFinite(a) && isFinite(b)) return [Math.min(a, b), Math.max(a, b)];
+            } catch (e) { }
+            return null;
+        };
+        let overlapping = false;
+        for (let i = 0; i < ts.length && !overlapping; i++) {
+            for (let j = i + 1; j < ts.length && !overlapping; j++) {
+                if (!C.sameChromosome(ts[i], ts[j])) continue;
+                const A = spanOf(ts[i]), B = spanOf(ts[j]);
+                if (A && B && A[0] <= B[1] && B[0] <= A[1]) overlapping = true;
+            }
+        }
+
         const top = perTrack[order[0]];
         let topShared = 0, topAll = 0;
         for (const it of top.items) {
@@ -241,16 +286,18 @@ function (graph, tracks, opts) {
         };
         graph.__compareSummary = summary;
         try { if (graph.wake) graph.wake(); } catch (e) { }
-        try {
-            graph.setMessage(topShared
-                ? (' ' + topShared + ' of ' + summary.topTotal + ' ' + noun + 's on ' + summary.topTrack
-                    + ' are also on the other ' + (ts.length - 1) + ' track' + (ts.length === 2 ? '' : 's')
-                    + (ts.length > 2 ? ' — ' + topAll + ' on all of them' : '')
-                    + (summary.capped ? ' (drawing the first ' + MAX_LINKS + ' lines)' : '')
-                    + '. Compare ▸ Clear removes the lines. ')
-                : (' Nothing in common: none of the ' + summary.counted + ' ' + noun + 's appears on more than one of these tracks'
-                    + (match === 'position' ? ' at the same position. Try matching by rs number or protein change instead. ' : '. ')), 1.1);
-        } catch (e) { }
+        tell(topShared
+            ? (topShared + ' of ' + summary.topTotal + ' ' + noun + 's on ' + summary.topTrack
+                + ' are also on the other ' + (ts.length - 1) + ' track' + (ts.length === 2 ? '' : 's')
+                + (ts.length > 2 ? ' \u2014 ' + topAll + ' on all of them' : '')
+                + (summary.capped ? ' (drawing the first ' + MAX_LINKS + ' lines)' : '')
+                + '. Compare \u25b8 Clear removes the lines.')
+            : ('Nothing in common: none of the ' + summary.counted + ' ' + noun + 's appears on more than one of these tracks'
+                + (match === 'position'
+                    ? (overlapping
+                        ? ' at the same position. Try matching by rs number or protein change instead.'
+                        : ' \u2014 and these tracks cover different regions, so no variant can be at the same position. Match by rs number or protein change instead.')
+                    : '.')));
         return summary;
     })();
 }

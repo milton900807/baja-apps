@@ -9,23 +9,53 @@ function (graph, genegraph_panel_layout) {
     // board rather than describing it in a panel.
     //
     // The same variant on two tracks is matched on where it sits and what it changes -- the
-    // track coordinate rounded to the base, with the reference and alternate alleles -- because
-    // two tracks of one transcript share their coordinate system. A variant that only one track
-    // carries is the interesting one, and it is counted and can be marked.
+    // GENOMIC coordinate rounded to the base, with the reference and alternate alleles. It used
+    // to match on the track coordinate, on the reasoning that two tracks of one transcript
+    // share their coordinate system. They only do when they start at the same place: a track's
+    // x runs from ITS origin, so the same base is one number on a gene track and another on its
+    // mRNA track, or on a second sample loaded over a different span, and nothing matched.
+    // baja/bio/track-coords.js does the conversion, exon map and strand included.
+    //
+    // A variant that only one track carries is the interesting one, and it is counted and can
+    // be marked.
 
     return (async () => {
         const Line = await exec('flexigraph/shapes/line.js');
+        const C = await exec('baja/bio/track-coords.js');
         const LINE_TAG = 'across-tracks';          // every line this draws is named with it
         const SHARED_COLOR = '#22c55e';
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         const tracksOf = () => ((graph && graph.track) || []).filter((t) => t && (t.tgraph || t.grid));
         const boxOf = (t) => (t && (t.tgraph || t.grid)) || null;
+        // A track's box, as the two world y values that are its upper and lower edge ON SCREEN.
+        // Its height can be negative and the views do not agree on which way y runs, so which
+        // edge is the top is asked of the grid rather than assumed.
+        const edgesOf = (t) => {
+            const b = boxOf(t);
+            if (!b) return null;
+            const a = +b.yi, c = a + (isFinite(+b.height) ? +b.height : 0);
+            if (!isFinite(a) || !isFinite(c)) return null;
+            let sa = a, sc = c;
+            try { sa = graph.graph.Y(a); sc = graph.graph.Y(c); } catch (e) { }
+            // Smaller screen y is higher up.
+            return (sa <= sc) ? { top: a, bot: c, screenTop: sa } : { top: c, bot: a, screenTop: sc };
+        };
+        const topOf = (t) => { const e = edgesOf(t); return e ? e.top : 0; };
+        const bottomOf = (t) => { const e = edgesOf(t); return e ? e.bot : 0; };
+        const screenTopOf = (t) => { const e = edgesOf(t); return e ? e.screenTop : 0; };
         const label = (t, i) => ('' + (t.description || t.name || ('track ' + (i + 1)))).trim();
         const variantsOf = (t) => ((t && t.snpindels) || []).filter((s) => s && s.xi != null && isFinite(s.xi));
-        // What makes two marks the same change: the base it sits on and the substitution.
-        const keyOf = (s) => Math.round(+s.xi) + ':' + ('' + (s.reference0 || s.reference || '')).toUpperCase()
-            + '>' + ('' + (s.alternate0 || s.alternate || '')).toUpperCase();
+        // What makes two marks the same change: the GENOMIC base it sits on and the
+        // substitution. Null when the track cannot say where it is in the genome, and a
+        // variant with no answer is not matched to anything rather than matched wrongly.
+        const keyOf = (t, s) => {
+            const g = C.genomicOf(t, +s.xi);
+            if (g == null) return null;
+            const chr = ('' + (s.chr || t.chr || '')).toLowerCase().replace(/^chr/, '');
+            return chr + ':' + Math.round(g) + ':' + ('' + (s.reference0 || s.reference || '')).toUpperCase()
+                + '>' + ('' + (s.alternate0 || s.alternate || '')).toUpperCase();
+        };
         const nameOf = (s) => ('' + (s.name || '')).trim() || (('' + (s.reference0 || '?')) + '>' + ('' + (s.alternate0 || '?')));
 
         // Every variant, by key, with the tracks carrying it.
@@ -33,7 +63,8 @@ function (graph, genegraph_panel_layout) {
             const ts = tracksOf(), by = new Map();
             ts.forEach((t, i) => {
                 for (const s of variantsOf(t)) {
-                    const k = keyOf(s);
+                    const k = keyOf(t, s);
+                    if (!k) continue;
                     let e = by.get(k);
                     if (!e) { e = { key: k, name: nameOf(s), on: [] }; by.set(k, e); }
                     if (!e.on.some((o) => o.i === i)) e.on.push({ i: i, track: t, snp: s });
@@ -67,15 +98,26 @@ function (graph, genegraph_panel_layout) {
                 if (e.on.length < 2) continue;
                 if (onlyHighlighted && !e.on.some((o) => o.snp && o.snp.highlight)) continue;
                 shared++;
-                const on = e.on.slice().sort((a, b) => a.i - b.i);
+                // IN THE ORDER THEY ARE DRAWN, not the order they were loaded. The ladder is
+                // meant to run down the stack; sorting by the track's index in the array drew
+                // it in whatever order the tracks happened to be added, so the lines crossed
+                // each other and skipped tracks that sit between the two they joined.
+                const on = e.on.slice().sort((p, q) => screenTopOf(p.track) - screenTopOf(q.track));
                 for (let k = 0; k + 1 < on.length; k++) {
                     const a = on[k], b = on[k + 1];
                     const ba = boxOf(a.track), bb = boxOf(b.track);
                     if (!ba || !bb) continue;
-                    const x0 = +a.snp.xi, x1 = +b.snp.xi;
-                    // The stack is drawn downwards, so the upper track's box sits at the higher
-                    // y: join the bottom of one to the top of the next.
-                    const ya = ba.yi, yb = bb.yi;
+                    // THROUGH THE TRACK'S OWN GRID. A shape lives in the graph's coordinates
+                    // and a variant's xi is in its track's, which start at different places and
+                    // need not even share a scale: handing the raw xi to a Line put it wherever
+                    // that number happened to land on the board. Every other thing that draws a
+                    // graph shape from a track position goes through tgraph.X (see
+                    // baja/bio/splicing/acceptor-sites.js), and so does this now.
+                    let x0, x1;
+                    try { x0 = ba.X(+a.snp.xi); x1 = bb.X(+b.snp.xi); } catch (e2) { continue; }
+                    // Join the edge of the upper box to the edge of the lower one, so the line
+                    // spans the gap between the tracks instead of starting inside one of them.
+                    const ya = bottomOf(a.track), yb = topOf(b.track);
                     if (!isFinite(x0) || !isFinite(x1) || !isFinite(ya) || !isFinite(yb)) continue;
                     const line = new Line(LINE_TAG + ':' + e.key, x0, ya);
                     line.xf = x1;
