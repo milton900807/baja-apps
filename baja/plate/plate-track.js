@@ -8698,7 +8698,7 @@ function (progress) {
                 if (this.__tlCanvasDrag) return true;   // a drag through time, likewise
                 // A table drawn as a solid block: its cells, buttons and hover get nothing.
                 if (this.__solidDrag || this.__solidMenuPress || this.__solidResize) return true;
-                if (this.__docSel || this.__docScroll) return true;
+                if (this.__docSel || this.__docScroll || this.__docClosePress) return true;
                 // A maximized object's scroll bars: while one is held, the canvas's own drag (the
                 // pan) must not also run -- it moved the view the other way under the sideways
                 // bar, so the table crept back as fast as it was scrolled.
@@ -8749,6 +8749,15 @@ function (progress) {
                 }
                 if (this.__solidDrag) { this.__solidDragEnd(); return; }
                 if (this.__solidResize) { this.__solidResizeEnd(); return; }
+                if (this.__docClosePress) {
+                    const cp = this.__docClosePress; this.__docClosePress = null;
+                    try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = !!this.__maximized; } catch (e) { }
+                    if (cp.o.inCloseBox && cp.o.inCloseBox(x, y)) {
+                        try { if (window.__bajaDocEditor && window.__bajaDocEditor.doc === cp.o) window.__bajaDocEditor.close(true); } catch (e) { }
+                        exec('baja/draw/delete-document.js', this, { doc: cp.o }).catch((e) => console.warn('[document] close', e));
+                    }
+                    return;
+                }
                 if (this.__docSel || this.__docScroll) { this.__docRelease(); return; }
                 if (this.__selectGesture) return;
                 // A press on a solid table: its Move / Maximize menu opens now, on the release
@@ -8939,6 +8948,7 @@ function (progress) {
                 // browser it moves focus to the next control on the page and every keystroke
                 // after that goes there instead of the canvas.
                 if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;   // the phone's cell field owns its keys
+                try { if (event && event.target && event.target.closest && event.target.closest('#baja-doc-editor')) return; } catch (e) { }   // so does a document being edited in place
                 try { if (this.__solidKey(event)) { try { event.preventDefault(); } catch (e) { } return; } } catch (e) { }
                 try { if (this.__docKey(event)) { try { event.preventDefault(); } catch (e) { } return; } } catch (e) { }
                 // Escape on a table with selected cells: drop the selection and stop there.
@@ -9416,7 +9426,9 @@ function (progress) {
                     const dh = this.__docHit(x, y);
                     const bar = dh && dh.part === 'scrollbar' ? dh.o : null;
                     if (bar !== (this.__docBarHover || null)) this.__docBarHover = bar;
-                    const want = dh ? (dh.part === 'body' ? 'text' : (dh.part === 'header' ? 'move' : 'default')) : null;
+                    const closing = dh && dh.part === 'close' ? dh.o : null;
+                    if (closing !== (this.__docCloseHover || null)) this.__docCloseHover = closing;
+                    const want = dh ? (dh.part === 'body' ? 'text' : (dh.part === 'header' ? 'move' : (dh.part === 'close' ? 'pointer' : 'default'))) : null;
                     if (want !== (this.__docCursor || null)) {
                         this.__docCursor = want;
                         if (this.__canvas__ && !this.__solidCornerHover && !this.__docResizeHover) this.__canvas__.style.cursor = want || '';
@@ -10956,7 +10968,7 @@ function (progress) {
                 if (!o || typeof o.hitPart !== 'function' || this.__isSolidTable(o)) return null;
                 const part = o.hitPart(x, y, this);
                 // (the title strip too, except maximized, where there is nowhere to move it to)
-                return (part === 'body' || part === 'scrollbar' || (part === 'header' && !this.__maximized)) ? { o, part } : null;
+                return (part === 'body' || part === 'scrollbar' || part === 'close' || (part === 'header' && !this.__maximized)) ? { o, part } : null;
             }
             __docPress(hit, x, y) {
                 const o = hit.o;
@@ -10967,6 +10979,8 @@ function (progress) {
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
                 // The TITLE STRIP moves the card: a document had no handle at all (a drag on it
                 // panned the canvas), and now that its body selects text it needs one.
+                // Its close button: the release decides (a press that slides off it does nothing).
+                if (hit.part === 'close') { this.__docClosePress = { o, x, y }; return; }
                 if (hit.part === 'header') { this.__solidDragStart(o, x, y); return; }
                 if (hit.part === 'scrollbar') {
                     const grab = o.scrollThumbGrab(y);
@@ -10978,12 +10992,30 @@ function (progress) {
                 const now = Date.now(), last = this.__docLastPress;
                 this.__docLastPress = { t: now, x, y, o };
                 if (last && last.o === o && now - last.t < 380 && Math.abs(last.x - x) < 5 && Math.abs(last.y - y) < 5) {
-                    o.selectWordAt(x, y);
-                    this.__docSel = { o, word: true, sx: x, sy: y };
+                    // A DOUBLE CLICK EDITS THE TEXT WHERE IT IS (views/document-editor.js): the
+                    // caret goes to the word that was clicked.
+                    this.__docLastPress = null;
+                    try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = !!this.__maximized; } catch (e) { }
+                    this.__docEdit(o, x, y);
                     return;
                 }
                 o.beginSelect(x, y);
                 this.__docSel = { o, sx: x, sy: y };
+            }
+            // Open the in-place editor on a document. x / y are canvas pixels (where the caret
+            // should go), turned into page coordinates for the browser's caret lookup.
+            __docEdit(o, x, y) {
+                try {
+                    if (!o || o.plateType !== 'document' || this.__readOnly || this.__isSolidTable(o)) return;
+                    o.clearSelection && o.clearSelection();
+                    let cx, cy;
+                    try {
+                        const c = this.__canvas__, r = c.getBoundingClientRect();
+                        if (Number.isFinite(x) && Number.isFinite(y)) { cx = r.left + x * (r.width / Math.max(1, c.width)); cy = r.top + y * (r.height / Math.max(1, c.height)); }
+                    } catch (e) { }
+                    exec('baja/plate/views/document-editor.js', this, o, { clientX: cx, clientY: cy })
+                        .catch((e) => { console.warn('[document] editor', e); try { this.setMessage('The text could not be opened for editing: ' + (e && e.message || e), 2); } catch (x) { } });
+                } catch (e) { console.warn('[document] editor', e); }
             }
             __docRelease() {
                 const had = this.__docSel || this.__docScroll;
@@ -11035,6 +11067,7 @@ function (progress) {
                         return true;
                     }
                     if (mod && k === 'a') { o.selectAll(); return true; }
+                    if (k === 'enter' && !mod && !event.shiftKey && !event.altKey && !o.__editing && !this.menu) { this.__docEdit(o); return true; }
                     if (k === 'escape' && o.hasSelection()) { o.clearSelection(); return true; }
                 } catch (e) { }
                 return false;

@@ -1,4 +1,4 @@
-function (platetrack) {
+function (platetrack, opts) {
 
     // DELETE A DOCUMENT FROM THE CANVAS.
     //
@@ -32,6 +32,9 @@ function (platetrack) {
             try { showModal(c); } catch (e) { }
             return doc;
         };
+
+        // The card's own close button names the document outright: no picker.
+        if (opts && opts.doc && opts.doc.plateType === 'document') { await ask(opts.doc); return null; }
 
         await exec('baja/draw/pick-document.js', platetrack,
             { title: 'Delete a document', empty: 'There is no document on the canvas to delete' },

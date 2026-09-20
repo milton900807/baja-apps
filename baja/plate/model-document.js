@@ -271,6 +271,20 @@ function () {
                 } catch (e) { return false; }
             }
             onRightEdge() { return false; }          // no width-only drag: the corner does both
+            // THE CLOSE BUTTON, top right of the title strip. It removes the document from the
+            // canvas through the same confirmation Draw > Delete Document uses (the text is
+            // typed, not derived, so it asks first; Ctrl+Z brings it back). Not drawn while the
+            // card is maximized -- there the way out is Exit maximize -- nor when it is a block.
+            __closeBox() {
+                const g = this.__geom;
+                if (!g || this.__maximizedView) return null;
+                const s = Math.max(14, Math.min(20, (g.top - g.yTop) - 8));
+                return { x: g.x + g.w - s - 8, y: g.yTop + Math.max(4, ((g.top - g.yTop) - s) / 2 - 2), s };
+            }
+            inCloseBox(sx, sy) {
+                const b = this.__closeBox();
+                return !!b && sx >= b.x - 3 && sx <= b.x + b.s + 3 && sy >= b.y - 3 && sy <= b.y + b.s + 3;
+            }
 
             // ---- reading it with the mouse: select text, drag the scroll thumb -----------------
             // The card is a drawing, so selection is built here: the draw records where each
@@ -307,6 +321,7 @@ function () {
                 if (!g || this.hidden || this.visible === false) return null;
                 if (sx < g.x || sx > g.x + g.w || sy < g.yTop || sy > g.yTop + g.h) return null;
                 try { if (pt && this.inResize(sx, sy, pt)) return 'resize'; } catch (e) { }
+                if (this.inCloseBox(sx, sy)) return 'close';
                 if (g.sb && sx >= g.x + g.w - 16 && sy >= g.sb.top && sy <= g.sb.top + g.sb.h) return 'scrollbar';
                 if (sy < g.top) return 'header';                       // the title strip: the card is moved by it
                 return 'body';
@@ -481,7 +496,12 @@ function () {
                 if (this.name) {
                     ctx.font = '700 ' + Math.round(base * 1.05) + 'px ' + FAMILY;
                     ctx.fillStyle = C.muted;
-                    ctx.fillText(this.name, tx, cy);
+                    {
+                        // shortened so that it never runs under the close button
+                        let nm = '' + this.name; const room = Math.max(20, (x + w - 34) - tx);
+                        if (ctx.measureText(nm).width > room) { while (nm.length > 1 && ctx.measureText(nm + '…').width > room) nm = nm.slice(0, -1); nm += '…'; }
+                        ctx.fillText(nm, tx, cy);
+                    }
                     cy += Math.round(base * 1.6);
                     ctx.beginPath(); ctx.moveTo(tx, cy - 4); ctx.lineTo(tx + innerW, cy - 4);
                     ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.stroke();
@@ -492,7 +512,7 @@ function () {
                 const maxScroll = Math.max(0, total - (bottom - top));
                 this.__scrollMax = maxScroll;                 // for the wheel and the scroll zone (platetrack.__maxScroll)
                 // Where the card's parts are on the canvas, for the mouse (hitPart, posAt).
-                this.__geom = { x, yTop, w, h, top, bottom, sb: null };
+                this.__geom = { x, yTop, w, h, top, bottom, tx, innerW, sb: null };
                 this.__rows = [];
                 const selRange = this.hasSelection() ? this.__ordered() : null;
                 const paintSel = (li, line, x0) => {
@@ -509,6 +529,23 @@ function () {
                 };
                 this.scroll = Math.max(0, Math.min(this.scroll || 0, maxScroll));
                 let ly = top - this.scroll;
+                // the close button (see __closeBox)
+                {
+                    const cb = this.__closeBox();
+                    if (cb) {
+                        const hot = pt.__docCloseHover === this;
+                        ctx.save();
+                        ctx.beginPath(); ctx.arc(cb.x + cb.s / 2, cb.y + cb.s / 2, cb.s / 2, 0, Math.PI * 2);
+                        ctx.fillStyle = hot ? '#FD5E53' : 'rgba(10,37,64,0.06)'; ctx.fill();
+                        ctx.strokeStyle = hot ? '#ffffff' : C.muted; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+                        const k = cb.s * 0.29, mx = cb.x + cb.s / 2, my = cb.y + cb.s / 2;
+                        ctx.beginPath(); ctx.moveTo(mx - k, my - k); ctx.lineTo(mx + k, my + k); ctx.moveTo(mx + k, my - k); ctx.lineTo(mx - k, my + k); ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+                // The in-place editor (views/document-editor.js) sits exactly over the body and is
+                // the text while it is up: drawing it here too would show every word twice.
+                if (this.__editing) { ctx.restore(); return; }
 
                 ctx.save();
                 ctx.beginPath(); ctx.rect(x + 1, top, w - 2, bottom - top); ctx.clip();
