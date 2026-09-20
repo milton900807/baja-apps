@@ -12002,6 +12002,108 @@ function (path, config) {
         // ONE SITE INTO THE EDITOR, BOTH SAMPLES. The gene under the site is looked up in the
         // annotation, and its transcript opens twice -- once per sample, each carrying that
         // sample's own differing sites inside the gene. That pair IS the design problem.
+        // ---- WHAT THE TUMOUR CANNOT DO WITHOUT, BESIDE EACH DIFFERENCE --------------------
+        //
+        // A difference tells you a design CAN discriminate the two genomes. It says nothing
+        // about whether the gene is worth aiming at. DepMap does: the same numbers the LOH
+        // work already reads -- how strongly losing the gene kills a cell line, in what
+        // fraction of lines, in which lineages, and whether the effect tracks copy number --
+        // are attached to the genes here too, where the bundle has them.
+        //
+        // "Where possible" is the whole discipline of this: DepMap is a HUMAN screen, so a
+        // mouse or yeast genome gets nothing; the bundle has to be on the box; a gene the
+        // screen never covered says "not screened" rather than being quietly dropped; and
+        // the lookup is capped at 200 genes a call, so it runs over what is on the page
+        // rather than over five thousand genes nobody is reading.
+        const DEPMAP_CAP = 200;
+        const diffDepmapFor = async (genes, say) => {
+            const R = diffVarResult;
+            if (!R) return null;
+            if (('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
+            R.dm = R.dm || {};
+            if (R.dmOff) return R.dm;              // the bundle is not here; do not ask again
+            const want = [];
+            for (const g of (genes || [])) {
+                const k = ('' + (g || '')).toUpperCase();
+                if (k && !R.dm[k] && want.indexOf(k) < 0) want.push(k);
+            }
+            if (!want.length) return R.dm;
+            try {
+                const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                if (say) say('Reading DepMap for ' + Math.min(want.length, DEPMAP_CAP).toLocaleString() + ' gene'
+                    + (want.length === 1 ? '' : 's') + '\u2026');
+                const rs = await exec(LOH_SL_SCRIPT, em, 'depmap', JSON.stringify({ genes: want.slice(0, DEPMAP_CAP) }));
+                if (rs && rs.ok) {
+                    let got = {};
+                    try { got = JSON.parse(rs.genes || '{}'); } catch (e) { got = {}; }
+                    for (const k in got) R.dm[k] = got[k];
+                    R.dmModels = +rs.n_models || R.dmModels || 0;
+                } else {
+                    // No bundle on this server is a fact about the server, not about the
+                    // genes. Say it once, then stop asking.
+                    R.dmOff = true;
+                    R.dmWhy = (rs && rs.error) ? ('' + rs.error) : 'DepMap could not be read on this server';
+                }
+            } catch (e) { R.dmOff = true; R.dmWhy = 'DepMap could not be read: ' + e; }
+            return R.dm;
+        };
+        const dmOf = (gene) => {
+            const R = diffVarResult;
+            if (!R || !R.dm) return null;
+            return R.dm[('' + (gene || '')).toUpperCase()] || null;
+        };
+        // The one-line form, for a card badge: the class and how much of the screen agrees.
+        const dmBadge = (d) => {
+            if (!d) return '';
+            if (!d.screened) return 'not in DepMap';
+            const pct = Math.round((+d.dep_frac || 0) * 100);
+            return (d['class'] || 'screened') + ' \u00b7 ' + pct + '%';
+        };
+        // The full form, as a note above a gene's own sites. Every number is labelled with
+        // what it measures, because "-1.2" and "0.87" are not self-explanatory.
+        const dmNote = (gene, d) => {
+            const R = diffVarResult;
+            if (!d) return null;
+            const L = [];
+            if (!d.screened) {
+                L.push(gene + ' is not in the DepMap screen, so there is no dependency data for it.');
+            } else {
+                const pct = Math.round((+d.dep_frac || 0) * 100);
+                L.push(gene + ' \u2014 ' + (d['class'] || 'screened'));
+                L.push('  dependency   ' + pct + '% of ' + (d.n_models || R.dmModels || 0).toLocaleString()
+                    + ' cell lines cannot do without it');
+                if (d.effect_mean != null) L.push('  effect       ' + d.effect_mean
+                    + ' mean gene effect (0 = no effect, -1 = as lethal as a common essential)');
+                if (d.lineages && d.lineages.length) {
+                    L.push('  hardest hit  ' + d.lineages.map((x) => x[0] + ' ' + x[1] + ' (n=' + x[2] + ')').join(', '));
+                }
+                if (d.dosage) {
+                    if (d.dosage.tested) {
+                        L.push('  one copy     ' + (d.dosage.confirmed
+                            ? ('losing a copy makes it MORE essential (delta ' + d.dosage.delta + ', FDR ' + d.dosage.fdr + ')')
+                            : ('no dosage effect that survives correction (delta ' + d.dosage.delta
+                                + ', FDR ' + (d.dosage.fdr == null ? 'n/a' : d.dosage.fdr) + ')'))
+                            + ' \u2014 ' + d.dosage.n_hemizygous + ' lines at one copy vs ' + d.dosage.n_neutral + ' neutral');
+                    } else if (d.dosage.why) {
+                        L.push('  one copy     not tested: ' + d.dosage.why);
+                    }
+                }
+                if (d.paralog && d.paralog.gene) {
+                    L.push('  paralog      ' + d.paralog.gene + ' may cover for it (model score ' + d.paralog.pred + ')');
+                }
+            }
+            // GTEx comes back as two panels (CNS and the rest), not a ranked list, so the
+            // highest few across both is what is shown -- where a gene is expressed bears on
+            // what an oligo against it would also hit.
+            if (d.tpm) {
+                const all = ((d.tpm.cns || []).concat(d.tpm.other || []))
+                    .filter((t) => t && isFinite(+t[1])).sort((a, b) => (+b[1]) - (+a[1])).slice(0, 3);
+                if (all.length) L.push('  expression   ' + all.map((t) => t[0] + ' ' + tpmFmt(+t[1]) + ' TPM').join(', '));
+            }
+            if (d.fn && d.fn.desc) L.push('  what it does ' + d.fn.desc);
+            return { note: true, mono: true, title: L.join('\n') };
+        };
+
         const diffVarOpenSite = async (x) => {
             const R = diffVarResult;
             if (!R) return;
@@ -12139,7 +12241,19 @@ function (path, config) {
                         + (diffSiteSize(x) ? ' of ' + diffSiteSize(x).toLocaleString() + ' bp' : '')
                         + ' \u00b7 ' + siteWord(x)
                         + '. Show it on the genome, or open the gene here as two tracks.',
-                    books: () => [
+                    books: async () => {
+                        // The gene's dependency numbers, looked up for THIS gene when a site
+                        // is opened from anywhere -- the structural list and the kind lists
+                        // reach sites whose gene was never on a page that fetched them.
+                        let dmCard = [];
+                        try {
+                            if (x.gene) {
+                                await diffDepmapFor([x.gene]);
+                                const n = dmNote(x.gene, dmOf(x.gene));
+                                if (n) dmCard = [n];
+                            }
+                        } catch (e) { dmCard = []; }
+                        return [
                         { note: true, mono: true, title: drawn[x.ci].name + ':' + human(x.pos)
                             + '\n  ref       ' + (('' + (x.ref || '?')).match(/.{1,60}/g) || ['?']).join('\n            ')
                             + '\n  alt       ' + (('' + (x.alt || '?')).match(/.{1,60}/g) || ['?']).join('\n            ')
@@ -12155,7 +12269,8 @@ function (path, config) {
                             blurb: 'Opens the gene here as two tracks \u2014 ' + R.labelA + ' and ' + R.labelB + ' \u2014 each with its own '
                                 + 'sites, which is what a selective design is written against.',
                             open: () => diffVarOpenSite(x) },
-                    ],
+                        ].concat(dmCard);
+                    },
                 });
                 // ---- NAVIGATION, BECAUSE THE LIST IS TOO LONG TO WALK --------------------
                 //
@@ -12214,18 +12329,48 @@ function (path, config) {
                     // find nothing, which reads as "that gene has no differences" rather than
                     // "it is past the cut".
                     const GENE_CARDS = 400;
-                    const geneCard = (g) => ({
-                        title: g.gene,
-                        badge: g.worst ? (g.worst.toLocaleString() + ' bp \u00b7 ' + g.n) : (g.n + ' site' + (g.n === 1 ? '' : 's')),
-                        icon: 'gps_fixed', ready: true,
-                        blurb: drawn[g.ci].name + ' \u00b7 ' + g.onlyA + ' only in ' + R.labelA + ', ' + g.onlyB + ' only in '
-                            + R.labelB + ', ' + g.diff + ' carried differently'
-                            + (g.worst ? '. Largest change ' + g.worst.toLocaleString() + ' bp.' : '.'),
-                        books: () => g.sites.slice().sort(diffBySize).map((x) => siteCard(x, diffClassHead)),
-                    });
+                    const geneCard = (g) => {
+                        const d = dmOf(g.gene);
+                        const dep = d && d.screened ? dmBadge(d) : '';
+                        return {
+                            title: g.gene,
+                            badge: g.worst ? (g.worst.toLocaleString() + ' bp \u00b7 ' + g.n) : (g.n + ' site' + (g.n === 1 ? '' : 's')),
+                            // The tumour's dependence on the gene, beside the difference. A
+                            // card has ONE badge and that one is already saying how big the
+                            // change is, so the dependency is carried by the swatch -- red
+                            // where most lines cannot do without the gene, amber where some
+                            // can't -- and spelled out in words in the blurb. A strong
+                            // dependency changes what a design is aiming at, not merely how
+                            // it discriminates, so it is worth a mark you can scan for.
+                            swatch: (d && d.screened && (+d.dep_frac || 0) >= 0.5) ? '#f87171'
+                                : (d && d.screened && (+d.dep_frac || 0) >= 0.1) ? '#fbbf24' : undefined,
+                            icon: 'gps_fixed', ready: true,
+                            blurb: drawn[g.ci].name + ' \u00b7 ' + g.onlyA + ' only in ' + R.labelA + ', ' + g.onlyB + ' only in '
+                                + R.labelB + ', ' + g.diff + ' carried differently'
+                                + (g.worst ? '. Largest change ' + g.worst.toLocaleString() + ' bp.' : '.')
+                                + (d && d.screened ? ' DepMap: ' + dmBadge(d).replace(' \u00b7 ', ', ')
+                                    + ' of lines depend on it' + (d.effect_mean != null ? ' (mean effect ' + d.effect_mean + ')' : '') + '.'
+                                    : (d ? ' Not in the DepMap screen.' : '')),
+                            // The gene's own level looks it up for itself, so opening one gene
+                            // is one lookup even when the list around it was never annotated.
+                            books: async () => {
+                                let head = [];
+                                try {
+                                    await diffDepmapFor([g.gene]);
+                                    const d2 = dmOf(g.gene);
+                                    const n = d2 ? dmNote(g.gene, d2) : null;
+                                    if (n) head = [n];
+                                    else if (diffVarResult && diffVarResult.dmOff) {
+                                        head = [{ note: true, title: 'No dependency data: ' + (diffVarResult.dmWhy || 'DepMap is not on this server') + '.' }];
+                                    }
+                                } catch (e) { head = []; }
+                                return head.concat(g.sites.slice().sort(diffBySize).map((x) => siteCard(x, diffClassHead)));
+                            },
+                        };
+                    };
                     // Typed symbols are matched as a PREFIX first and anywhere second, so
                     // "TP53" leads with TP53 rather than with ATP53BP1-style incidental hits.
-                    const geneSearch = (text) => {
+                    const geneSearch = async (text) => {
                         const t = ('' + (text || '')).trim().toUpperCase();
                         if (!t) return null;
                         const starts = [], holds = [];
@@ -12241,6 +12386,8 @@ function (path, config) {
                             return [{ note: true, title: 'No gene carrying a difference has "' + t + '" in its symbol. All '
                                 + genes.length.toLocaleString() + ' of them were searched, not just the ones listed.' }];
                         }
+                        // The hits get their dependency numbers too, up to the script's cap.
+                        await diffDepmapFor(hits.slice(0, DEPMAP_CAP).map((g) => g.gene));
                         return [{ note: true, title: hits.length.toLocaleString() + ' of ' + genes.length.toLocaleString()
                             + ' genes match "' + t + '"' + (hits.length >= 300 ? ', and the first 300 are here' : '')
                             + ' \u2014 searched across every gene with a difference, whatever its rank.' }]
@@ -12252,10 +12399,24 @@ function (path, config) {
                         blurb: 'The genes these differences fall in, the one with the largest change first. Search by symbol '
                             + 'inside \u2014 the box reaches every gene, not only the ones listed \u2014 and a gene opens its own sites.',
                         search: geneSearch,
-                        books: () => [{ note: true, title: 'Type a symbol above to search all '
-                            + genes.length.toLocaleString() + ' genes that carry a difference. The '
-                            + Math.min(GENE_CARDS, genes.length) + ' with the largest change are listed below; the box is '
-                            + 'not limited to them.' }].concat(genes.slice(0, GENE_CARDS).map(geneCard)) });
+                        books: async () => {
+                            const shown = genes.slice(0, GENE_CARDS);
+                            // ONE lookup for the page, not one per card. The cap is the
+                            // script's own (200 genes a call), so the first 200 carry their
+                            // dependency numbers and the rest pick theirs up when opened.
+                            await diffDepmapFor(shown.slice(0, DEPMAP_CAP).map((g) => g.gene));
+                            const R2 = diffVarResult;
+                            const head = 'Type a symbol above to search all ' + genes.length.toLocaleString()
+                                + ' genes that carry a difference. The ' + Math.min(GENE_CARDS, genes.length)
+                                + ' with the largest change are listed below; the box is not limited to them.';
+                            const dmLine = (R2 && R2.dmOff)
+                                ? ' No dependency data: ' + (R2.dmWhy || 'DepMap is not on this server') + '.'
+                                : (('' + (r.species || 'human')).toLowerCase() !== 'human'
+                                    ? ' DepMap is a human screen, so there is no dependency data for this genome.'
+                                    : ' A red or amber dot marks a gene cancer lines depend on (DepMap); the first '
+                                        + DEPMAP_CAP + ' are looked up here, and any gene you open looks up its own.');
+                            return [{ note: true, title: head + dmLine }].concat(shown.map(geneCard));
+                        } });
                 }
 
                 const kinds = [['onlyA', 'Only in ' + R.labelA, c.onlyA], ['onlyB', 'Only in ' + R.labelB, c.onlyB],
