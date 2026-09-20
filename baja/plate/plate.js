@@ -8958,46 +8958,73 @@ function () {
                     this.editWell(current_well, pt);
                     click_and_drag = true;
 
-                    if (w && w.length === 1 && w[0] === current_well) {
+                    // CELL SELECTION, THE WAY A SPREADSHEET DOES IT.
+                    //   a plain press     this cell alone: everything else is let go first
+                    //   a drag            the rectangle from the pressed cell to the pointer
+                    //   Shift + press     the rectangle from the anchor (the last plain press) to here
+                    //   Ctrl/Cmd + press  adds this cell to the selection, or takes it out
+                    // A plain press used to ADD the cell to whatever was selected, so clicking
+                    // around a table left a trail of selected cells that had to be cleared by hand.
+                    startIndex = null;
+                    currentSelected = [];
+                    if (!current_well) { singleSelect = false; return; }
+                    const idx = this.getWellRowIndex(current_well);
+                    if (!idx) { singleSelect = false; return; }
+                    const ctrl = !!window.__bajaCtrl, shift = !!window.__bajaShift;
+
+                    // the one selected cell, pressed again: it stays as it is (editing goes on)
+                    if (!ctrl && !shift && w && w.length === 1 && w[0] === current_well) {
                         pt.selected_well = current_well;
                         singleSelect = true;
                         textStyle = 'data';
+                        this.__selAnchor = idx;
+                        startIndex = idx;
+                        currentSelected.push({ w: current_well, row: idx.rowIndex, col: idx.colIndex });
                         return;
-                    } else if (w && w.length === 0 && !current_well) {
-                        singleSelect = false;
-                        return;
-                    } else if (w && w.length === 1 && w[0] !== current_well) {
-                        pt.selected_well = current_well;
-
-                        if (current_well && current_well.selectIt) {
-                            current_well.selectIt();
-                        }
-
-                        singleSelect = true;
-                        return;
-                    } else {
-                        singleSelect = false;
                     }
 
-                    if (current_well) {
-                        startIndex = this.getWellRowIndex(current_well);
-
+                    if (ctrl) {
                         if (current_well.select) {
-                            for (let ww of w) {
-                                ww.deselectIt();
+                            current_well.deselectIt();
+                            if (pt.selected_well === current_well) {
+                                const rest = this.getSelectedWellsInOrder();
+                                pt.selected_well = rest && rest.length ? rest[0] : null;
                             }
+                        } else {
+                            current_well.selectIt();
+                            pt.selected_well = current_well;
+                            this.__selAnchor = idx;
                         }
+                        const now = this.getSelectedWellsInOrder();
+                        singleSelect = !!(now && now.length === 1);
+                        return;                                   // no drag from a Ctrl press
+                    }
 
-                        current_well.selectIt();
-
-                        currentSelected.push({
-                            w: current_well,
-                            row: startIndex.rowIndex,
-                            col: startIndex.colIndex
-                        });
-
+                    const anchor = this.__selAnchor;
+                    if (shift && anchor && this.wells[anchor.colIndex] && this.wells[anchor.colIndex][anchor.rowIndex]) {
+                        for (const ww of (w || [])) ww.deselectIt();
+                        const c0 = Math.min(anchor.colIndex, idx.colIndex), c1 = Math.max(anchor.colIndex, idx.colIndex);
+                        const r0 = Math.min(anchor.rowIndex, idx.rowIndex), r1 = Math.max(anchor.rowIndex, idx.rowIndex);
+                        for (let col = c0; col <= c1; col++) for (let row = r0; row <= r1; row++) {
+                            const cell = this.wells[col] && this.wells[col][row];
+                            if (cell) { cell.selectIt(); currentSelected.push({ w: cell, row, col }); }
+                        }
+                        pt.selected_well = this.wells[anchor.colIndex][anchor.rowIndex];
+                        singleSelect = (c0 === c1 && r0 === r1);
+                        startIndex = anchor;                      // a drag from here keeps the same anchor
                         return;
                     }
+
+                    // a plain press
+                    for (const ww of (w || [])) if (ww !== current_well) ww.deselectIt();
+                    current_well.selectIt();
+                    pt.selected_well = current_well;
+                    singleSelect = true;
+                    textStyle = 'data';
+                    this.__selAnchor = idx;
+                    startIndex = idx;
+                    currentSelected.push({ w: current_well, row: idx.rowIndex, col: idx.colIndex });
+                    return;
                 };
 
                 let mouseMoveListener = async (x, y) => {
@@ -9109,11 +9136,14 @@ function () {
                                         selected.col <= maxCol;
 
 
-                                    // if (!isWithinBounds ) {
-                                    //     selected.w.deselectIt();
-                                    //     currentSelected.splice(i, 1);
-                                    // }
+                                    // The selection IS the rectangle: a cell this drag took in and has
+                                    // since left is let go (dragging back used to leave it selected).
+                                    if (!isWithinBounds) {
+                                        selected.w.deselectIt();
+                                        currentSelected.splice(i, 1);
+                                    }
                                 }
+                                if (maxRow > minRow || maxCol > minCol) singleSelect = false;
 
                                 // Select all cells currently inside the rectangle.
                                 for (let row = minRow; row <= maxRow; row++) {

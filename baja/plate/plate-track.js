@@ -8419,7 +8419,8 @@ function (progress) {
                     // The same along the BOTTOM edge, for a table wider than the window.
                     // Tested before the body press below, so it takes the gesture rather than
                     // starting a cell selection in the last row.
-                    if (this.__maxBounds && this.__maxBounds.hscroll && y >= this.grid.height - 18 && x < this.grid.width - 18) {
+                    const __hb = this.__maxHBar();
+                    if (__hb && y >= __hb.zoneTop && y <= __hb.zoneBottom && x < this.grid.width - 18) {
                         this.__maxScrollXDrag = true; this.__maxScrollXTo(x); return;
                     }
                     // A press on the BODY of a maximized chart or timeline starts a drag that
@@ -8687,6 +8688,10 @@ function (progress) {
                 // A table drawn as a solid block: its cells, buttons and hover get nothing.
                 if (this.__solidDrag || this.__solidMenuPress || this.__solidResize) return true;
                 if (this.__docSel || this.__docScroll) return true;
+                // A maximized object's scroll bars: while one is held, the canvas's own drag (the
+                // pan) must not also run -- it moved the view the other way under the sideways
+                // bar, so the table crept back as fast as it was scrolled.
+                if (this.__maxScrollDrag || this.__maxScrollXDrag) return true;
                 try { if (this.__docHit(x, y)) return 'document'; } catch (e) { }
                 try { if (this.__solidCornerAt(x, y)) return 'solid'; } catch (e) { }
                 try { if (this.__solidAt(x, y)) return 'solid'; } catch (e) { }
@@ -9433,6 +9438,7 @@ function (progress) {
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
                     if (this.__maxScrollXDrag) { this.__maxScrollXTo(x); return; }
+                    try { const hb = this.__maxHBar(); this.__maxHBarHover = !!(hb && y >= hb.zoneTop && y <= hb.zoneBottom); } catch (e) { this.__maxHBarHover = false; }
                     if (this.__maxTap && (Math.abs(x - this.__maxTap.x) > 6 || Math.abs(y - this.__maxTap.y) > 6)) this.__maxTap = null;
                     if (this.__maxDrag) {
                         const d = this.__maxDrag, o = this.__maximized, g = this.grid;
@@ -11770,6 +11776,27 @@ function (progress) {
             // canvas cannot pan while maximized, and __maxScrollX is reached only by a touch
             // drag, so before this a table wider than the window stranded its right-hand
             // columns on every desktop.
+            // Where the SIDEWAYS scroll bar of a maximized object sits: along the bottom of the
+            // canvas, ABOVE whatever the shell docks there (the free-plan bar covers the canvas's
+            // last pixels, which is where the drag zone used to be -- out of reach, and with
+            // nothing drawn to say it existed). null when the object fits the width.
+            __maxHBar() {
+                try {
+                    if (!this.__maximized || !this.__maxBounds || !this.__maxBounds.hscroll) return null;
+                    const g = this.grid, W = Math.max(1, g.width), H = Math.max(1, g.height);
+                    const bb = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
+                    if (!bb) return null;
+                    const xRange = g.xmax - g.xmin;
+                    const pad = (bb.x1 - bb.x0) * (this.__maxBounds.sideFrac || 0);
+                    const lo = bb.x0 - pad, hi = bb.x1 + pad, total = hi - lo;
+                    if (!(total > xRange * 1.001)) return null;
+                    let chrome = 0; try { chrome = this.__bottomChromePx() || 0; } catch (e) { chrome = 0; }
+                    const trackX = 12, trackW = Math.max(40, W - 36), y = H - chrome - 14;
+                    const frac = xRange / total, thumbW = Math.max(36, trackW * frac);
+                    const pos = Math.max(0, Math.min(1, (g.xmin - lo) / (total - xRange)));
+                    return { trackX, trackW, y, h: 8, thumbX: trackX + pos * (trackW - thumbW), thumbW, lo, total, xRange, zoneTop: y - 8, zoneBottom: y + 14 };
+                } catch (e) { return null; }
+            }
             __maxScrollXTo(px) {
                 if (!this.__maximized || !this.__maxBounds || !this.__maxBounds.hscroll) return;
                 const g = this.grid;
@@ -11782,8 +11809,9 @@ function (progress) {
                 const lo = bb.x0 - pad, hi = bb.x1 + pad;
                 const total = hi - lo;
                 if (!(total > xRange)) return;
-                const trackX = 12, trackW = Math.max(1, cwp - 36);
-                const pos = Math.max(0, Math.min(1, (px - trackX) / trackW));
+                const bar = this.__maxHBar();
+                const trackX = bar ? bar.trackX : 12, trackW = bar ? bar.trackW : Math.max(1, cwp - 36), thumbW = bar ? bar.thumbW : 0;
+                const pos = Math.max(0, Math.min(1, (px - trackX - thumbW / 2) / Math.max(1, trackW - thumbW)));
                 g.xmin = lo + pos * (total - xRange);
                 g.xmax = g.xmin + xRange;
                 g.rescale();
@@ -11954,6 +11982,17 @@ function (progress) {
                             ctx.fillStyle = 'rgba(255,255,255,0.10)'; rr(W - 10, trackY, 6, trackH, 3); ctx.fill();
                             ctx.fillStyle = 'rgba(26,163,189,0.9)'; rr(W - 10, trackY + pos * trackH * (1 - frac), 6, Math.max(24, trackH * frac), 3); ctx.fill();
                         }
+                    }
+                } catch (e) { }
+                // ...and along the bottom when it is WIDER than the view (a wide table at its
+                // minimum cell size, or one grown to fill the height): the same look, the same
+                // press-to-jump and drag (see __maxHBar).
+                try {
+                    const hb = this.__maxHBar();
+                    if (hb) {
+                        const hot = !!this.__maxScrollXDrag || !!this.__maxHBarHover;
+                        ctx.fillStyle = 'rgba(255,255,255,0.14)'; rr(hb.trackX, hb.y, hb.trackW, hot ? hb.h + 2 : hb.h, 4); ctx.fill();
+                        ctx.fillStyle = hot ? '#1aa3bd' : 'rgba(26,163,189,0.9)'; rr(hb.thumbX, hb.y, hb.thumbW, hot ? hb.h + 2 : hb.h, 4); ctx.fill();
                     }
                 } catch (e) { }
                 ctx.restore();
@@ -18698,6 +18737,17 @@ function (progress) {
                         window.addEventListener('keyup', (e) => { if (e.key === 'Control' || !e.ctrlKey) window.__bajaCtrl = false; }, true);
                         window.addEventListener('blur', () => { window.__bajaCtrl = false; });
                         window.addEventListener('mousemove', (e) => { window.__bajaCtrl = !!e.ctrlKey; }, true);
+                    }
+                    // Shift, and Cmd as Ctrl, read AT THE PRESS (capture, so before the canvas sees
+                    // it): a table's cell selection is Excel's -- Shift extends, Ctrl/Cmd toggles.
+                    if (!window.__bajaModTracked) {
+                        window.__bajaModTracked = true;
+                        window.__bajaShift = false;
+                        const mods = (e) => { window.__bajaShift = !!e.shiftKey; window.__bajaCtrl = !!(e.ctrlKey || e.metaKey); };
+                        window.addEventListener('mousedown', mods, true);
+                        window.addEventListener('keydown', mods, true);
+                        window.addEventListener('keyup', mods, true);
+                        window.addEventListener('blur', () => { window.__bajaShift = false; });
                     }
                 } catch (e) { }
                 let colorWells = (type) => {
