@@ -9103,31 +9103,9 @@ function (path, config) {
             if (!ui) books.push({ section: 'Germline', title: 'The report without the selective-lethality assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
                 blurb: 'The loss itself, the tract map and the tumor suppressors, read against ' + R.spec.labelN + '. No essential-gene scan, no model.',
                 open: () => { lohMenu(); lohReportPDF({ claude: false }); } });
-            // THE COMPARISON ITSELF, not only the germline. The scan was run on one pair, and
-            // that pair decides which sample is read as the tumour -- the thing the strategy is
-            // designed against. Any other pair can be chosen here; picking one that is not the
-            // scan's runs the scan again on it first, then opens the report.
-            const others = lohSpecs().filter((sp) => !(sp.kind === R.spec.kind && sp.normal === R.spec.normal && sp.tumor === R.spec.tumor));
-            if (others.length) {
-                books.push({ section: 'A different comparison', note: true,
-                    title: 'The scan compared ' + R.spec.labelT + ' against ' + R.spec.labelN + '. Another pair can be used instead -- the genome is scanned again on it, which takes as long as the first scan did.' });
-                others.forEach((sp) => books.push({ section: 'A different comparison', title: sp.labelT + ' as the tumour, ' + sp.labelN + ' as the normal',
-                    icon: sp.kind === 'side' ? 'compare_arrows' : 'people', badge: sp.kind === 'side' ? 'two files' : 'two samples', ready: !lohBusy && !lohReportBusy && !lohUiBusy,
-                    readyNote: 'a scan or a report is running', blurb: sp.blurb + ' Scans again, then opens ' + (ui ? 'the design strategy' : 'the report') + ' on it.',
-                    open: async () => {
-                        try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
-                        await computeLOH(sp);
-                        if (!lohResult) return;                 // the scan was refused or found nothing
-                        // Only when there is a tract to read: lohFindGenes answers nothing otherwise.
-                        if (!lohResult.genes && (lohResult.chroms || []).some((c2) => c2.runs && c2.runs.length)) {
-                            await new Promise((res) => { lohFindGenes(res); });
-                        }
-                        lohReportStart(mode);
-                    } }));
-            }
             books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The scan\'s results.', open: () => lohMenu() });
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: ui ? 'LOH Design Strategy' : 'LOH report (PDF)',
-                subtitle: 'Comparing ' + R.spec.labelT + ' against ' + R.spec.labelN + ' \u2014 choose the germline, or a different comparison',
+                subtitle: 'Comparing ' + R.spec.labelT + ' against ' + R.spec.labelN + ' \u2014 choose the germline',
                 graph: graph, books: books });
         };
         const lohReportPDF = async (opts) => {
