@@ -640,6 +640,12 @@ function (path, config) {
             if (!pm.plateTrack.__objectOnlyId && !__viewer) {
                 try { pm.plateTrack.__nav = await exec('baja/plate/views/navigation-history.js', pm.plateTrack, graph); } catch (e) { console.warn('navigation bar', e); }
             }
+            // The way back out of a folder. Opening one (a folder's menu, "Open..") swaps the
+            // whole canvas for the one inside it; this is the button at the top left that
+            // returns to the canvas that was left. It shows itself only while inside a folder.
+            if (!__viewer) {
+                try { pm.plateTrack.__folderBack = await exec('baja/plate/views/folder-back.js', pm.plateTrack, graph); } catch (e) { console.warn('folder back', e); }
+            }
             // Single-object share: find the object once the document is on the canvas and
             // pin the view to it. A few tries, because the plots are rebuilt on the first
             // frames after a load.
