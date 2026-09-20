@@ -618,7 +618,13 @@ function (opts) {
                                 return;
                             }
                             try { level().scrollTop = shelf.scrollTop || 0; } catch (e) { }
-                            stack.push({ title: b.title, subtitle: b.subtitle || b.blurb || '', books: sub });
+                            // A SUB-LEVEL MAY SEARCH SOMETHING IT DOES NOT HOLD TOO. The hook
+                            // used to be set only on the shelf as a whole, so a card holding
+                            // the first N of a long list gave a Search box that could only
+                            // match the N it had rendered -- typing a name that was in the
+                            // list but past the cut found nothing, which reads as "not there".
+                            stack.push({ title: b.title, subtitle: b.subtitle || b.blurb || '', books: sub,
+                                search: (typeof b.search === 'function') ? b.search : null, restBooks: sub });
                             q.value = '';
                             render();
                             try { shelf.scrollTop = 0; } catch (e) { }

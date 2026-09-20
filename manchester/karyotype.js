@@ -12207,22 +12207,55 @@ function (path, config) {
                 }
                 if (byGene.size) {
                     const genes = Array.from(byGene.values()).sort((p, q) => (q.worst - p.worst) || (q.n - p.n) || p.gene.localeCompare(q.gene));
+                    // ONE CARD PER GENE, and the SEARCH SEES ALL OF THEM. Only the worst 400
+                    // are rendered -- five thousand cards is a page nobody can read and a DOM
+                    // nobody should build -- but the box searches the whole list through the
+                    // shelf's search hook. Typing a symbol that sits at rank 2,000 used to
+                    // find nothing, which reads as "that gene has no differences" rather than
+                    // "it is past the cut".
+                    const GENE_CARDS = 400;
+                    const geneCard = (g) => ({
+                        title: g.gene,
+                        badge: g.worst ? (g.worst.toLocaleString() + ' bp \u00b7 ' + g.n) : (g.n + ' site' + (g.n === 1 ? '' : 's')),
+                        icon: 'gps_fixed', ready: true,
+                        blurb: drawn[g.ci].name + ' \u00b7 ' + g.onlyA + ' only in ' + R.labelA + ', ' + g.onlyB + ' only in '
+                            + R.labelB + ', ' + g.diff + ' carried differently'
+                            + (g.worst ? '. Largest change ' + g.worst.toLocaleString() + ' bp.' : '.'),
+                        books: () => g.sites.slice().sort(diffBySize).map((x) => siteCard(x, diffClassHead)),
+                    });
+                    // Typed symbols are matched as a PREFIX first and anywhere second, so
+                    // "TP53" leads with TP53 rather than with ATP53BP1-style incidental hits.
+                    const geneSearch = (text) => {
+                        const t = ('' + (text || '')).trim().toUpperCase();
+                        if (!t) return null;
+                        const starts = [], holds = [];
+                        for (const g of genes) {
+                            const nm = ('' + (g.gene || '')).toUpperCase();
+                            if (!nm) continue;
+                            if (nm.indexOf(t) === 0) starts.push(g);
+                            else if (nm.indexOf(t) > 0) holds.push(g);
+                            if (starts.length >= 300) break;
+                        }
+                        const hits = starts.concat(holds).slice(0, 300);
+                        if (!hits.length) {
+                            return [{ note: true, title: 'No gene carrying a difference has "' + t + '" in its symbol. All '
+                                + genes.length.toLocaleString() + ' of them were searched, not just the ones listed.' }];
+                        }
+                        return [{ note: true, title: hits.length.toLocaleString() + ' of ' + genes.length.toLocaleString()
+                            + ' genes match "' + t + '"' + (hits.length >= 300 ? ', and the first 300 are here' : '')
+                            + ' \u2014 searched across every gene with a difference, whatever its rank.' }]
+                            .concat(hits.map(geneCard));
+                    };
                     books.push({ section: 'Where to look', title: 'By gene',
                         badge: genes.length.toLocaleString() + ' gene' + (genes.length === 1 ? '' : 's'),
                         icon: 'search', accent: 'run', ready: true,
                         blurb: 'The genes these differences fall in, the one with the largest change first. Search by symbol '
-                            + 'inside, and a gene opens only its own sites.',
-                        books: () => [{ note: true, title: 'Type a symbol above to filter. ' + genes.length.toLocaleString()
-                            + ' genes carry a difference; the first 400 are here, worst first.' }].concat(
-                            genes.slice(0, 400).map((g) => ({
-                                title: g.gene,
-                                badge: g.worst ? (g.worst.toLocaleString() + ' bp · ' + g.n) : (g.n + ' site' + (g.n === 1 ? '' : 's')),
-                                icon: 'gps_fixed', ready: true,
-                                blurb: drawn[g.ci].name + ' · ' + g.onlyA + ' only in ' + R.labelA + ', ' + g.onlyB + ' only in '
-                                    + R.labelB + ', ' + g.diff + ' carried differently'
-                                    + (g.worst ? '. Largest change ' + g.worst.toLocaleString() + ' bp.' : '.'),
-                                books: () => g.sites.slice().sort(diffBySize).map((x) => siteCard(x, diffClassHead)),
-                            }))) });
+                            + 'inside \u2014 the box reaches every gene, not only the ones listed \u2014 and a gene opens its own sites.',
+                        search: geneSearch,
+                        books: () => [{ note: true, title: 'Type a symbol above to search all '
+                            + genes.length.toLocaleString() + ' genes that carry a difference. The '
+                            + Math.min(GENE_CARDS, genes.length) + ' with the largest change are listed below; the box is '
+                            + 'not limited to them.' }].concat(genes.slice(0, GENE_CARDS).map(geneCard)) });
                 }
 
                 const kinds = [['onlyA', 'Only in ' + R.labelA, c.onlyA], ['onlyB', 'Only in ' + R.labelB, c.onlyB],
