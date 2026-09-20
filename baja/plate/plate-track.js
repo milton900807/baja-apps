@@ -4213,11 +4213,22 @@ function (progress) {
                 const previousState = this.capturestate();
                 const udata = __decompress(content)
                 this.copyFromJSON(udata)
-                let folder = this.getPlateWithUID(uid)
-                folder.wells[0][0].properties['package'] = previousState;
+                // The folder that was left, in the parent canvas just restored. Looked for by uid
+                // in the root directly as well: what was done inside must reach the folder even
+                // if the tree walk fails, because there is no other copy of it.
+                let folder = null;
+                try { folder = this.getPlateWithUID(uid); } catch (e) { folder = null; }
+                if (!folder) folder = (this.root || []).find(p => p && ('' + p.uid) === ('' + uid)) || null;
+                if (folder && folder.wells && folder.wells[0] && folder.wells[0][0]) {
+                    if (!folder.wells[0][0].properties) folder.wells[0][0].properties = {};
+                    folder.wells[0][0].properties['package'] = previousState;
+                } else {
+                    console.warn('[folder] the folder that was left (' + uid + ') is not on the parent canvas; its contents were not saved back');
+                    try { this.setMessage('The folder you left could not be found on this canvas, so its changes were not saved into it.', 3); } catch (e) { }
+                }
                 this.deselectAll();
                 this.unModal();
-                this.selectPlate(folder);
+                if (folder) this.selectPlate(folder);
                 // The Leave pill answers to the folder that was just left: at once, not at its next tick.
                 try { if (window.__bajaFolderBack && window.__bajaFolderBack.refresh) window.__bajaFolderBack.refresh(); } catch (e) { }
 
@@ -22031,7 +22042,10 @@ function (progress) {
                 }
                 else {
                     for (let p of this.root) {
-                        let vp = p.getPlateWithUID(uid);
+                        // Not every object in the root is a table with nested plates: one without
+                        // the method is matched on its own uid, and never stops the search.
+                        let vp = null;
+                        try { vp = (p && typeof p.getPlateWithUID === 'function') ? p.getPlateWithUID(uid) : ((p && p.uid === uid) ? p : null); } catch (e) { vp = null; }
                         if (vp) {
                             return vp;
                         }

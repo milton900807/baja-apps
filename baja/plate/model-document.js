@@ -170,6 +170,7 @@ function () {
                 // made of it; saved with the document, so it survives a reload.
                 this.source = o.source || '';
                 this.wells = [];                       // not a table: the table routines skip it
+                this.plates = [];                      // no nested objects, but the track iterates the list
                 this.formula = {};
                 this.selected = false;
                 this._highlight = false;
@@ -203,6 +204,27 @@ function () {
             reapplyHeaderWells() { }
             recondition() { }
             completeNullValues() { }
+            // What the track calls on EVERY object in its root, tables or not. Each of these was
+            // missing here, and each throws the moment its caller runs on a canvas that holds a
+            // document. The one that mattered most: getPlateWithUID. popFolder() finds the
+            // folder it is leaving through it, AFTER it has restored the parent canvas and
+            // BEFORE it saves the inner canvas back into the folder -- so with a document ahead
+            // of the folder in the root (an Indication market canvas: Notes, tables, Competition)
+            // leaving threw there, and everything done inside the folder was lost.
+            getPlateWithUID(uid) { return (uid && this.uid === uid) ? this : null; }
+            getRef(ref) { return ref === this.uid ? this : undefined; }
+            getWellByUID() { return null; }
+            getPlates(plates, y) { const list = plates || []; if (Math.floor(this.grid.yi) === y && list.indexOf(this) < 0) list.push(this); return list; }
+            getMaxCoordinates() { return { xi: this.grid.xi, yi: this.grid.yi }; }
+            toValueUID() { return { name: this.name, cols: 0, rows: 0, wells: [] }; }
+            removePlate() { }
+            deselectWells() { }
+            selectWells() { return []; }
+            deselectPlateRoot() { this.selected = false; }
+            clearAllFormulas() { }
+            applyValuesToPlateField() { }
+            setHideDetailsPopUp() { }
+            rescaleDimensions() { }                  // a document keeps the size it was given
             clearErrors() { }                        // updateCalculations clears every root object's errors: without this a
                                                      // document on the canvas made every menu click throw and skip the recalculation
             getSelectedWellsInOrder() { return []; }
