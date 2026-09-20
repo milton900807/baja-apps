@@ -176,7 +176,7 @@ function (platetrack, opts) {
                         doc = await platetrack.addDocument(name, html, { at: at, width: wpx, height: hpx, source: '' + text });
                     } catch (e) { console.warn('[document] insert', e); }
                     try { platetrack.wb(null); } catch (e) { }
-                    try { platetrack.setMessage(doc ? ('Added “' + name + '” -- select it and choose Document again to edit the text') : 'Could not add the document', 1.1); } catch (e) { }
+                    try { platetrack.setMessage(doc ? ('Added “' + name + '”. Double-click it to edit the text.') : 'Could not add the document', 1.1); } catch (e) { }
                     resolve(doc);
                 },
                 close: () => { resolve(null); },

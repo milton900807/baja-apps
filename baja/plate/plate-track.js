@@ -8624,6 +8624,14 @@ function (progress) {
                         return this.grid.rescale();
                     }
                 }
+                // A DRAWING OR PLACEMENT TOOL OWNS THE POINTER (Draw > Document / Table / Folder /
+                // Timeline, a column being resized...). Below here a press selects whatever is
+                // under it, and selecting a table installs that table's own tool in place of the
+                // one that was active (setSelected -> clk_drag -> wb), which closes it: a
+                // document dragged out over a table was cancelled on the press and never
+                // placed. On a canvas a model has just filled, nearly every press lands on a
+                // table, so the tool looked broken. While such a tool is up, the press is its.
+                if (this.__toolOwnsPointer()) return;
                 if (this.selectedPlate && this.selectedPlate.inButtons && this.selectedPlate.inButtons(x, y, this)) {
 
 
@@ -10951,6 +10959,14 @@ function (progress) {
                 const at = this.objectAt(x, y);
                 return (at && at.kind === 'plate' && this.__isSolidTable(at.obj)) ? at.obj : null;
             }
+            // Is a drawing / placement tool the active workbench? They name themselves
+            // 'override-...' (or 'document-place'); the canvas's own are 'drag-navigate' and a
+            // table's 'click_and_drag<name>'. wbid is set whenever a workbench is installed.
+            __toolOwnsPointer() {
+                const id = '' + (this.wbid || '');
+                return id === 'document-place' || id.startsWith('override');
+            }
+
             // ---- reading a document with the mouse ------------------------------------------
             // A document (model-document.js) is a drawing, so the canvas routes the mouse to it:
             // a press in its BODY selects text (drag; double click a word; Ctrl+A, Ctrl+C), a
