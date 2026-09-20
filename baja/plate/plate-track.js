@@ -4568,7 +4568,10 @@ function (progress) {
 
                 if (hasRef) {
 
-                    const samples = plates.map(perWell);
+                    // The reference cell comes from TABLES: a folder card or a document is one
+                    // 200 px "cell" and would drag the median up (see __layoutIsTable).
+                    const tablesOnly = plates.filter(p => this.__layoutIsTable(p));
+                    const samples = (tablesOnly.length ? tablesOnly : plates).map(perWell);
 
                     if (refMode === 'first') {
                         refWw = samples[0].ww;
@@ -10938,6 +10941,26 @@ function (progress) {
                 try { this.generateTables?.(); } catch (e) { }
                 return doc;
             }
+            // Is this object on the canvas a TABLE, something with cells to size? A folder
+            // card ('package'), a document, an annotation and a transparent text box all sit
+            // in pt.root beside the tables and all carry wells, but their one "cell" is the
+            // whole card: counted as a table, a 200 x 100 px folder set the cell size of
+            // every table on the canvas.
+            __layoutIsTable(pl) {
+                if (!pl || !pl.grid || !Array.isArray(pl.wells) || !pl.wells.length) return false;
+                const t = ('' + (pl.plateType || '')).toLowerCase();
+                return !(t === 'package' || t === 'package-export' || t === 'document' || t === 'annotation' || t === 'transparent');
+            }
+            // Columns, rows and the size of one cell, the way the table DRAWS them: a cell is
+            // the table's width over its grid's column range (plate.js cell_width), which a
+            // builder can leave different from wells.length.
+            __layoutCellDims(pl) {
+                const g = pl.grid;
+                let cols = Number(g.xmax) - Number(g.xmin), rows = Number(g.ymax) - Number(g.ymin);
+                if (!(cols >= 1)) cols = Math.max(1, pl.wells.length);
+                if (!(rows >= 1)) rows = Math.max(1, ...pl.wells.map(c => (c ? c.length : 0)));
+                return { cols, rows, cw: (Math.abs(g.width) || 0) / cols, ch: (Math.abs(g.height) || 0) / rows };
+            }
             // Put a set of tables on one cell size, so tables built together read as one
             // surface rather than a pile of grids at different scales. The size taken is the
             // LARGEST cell in the set, in each direction, because shrinking to the smallest
@@ -10946,26 +10969,28 @@ function (progress) {
             normalizeTableCellSizes(plates, opts) {
                 const o = opts || {};
                 const list = (plates && plates.length ? plates : (this.root || []))
-                    .filter(pl => pl && pl.grid && Array.isArray(pl.wells) && pl.wells.length);
+                    .filter(pl => this.__layoutIsTable(pl));
                 if (list.length < 2) return 0;
-                const dims = (pl) => {
-                    const cols = Math.max(1, pl.wells.length);
-                    const rows = Math.max(1, ...pl.wells.map(c => (c ? c.length : 0)));
-                    return { cols, rows, cw: (pl.grid.width || 0) / cols, ch: (pl.grid.height || 0) / rows };
-                };
-                const all = list.map(dims);
+                const all = list.map(pl => this.__layoutCellDims(pl));
                 // STRICTLY UNIFORM: one cell width and one cell height for every table, taken
                 // from the largest in each direction so nothing that was sized for its text is
                 // clipped. A table fitted to wrapped paragraphs therefore sets the height for
-                // all of them, which is the point -- they are read as one surface.
-                const cw = Math.max(...all.map(d => d.cw));
-                const ch = Math.max(...all.map(d => d.ch));
+                // all of them, which is the point -- they are read as one surface. Hidden
+                // tables are sized with the rest but do not vote, and one table dragged out
+                // to a giant does not get to inflate the others: the largest is held to four
+                // times the median (what fitRowsToText may ask for).
+                const voters = all.filter((d, i) => !list[i].hidden && d.cw > 0 && d.ch > 0);
+                if (!voters.length) return 0;
+                const median = (xs) => { const s = xs.slice().sort((a, b) => a - b); return s[Math.floor((s.length - 1) / 2)]; };
+                const cw = o.cellWidth > 0 ? o.cellWidth : Math.min(Math.max(...voters.map(d => d.cw)), 4 * median(voters.map(d => d.cw)));
+                const ch = o.cellHeight > 0 ? o.cellHeight : Math.min(Math.max(...voters.map(d => d.ch)), 4 * median(voters.map(d => d.ch)));
                 if (!(cw > 0 && ch > 0)) return 0;
                 let moved = 0;
                 list.forEach((pl, i) => {
                     const d = all[i];
                     const w = cw * d.cols, h = ch * d.rows;
-                    if (Math.abs(w - pl.grid.width) < 0.5 && Math.abs(h - pl.grid.height) < 0.5) return;
+                    const tol = 1e-6 * Math.max(w, h);
+                    if (Math.abs(w - pl.grid.width) <= tol && Math.abs(h - pl.grid.height) <= tol) return;
                     const top = pl.grid.yi + pl.grid.height;
                     try { if (typeof pl.setWidth === 'function') pl.setWidth(w); else pl.grid.width = w; } catch (e) { pl.grid.width = w; }
                     try { if (typeof pl.setHeight === 'function') pl.setHeight(h); else pl.grid.height = h; } catch (e) { pl.grid.height = h; }
@@ -18488,6 +18513,7 @@ function (progress) {
             }
 
             async separatePlatesOverTime2(opts = {}) {
+                try { this.cancelLayoutAnimation(); } catch (e) { }
                 const spacing = opts.spacing ?? 24;
                 const durationMs = opts.durationMs ?? 10_000;
                 const iterationsPerFrame = opts.iterationsPerFrame ?? 6;
@@ -18699,34 +18725,51 @@ function (progress) {
                 this.generateTables?.();
             }
 
+            // Lay every table and chart out so that none sits on another, all tables on one
+            // cell size. Returns a Promise that resolves when the objects have reached their
+            // places (it never rejects), so a caller can await it instead of sleeping.
+            //   style: 'glide' (default) every object slides from where it is to its place.
+            //          'tetris' the pieces are lifted above the block and dropped into it one
+            //          at a time, lowest row first, the way the game fills its well.
+            //   fitView: zoom so the whole block is in view (default: only for 'tetris').
+            // A second call while one is running takes over from it; so does a drag-free
+            // separatePlatesOverTime. Hand-drawn glyphs are left where they are.
             layoutCompactTetris(opts = {}) {
+                return new Promise((resolve) => {
+                    try { this.__layoutCompactTetris(opts || {}, resolve); }
+                    catch (e) { console.warn('[layout]', e); resolve(false); }
+                });
+            }
+
+            cancelLayoutAnimation() {
+                if (this.__layoutAnim) { this.__layoutAnim.active = false; try { this.__layoutAnim.done(false); } catch (e) { } }
+                this.__layoutAnim = null;
+            }
+
+            __layoutCompactTetris(opts, resolve) {
+                // Whatever was still moving the tables stops here: two animations writing
+                // positions into the same tables is how they ended up on top of each other.
+                this.cancelLayoutAnimation();
+                try { this.cancelPlateSeparation(); } catch (e) { }
+
                 // One cell size across EVERY table first. The layout packs the tables against
                 // each other, so any difference in cell size shows as soon as they are side by
                 // side -- and a build only normalised the tables it had just made, leaving
                 // whatever was already on the canvas at its own scale. Pass normalize: false
                 // to lay out without touching sizes.
+                // Asked for by hand (the toolbar button): one undo puts every table back.
+                if (opts.undoable) { try { pushHistory(HM(this)); } catch (e) { } }
                 if (opts.normalize !== false) { try { this.normalizeTableCellSizes(this.root); } catch (e) { } }
-                const platesRaw = this.root;
-                const plotsRaw = this.m_plots;
-                const glyphsRaw = this.glyphs || [];
 
                 const grid = this.grid;
                 grid.rescale();
                 this.clearActionGlyphs();
 
-                const duration = Math.max(0, opts.duration ?? 800);
-                const staggerMs = Math.max(0, opts.stagger ?? 0);
+                const style = opts.style === 'tetris' ? 'tetris' : 'glide';
+                const duration = Math.max(0, opts.duration ?? (style === 'tetris' ? 520 : 800));
                 const easingName = opts.easing ?? "easeInOutCubic";
-                const gutter = opts.gutter ?? grid.worldHeight(30);
-                const margin = opts.margin ?? grid.worldHeight(0);
-                const topToBottom = opts.topToBottom ?? true;
-                const zoomToFit = !!opts.zoomToFit;
+                const fitView = opts.fitView ?? opts.zoomToFit ?? (style === 'tetris');
                 const onUpdate = typeof opts.onUpdate === "function" ? opts.onUpdate : null;
-
-                const plotHeightPad = opts.plotHeightPad ?? grid.worldHeight(100);
-
-                const glyphHeightPad = opts.glyphHeightPad ?? grid.worldHeight(20);
-                const glyphMaxW = opts.glyphMaxW ?? null;
 
                 const Easings = {
                     linear: t => t,
@@ -18734,326 +18777,198 @@ function (progress) {
                     easeInOutCubic: t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
                 };
                 const ease = Easings[easingName] ?? Easings.easeInOutCubic;
-
                 const lerp = (a, b, t) => a + (b - a) * t;
-
-                grid.rescale();
-
                 const isNum = v => typeof v === "number" && Number.isFinite(v);
-                const n0 = v => (isNum(v) ? v : 0);
 
-                const getGlyphShape = (g) => (g && g.shape) ? g.shape : g;
+                // The gaps are measured in CELLS, not in pixels at whatever zoom the canvas
+                // happens to be at: 30 px while zoomed in on one cell is a hair once the view
+                // is zoomed out to the whole model, and the title above each table landed on
+                // the table above it. Two and a half rows is room for a title and its buttons.
+                const tables = (this.root || []).filter(p => this.__layoutIsTable(p) && !p.hidden);
+                let cellW = 0, cellH = 0;
+                for (const p of tables) {
+                    const d = this.__layoutCellDims(p);
+                    if (d.cw > cellW) cellW = d.cw;
+                    if (d.ch > cellH) cellH = d.ch;
+                }
+                const gutterY = opts.gutterY ?? opts.gutter ?? (cellH > 0 ? cellH * 2.5 : grid.worldHeight(30));
+                const gutterX = opts.gutterX ?? opts.gutter ?? (cellH > 0 ? Math.max(cellH * 2, cellW * 0.5) : grid.worldWidth(30));
+                // A chart draws its axis labels and legend under its box.
+                const plotHeightPad = opts.plotHeightPad ?? (cellH > 0 ? cellH * 3 : grid.worldHeight(100));
 
-                const getAabbWorld = (shapeLike) => {
-                    const s = getGlyphShape(shapeLike);
-                    if (!s) return null;
+                // Every box is { w, h } with its TOP LEFT corner as its position, y up.
+                const boxes = [];
+                for (const p of (this.root || [])) {
+                    if (!p || !p.grid || p.hidden) continue;
+                    const w = Math.abs(p.getWidth ? p.getWidth() : p.grid.width), h = Math.abs(p.getHeight ? p.getHeight() : p.grid.height);
+                    if (!(w > 0 && h > 0)) continue;
+                    boxes.push({ kind: "plate", ref: p, w, h, hEff: h, cur: { xw: isNum(p.grid.xi) ? p.grid.xi : 0, yw: (isNum(p.grid.yi) ? p.grid.yi : 0) + h } });
+                }
+                for (const p of (this.m_plots || [])) {
+                    if (!p || p.hidden || !(p.w > 0 && p.h > 0)) continue;
+                    // A chart's place on the canvas is x / y (top left, world); its grid holds
+                    // SCREEN pixels, which the old layout read as the starting point.
+                    boxes.push({ kind: "plot", ref: p, w: p.w, h: p.h, hEff: p.h + plotHeightPad, cur: { xw: isNum(p.x) ? p.x : null, yw: isNum(p.y) ? p.y : null } });
+                }
+                if (!boxes.length) return resolve(true);
 
-                    if (typeof s.getAABB === "function") {
-                        const bb = s.getAABB();
-                        if (bb && isNum(bb.x) && isNum(bb.y) && isNum(bb.w) && isNum(bb.h)) return bb;
-                    }
-                    if (typeof s.getBBox === "function") {
-                        const bb = s.getBBox();
-                        if (bb && isNum(bb.x) && isNum(bb.y) && isNum(bb.w) && isNum(bb.h)) return bb;
-                    }
-
-                    const x = ("x" in s) ? n0(s.x) : n0(s.x1);
-                    const y = ("y" in s) ? n0(s.y) : n0(s.y1);
-
-                    let w = ("w" in s) ? n0(s.w) : 0;
-                    let h = ("h" in s) ? n0(s.h) : 0;
-
-                    if (!w && ("x1" in s) && ("x2" in s)) w = Math.abs(n0(s.x2) - n0(s.x1));
-                    if (!h && ("y1" in s) && ("y2" in s)) h = Math.abs(n0(s.y2) - n0(s.y1));
-
-                    if ((!w || !h) && s.type === "text" && typeof s.text === "string") {
-                        const fs = isNum(s.fontSize) ? s.fontSize : 16;
-                        const lines = s.text.split("\n");
-                        const maxChars = Math.max(1, ...lines.map(L => L.length));
-                        w = w || (maxChars * fs * 0.6);
-                        h = h || (lines.length * fs * 1.2);
-                    }
-
-                    w = w || grid.worldWidth(40);
-                    h = h || grid.worldHeight(20);
-
-                    return { x, y, w, h };
-                };
-
-                const translateShapeWorld = (shapeLike, dx, dy) => {
-                    const s = getGlyphShape(shapeLike);
-                    if (!s || (!dx && !dy)) return;
-
-                    if (typeof Shape !== "undefined" && typeof Shape._translateShapeSafe === "function") {
-                        Shape._translateShapeSafe(s, dx, dy);
-                        return;
-                    }
-
-                    const shift = (k) => { if (k in s) s[k] = n0(s[k]) + (k.startsWith("x") ? dx : dy); };
-
-                    ["x", "y", "xf", "yf", "x1", "y1", "x2", "y2", "cx", "cy"].forEach(k => {
-                        if (k in s) {
-                            if (k.startsWith("x") || k === "cx") s[k] = n0(s[k]) + dx;
-                            if (k.startsWith("y") || k === "cy") s[k] = n0(s[k]) + dy;
-                        }
-                    });
-
-                    if (Array.isArray(s.points)) {
-                        s.points = s.points.map(pt => ({
-                            ...pt,
-                            x: n0(pt.x) + dx,
-                            y: n0(pt.y) + dy,
-                        }));
-                    }
-                };
-
-                const plateBoxes = platesRaw.map(p => {
-                    const wWorld = p.getWidth();
-                    const hWorld = p.getHeight();
-                    const curTopWorldY = p.grid.yi;
-                    return {
-                        kind: "plate",
-                        ref: p,
-                        w: wWorld,
-                        h: hWorld,
-                        hEff: hWorld,
-                        cur: { xw: p.grid.xi, yw: curTopWorldY },
-                    };
-                });
-
-                const plotBoxes = plotsRaw.map(p => {
-                    const wWorld = p.w;
-                    const hWorld = p.h;
-                    const cur = { xw: p.grid.xi, yw: p.grid.yi };
-                    return {
-                        kind: "plot",
-                        ref: p,
-                        w: wWorld,
-                        h: hWorld,
-                        hEff: hWorld + plotHeightPad,
-                        cur,
-                    };
-                });
-
-                const glyphBoxes = glyphsRaw
-                    .map(g => {
-                        const bb = getAabbWorld(g);
-                        if (!bb) return null;
-
-                        return {
-                            kind: "glyph",
-                            ref: g,
-                            w: bb.w,
-                            h: bb.h,
-                            hEff: bb.h + glyphHeightPad,
-                            cur: { xw: bb.x, yw: bb.y },
-                        };
-                    })
-                    .filter(Boolean);
-
-                const boxesMain = [...plateBoxes, ...plotBoxes];
-                const boxesGlyph = [...glyphBoxes];
-
-                if (boxesMain.length === 0 && boxesGlyph.length === 0) return;
-
-                const shelfPack = (boxes, targetBlockW) => {
-                    const shelves = [];
-                    let shelf = { items: [], w: 0, h: 0 };
-
-                    for (const b of boxes) {
-                        const tileW = b.w + gutter;
-                        const tileH = b.hEff + gutter;
-
-                        if (shelf.w > 0 && shelf.w + tileW > targetBlockW && shelf.items.length > 0) {
-                            shelves.push(shelf);
-                            shelf = { items: [], w: 0, h: 0 };
-                        }
-                        shelf.items.push(b);
-                        shelf.w += tileW;
-                        shelf.h = Math.max(shelf.h, tileH);
-                    }
-
-                    if (shelf.items.length) shelves.push(shelf);
-                    return shelves;
-                };
-
-                const totalAreaMain = boxesMain.reduce((acc, b) => acc + (b.w + gutter) * (b.hEff + gutter), 0) || 1;
-
+                // ---- the packing: a skyline, hung from the top ----------------------------
+                // Each piece goes to the highest free spot that is wide enough, leftmost on a
+                // tie, in the order the objects were made (so the first table of a model is
+                // top left). Pieces never overlap because each one raises the skyline under it.
                 const viewW = grid.getxmax() - grid.getxmin();
                 const viewH = grid.getymax() - grid.getymin();
-                const viewAR = viewW / Math.max(viewH, 1e-6);
-                const targetBlockWMain = Math.sqrt(totalAreaMain * viewAR);
+                const viewAR = Math.abs(viewW / Math.max(Math.abs(viewH), 1e-9)) || 1.6;
+                const totalArea = boxes.reduce((acc, b) => acc + (b.w + gutterX) * (b.hEff + gutterY), 0) || 1;
+                const widest = Math.max(...boxes.map(b => b.w + gutterX));
+                const W = Math.max(widest, Math.sqrt(totalArea * viewAR) * 1.08);
+                let sky = [{ x: 0, w: W, v: 0 }];
+                const EPS = 1e-9 * W;
+                for (const b of boxes) {
+                    const tw = b.w + gutterX, th = b.hEff + gutterY;
+                    let best = null;
+                    for (let i = 0; i < sky.length; i++) {
+                        const x = sky[i].x;
+                        if (x + tw > W + EPS) break;
+                        let v = 0;
+                        for (let j = i; j < sky.length && sky[j].x < x + tw - EPS; j++) v = Math.max(v, sky[j].v);
+                        if (!best || v < best.v - EPS) best = { x, v };
+                    }
+                    if (!best) best = { x: 0, v: Math.max(...sky.map(s => s.v)) };
+                    b.u = best.x; b.v = best.v;
+                    // Raise the skyline under the piece.
+                    const x0 = best.x, x1 = best.x + tw, next = [];
+                    for (const s of sky) {
+                        const s0 = s.x, s1 = s.x + s.w;
+                        if (s1 <= x0 + EPS || s0 >= x1 - EPS) { next.push(s); continue; }
+                        if (s0 < x0 - EPS) next.push({ x: s0, w: x0 - s0, v: s.v });
+                        if (s1 > x1 + EPS) next.push({ x: x1, w: s1 - x1, v: s.v });
+                    }
+                    next.push({ x: x0, w: tw, v: best.v + th });
+                    next.sort((a, c) => a.x - c.x);
+                    sky = next;
+                }
+                const blockW = Math.max(...boxes.map(b => b.u + b.w));
+                const blockH = Math.max(...boxes.map(b => b.v + b.hEff));
 
-                const shelvesMain = shelfPack(boxesMain, targetBlockWMain);
-
-                const blockWMain = shelvesMain.length
-                    ? (Math.max(...shelvesMain.map(s => s.w)) - gutter)
-                    : 0;
-                const blockHMain = shelvesMain.length
-                    ? (shelvesMain.reduce((acc, s) => acc + s.h, 0) - gutter)
-                    : 0;
-
-                let targetBlockWGlyph = blockWMain || targetBlockWMain;
-                if (glyphMaxW && isNum(glyphMaxW)) targetBlockWGlyph = Math.min(targetBlockWGlyph, glyphMaxW);
-
-                const shelvesGlyph = shelfPack(boxesGlyph, targetBlockWGlyph);
-
-                const blockWGlyph = shelvesGlyph.length
-                    ? (Math.max(...shelvesGlyph.map(s => s.w)) - gutter)
-                    : 0;
-                const blockHGlyph = shelvesGlyph.length
-                    ? (shelvesGlyph.reduce((acc, s) => acc + s.h, 0) - gutter)
-                    : 0;
-
-                const blockW = Math.max(blockWMain, blockWGlyph);
-                const blockH = blockHMain + (shelvesGlyph.length ? (gutter + blockHGlyph) : 0);
-
+                // The block is centred on what the user is looking at.
                 const cx = (grid.getxmin() + grid.getxmax()) / 2;
                 const cy = (grid.getymin() + grid.getymax()) / 2;
                 const startX = cx - blockW / 2;
                 const startY = cy + blockH / 2;
-                const verticalDir = topToBottom ? -1 : +1;
-
-                let yCursor = startY;
-                const targets = [];
-
-                const emitShelves = (shelves, blockWForGroup) => {
-                    for (const shelf of shelves) {
-                        const shelfW = (shelf.w - gutter);
-                        const shelfX = startX + (blockWForGroup - shelfW) / 2;
-                        let xCursor = shelfX;
-
-                        for (const b of shelf.items) {
-                            targets.push({ box: b, target: { xw: xCursor, yw: yCursor } });
-                            xCursor += (b.w + gutter);
-                        }
-                        yCursor += verticalDir * shelf.h;
-                    }
-                };
-
-                {
-                    const groupStartX = startX + (blockW - blockWMain) / 2;
-                    const savedStartX = startX;
-
-                    const _startX = startX;
-
-                    for (const shelf of shelvesMain) {
-                        const shelfW = (shelf.w - gutter);
-                        const shelfX = groupStartX + (blockWMain - shelfW) / 2;
-                        let xCursor = shelfX;
-
-                        for (const b of shelf.items) {
-                            targets.push({ box: b, target: { xw: xCursor, yw: yCursor } });
-                            xCursor += (b.w + gutter);
-                        }
-                        yCursor += verticalDir * shelf.h;
-                    }
+                for (const b of boxes) {
+                    b.target = { xw: startX + b.u, yw: startY - b.v };
+                    if (b.cur.xw === null || b.cur.yw === null) b.cur = { xw: b.target.xw, yw: b.target.yw };
                 }
 
-                if (shelvesGlyph.length) yCursor += verticalDir * gutter;
-
-                {
-                    const groupStartX = startX + (blockW - blockWGlyph) / 2;
-                    for (const shelf of shelvesGlyph) {
-                        const shelfW = (shelf.w - gutter);
-                        const shelfX = groupStartX + (blockWGlyph - shelfW) / 2;
-                        let xCursor = shelfX;
-
-                        for (const b of shelf.items) {
-                            targets.push({ box: b, target: { xw: xCursor, yw: yCursor } });
-                            xCursor += (b.w + gutter);
-                        }
-                        yCursor += verticalDir * shelf.h;
-                    }
-                }
-
-                const fit = {
-                    xmin: startX - margin,
-                    xmax: startX + blockW + margin,
-                    ymax: startY + margin,
-                    ymin: startY - blockH - margin,
+                const writePose = (box, xw, yw) => {
+                    if (box.kind === "plot") { box.ref.x = xw; box.ref.y = yw; }
+                    else { box.ref.grid.xi = xw; box.ref.grid.yi = yw - box.h; }
                 };
-
-                const writePose = (box, pose) => {
-                    if (box.kind === "plot") {
-                        box.ref.x = pose.xw;
-                        box.ref.y = pose.yw;
-                    } else if (box.kind === "plate") {
-                        box.ref.grid.xi = pose.xw;
-                        box.ref.grid.yi = pose.yw - box.h;
-                    } else if (box.kind === "glyph") {
-
-                        const cur = box.cur || { xw: pose.xw, yw: pose.yw };
-                        const dx = pose.xw + cur.xw;
-                        const dy = pose.yw + cur.yw;
-                        translateShapeWorld(box.ref, dx, dy);
-
-                        box.cur = { xw: pose.xw, yw: pose.yw };
-                    }
-                };
-
-                for (const { box } of targets) {
-                    if (!box.cur) {
-                        if (box.kind === "plot") {
-                            box.cur = { xw: n0(box.ref.x), yw: n0(box.ref.y) };
-                        } else if (box.kind === "plate") {
-                            const hWorld = box.h;
-                            box.cur = { xw: n0(box.ref.grid?.xi), yw: n0(box.ref.grid?.yi) + hWorld };
-                        } else if (box.kind === "glyph") {
-                            const bb = getAabbWorld(box.ref);
-                            box.cur = bb ? { xw: bb.x, yw: bb.y } : { xw: 0, yw: 0 };
-                        }
-                    }
-                }
-
-                const t0 = performance.now();
-                const n = targets.length;
-                const starts = targets.map((_, i) => i * staggerMs);
-                const ends = targets.map((_, i) => starts[i] + duration);
-
-                const step = (now) => {
-                    let allDone = true;
-
-                    for (let i = 0; i < n; i++) {
-                        const { box, target } = targets[i];
-                        const startTime = t0 + starts[i];
-                        const endTime = t0 + ends[i];
-
-                        if (now < startTime) { allDone = false; continue; }
-
-                        const raw = Math.min(1, (now - startTime) / Math.max(1, duration));
-                        const e = ease(raw);
-
-                        const xw = lerp(box.cur.xw, target.xw, e);
-                        const yw = lerp(box.cur.yw, target.yw, e);
-                        writePose(box, { xw, yw });
-
-                        if (now < endTime) allDone = false;
-                    }
-
+                const touch = () => {
                     onUpdate && onUpdate();
-
-                    if (!allDone) {
-                        requestAnimationFrame(step);
-                    } else {
-
-                        for (const { box, target } of targets) writePose(box, target);
-
-                        if (zoomToFit) {
-                            grid.zoom(fit.xmin, fit.xmax, fit.ymin, fit.ymax);
-                        }
-                        onUpdate && onUpdate();
-                    }
+                    // The canvas stops drawing when the mouse has been still for a while.
+                    try { const g = CurrentLayout.getStashed('graph'); if (g && g.touchMe) g.touchMe(); } catch (e) { }
                 };
 
-                if (n === 0 || duration === 0) {
-                    for (const { box, target } of targets) writePose(box, target);
-                    if (zoomToFit) grid.zoom(fit.xmin, fit.xmax, fit.ymin, fit.ymax);
-                    onUpdate && onUpdate();
+                const token = { active: true, done: null };
+                let finished = false;
+                token.done = (ok) => { if (finished) return; finished = true; if (this.__layoutAnim === token) this.__layoutAnim = null; resolve(ok); };
+                this.__layoutAnim = token;
+
+                const settle = () => {
+                    for (const b of boxes) writePose(b, b.target.xw, b.target.yw);
+                    touch();
+                    token.done(true);
+                };
+
+                const now = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+                const rAF = (cb) => (typeof requestAnimationFrame !== "undefined") ? requestAnimationFrame(cb) : setTimeout(() => cb(now()), 16);
+                const reduced = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } })();
+
+                // Zoom so the whole block (and the titles above its top row) is in view.
+                const margin = Math.max(gutterX, gutterY);
+                const fitTheView = async () => {
+                    if (!fitView) return;
+                    try {
+                        if (typeof AnimateGrid !== "undefined") {
+                            this.pushGrid?.();
+                            await new AnimateGrid(grid).animateTo(startX - margin, startX + blockW + margin, startY - blockH - margin, startY + margin * 1.5, 24);
+                        }
+                    } catch (e) { console.warn('[layout] fit', e); }
+                };
+
+                if (duration === 0 || reduced) { fitTheView().then(settle, settle); return; }
+
+                if (style === 'glide') {
+                    const t0 = now();
+                    const step = () => {
+                        if (!token.active) return;
+                        const raw = Math.min(1, (now() - t0) / duration), e = ease(raw);
+                        for (const b of boxes) writePose(b, lerp(b.cur.xw, b.target.xw, e), lerp(b.cur.yw, b.target.yw, e));
+                        touch();
+                        if (raw < 1) rAF(step); else fitTheView().then(settle, settle);
+                    };
+                    rAF(step);
                     return;
                 }
 
-                requestAnimationFrame(step);
+                // ---- tetris ----------------------------------------------------------------
+                // 1. Lift: every piece glides to its own column, the whole arrangement held
+                //    one drop-height above the block (so nothing overlaps up there either),
+                //    while the view settles on the well the pieces will fall into.
+                // 2. Drop: the pieces fall one after another, lowest row first so no piece
+                //    passes through one that has landed, accelerating like a hard drop and
+                //    landing with a small bounce.
+                // Far enough up that a lifted piece is out of sight: above the fitted view,
+                // and above the view as it stands now.
+                const fitH = Math.max(blockH + 2.5 * margin, (blockW + 2 * margin) / viewAR);
+                const dropH = Math.max(fitH, Math.abs(viewH)) * 1.15;
+                const liftMs = opts.liftMs ?? 420;
+                const order = boxes.slice().sort((a, c) => (c.v + c.hEff) - (a.v + a.hEff) || a.u - c.u);
+                const stagger = opts.stagger ?? Math.max(25, Math.min(140, 4200 / Math.max(1, order.length)));
+                order.forEach((b, i) => { b.dropAt = i * stagger; });
+                // Gravity, then a bounce that dies out: 0 -> 1 with one small rebound.
+                const fall = (t) => {
+                    const hit = 0.78;
+                    if (t < hit) { const q = t / hit; return q * q; }
+                    const q = (t - hit) / (1 - hit);
+                    return 1 - 0.045 * Math.sin(q * Math.PI) * (1 - q);
+                };
+
+                const lift = () => new Promise((res) => {
+                    const t0 = now();
+                    const step = () => {
+                        if (!token.active) return res(false);
+                        const raw = Math.min(1, (now() - t0) / liftMs), e = ease(raw);
+                        for (const b of boxes) writePose(b, lerp(b.cur.xw, b.target.xw, e), lerp(b.cur.yw, b.target.yw + dropH, e));
+                        touch();
+                        if (raw < 1) rAF(step); else res(true);
+                    };
+                    rAF(step);
+                });
+                const drop = () => new Promise((res) => {
+                    const t0 = now();
+                    const total = (order.length - 1) * stagger + duration;
+                    const step = () => {
+                        if (!token.active) return res(false);
+                        const el = now() - t0;
+                        for (const b of order) {
+                            const raw = Math.max(0, Math.min(1, (el - b.dropAt) / duration));
+                            writePose(b, b.target.xw, b.target.yw + dropH * (1 - fall(raw)));
+                        }
+                        touch();
+                        if (el < total) rAF(step); else res(true);
+                    };
+                    rAF(step);
+                });
+
+                (async () => {
+                    const lifted = await Promise.all([lift(), fitTheView()]);
+                    if (!token.active || !lifted[0]) return;
+                    if (!(await drop())) return;
+                    settle();
+                })().catch((e) => { console.warn('[layout] tetris', e); if (token.active) settle(); });
             }
 
             moveOneToVacant(_plot, opts = {}) {
@@ -19524,6 +19439,7 @@ function (progress) {
             }
 
             async separatePlatesOverTime(opts = {}) {
+                try { this.cancelLayoutAnimation(); } catch (e) { }
                 const spacing = opts.spacing ?? 24;
                 const durationMs = opts.durationMs ?? 10_000;
                 const iterationsPerFrame = opts.iterationsPerFrame ?? 6;

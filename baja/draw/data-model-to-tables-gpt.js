@@ -197,6 +197,8 @@ function (platetrack, model, option) {
             }
 
             const findPlate = (name) => platetrack.root.find(p => p.name === name) || null;
+            // The tables this run put on the canvas (as opposed to ones it filled in place).
+            const createdPlates = platetrack.__modelCreatedPlates = (platetrack.__modelCreatedPlates || []);
 
             function ensurePlateWithBounds(name, b) {
 
@@ -246,6 +248,7 @@ function (platetrack, model, option) {
                     plate.hidden = true;
                 }
                 platetrack.addNextAvailableX(plate);
+                createdPlates.push(plate);
                 return plate;
             }
 
@@ -1011,6 +1014,17 @@ function (platetrack, model, option) {
             if (built.length && platetrack.fitRowsToText) platetrack.fitRowsToText(built);
             // ...and then one cell size across the set, so they sit on the same plane.
             if (built.length > 1 && platetrack.normalizeTableCellSizes) platetrack.normalizeTableCellSizes(built);
+        } catch (e) { }
+
+        // Every new table is made at the same origin, so a model of several tables arrives
+        // as one pile. Spread them here, for every model and every caller, rather than in
+        // each flow that remembers to: one cell size across the canvas, nothing on top of
+        // anything. Not awaited (the layout animates; a caller that lays out again, or
+        // builds the next part of the model, simply takes over), and not for a hidden build.
+        try {
+            const made = platetrack.__modelCreatedPlates || [];
+            platetrack.__modelCreatedPlates = null;
+            if (made.length && option !== 'hidden' && option !== 'no-layout' && platetrack.layoutCompactTetris) platetrack.layoutCompactTetris();
         } catch (e) { }
 
         return resolve(report2)

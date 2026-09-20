@@ -2630,6 +2630,24 @@ function (path, config) {
                     icon: 'highlight_alt', color: '#ffffff', tooltip: 'Rectangle select: drag a box around points, tables and notes',
                     ionfunction: createIonFunction(() => { try { pm.plateTrack.startSelectGesture('rect'); } catch (e) { console.warn(e); } })
                 },
+                // Tetris layout: every table put on one cell size, then lifted and dropped
+                // into a packed block, piece by piece, where none sits on another. Live on the
+                // canvas, and one Undo puts everything back. Pressing it again while the
+                // pieces are falling starts over from where they are.
+                {
+                    icon: 'view_quilt', color: '#ffffff', tooltip: 'Tetris layout: same-size cells, no overlaps, dropped into place',
+                    ionfunction: createIonFunction(async () => {
+                        const pt = pm.plateTrack;
+                        try {
+                            if (pt.__maximized) { pt.setMessage('Exit maximize to lay out the canvas.', 2); return; }
+                            const count = (pt.root || []).filter(p => p && !p.hidden).length + (pt.m_plots || []).length;
+                            if (!count) { pt.setMessage('Nothing on the canvas to lay out yet.', 2); return; }
+                            pt.wb(null);
+                            const done = await pt.layoutCompactTetris({ style: 'tetris', undoable: true });
+                            if (done) pt.setMessage(count + (count === 1 ? ' object' : ' objects') + ' laid out. Undo puts them back.', 2);
+                        } catch (e) { console.warn('tetris layout', e); }
+                    })
+                },
             ];
             pm.__appMenus = () => [
                 { label: 'Build', items: refreshBuildLibrary() },
@@ -3910,10 +3928,9 @@ function (path, config) {
                         // setMessage(…, 5) started. Without both, the tables sat on top of each
                         // other and the spinner never went away.
                         try { pt.killSprite(); } catch (e) { }
-                        try { pt.layoutCompactTetris(); } catch (e) { }
-                        // The layout animates for 800 ms and returns at once: fit and place the
-                        // timeline after the tables have reached their final spots.
-                        await new Promise(r => setTimeout(r, 900));
+                        // The layout resolves when the tables have reached their final spots:
+                        // fit and place the timeline after that.
+                        try { await pt.layoutCompactTetris(); } catch (e) { }
                         // Show what was built: fit every object, then the timeline is placed beside.
                         try { await pt.zoomtfit(); } catch (e) { }
                         // The funding timeline, drawn the way the milestone builders draw theirs.
@@ -3983,10 +4000,9 @@ function (path, config) {
                         // setMessage(…, 5) started. Without both, the tables sat on top of each
                         // other and the spinner never went away.
                         try { pt.killSprite(); } catch (e) { }
-                        try { pt.layoutCompactTetris(); } catch (e) { }
-                        // The layout animates for 800 ms and returns at once: fit and place the
-                        // timeline after the tables have reached their final spots.
-                        await new Promise(r => setTimeout(r, 900));
+                        // The layout resolves when the tables have reached their final spots:
+                        // fit and place the timeline after that.
+                        try { await pt.layoutCompactTetris(); } catch (e) { }
                         // Show what was built: fit every object, then the timeline is placed beside.
                         try { await pt.zoomtfit(); } catch (e) { }
                         // The funding timeline, drawn the way the milestone builders draw theirs.
@@ -4255,6 +4271,8 @@ function (path, config) {
                             for (const spec of (result.tables || [])) drawn.push(await drawTable(spec));
                             // One cell size across the tables this analysis produced.
                             try { if (drawn.length > 1) pt.normalizeTableCellSizes(drawn.filter(Boolean)); } catch (e) { }
+                            // ...and the whole canvas laid out around them, nothing overlapping.
+                            try { if (drawn.filter(Boolean).length > 1) await pt.layoutCompactTetris(); } catch (e) { }
                             const d = result.detection || {};
                             const summary = `ΔΔCt: ${(d.targets || []).join(', ')} normalised to ${(d.reference_targets || []).join(' + ')}, calibrator ${(d.calibrator || []).join(', ')}`;
                             pt.setMessage(summary, 1.1);
@@ -4438,10 +4456,9 @@ function (path, config) {
                                     }
                                 }
                             } catch (e) { console.warn('[indication market] population pie', e); }
-                            // Spread every table so none sits on another, let the 800 ms layout
-                            // settle, then zoom out, animated, until all of them are in view.
-                            try { pt.layoutCompactTetris(); } catch (e) { }
-                            await new Promise(r => setTimeout(r, 900));
+                            // Spread every table so none sits on another, wait for the layout
+                            // to settle, then zoom out, animated, until all of them are in view.
+                            try { await pt.layoutCompactTetris(); } catch (e) { }
                             try { await pt.zoomtfit(); } catch (e) { }
                             const d = result.detection || {};
                             const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : '—');
