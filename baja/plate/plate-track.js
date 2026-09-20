@@ -6473,6 +6473,28 @@ function (progress) {
                 this.glyphs.push(glyph)
                 this.selectGlyph__(glyph)
             }
+            // The outline of a STICKY NOTE, drawn with the note's own transform. A note
+            // (flexigraph/shapes/postit.js, type 'Note') keeps its CENTRE in x / y and is
+            // drawn rotated about it by rotationDeg. The selection outlines boxed it as a
+            // plain rect -- x / y taken as a corner, no rotation -- so the box sat up and to
+            // the right of the note and square to the canvas while the note was tilted.
+            // Returns true when the shape was a note (and has been outlined).
+            __strokeNoteOutline(ctx, grid, shape, padPx) {
+                if (!shape || ('' + (shape.type || '')).toLowerCase() !== 'note') return false;
+                const x = Number(shape.x), y = Number(shape.y), w = Number(shape.w), h = Number(shape.h);
+                if (![x, y, w, h].every(Number.isFinite)) return true;          // a note, but nothing to draw yet
+                const sw = Math.abs(grid.screenWidth(w)), sh = Math.abs(grid.screenHeight(h));
+                const pad = Number.isFinite(padPx) ? padPx : 0;
+                ctx.save();
+                ctx.translate(grid.X(x), grid.Y(y));
+                ctx.rotate(((Number(shape.rotationDeg) || 0) * Math.PI) / 180);
+                ctx.beginPath();
+                ctx.rect(-sw / 2 - pad, -sh / 2 - pad, sw + pad * 2, sh + pad * 2);
+                ctx.stroke();
+                ctx.restore();
+                return true;
+            }
+
             selectGlyph__(glyph) {
                 if (this.__collab && glyph) {
                     if (this.__collab.isLockedByOther(glyph.uid)) {
@@ -6609,6 +6631,8 @@ function (progress) {
                                     for (const ch of kids) outlineOne(ch);
                                     return;
                                 }
+
+                                if (this.__strokeNoteOutline(ctx, grid, shape, pad)) return;      // tilted, centre-anchored
 
                                 if (t === 'rect' || ('x' in shape && 'y' in shape && ('w' in shape || 'width' in shape))) {
                                     const x = shape.x ?? shape.getX?.();
@@ -7217,6 +7241,8 @@ function (progress) {
                                     for (const ch of kids) outlineOne(ch, parentGlyphType);
                                     return;
                                 }
+
+                                if (this.__strokeNoteOutline(ctx, grid, shape, pad)) return;      // tilted, centre-anchored
 
                                 if (
                                     parentGlyphType === 'svg' &&
