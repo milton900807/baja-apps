@@ -677,6 +677,39 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                 })
 
+                // WHAT FEEDS THE INPUT'S AUTOCOMPLETE. The panel's command list is the
+                // formula completions above: the tables, each table's row labels (offered
+                // after "["), and the tags. The text listener below runs on EVERY change to
+                // the field and puts a menu of matching table names ON THE CANVAS; it also
+                // used to hand its own list -- bare name strings, no insert text, no table
+                // -- to setCommands, which REPLACES the completions rather than adding to
+                // them. Selecting a cell writes that cell's text into the field, which runs
+                // the listener, so the completions were emptied the moment a cell was picked
+                // and "=" then offered nothing but "No matches". The canvas menu stays; the
+                // command list is refreshed from the canvas instead of being overwritten,
+                // and only when the tables or their row counts have actually changed, so a
+                // keystroke does not walk every well.
+                // `extra` is added to the completions rather than put in their place: after
+                // "[" the field offers the table's ROW labels (from the completions) and its
+                // COLUMN headers (passed in here), both carrying the table they belong to so
+                // the panel can scope them to the table written before the bracket. `key`
+                // distinguishes those contexts, and the canvas signature makes a keystroke
+                // that changes nothing cost nothing.
+                let __completionsKey = null;
+                const setCompletions = (extra, key) => {
+                    if (!panel) return;
+                    try {
+                        const pts = plate_graph.plateTrack;
+                        const sig = (key || '') + '#' + (pts.root || [])
+                            .map(p => (p && p.name) + ':' + ((p && p.wells && p.wells[0]) ? p.wells[0].length : 0))
+                            .join('|');
+                        if (sig === __completionsKey) return;
+                        __completionsKey = sig;
+                        const base = pts.getFormulaCompletions() || [];
+                        panel.setCommands(extra && extra.length ? base.concat(extra) : base);
+                    } catch (e) { }
+                };
+
                 plate_graph.plateTrack.set___selected_well_listener((well) => {
                     let selected_wells = Array.isArray(well) ? well : [well];
                     let wr = selectedPlate.getWellRange(selected_wells)
@@ -822,7 +855,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                         let commands = []
                                         for (let c of columns) {
                                             c = c.trim();
-                                            commands.push(c)
+                                            // Named as a completion, not a bare string: the insert text
+                                            // closes the bracket and `table` is what scopes it to the
+                                            // table written before it.
+                                            if (c) commands.push({ label: c, insert: c + ']', hint: tableName, table: tableName })
                                             menuitems.push({
                                                 'label': c, click: () => {
                                                     let insertion = tableName + '.' + c;
@@ -832,7 +868,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                             })
 
                                         }
-                                        panel.setCommands(commands);
+                                        setCompletions(commands, 'cols:' + tableName);
                                         pt.showMenu(menuitems)
 
 
@@ -899,7 +935,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                             }
                                         })
                                     }
-                                    panel.setCommands(commands);
+                                    setCompletions(null, 'tables');
                                     pt.showMenu(menuitems)
                                 }
                             }),
