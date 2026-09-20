@@ -232,7 +232,7 @@ function () {
         const HANDOFF_MAX_VARIANTS = 3000;
         const design = async (keys) => {
             const ids = [], vars = [];
-            let nGerm = 0, nTum = 0;
+            let nGerm = 0, nTum = 0, nLost = 0, nUncalled = 0, nTumOnly = 0;
             for (const k of keys) {
                 const g = handoff[k];
                 if (!g || !g.transcript || ids.length >= 12) continue;
@@ -243,6 +243,19 @@ function () {
                 // finding. On a canvas, though, "fewer marks" cannot be told apart from
                 // "the hand-off dropped some", so each track states its own number.
                 nGerm += gv.length; nTum += tv.length;
+                // WHY a germline site is not on the tumor track, counted apart. "The tumor is
+                // called here and does not carry it" is the allele loss a selective design is
+                // written against; "the tumor was never called here" is a hole in the data.
+                // A single total reads as the first for both, which would aim a design at
+                // sites that were simply not sequenced deeply enough.
+                const key = (v) => v.pos + ':' + v.ref + '>' + v.alt;
+                const tPos = new Set(tv.map(key)), gPos = new Set(gv.map(key));
+                for (const v of gv) {
+                    if (tPos.has(key(v))) continue;
+                    const st = ((v.annotations || []).find((a) => /^LOH_STATE=/.test('' + a)) || '').split('=')[1] || '';
+                    if (st === 'uncalled') nUncalled++; else nLost++;
+                }
+                for (const v of tv) if (!gPos.has(key(v))) nTumOnly++;
                 ids.push({ id: g.transcript, group: 'germline',
                     label: 'Germline — ' + (doc.germline || 'normal') + '  ·  ' + gv.length + ' site' + (gv.length === 1 ? '' : 's') });
                 ids.push({ id: g.transcript, group: 'tumor',
@@ -266,12 +279,21 @@ function () {
             const genes = keys.map((k) => (handoff[k] && handoff[k].gene) || k).join(', ');
             let win = null;
             try { win = window.open(url, '_blank'); } catch (e) { win = null; }
-            const note = (nGerm === nTum) ? ''
-                : (nTum < nGerm
-                    ? ' Germline ' + nGerm + ' sites, tumor ' + nTum + ': the tumor carries ' + (nGerm - nTum)
-                      + ' fewer because it lost the variant allele there, which is what the design is written against.'
-                    : ' Germline ' + nGerm + ' sites, tumor ' + nTum + ': the tumor carries ' + (nTum - nGerm)
-                      + ' more, changes the germline does not have.');
+            // THE NET IS NOT A BREAKDOWN: germline-only minus tumor-only is not an account
+            // of either. Both sides are given, and "no call in the tumor" is not reported as
+            // loss -- across two VCFs a site simply is not in the tumor file unless the tumor
+            // varied there, and reading that as loss aims a design at sites nobody looked at.
+            let note = ' Germline track ' + nGerm + ' sites, tumor track ' + nTum + '.';
+            const gOnly = nLost + nUncalled, bits = [];
+            if (nLost) bits.push(nLost + ' the tumor is called at without the variant allele');
+            if (nUncalled) bits.push(nUncalled + ' the tumor has no call at');
+            if (gOnly) note += ' ' + gOnly + ' on the germline track only (' + bits.join(', ') + ')'
+                + (nTumOnly ? '; ' + nTumOnly + ' on the tumor track only.' : '.');
+            else if (nTumOnly) note += ' ' + nTumOnly + ' on the tumor track only.';
+            if (nLost) note += ' The ' + nLost + ' the tumor is called at without the variant allele are the allele loss'
+                + ' a selective design is written against.';
+            if (nUncalled) note += ' A site the tumor has no call at was not assessed there — if the two came from'
+                + ' separate VCFs that is simply how the files differ, not evidence the allele was lost.';
             if (win) { say('Opening ' + genes + ' in the oligo editor in a new tab: a germline track and a tumor track for each.' + note); return; }
             window.location.assign(url);
         };

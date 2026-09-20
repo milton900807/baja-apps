@@ -9706,8 +9706,17 @@ function (path, config) {
             // whole gene's alleles go over, not only the changes this report singled out.
             const GERM = 'germline', TUM = 'tumor';
             const SPAN_CAP = 400;
+            // WHY A GERMLINE SITE IS NOT ON THE TUMOR TRACK, counted apart. Two different
+            // things look identical in a total:
+            //   lost      the tumor IS called there and does not carry the variant allele.
+            //             In a tract the scan flagged, that is the allele loss being designed
+            //             against -- though purity and subclonality can produce it too.
+            //   uncalled  the tumor has no call at all. That is a hole in the data, not a
+            //             finding, and a design aimed at "the allele the tumor lost" would be
+            //             aimed at nothing.
+            // Reporting only "23 fewer" invites the first reading for both.
             const trackVarsFor = (it, cap) => {
-                const out = { germ: [], tum: [] }, seen = new Set();
+                const out = { germ: [], tum: [], lost: 0, uncalled: 0, tumOnly: 0 }, seen = new Set();
                 const sp = spanOf.get(('' + it.gene).toUpperCase());
                 const lim = cap || SPAN_CAP;
                 const push = (v, inG, inT) => {
@@ -9722,6 +9731,8 @@ function (path, config) {
                 for (const v of it.variants) {
                     const inG = v.origin === 'germline';
                     const inT = (v.inT !== false) && v.state !== 'lost' && v.state !== 'uncalled';
+                    if (inG && !(inT || !inG)) { if (v.state === 'uncalled') out.uncalled++; else out.lost++; }
+                    if (!inG) out.tumOnly++;
                     push(v, inG, inT || !inG);
                 }
                 if (sp && vdata[sp.ci] && vdata[sp.ci].n) {
@@ -9740,6 +9751,8 @@ function (path, config) {
                         }
                         const inG = gN >= GT_HET, inT = gT >= GT_HET;
                         if (!inG && !inT) continue;
+                        if (inG && !inT) { if (gT === GT_NONE) out.uncalled++; else out.lost++; }
+                        if (inT && !inG) out.tumOnly++;
                         push({ pos: d.pos[k], ref: ab[0], alt: ab[1], hgvs: '', effect: '', origin: inG ? 'germline' : 'somatic',
                             state: tumorAlleleState(gT, bT), baf: bT }, inG, inT);
                     }
@@ -9753,7 +9766,7 @@ function (path, config) {
                     return;
                 }
                 const ids = [], vars = [], seenTx = new Set();
-                let nGerm = 0, nTum = 0;
+                let nGerm = 0, nTum = 0, nLost = 0, nUncalled = 0, nTumOnly = 0;
                 for (const it of withTx) {
                     if (seenTx.has(it.transcript) || ids.length >= 12) continue;
                     seenTx.add(it.transcript);
@@ -9765,6 +9778,7 @@ function (path, config) {
                     // "fewer marks on the lower track" is indistinguishable from "the
                     // hand-off dropped some", so each track now states its own number.
                     nGerm += tv.germ.length; nTum += tv.tum.length;
+                    nLost += tv.lost; nUncalled += tv.uncalled; nTumOnly += tv.tumOnly;
                     ids.push({ id: it.transcript, group: GERM,
                         label: 'Germline \u2014 ' + spec.labelN + '  \u00b7  ' + tv.germ.length + ' site' + (tv.germ.length === 1 ? '' : 's') });
                     ids.push({ id: it.transcript, group: TUM,
@@ -9783,16 +9797,38 @@ function (path, config) {
                 // Said before the tab opens, in the words the difference actually has: the
                 // tumor carries fewer because it lost alleles, which is the thing being
                 // designed against.
-                if (nGerm !== nTum) {
-                    const lo = Math.min(nGerm, nTum), hi = Math.max(nGerm, nTum);
-                    graph.setResultMessage(' Germline ' + nGerm.toLocaleString() + ' site' + (nGerm === 1 ? '' : 's')
-                        + ', tumor ' + nTum.toLocaleString() + '. '
-                        + (nTum < nGerm
-                            ? ('The tumor carries ' + (hi - lo).toLocaleString() + ' fewer: at those sites it lost the '
-                               + 'variant allele, so there is nothing left on that copy to draw. That difference is what '
-                               + 'an allele-selective design is written against.')
-                            : ('The tumor carries ' + (hi - lo).toLocaleString() + ' more: changes the germline does not have.'))
-                        + ' ');
+                if (nGerm !== nTum || nLost || nUncalled || nTumOnly) {
+                    // THE NET IS NOT A BREAKDOWN. "23 fewer" is germline-only minus
+                    // tumor-only; quoting a reason beside it invites reading the reason as
+                    // an account of the 23, which it is not. Both sides are given.
+                    const gOnly = nLost + nUncalled;
+                    const parts = [];
+                    if (gOnly) {
+                        const bits = [];
+                        if (nLost) bits.push(nLost.toLocaleString() + ' the tumor is called at without the variant allele');
+                        if (nUncalled) bits.push(nUncalled.toLocaleString() + ' the tumor has no call at');
+                        parts.push(gOnly.toLocaleString() + ' on the germline track only (' + bits.join(', ') + ')');
+                    }
+                    if (nTumOnly) parts.push(nTumOnly.toLocaleString() + ' on the tumor track only');
+                    // AND WHAT "NO CALL" MEANS DEPENDS ON THE CALLSET. In one joint-called VCF
+                    // a tumor 0/0 is a real reference call, and absence of the variant is
+                    // evidence about the tumor. Across two separate VCFs a site is simply not
+                    // in the tumor file unless the tumor also varied there -- so "no call" is
+                    // the normal state and says NOTHING about allele loss. Reading it as loss
+                    // would aim a selective design at sites nobody looked at.
+                    const twoFiles = (spec.kind !== 'sample');
+                    const caveat = nUncalled
+                        ? (twoFiles
+                            ? ' These are two separate VCFs, so a site missing from the tumor file is simply not recorded'
+                              + ' there \u2014 that is not evidence the allele was lost.'
+                            : ' A site with no call in the tumor was not assessed there, so it is not evidence of loss either way.')
+                        : '';
+                    graph.setResultMessage(' Germline track ' + nGerm.toLocaleString() + ' site' + (nGerm === 1 ? '' : 's')
+                        + ', tumor track ' + nTum.toLocaleString() + '.'
+                        + (parts.length ? ' ' + parts.join('; ') + '.' : '')
+                        + (nLost ? ' The ' + nLost.toLocaleString() + ' the tumor is called at without the variant allele'
+                            + ' are the allele loss a selective design is written against.' : '')
+                        + caveat + ' ');
                 }
                 const ok = await handToEditor(ids, vars, f);
                 if (ok && !window.__bajaHandoffNewTab) close();
