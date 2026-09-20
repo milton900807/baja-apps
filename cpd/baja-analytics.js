@@ -1308,12 +1308,16 @@ function (path, config) {
                                 plate.setWidth(gw);
                             }
 
+                            // setHeight keeps the TOP edge where it is (tables and documents both),
+                            // so the bottom follows the drag by exactly the distance dragged. The
+                            // bottom used to be pinned to the pointer itself, which pulled the whole
+                            // object up by however far inside the corner the press had landed.
                             if (plate.setHeight) {
                                 plate.setHeight(gh);
                             } else {
                                 plate.grid.height = gh;
+                                plate.grid.yi = pm.plateTrack.grid.Ywc(y);
                             }
-                            plate.grid.yi = pm.plateTrack.grid.Ywc(y);
 
                             plate.grid.rescale();
                         }
@@ -1322,6 +1326,7 @@ function (path, config) {
 
                     mouseUpListener: ((x, y) => {
                         mouse_down = false;
+                        try { pm.plateTrack.__gestureEndedAt = Date.now(); } catch (e) { }   // a fast corner drag is not a swipe
                         plate.last_touched = new Date();
                         plate.__resizing = false;
                         plate.resizable = false;

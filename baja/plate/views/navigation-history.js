@@ -258,9 +258,36 @@ function (pt, graph) {
         // ---- the dwell ticker -------------------------------------------------------------
         nav.lastView = view(); nav.dwellStart = Date.now();
         record(view(), 'start');
+        // THE APP IS GONE (see folder-back.js): the bar, its lists and its Alt+Left / Alt+Right
+        // key handler are attached to the page, and stayed after the Analytics window closed.
+        const homePath = location.pathname;
+        let sawCanvas = false;
+        const appGone = () => {
+            try {
+                if (location.pathname !== homePath) return true;
+                const c = pt && pt.__canvas__;
+                if (c && c.isConnected) { sawCanvas = true; return false; }
+                return sawCanvas && !!c && !c.isConnected;
+            } catch (e) { return false; }
+        };
+        // A different canvas: going into or out of a folder swaps the whole canvas, and the
+        // places remembered so far are views of the one that was left -- Back would fly to
+        // coordinates that mean nothing here. They go, and this canvas starts its own.
+        const canvasKey = () => { try { return (Number(pt.folderDepth) || 0) + ':' + ((pt.ptracks && pt.ptracks.length) ? ('' + pt.ptracks[pt.ptracks.length - 1]).slice(0, 48) : ''); } catch (e) { return ''; } };
+        let __canvasKey = canvasKey();
         nav.timer = setInterval(() => {
             try {
+                if (appGone()) { nav.destroy(); return; }
                 if (!pt || !pt.grid) return;
+                const ck = canvasKey();
+                if (ck !== __canvasKey) {
+                    __canvasKey = ck;
+                    nav.history = []; nav.index = -1;
+                    nav.lastView = view(); nav.dwellStart = Date.now();
+                    record(view(), 'start');
+                    render();
+                    return;
+                }
                 const nowMaxed = !!pt.__maximized;
                 if (nowMaxed !== __wasMaxed) { __wasMaxed = nowMaxed; render(); }
                 else if (nowMaxed) dock();

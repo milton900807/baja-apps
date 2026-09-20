@@ -190,6 +190,8 @@ function () {
             reapplyHeaderWells() { }
             recondition() { }
             completeNullValues() { }
+            clearErrors() { }                        // updateCalculations clears every root object's errors: without this a
+                                                     // document on the canvas made every menu click throw and skip the recalculation
             getSelectedWellsInOrder() { return []; }
             deselectAll() { this.selected = false; }
             selectIt() { this.selected = true; }
@@ -206,6 +208,35 @@ function () {
                     && wy >= this.grid.yi && wy <= this.grid.yi + this.grid.height;
             }
             setText(html) { this.html = '' + (html || ''); this.__blocks = null; this.__layoutKey = ''; }
+
+            // ---- too small to read, and the resize grip -------------------------------------
+            // The size the text is set at follows the card; under 8 px (a card under about
+            // 286 x 178 px on screen) it cannot be read, and the card shows its name alone.
+            // From there it is ONE BLOCK to the pointer, as a table with sub-10 px rows is
+            // (platetrack.__isSolidTable asks this): a press offers Move and Maximize.
+            __screenBox(pt) {
+                const g = pt.grid;
+                return { x: g.X(this.grid.xi), y: g.Y(this.grid.yi + this.grid.height), w: g.screenWidth(this.grid.width), h: g.screenHeight(this.grid.height) };
+            }
+            isTooSmallToRead(pt) {
+                try {
+                    const b = this.__screenBox(pt);
+                    if (!(b.w > 0 && b.h > 0)) return false;
+                    return b.w < 90 || b.h < 60 || Math.min(16, b.h * 0.045, b.w * 0.028) < 8;
+                } catch (e) { return false; }
+            }
+            // The bottom right corner, where a table's resize corner is: the application's
+            // resize (cpd/*: resize_plate) starts on whatever answers true here. A document
+            // had no such answer, so it could be moved and maximized but never resized.
+            inResize(mouseX, mouseY, pt) {
+                try {
+                    if (this.hidden || this.visible === false || pt.__maximized || this.isTooSmallToRead(pt)) return false;
+                    const b = this.__screenBox(pt), R = 22;
+                    return mouseX >= b.x + b.w - R && mouseX <= b.x + b.w + 6 && mouseY >= b.y + b.h - R && mouseY <= b.y + b.h + 6;
+                } catch (e) { return false; }
+            }
+            onRightEdge() { return false; }          // no width-only drag: the corner does both
+            isMouseInTopRightHandle() { return false; }
 
             // ---- drawing -----------------------------------------------------------------
             draw(pt, ctx) {
@@ -231,18 +262,35 @@ function () {
                     if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || 1; ctx.stroke(); }
                 };
                 ctx.save();
-                card(C.card, this.selected ? C.cyan : C.rule, this.selected ? 2 : 1);
 
-                // Too small to read: the name alone, as the tiny-table placeholder does.
+                // Too small to read: the name alone, in the placeholder a tiny table gets
+                // (platetrack.__drawTinyTable: the same tint, edge and states), because from
+                // here the two behave alike -- a press offers Move and Maximize.
                 const base = Math.max(7, Math.min(16, h * 0.045, w * 0.028));
                 if (w < 90 || h < 60 || base < 8) {
-                    ctx.fillStyle = C.muted;
-                    ctx.font = '600 ' + Math.max(8, Math.min(13, h * 0.3)) + 'px ' + FAMILY;
-                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillText(this.name, x + w / 2, yTop + h / 2);
+                    const armed = pt.__solidArmed === this || !!(pt.__solidDrag && pt.__solidDrag.o === this);
+                    const hover = pt.__solidHover === this;
+                    ctx.setLineDash(armed ? [6, 4] : []);
+                    card(armed ? 'rgba(26,163,189,0.30)' : (this.selected ? 'rgba(26,163,189,0.16)' : (hover ? 'rgba(26,163,189,0.13)' : 'rgba(26,163,189,0.07)')),
+                        (this.selected || armed) ? C.cyan : 'rgba(10,37,64,0.45)', (this.selected || armed) ? 2 : 1);
+                    ctx.setLineDash([]);
+                    const size = Math.max(9, Math.min(14, Math.floor(h * 0.5)));
+                    ctx.font = '600 ' + size + 'px ' + FAMILY;
+                    ctx.fillStyle = C.ink;
+                    let text = ('' + (this.name || 'Document')).replace(/_/g, ' ');
+                    const room = Math.max(0, w - 8);
+                    if (ctx.measureText(text).width > room) {
+                        while (text.length > 1 && ctx.measureText(text + '…').width > room) text = text.slice(0, -1);
+                        text += '…';
+                    }
+                    if (h >= size + 4 && room > 12) {
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(text, x + w / 2, yTop + h / 2);
+                    }
                     ctx.restore();
                     return;
                 }
+                card(C.card, this.selected ? C.cyan : C.rule, this.selected ? 2 : 1);
 
                 const pad = Math.max(10, Math.round(base * 1.4));
                 const innerW = w - pad * 2;
@@ -344,6 +392,17 @@ function () {
                     ctx.fillRect(x + w - 6, top, 3, trackH);
                     ctx.fillStyle = 'rgba(26,163,189,0.75)';
                     ctx.fillRect(x + w - 6, top + pos, 3, thumb);
+                }
+                // The resize grip, bottom right (see inResize): three short diagonals, plain
+                // when the card is selected or the pointer is on the corner, faint otherwise.
+                if (!pt.__maximized) {
+                    const on = this.selected || pt.__docResizeHover === this;
+                    ctx.strokeStyle = on ? C.cyan : 'rgba(10,37,64,0.22)';
+                    ctx.lineWidth = on ? 2 : 1.5; ctx.lineCap = 'round';
+                    const gx = x + w - 5, gy = yTop + h - 5;
+                    ctx.beginPath();
+                    for (const d of [4, 9, 14]) { ctx.moveTo(gx - d, gy); ctx.lineTo(gx, gy - d); }
+                    ctx.stroke();
                 }
                 ctx.restore();
             }

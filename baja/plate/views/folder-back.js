@@ -136,7 +136,21 @@ function (pt, graph) {
         // No Escape shortcut: on this canvas Escape already belongs to the draw and lasso
         // modes, and to a maximized object's title bar.
 
-        fb.timer = setInterval(() => { try { render(); } catch (e) { } }, TICK_MS);
+        // THE APP IS GONE: this pill is fixed to the page body, not to the canvas, so when the
+        // Analytics window is closed (the shell routes to another page) nothing removes it
+        // and it sat over whatever came next. It checks for itself: the page is no longer
+        // the one it was opened on, or the canvas it serves has left the document.
+        const homePath = location.pathname;
+        let sawCanvas = false;
+        const appGone = () => {
+            try {
+                if (location.pathname !== homePath) return true;
+                const c = pt && pt.__canvas__;
+                if (c && c.isConnected) { sawCanvas = true; return false; }
+                return sawCanvas && !!c && !c.isConnected;
+            } catch (e) { return false; }
+        };
+        fb.timer = setInterval(() => { try { if (appGone()) { fb.destroy(); return; } render(); } catch (e) { } }, TICK_MS);
         fb.refresh = () => { try { shownFor = null; render(); } catch (e) { } };
         fb.out = out;
         fb.destroy = () => {

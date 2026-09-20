@@ -15305,6 +15305,7 @@ function () {
                 const canvas = pt.__canvas__;
                 const done = () => {
                     this.__colResizing = false;
+                    pt.__gestureEndedAt = Date.now();                       // a fast edge drag is not a swipe
                     try { if (canvas) canvas.style.cursor = ''; } catch (e) { }
                     try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                     // Every column even again (a drag back to where it began): no weights at all.

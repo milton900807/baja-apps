@@ -4218,6 +4218,8 @@ function (progress) {
                 this.deselectAll();
                 this.unModal();
                 this.selectPlate(folder);
+                // The Leave pill answers to the folder that was just left: at once, not at its next tick.
+                try { if (window.__bajaFolderBack && window.__bajaFolderBack.refresh) window.__bajaFolderBack.refresh(); } catch (e) { }
 
             }
             replaceObject(newObject) {
@@ -5260,7 +5262,7 @@ function (progress) {
                 }
                 if (this.root && this.root.length < 2) {
                     for (let plate of this.root) {
-                        plate.clearErrors();
+                        if (plate.clearErrors) plate.clearErrors();
                         if (plate.name === 'Assumptions') {
                             this.addActionGlyph(this, "Click here to calculate PnL", async () => {
                                 let t = this.getTableByName('Assumptions')
@@ -5286,7 +5288,7 @@ function (progress) {
                             }
                         }
                         for (let plate of this.root) {
-                            plate.clearErrors();
+                            if (plate.clearErrors) plate.clearErrors();
                             function extractNames(arr) {
                                 return arr
                                     .filter(item => item && typeof item.name === 'string')
@@ -5711,7 +5713,7 @@ function (progress) {
                 for (let plate of this.root) {
                     let st = plate.getSelectedWellsInOrder();
 
-                    plate.clearErrors();
+                    if (plate.clearErrors) plate.clearErrors();
                     if (st && st.length > 0) {
                         let well_range = plate.getWellRange(st)
                         if (well_range) {
@@ -9328,6 +9330,17 @@ function (progress) {
                 if (this.__solidDrag) { this.__solidDragMove(x, y); return; }
                 if (this.__solidMenuPress && Math.abs(x - this.__solidMenuPress.x) + Math.abs(y - this.__solidMenuPress.y) >= 8) this.__solidMenuPress = null;   // a pan, not a click
                 try { this.__solidHover = this.__solidAt(x, y); } catch (e) { this.__solidHover = null; }
+                // Over a document's resize corner the pointer says so (and its grip lights up).
+                try {
+                    if (!this.__maximized && !this.menu && !this.__readOnly) {
+                        let over = null;
+                        for (const o of (this.root || [])) if (o && o.plateType === 'document' && o.inResize && o.inResize(x, y, this)) over = o;
+                        if (over !== (this.__docResizeHover || null)) {
+                            this.__docResizeHover = over;
+                            if (this.__canvas__) this.__canvas__.style.cursor = over ? 'nwse-resize' : '';
+                        }
+                    }
+                } catch (e) { }
                 if (this.__tlCanvasDrag) { this.__tlDragMove(this.__tlCanvasDrag, x, y); return; }
                 if (this.__msMenuPress && Math.abs(x - this.__msMenuPress.x) + Math.abs(y - this.__msMenuPress.y) >= 8) this.__msMenuPress = null;   // a drag, not a click
                 this.__msHoverUpdate(x, y);
@@ -10798,7 +10811,11 @@ function (progress) {
             // not tables and are never solid; nothing is while an object is maximized.
             __isSolidTable(pl) {
                 try {
-                    if (!pl || this.__maximized || pl.hidden || pl.__maximizedView || !this.__layoutIsTable(pl)) return false;
+                    if (!pl || this.__maximized || pl.hidden || pl.__maximizedView) return false;
+                    // A document says for itself when its text is too small to read (it then
+                    // draws its name alone); from there it is a block like a tiny table.
+                    if (pl.plateType === 'document') return typeof pl.isTooSmallToRead === 'function' && pl.visible !== false && pl.isTooSmallToRead(this);
+                    if (!this.__layoutIsTable(pl)) return false;
                     return !!this.__tinyTableBox(pl);        // exactly what __drawTinyTable draws as a block
                 } catch (e) { return false; }
             }
@@ -10819,7 +10836,7 @@ function (progress) {
                         click: () => {
                             close();
                             this.__solidArmed = o;
-                            try { this.setMessage('Drag ' + (o.name || 'the table') + ' to where it should go. Esc cancels.', 4); } catch (e) { }
+                            try { this.setMessage('Drag ' + (o.name || 'it') + ' to where it should go. Esc cancels.', 4); } catch (e) { }
                         },
                         bg: 'rgba(26,163,189,0.18)', fg: '#0a2540'
                     },
@@ -10836,7 +10853,7 @@ function (progress) {
                 ];
                 this.__solidArmed = null;   // opening the menu cancels any earlier arming
                 this.menu = new Menu(ml, this.grid.Xwc(x), this.grid.Ywc(y), 'rgba(255,255,255,0.98)', '#0a2540', 1);
-                this.menu.title = ('' + (o.name || 'Table')).replace(/_/g, ' ');
+                this.menu.title = ('' + (o.name || (o.plateType === 'document' ? 'Document' : 'Table'))).replace(/_/g, ' ');
                 this.menu.titleColor = '#ffffff';     // the title band is navy; the default title colour is near-black
                 this.menu_vis = true;
             }
@@ -10859,6 +10876,7 @@ function (progress) {
             }
             __solidDragEnd() {
                 const d = this.__solidDrag; this.__solidDrag = null;
+                if (d && d.moved) this.__gestureEndedAt = Date.now();      // not a swipe (see captureSwipes in draw)
                 this.__solidArmed = null;   // one move per "Move": the next press reopens the menu
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 if (d && d.moved) { try { this.setMessage((d.o.name || 'Table') + ' moved (Ctrl+Z undoes).', 2); } catch (e) { } }
@@ -21272,6 +21290,13 @@ function (progress) {
                 const name = this.name;
 
                 this.path = null;
+                // A new workbook is not inside anyone's folder. The folder stack was left as it
+                // was, so File > New from inside a folder kept the Leave pill, and leaving then
+                // brought back the old workbook's canvas over the new one.
+                this.ptracks = [];
+                this.folderDepth = 0;
+                this.folderVisited = false;
+                try { if (window.__bajaFolderBack && window.__bajaFolderBack.refresh) window.__bajaFolderBack.refresh(); } catch (e) { }
                 this.formulas = {};
                 this.minObjectY = undefined;
                 this.maxObjectY = undefined;
@@ -23707,6 +23732,10 @@ function (progress) {
                     captureSwipes(ctx.canvas, (direction) => {
                         if (this.wbid === "override-box")
                             return;
+                        // A quick drag that MOVED or RESIZED something is not a swipe: a block
+                        // flicked into place, a column edge or a resize corner dragged fast all
+                        // finish inside the swipe window, and the view slid away under them.
+                        if (this.__solidDrag || this.__msDrag || (Date.now() - (this.__gestureEndedAt || 0)) < 500) return;
 
                         this.panGridSlide(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
                         setTimeout(() => {
