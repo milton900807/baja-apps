@@ -4924,29 +4924,6 @@ function (path, config) {
             // silent sample speak. The answer is recomputed on the next question.
             gtSilent = null;
             vobjects = Math.min(vtotal, OBJECT_CAP);
-            // Whose genome this is, per sample: sexCall (above genotypesOfRow) has the method.
-            const inferSex = (si) => sexCall(si);
-            // A PILL THAT LEAVES ON ITS OWN. This is a fact about the file worth saying once,
-            // not a control and not a panel: it appears under the toolbar, fades, and goes.
-            const sexPill = (lines) => {
-                try {
-                    const id = 'baja-karyo-sex';
-                    const old2 = document.getElementById(id);
-                    if (old2 && old2.parentNode) old2.parentNode.removeChild(old2);
-                    const el = document.createElement('div');
-                    el.id = id;
-                    el.style.cssText = 'position:fixed;left:50%;top:86px;transform:translateX(-50%);z-index:2147481500;'
-                        + 'background:rgba(11,37,69,0.95);color:#e8f0fb;font:13px Arial,Helvetica,sans-serif;'
-                        + 'border:1px solid rgba(255,255,255,0.16);border-radius:11px;padding:9px 15px;'
-                        + 'box-shadow:0 10px 30px rgba(0,0,0,0.35);max-width:min(560px,90vw);text-align:center;'
-                        + 'opacity:0;transition:opacity .25s ease;pointer-events:none;';
-                    el.innerHTML = lines.map((t, i) => '<div style="' + (i ? 'margin-top:3px;color:#9fb3c8;font-size:11.5px;' : 'font-weight:700;') + '">' + esc(t) + '</div>').join('');
-                    document.body.appendChild(el);
-                    requestAnimationFrame(() => { el.style.opacity = '1'; });
-                    setTimeout(() => { try { el.style.opacity = '0'; setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 400); } catch (e) { } }, 9000);
-                } catch (e) { }
-            };
-
             // THE FILE DECIDES HOW IT IS FIRST SEEN. Samples that differ on some rows is
             // the tumor-and-germline shape, and which sample has the change is the
             // question; failing that, phased calls are shown by haplotype. A file with
@@ -4977,23 +4954,15 @@ function (path, config) {
                 + (count.dup ? ' · ' + count.dup.toLocaleString() + ' already on the genome' : '')
                 + (count.skipped ? ' · ' + count.skipped.toLocaleString() + ' symbolic or malformed' : '')
                 + '. ');
-            // The sex of each sample that carries calls, said once and then gone.
-            try {
-                const who = (SAMPLES.length && count.cols && count.cols.length)
-                    ? SAMPLES.map((nm, si) => ({ nm: nm, si: si })).filter((x) => { const c3 = phaseCounts(x.si); return c3 && c3.all > 0; })
-                    : [{ nm: '', si: -1 }];
-                const said = [];
-                for (const x of who.slice(0, 4)) {
-                    const r2 = inferSex(x.si);
-                    if (r2.call === 'not determined' && !r2.signals.length) continue;
-                    said.push({ x: x, r: r2 });
-                }
-                if (said.length) {
-                    const head = said.map((q) => (q.x.nm ? q.x.nm + ': ' : '') + sexWord(q.r)).join('   ·   ');
-                    const why = said.map((q) => (q.x.nm ? q.x.nm + ' — ' : '') + q.r.why).join('. ');
-                    sexPill([head.charAt(0).toUpperCase() + head.slice(1), why + '. The evidence stays under What is loaded.']);
-                }
-            } catch (e) { step('sex inference failed: ' + e); }
+            // NO SEX CALL AT LOAD. It used to work one out here and announce it in a pill over
+            // the toolbar, which made a guess the first thing the file said about itself -- and
+            // the guess can be wrong in a way that looks authoritative: a female sample with
+            // mismapped Y calls (HCC1395 carries 16k of them) is read as male with a
+            // confidence beside it. Nobody asked the question at load time, so it is not
+            // answered at load time.
+            //
+            // The method and its evidence are still there for whoever does ask: What is loaded
+            // -> Sex reads the same signals, per sample, and says which of them disagree.
             step('vcf: ' + count.added + ' placed, ' + count.offGenome + ' off-genome, '
                 + count.skipped + ' skipped, ' + vtotal + ' total');
             // ClinVar, matched now, in the background: the variants are drawn already and the
