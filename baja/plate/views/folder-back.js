@@ -14,13 +14,29 @@ function (pt, graph) {
         try { if (window.__bajaFolderBack && window.__bajaFolderBack.destroy) window.__bajaFolderBack.destroy(); } catch (e) { }
 
         const fb = { timer: null, destroy: null };
+        // THE LIVE TRACK. Opening a file does not refill the plate track it was handed: the
+        // loader builds a NEW PlateTrack and puts it in the old one's place (gene2plates:
+        // this.plateTrack = ffs; plateManager.setPlateTrack). This pill kept the object it was
+        // created with, so after File > Open it watched a track nobody was looking at: inside
+        // a folder it never appeared, and its popFolder() would have popped the dead track.
+        // Every use below asks for the track that is on the canvas NOW, and it is that
+        // track's popFolder() the button calls.
+        const track0 = pt;
+        const T = () => {
+            try {
+                const pm = CurrentLayout.getStashed('plate-track');
+                const t = pm && (pm.plateTrack || (typeof pm.getPlateTrack === 'function' && pm.getPlateTrack()));
+                if (t) return t;
+            } catch (e) { }
+            return track0;
+        };
         // Inside a folder at all: there is a canvas to go back to.
-        const depth = () => (pt && Array.isArray(pt.ptracks)) ? pt.ptracks.length : 0;
-        // HOW deep. pt.ptracks is a chain one link long however deep you are (each entry
+        const depth = () => (T() && Array.isArray(T().ptracks)) ? T().ptracks.length : 0;
+        // HOW deep. The track's ptracks is a chain one link long however deep you are (each entry
         // carries the stack that came before it inside its saved canvas), so its length
-        // only ever says "inside". pt.folderDepth is the count, kept by pushFolder; a
+        // only ever says "inside". The track's folderDepth is the count, kept by pushFolder; a
         // document saved inside a folder before that existed has none, and falls back.
-        const levels = () => Math.max(depth(), (pt && Number(pt.folderDepth)) || 0);
+        const levels = () => Math.max(depth(), (T() && Number(T().folderDepth)) || 0);
 
         // ---- the button ---------------------------------------------------------------
         const mobile = (typeof isMobile === 'function') && isMobile();
@@ -45,7 +61,7 @@ function (pt, graph) {
         btn.onmouseleave = () => { btn.style.background = 'transparent'; };
 
         // ---- which folder are we in? -----------------------------------------------------
-        // pt.ptracks holds "<folder uid>:<the compressed canvas you left>". The folder plate
+        // ptracks holds "<folder uid>:<the compressed canvas you left>". The folder plate
         // itself lives in THAT canvas, so its name costs a decompress to read. One per folder
         // entered, cached on the stack entry, and done off the click so opening a folder is
         // not held up by it. A big state is left alone: the plain "Back" reads well enough.
@@ -87,7 +103,7 @@ function (pt, graph) {
             const d = depth();
             // While an object is maximized the canvas top belongs to its own title bar, and
             // the folder is not where the eye is: stand aside until it is closed.
-            if (!d || pt.__maximized) {
+            if (!d || T().__maximized) {
                 if (visible) { bar.style.display = 'none'; visible = false; }
                 shownFor = null;
                 return;
@@ -100,7 +116,7 @@ function (pt, graph) {
             if (x !== atX || y !== atY) { bar.style.left = x + 'px'; bar.style.top = y + 'px'; atX = x; atY = y; }
             if (!visible) { bar.style.display = 'flex'; visible = true; }
 
-            const entry = pt.ptracks[d - 1];
+            const entry = T().ptracks[d - 1];
             if (shownFor === entry) return;
             shownFor = entry;
 
@@ -123,11 +139,11 @@ function (pt, graph) {
 
         const out = () => {
             if (!depth()) return;
-            try { pt.wb(null); } catch (e) { }
-            try { pt.popFolder(); }
+            try { T().wb(null); } catch (e) { }
+            try { T().popFolder(); }
             catch (e) {
                 console.warn('exit folder', e);
-                try { pt.setMessage('Could not leave this folder: ' + (e && e.message ? e.message : e), 2); } catch (e2) { }
+                try { T().setMessage('Could not leave this folder: ' + (e && e.message ? e.message : e), 2); } catch (e2) { }
             }
             shownFor = null;
             render();
@@ -145,7 +161,7 @@ function (pt, graph) {
         const appGone = () => {
             try {
                 if (location.pathname !== homePath) return true;
-                const c = pt && pt.__canvas__;
+                const c = T() && T().__canvas__;
                 if (c && c.isConnected) { sawCanvas = true; return false; }
                 return sawCanvas && !!c && !c.isConnected;
             } catch (e) { return false; }

@@ -275,9 +275,21 @@ function (pt, graph) {
         // coordinates that mean nothing here. They go, and this canvas starts its own.
         const canvasKey = () => { try { return (Number(pt.folderDepth) || 0) + ':' + ((pt.ptracks && pt.ptracks.length) ? ('' + pt.ptracks[pt.ptracks.length - 1]).slice(0, 48) : ''); } catch (e) { return ''; } };
         let __canvasKey = canvasKey();
+        // A DIFFERENT TRACK: opening a file puts a new PlateTrack in the old one's place (see
+        // folder-back.js), and this bar's camera, places and object list were all bound to the
+        // one it was created with. It rebuilds itself on the track that is on the canvas now.
+        const liveTrack = () => {
+            try { const pm = CurrentLayout.getStashed('plate-track'); return (pm && pm.plateTrack) || pt; } catch (e) { return pt; }
+        };
         nav.timer = setInterval(() => {
             try {
                 if (appGone()) { nav.destroy(); return; }
+                const lt = liveTrack();
+                if (lt && lt !== pt) {
+                    nav.destroy();
+                    exec('baja/plate/views/navigation-history.js', lt, graph).then((n) => { try { lt.__nav = n; } catch (e) { } }).catch(() => { });
+                    return;
+                }
                 if (!pt || !pt.grid) return;
                 const ck = canvasKey();
                 if (ck !== __canvasKey) {
