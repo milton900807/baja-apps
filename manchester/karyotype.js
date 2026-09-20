@@ -4669,6 +4669,10 @@ function (path, config) {
                         blurb: 'Which genes the tumour has lost that the normal has not.',
                         badge: diffResult ? 'done · show' : 'pick the pair',
                         go: diffResult ? () => diffMenu() : null, books: diffResult ? null : () => diffPickerBooks() });
+                    acts.push({ ok: true, title: 'Differential matrix', icon: 'difference',
+                        blurb: 'Every site the two do not share, damaging or not \u2014 what a selective design is written against.',
+                        badge: diffVarResult ? 'done · show' : 'compare the sites',
+                        go: () => diffVarMenu() });
                     acts.push(depth
                         ? { ok: true, title: 'Loss of heterozygosity', icon: 'compress',
                             blurb: 'Judged on the reads (' + depth + '), not the caller’s genotype.',
@@ -11687,6 +11691,236 @@ function (path, config) {
                 subtitle: R.spec.labelN + ' → ' + R.spec.labelT, graph: graph, books: books });
         };
 
+        // ================= DIFFERENTIAL MATRIX (the sites themselves) =====================
+        //
+        // The differential LOSS matrix answers "which genes has one of them lost". This one
+        // answers the question underneath it: WHERE DO THESE TWO GENOMES DIFFER AT ALL. Every
+        // site whose genotype is not the same in both samples, whatever it does to a protein --
+        // because an oligo that tells two genomes apart is designed against a difference in
+        // SEQUENCE, and a synonymous change or one in a UTR discriminates exactly as well as a
+        // nonsense one. Filtering to damage first, which is what the loss matrix does, throws
+        // away most of the sites that a selective design could have used.
+        //
+        // Three kinds, and the distinction matters for design:
+        //   only in A   B reads reference here, so an oligo on the A allele misses B entirely
+        //   only in B   the reverse
+        //   both, differently   het against hom, say: both carry the change, in different dose
+        let diffVarResult = null;   // { spec, sites, counts, capped, at }
+        let diffVarBusy = false;
+        const DIFFVAR_CAP = 200000;     // sites kept; everything is counted
+        const DIFFVAR_CARRY = (gt) => gt === GT_HET || gt === GT_HOM || gt === GT_HAP1 || gt === GT_HAP2 || gt === GT_HOMP;
+        const diffVarSlots = (spec) => (spec.kind === 'sample')
+            ? [spec.a, spec.b]
+            : [sideSlot(spec.a), sideSlot(spec.b)];
+        const diffVarScan = async (spec) => {
+            if (diffVarBusy) { graph.setMessage(' The scan is still running. '); return; }
+            const [sa, sb] = diffVarSlots(spec);
+            if (sa < 0 || sb < 0) {
+                graph.setError(' Both sides need a genotype column to compare site by site. Two files without genotypes '
+                    + 'can only be compared as gene lists, which is the differential loss matrix. ', 12);
+                return;
+            }
+            diffVarBusy = true;
+            diffVarResult = null;
+            const sites = [];
+            const counts = { onlyA: 0, onlyB: 0, diff: 0, shared: 0, scanned: 0 };
+            const byChr = [];
+            try {
+                for (let ci = 0; ci < vdata.length; ci++) {
+                    const d = vdata[ci];
+                    if (!d || !d.n) continue;
+                    if (ci % 4 === 0) { graph.setMessage(' Comparing ' + drawn[ci].name + '\u2026 '); await new Promise((r) => setTimeout(r, 0)); }
+                    let cA = 0, cB = 0, cD = 0;
+                    // BY POSITION AND ALLELE, NOT BY ROW.
+                    //
+                    // Two samples of ONE file share a row and can be read off its genotype
+                    // columns. Two FILES do not: each contributes its own rows, so the same
+                    // base appears twice and a row-by-row comparison finds every site private
+                    // to whichever file wrote it -- which is what this did, and it reported
+                    // 4.9M "only in germline" and 5.1M "only in tumour" for a pair that shares
+                    // almost everything. Rows are sorted by position, so the runs at one
+                    // position are walked together and the two sides are matched on the change
+                    // itself, which is the thing that has to be the same for a site to be shared.
+                    let k = 0;
+                    while (k < d.n) {
+                        const pos = d.pos[k];
+                        let e = k;
+                        while (e < d.n && d.pos[e] === pos) e++;
+                        const byAllele = new Map();
+                        for (let i = k; i < e; i++) {
+                            const ab = allelesAt(ci, i);
+                            const key = (ab[0] || '') + '>' + (ab[1] || '');
+                            let rec = byAllele.get(key);
+                            if (!rec) { rec = { ref: ab[0], alt: ab[1], ga: GT_NONE, gb: GT_NONE, k: i }; byAllele.set(key, rec); }
+                            const ga = gtOf(d, i, sa), gb = gtOf(d, i, sb);
+                            if (DIFFVAR_CARRY(ga)) rec.ga = ga;
+                            if (DIFFVAR_CARRY(gb)) rec.gb = gb;
+                        }
+                        for (const rec of byAllele.values()) {
+                            const hasA = DIFFVAR_CARRY(rec.ga), hasB = DIFFVAR_CARRY(rec.gb);
+                            if (!hasA && !hasB) continue;
+                            counts.scanned++;
+                            let kind = '';
+                            if (hasA && hasB) { if (rec.ga === rec.gb) { counts.shared++; continue; } kind = 'diff'; cD++; counts.diff++; }
+                            else if (hasA) { kind = 'onlyA'; cA++; counts.onlyA++; }
+                            else { kind = 'onlyB'; cB++; counts.onlyB++; }
+                            if (sites.length < DIFFVAR_CAP) {
+                                sites.push({ ci: ci, k: rec.k, pos: pos, ref: rec.ref, alt: rec.alt,
+                                    ga: rec.ga, gb: rec.gb, kind: kind,
+                                    name: (d.names && d.names[rec.k]) || (drawn[ci].name + ':' + pos) });
+                            }
+                        }
+                        k = e;
+                    }
+                    if (cA + cB + cD) byChr.push({ ci: ci, name: drawn[ci].name, onlyA: cA, onlyB: cB, diff: cD });
+                }
+                // Neither side recorded a genotype anywhere: the comparison is not empty
+                // because they agree, it is empty because nothing was asked of it, and those
+                // are different answers.
+                if (!counts.scanned) {
+                    diffVarBusy = false;
+                    graph.setError(' Neither ' + spec.labelA + ' nor ' + spec.labelB + ' records a genotype at any site, so '
+                        + 'there is nothing to compare site by site. The differential LOSS matrix compares them as gene '
+                        + 'lists instead. ', 14);
+                    diffVarMenu();
+                    return;
+                }
+                diffVarResult = { spec: spec, labelA: spec.labelA, labelB: spec.labelB, sites: sites, counts: counts,
+                    byChr: byChr, capped: counts.onlyA + counts.onlyB + counts.diff > sites.length, at: new Date().toISOString() };
+                step('differential matrix ' + spec.labelA + ' vs ' + spec.labelB + ': '
+                    + counts.onlyA + '/' + counts.onlyB + '/' + counts.diff);
+                graph.setResultMessage(' ' + spec.labelA + ' vs ' + spec.labelB + ': ' + counts.onlyA.toLocaleString()
+                    + ' only in ' + spec.labelA + ', ' + counts.onlyB.toLocaleString() + ' only in ' + spec.labelB
+                    + ', ' + counts.diff.toLocaleString() + ' carried differently, ' + counts.shared.toLocaleString() + ' the same. ');
+            } catch (e) {
+                graph.setError(' The differential matrix failed: ' + (e && e.message ? e.message : e) + ' ', 12);
+            }
+            diffVarBusy = false;
+            diffVarMenu();
+        };
+        const diffVarCSV = () => dlToCSV((diffVarResult ? diffVarResult.sites : []).map((x) => ({
+            chrom: drawn[x.ci].name, pos: x.pos, ref: x.ref, alt: x.alt, id: x.name,
+            difference: x.kind === 'onlyA' ? ('only in ' + diffVarResult.labelA)
+                : (x.kind === 'onlyB' ? ('only in ' + diffVarResult.labelB) : 'carried differently'),
+            [('genotype_' + dlSafe(diffVarResult.labelA))]: GT_TEXT[x.ga] || '',
+            [('genotype_' + dlSafe(diffVarResult.labelB))]: GT_TEXT[x.gb] || '',
+            what_to_do: x.kind === 'diff'
+                ? 'both carry it, in different dose: discriminates only where the dose does'
+                : 'one carries it and the other reads reference: an oligo on this allele hits that sample alone',
+        })));
+        // ONE SITE INTO THE EDITOR, BOTH SAMPLES. The gene under the site is looked up in the
+        // annotation, and its transcript opens twice -- once per sample, each carrying that
+        // sample's own differing sites inside the gene. That pair IS the design problem.
+        const diffVarOpenSite = async (x) => {
+            const R = diffVarResult;
+            if (!R) return;
+            const chr = drawn[x.ci].name.replace(/^chr/, '');
+            graph.setMessage(' Finding the transcript at ' + drawn[x.ci].name + ':' + human(x.pos) + '\u2026 ');
+            let genes = [];
+            try {
+                const em = new EngineMonitor(() => { });
+                const res = await exec(server + '/py/bio/genes-in-range.py', em, chr,
+                    '' + Math.max(1, x.pos - 1), '' + (x.pos + 1), (r.species || 'human'), '20');
+                genes = JSON.parse((res && res.genes) || '[]');
+            } catch (e) { genes = []; }
+            const g = genes.find((q) => q.transcript && q.coding) || genes.find((q) => q.transcript);
+            if (!g) { graph.setError(' Nothing with a transcript is annotated at ' + drawn[x.ci].name + ':' + human(x.pos) + '. ', 10); return; }
+            const lo = Math.min(+g.start, +g.end), hi = Math.max(+g.start, +g.end);
+            const inGene = R.sites.filter((y) => y.ci === x.ci && y.pos >= lo && y.pos <= hi);
+            const rec = (y, which) => ({
+                chr: chr, pos: y.pos, ref: y.ref || 'N', alt: y.alt || 'N', name: y.name,
+                source: 'differential matrix', group: which + ':' + g.gene,
+                samples: [which === 'A' ? R.labelA : R.labelB],
+                genotypes: [GT_TEXT[which === 'A' ? y.ga : y.gb] || './.'],
+                phase: '',
+                annotations: ['SAMPLES=' + (which === 'A' ? R.labelA : R.labelB),
+                    'GT=' + (GT_TEXT[which === 'A' ? y.ga : y.gb] || './.'),
+                    'DIFFERENCE=' + (y.kind === 'onlyA' ? ('only in ' + R.labelA) : (y.kind === 'onlyB' ? ('only in ' + R.labelB) : 'carried differently'))],
+            });
+            const vars = [];
+            for (const y of inGene) {
+                if (DIFFVAR_CARRY(y.ga)) vars.push(rec(y, 'A'));
+                if (DIFFVAR_CARRY(y.gb)) vars.push(rec(y, 'B'));
+            }
+            const ids = [
+                { id: g.transcript, group: 'A:' + g.gene, label: R.labelA + ' \u00b7 ' + g.gene },
+                { id: g.transcript, group: 'B:' + g.gene, label: R.labelB + ' \u00b7 ' + g.gene },
+            ];
+            graph.setMessage(' Opening ' + g.gene + ' as two tracks with ' + vars.length.toLocaleString()
+                + ' site' + (vars.length === 1 ? '' : 's') + '\u2026 ');
+            await handToEditor(ids, vars, { chr: chr, pos: x.pos });
+        };
+        const diffVarMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const R = diffVarResult;
+            const books = [];
+            if (!R) {
+                books.push({ section: 'Differential matrix', note: true,
+                    title: 'Every site where the two samples do not carry the same genotype \u2014 whatever the change does to '
+                        + 'a protein. This is the raw material for a design that tells one genome from the other: an oligo '
+                        + 'discriminates on SEQUENCE, so a silent change or one in a UTR serves as well as a damaging one. '
+                        + 'The differential LOSS matrix answers a narrower question, about genes.' });
+                diffSpecs().forEach((sp) => books.push({ section: 'Differential matrix', accent: 'run',
+                    title: sp.labelA + '  vs  ' + sp.labelB, badge: sp.kind === 'side' ? 'two files' : 'two samples',
+                    icon: sp.kind === 'side' ? 'compare' : 'people', ready: true,
+                    blurb: 'Compare every called site in ' + sp.labelA + ' against ' + sp.labelB + '.',
+                    open: () => diffVarScan(sp) }));
+                if (!diffSpecs().length) books.push({ section: 'Differential matrix', note: true,
+                    title: 'This file has only one sample: there is nothing to compare it against. Load the other one.' });
+            } else {
+                const c = R.counts;
+                books.push({ section: 'Differential matrix', note: true,
+                    title: R.labelA + ' vs ' + R.labelB + ': ' + c.onlyA.toLocaleString() + ' site'
+                        + (c.onlyA === 1 ? '' : 's') + ' only in ' + R.labelA + ', ' + c.onlyB.toLocaleString() + ' only in '
+                        + R.labelB + ', ' + c.diff.toLocaleString() + ' carried by both in a different genotype, and '
+                        + c.shared.toLocaleString() + ' identical. Every one of the first three can discriminate; the last cannot.'
+                        + (R.capped ? ' The first ' + DIFFVAR_CAP.toLocaleString() + ' are listed.' : '') });
+                books.push({ section: 'Differential matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
+                    blurb: 'One row per differing site: position, alleles, both genotypes, and what it is good for.',
+                    open: () => { try { dlSaveText(diffVarCSV(), dlSafe(dlSpecies() + '_' + R.labelA + '_vs_' + R.labelB + '_differential_matrix') + '.csv', 'text/csv'); dlMsg('Differential matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+                books.push({ section: 'Differential matrix', title: 'Compare another pair', badge: 'pick', icon: 'compare', ready: true,
+                    blurb: 'Two samples of this file, or two files.', open: () => { diffVarResult = null; diffVarMenu(); } });
+                if (R.byChr.length) books.push({ section: 'By chromosome', note: true, mono: true,
+                    title: R.byChr.slice(0, 30).map((q) => (q.name + '            ').slice(0, 8)
+                        + ('        ' + q.onlyA.toLocaleString()).slice(-9)
+                        + ('        ' + q.onlyB.toLocaleString()).slice(-9)
+                        + ('        ' + q.diff.toLocaleString()).slice(-9)).join('\n') });
+                // THE SITES, EACH ONE A WAY INTO THE EDITOR.
+                const siteCard = (x) => ({
+                    section: x.kind === 'onlyA' ? ('Only in ' + R.labelA) : (x.kind === 'onlyB' ? ('Only in ' + R.labelB) : 'Carried differently'),
+                    title: drawn[x.ci].name + ':' + human(x.pos) + '  ' + (x.ref || '?') + ' > ' + (x.alt || '?'),
+                    badge: (GT_TEXT[x.ga] || './.') + ' vs ' + (GT_TEXT[x.gb] || './.'),
+                    icon: 'edit', accent: 'design', ready: true,
+                    swatch: x.kind === 'onlyA' ? '#dc2626' : (x.kind === 'onlyB' ? '#2563eb' : '#7c3aed'),
+                    blurb: 'Opens the gene here as two tracks \u2014 ' + R.labelA + ' and ' + R.labelB + ' \u2014 each with its own '
+                        + 'sites, which is what a selective design is written against.',
+                    open: () => diffVarOpenSite(x),
+                });
+                const kinds = [['onlyA', 'Only in ' + R.labelA, c.onlyA], ['onlyB', 'Only in ' + R.labelB, c.onlyB],
+                    ['diff', 'Carried differently', c.diff]];
+                for (const [kind, name, total] of kinds) {
+                    const list = R.sites.filter((x) => x.kind === kind);
+                    if (!total) continue;
+                    // THE COUNT IN THE HEADING IS THE REAL ONE. The list is capped twice over --
+                    // at the scan's own ceiling and again at 300 cards -- and printing the
+                    // length of what survived that reads as the answer to "how many are there",
+                    // which it is not.
+                    books.push({ section: name, note: true, title: total.toLocaleString() + ' site'
+                        + (total === 1 ? '' : 's') + (list.length < total
+                            ? (' \u2014 ' + Math.min(300, list.length).toLocaleString() + ' shown here, and the CSV carries '
+                                + list.length.toLocaleString() + '.')
+                            : (list.length > 300 ? ' \u2014 the first 300 are shown; the CSV has them all.' : '.')) });
+                    list.slice(0, 300).forEach((x) => books.push(siteCard(x)));
+                }
+            }
+            books.push({ section: 'Back', title: 'Back to Analyze', badge: 'analyze', icon: 'arrow_back', ready: true,
+                blurb: 'The loss matrix, the differential, loss of heterozygosity and the rest.', open: () => analysisMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Differential matrix',
+                subtitle: R ? (R.labelA + ' vs ' + R.labelB + ' \u00b7 every site they do not share')
+                    : 'Every site two samples do not share \u00b7 for selective design',
+                graph: graph, books: books });
+        };
+
         const diffMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!diffResult) { analysisMenu(); return; }
@@ -11709,6 +11943,114 @@ function (path, config) {
                     : 'Private losses are kept even where the other sample was not confidently sequenced. Click to require the evidence; recompute to apply.',
                 open: () => { diffRequireEvidence = !diffRequireEvidence; graph.setMessage(diffRequireEvidence ? ' Coverage evidence will be required; recompute to apply. ' : ' Coverage evidence will not be required; recompute to apply. '); diffMenu(); } });
             books.push({ section: 'Differential loss matrix', title: 'Compare something else', badge: 'pick', icon: 'compare', ready: true, blurb: 'Another pair of files or samples.', books: () => diffPickerBooks() });
+
+            // ---- INTO THE EDITOR, BOTH SIDES AT ONCE ------------------------------------
+            //
+            // The panel names genes where the two genomes differ, and the next question is
+            // always the same: what does that difference look like in sequence. That needs
+            // BOTH samples on screen -- the gene as A carries it and the gene as B carries it
+            // -- because a design that tells them apart is designed against the difference,
+            // not against either one alone.
+            //
+            // So a gene opens as TWO tracks of the same transcript, each labelled with its
+            // sample and carrying only that sample's mutations. The loader has taken grouped
+            // entries since the LOH strategy needed the same thing; this hands it the same
+            // shape. Two tracks of one transcript share a name, and the second becomes
+            // "GENE.1" (see ensureUniqueTrackName), so the pair reads as a pair.
+            const DIFF_OPEN_MAX = 6;          // genes, i.e. twice that many tracks
+            const diffVarRecords = (g, group, label) => {
+                const out = [];
+                for (const v of (g.variants || [])) {
+                    if (!v || v.pos == null) continue;
+                    const ann = ['SAMPLES=' + label, 'GT=' + (v.gt || './.')];
+                    if (v.effect) ann.push('EFFECT=' + v.effect);
+                    if (v.hgvs_c) ann.push('HGVSC=' + v.hgvs_c);
+                    if (v.hgvs_p) ann.push('HGVSP=' + v.hgvs_p);
+                    if (v.origin) ann.push('ORIGIN=' + v.origin);
+                    out.push({
+                        chr: ('' + (g.chr || '')).replace(/^chr/, ''), pos: v.pos,
+                        ref: v.ref || 'N', alt: v.alt || 'N',
+                        name: v.hgvs_p || v.hgvs_c || (g.chr + ':' + v.pos),
+                        sig: v.sig || '', source: 'differential', group: group,
+                        samples: [label], genotypes: [v.gt || './.'], phase: '',
+                        annotations: ann,
+                    });
+                }
+                return out;
+            };
+            const diffOpenInEditor = async (list, what) => {
+                const picks = (list || []).slice(0, DIFF_OPEN_MAX);
+                if (!picks.length) { graph.setError(' Nothing to open. '); return; }
+                const ids = [], vars = [];
+                const add = (g, group, label) => {
+                    if (!g || !g.transcript) return false;
+                    ids.push({ id: g.transcript, group: group, label: label });
+                    vars.push.apply(vars, diffVarRecords(g, group, label));
+                    return true;
+                };
+                let noTx = 0;
+                for (const x of picks) {
+                    const okA = add(x.A, 'A:' + x.gene, R.A.label + ' · ' + x.gene);
+                    const okB = add(x.B, 'B:' + x.gene, R.B.label + ' · ' + x.gene);
+                    if (!okA && !okB) noTx++;
+                }
+                if (!ids.length) {
+                    graph.setError(' None of those genes has a transcript in this file to open. ', 10);
+                    return;
+                }
+                graph.setMessage(' Opening ' + ids.length + ' track' + (ids.length === 1 ? '' : 's') + ' with '
+                    + vars.length.toLocaleString() + ' mutation' + (vars.length === 1 ? '' : 's') + '\u2026 ');
+                await handToEditor(ids, vars, null);
+                if (noTx || list.length > picks.length) {
+                    graph.setResultMessage(' ' + what + ': '
+                        + (list.length > picks.length ? (list.length - picks.length) + ' more were left behind (the first '
+                            + DIFF_OPEN_MAX + ' open at a time). ' : '')
+                        + (noTx ? noTx + ' had no transcript to open. ' : ''));
+                }
+            };
+            const diffGeneCards = (rows, sec) => rows.map((x) => {
+                const sides = [x.A ? R.A.label : null, x.B ? R.B.label : null].filter(Boolean);
+                const nv = ((x.A && x.A.variants) || []).length + ((x.B && x.B.variants) || []).length;
+                return { section: sec, title: x.gene, badge: sides.length === 2 ? 'both sides' : sides[0],
+                    icon: 'edit', accent: 'design', ready: !!((x.A && x.A.transcript) || (x.B && x.B.transcript)),
+                    readyNote: 'no transcript in this file for ' + x.gene,
+                    blurb: 'Opens ' + (sides.length === 2 ? 'two tracks — ' + sides.join(' and ') : 'one track — ' + sides[0])
+                        + ', carrying ' + nv + ' mutation' + (nv === 1 ? '' : 's') + ' between them.',
+                    open: () => diffOpenInEditor([x], x.gene) };
+            });
+            const diffOpenBooks = () => {
+                const out = [{ note: true, title: 'A gene opens as one track per sample, each carrying that sample\u2019s own '
+                    + 'mutations, so the difference between them is on screen rather than in a table. '
+                    + DIFF_OPEN_MAX + ' genes at a time.' }];
+                const sel = [].concat(R.onlyA, R.onlyB, R.both).filter((x) => isSelected(x.gene));
+                if (sel.length) {
+                    out.push({ title: 'The ' + sel.length + ' gene' + (sel.length === 1 ? '' : 's') + ' you have selected',
+                        badge: 'selected', icon: 'checklist', accent: 'run', ready: true,
+                        blurb: sel.slice(0, 8).map((x) => x.gene).join(', ') + (sel.length > 8 ? ', …' : '') + '.',
+                        open: () => diffOpenInEditor(sel, 'The selection') });
+                }
+                if (R.onlyA.length) {
+                    out.push({ section: 'Lost only in ' + R.A.label, note: true, title: R.onlyA.length + ' gene'
+                        + (R.onlyA.length === 1 ? '' : 's') + '. Each opens with ' + R.B.label + ' beside it, so what B still has is visible.' });
+                    diffGeneCards(R.onlyA.slice(0, 200), 'Lost only in ' + R.A.label).forEach((c) => out.push(c));
+                }
+                if (R.onlyB.length) {
+                    out.push({ section: 'Lost only in ' + R.B.label, note: true, title: R.onlyB.length + ' gene' + (R.onlyB.length === 1 ? '' : 's') + '.' });
+                    diffGeneCards(R.onlyB.slice(0, 200), 'Lost only in ' + R.B.label).forEach((c) => out.push(c));
+                }
+                if (R.both.length) {
+                    out.push({ section: 'Lost in both', note: true, title: R.both.length + ' gene' + (R.both.length === 1 ? '' : 's')
+                        + ' — the two changes need not be the same one, which is what the pair of tracks shows.' });
+                    diffGeneCards(R.both.slice(0, 200), 'Lost in both').forEach((c) => out.push(c));
+                }
+                return out;
+            };
+            books.push({ section: 'Differential loss matrix', title: 'Open a gene in the oligo editor',
+                badge: 'both samples', icon: 'edit', accent: 'design', ready: true,
+                blurb: 'Both sides of a gene at once: the transcript as ' + R.A.label + ' carries it with its mutations, and '
+                    + 'the same transcript as ' + R.B.label + ' carries it with its own. That pair is what an '
+                    + 'allele-selective design is written against.',
+                books: () => diffOpenBooks() });
             const card = (x, sec, sw) => {
                 const g = x.A || x.B; const on = isSelected(x.gene);
                 const one = (h, side) => (h ? side + ': ' + lossWord((h.variants[0] || {}).effect) + ((h.variants[0] || {}).hgvs_p ? ' ' + h.variants[0].hgvs_p : '') + (h.zygosity && h.zygosity !== 'unknown' ? ' (' + h.zygosity + ')' : '') : '');
@@ -14090,6 +14432,22 @@ function (path, config) {
             books.push({ section: 'This genome', title: 'Label the samples and files', badge: SAMPLES.length ? String(SAMPLES.length) : '', icon: 'edit', ready: true,
                 blurb: 'Give each VCF sample column and each loaded file the name you use for it -- "tumour", "the normal", "day 14" -- and every panel, report and saved file follows.',
                 open: () => { try { labelSamplesDialog(); } catch (e) { } } });
+            // THE TWO DIFFERENTIALS, WHERE THEY ARE LOOKED FOR. Both lived under "What is
+            // loaded" — the panel that says what a file HAS, not what can be done with it —
+            // so a panel people ask for by name was three steps away from Analyze.
+            if (SAMPLES.length > 1 || (sideCounts().left && sideCounts().right)) {
+                books.push({ section: 'What differs between two', title: 'Differential matrix',
+                    badge: diffVarResult ? 'done · show' : 'the sites', icon: 'difference', accent: 'run', ready: true,
+                    blurb: 'Every site the two samples do not share, damaging or not. An oligo tells two genomes apart '
+                        + 'on sequence, so a silent change discriminates as well as a nonsense one — these are the sites '
+                        + 'a selective design can be built on, and each one opens its gene as two tracks.',
+                    open: () => diffVarMenu() });
+                books.push({ section: 'What differs between two', title: 'Differential loss matrix',
+                    badge: diffResult ? 'done · show' : 'pick the pair', icon: 'compare', accent: 'run', ready: true,
+                    blurb: 'The narrower question: which GENES one of them has lost that the other has not, by '
+                        + 'loss-of-function change. Genes there open as two tracks as well.',
+                    open: () => { if (diffResult) diffMenu(); else exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Differential loss matrix', subtitle: 'Choose the two to compare', graph: graph, books: diffPickerBooks() }); } });
+            }
             books.push({ section: 'This genome', title: 'What is loaded', badge: 'info', icon: 'info_outline',
                 blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
                 open: () => { try { infoPanel(); } catch (e) { } } });
