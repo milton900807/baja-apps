@@ -8050,14 +8050,16 @@ pattern, GGGG | Required`
                         section: TOOLS,
                         title: 'Rectangle', icon: '▭', badge: 'Drag a box', accent: 'sunset',
                         blurb: 'Drag a rectangle over the canvas. Everything inside it — compounds, '
-                            + 'annotations, variants, whole tracks — is selected.',
+                            + 'annotations, variants — is selected. A box drawn over whole tracks '
+                            + 'selects the tracks themselves, as many as it covers.',
                         open: arm(() => this._startLasso(true))
                     },
                     {
                         section: TOOLS,
                         title: 'Lasso', icon: '✧', badge: 'Draw a loop', accent: 'sunset',
                         blurb: 'Draw a freehand loop instead of a box, for a selection a rectangle '
-                            + 'would have to include things you do not want.',
+                            + 'would have to include things you do not want. Wrap a track from top '
+                            + 'to bottom to select the track itself.',
                         open: arm(() => this._startLasso(false))
                     },
                     {
@@ -9273,23 +9275,55 @@ pattern, GGGG | Required`
                         for (const t of (this.track || [])) {
                             if (!t.tgraph) continue;
 
-                            // If the lasso encloses this track's ENTIRE on-screen box, select
-                            // the track itself too (in addition to any items inside it). Box +
-                            // corner projection mirror getTrack()'s hit-box.
+                            // WRAP A TRACK AND YOU SELECT THE TRACK.
+                            //
+                            // This used to ask for all four corners of the track's box to be
+                            // inside the loop. A genomic track runs off both edges of the canvas
+                            // at any zoom that shows its detail, so two of those corners were
+                            // off-screen and no loop could ever hold them: selecting a track --
+                            // let alone several -- was not actually possible.
+                            //
+                            // What is asked now is what the gesture looks like: the loop covers
+                            // the track ALONG the part of it you can see, and holds its full
+                            // height somewhere. The second half is what separates wrapping a
+                            // track from dragging a thin loop across a stack of them, which
+                            // would otherwise take every track it passed through.
+                            let wholeTrack = false;
                             try {
-                                const _scx = this.graph.X(t.tgraph.xi);
-                                const _scy = this.graph.Y(t.tgraph.yi);
-                                const _scw = this.graph.screenWidth(t.tgraph.width);
-                                const _sch = -1 * this.graph.screenHeight(t.tgraph.height);
-                                const _xR = _scx + _scw, _yB = _scy + _sch;
-                                if (isFinite(_scx) && isFinite(_scy) && isFinite(_xR) && isFinite(_yB) &&
-                                    inside(_scx, _scy) && inside(_xR, _scy) &&
-                                    inside(_scx, _yB) && inside(_xR, _yB)) {
-                                    try { if (t.select) t.select(); } catch (e) { }
-                                    sel.push({ kind: 'track', label: (t.name || 'track'), track: t, chr: t.chr, xi: t.xi, xf: t.xf, ref: t });
-                                    n++;
+                                const gg = (this.graph && this.graph.grid) || this.graph || {};
+                                const CW = gg.width || 0;
+                                const sx0 = this.graph.X(t.tgraph.xi);
+                                const sw = this.graph.screenWidth(t.tgraph.width);
+                                const sy0 = this.graph.Y(t.tgraph.yi);
+                                const sh = -1 * this.graph.screenHeight(t.tgraph.height);
+                                const left = Math.min(sx0, sx0 + sw), right = Math.max(sx0, sx0 + sw);
+                                const top = Math.min(sy0, sy0 + sh), bot = Math.max(sy0, sy0 + sh);
+                                // Only the part of the track that is on the canvas.
+                                const vx0 = Math.max(left, 0), vx1 = Math.min(right, CW > 0 ? CW : right);
+                                if ([vx0, vx1, top, bot].every(isFinite) && (vx1 - vx0) > 20 && (bot - top) >= 0) {
+                                    const mid = (top + bot) / 2;
+                                    const N = 9;
+                                    let covered = 0;
+                                    for (let i = 0; i < N; i++) {
+                                        const px = vx0 + (vx1 - vx0) * (i + 0.5) / N;
+                                        if (inside(px, mid)) covered++;
+                                    }
+                                    const atX = (f) => {
+                                        const px = vx0 + (vx1 - vx0) * f;
+                                        return inside(px, top + 1) && inside(px, Math.max(top + 2, bot - 1));
+                                    };
+                                    if (covered / N >= 0.6 && (atX(0.5) || atX(0.25) || atX(0.75))) wholeTrack = true;
                                 }
                             } catch (e) { }
+                            if (wholeTrack) {
+                                try { if (t.select) t.select(); } catch (e) { }
+                                sel.push({ kind: 'track', label: (t.name || 'track'), track: t, chr: t.chr, xi: t.xi, xf: t.xf, ref: t });
+                                n++;
+                                // The track stands for what is on it. Listing its oligos,
+                                // variants and annotations as well would bury the tracks you
+                                // just selected under a few hundred rows of their contents.
+                                continue;
+                            }
 
                             for (const a of (t.annotations || [])) {
                                 if (trackHit(t, (a.xi + a.xf) / 2, a.y != null ? a.y : 0)) {
