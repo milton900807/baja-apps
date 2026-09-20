@@ -288,6 +288,8 @@ function () {
                         ctx.fillText(text, x + w / 2, yTop + h / 2);
                     }
                     ctx.restore();
+                    // the block's resize corner, as a tiny table has (platetrack.__solidCornerAt)
+                    try { if (pt.__drawSolidGrip) pt.__drawSolidGrip(ctx, x, yTop, w, h, this); } catch (e) { }
                     return;
                 }
                 card(C.card, this.selected ? C.cyan : C.rule, this.selected ? 2 : 1);

@@ -8312,14 +8312,7 @@ function (progress) {
             }
             keydown(event) {
                 if (!event) return;
-                if (event.key === 'Escape' && (this.__solidArmed || this.__solidDrag)) {
-                    if (this.__solidDrag) { const d = this.__solidDrag; if (d.moved) { d.o.grid.xi = d.ox; d.o.grid.yi = d.oy; } d.moved = false; this.__solidDragEnd(); }
-                    this.__solidArmed = null;
-                    try { this.setMessage('Move cancelled.', 2); } catch (e) { }
-                    return;
-                }
-                // A selected table that has shrunk to a solid block takes no typing.
-                try { if (this.selectedPlate && !event.ctrlKey && !event.metaKey && this.__isSolidTable(this.selectedPlate)) return; } catch (e) { }
+                if (this.__solidKey(event)) return;
 
 
 
@@ -8504,6 +8497,8 @@ function (progress) {
                 // on the release, or, armed by that menu's Move, the press picks it up. Either
                 // way the press goes no further, so the table is not selected and no cell is.
                 try {
+                    const corner = this.__solidCornerAt(x, y);
+                    if (corner && this.__solidResizeStart(corner, x, y)) return;   // its resize corner: drag, no menu
                     const solid = this.__solidAt(x, y);
                     if (solid) {
                         if (this.__solidArmed === solid) { this.__solidDragStart(solid, x, y); return; }
@@ -8683,7 +8678,8 @@ function (progress) {
                 if (this.__msDrag) return true;
                 if (this.__tlCanvasDrag) return true;   // a drag through time, likewise
                 // A table drawn as a solid block: its cells, buttons and hover get nothing.
-                if (this.__solidDrag || this.__solidMenuPress) return true;
+                if (this.__solidDrag || this.__solidMenuPress || this.__solidResize) return true;
+                try { if (this.__solidCornerAt(x, y)) return 'solid'; } catch (e) { }
                 try { if (this.__solidAt(x, y)) return 'solid'; } catch (e) { }
                 // View only: nothing beneath the pointer takes a press, a move or a release.
                 if (this.__readOnly) return true;
@@ -8727,6 +8723,7 @@ function (progress) {
                     return;
                 }
                 if (this.__solidDrag) { this.__solidDragEnd(); return; }
+                if (this.__solidResize) { this.__solidResizeEnd(); return; }
                 if (this.__selectGesture) return;
                 // A press on a solid table: its Move / Maximize menu opens now, on the release
                 // (opened on the press, the same click's release would close it again). A
@@ -8884,11 +8881,39 @@ function (progress) {
                 }
             }
 
+            // Keys while a BLOCK is in play (a table with sub-10 px rows, a document too small to
+            // read). Escape calls off a resize or a move in progress, or an armed Move; and a
+            // selected table that has shrunk to a block takes no typing. Returns true when the
+            // key was dealt with. Called from handleKeyDown (the path the applications use)
+            // and from keydown: it sat in keydown alone at first, which this app never calls,
+            // so Escape did nothing.
+            __solidKey(event) {
+                if (!event) return false;
+                if (event.key === 'Escape' && this.__solidResize) {
+                    const d = this.__solidResize, g = this.grid;
+                    if (d.moved) { try { d.o.setWidth(g.worldWidth(d.w0)); d.o.setHeight(g.worldHeight(d.h0)); d.o.grid.rescale && d.o.grid.rescale(); } catch (e) { } }
+                    d.moved = false; this.__solidResizeEnd();
+                    this.__gestureEndedAt = Date.now();               // a cancelled drag is not a swipe either
+                    try { this.setMessage('Resize cancelled.', 2); } catch (e) { }
+                    return true;
+                }
+                if (event.key === 'Escape' && (this.__solidArmed || this.__solidDrag)) {
+                    if (this.__solidDrag) { const d = this.__solidDrag; if (d.moved) { d.o.grid.xi = d.ox; d.o.grid.yi = d.oy; } d.moved = false; this.__solidDragEnd(); }
+                    this.__solidArmed = null;
+                    this.__gestureEndedAt = Date.now();
+                    try { this.setMessage('Move cancelled.', 2); } catch (e) { }
+                    return true;
+                }
+                try { if (this.selectedPlate && !event.ctrlKey && !event.metaKey && event.key !== 'Escape' && this.__isSolidTable(this.selectedPlate)) return true; } catch (e) { }
+                return false;
+            }
+
             handleKeyDown(event) {
                 // Tab belongs to the table while one is selected: it walks the cells. Left to the
                 // browser it moves focus to the next control on the page and every keystroke
                 // after that goes there instead of the canvas.
                 if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;   // the phone's cell field owns its keys
+                try { if (this.__solidKey(event)) { try { event.preventDefault(); } catch (e) { } return; } } catch (e) { }
                 // Escape on a table with selected cells: drop the selection and stop there.
                 if (event && event.key === 'Escape' && this.selectedPlate && !this.menu) {
                     try {
@@ -9357,6 +9382,14 @@ function (progress) {
                 if (this.__msHold && Math.abs(x - this.__msHold.x) + Math.abs(y - this.__msHold.y) > 10) this.__msHoldCancel();   // a pan, not a hold
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
                 if (this.__solidDrag) { this.__solidDragMove(x, y); return; }
+                if (this.__solidResize) { this.__solidResizeMove(x, y); return; }
+                try {
+                    const c = this.__solidCornerAt(x, y);
+                    if (c !== (this.__solidCornerHover || null)) {
+                        this.__solidCornerHover = c;
+                        if (this.__canvas__) this.__canvas__.style.cursor = c ? 'nwse-resize' : '';
+                    }
+                } catch (e) { }
                 if (this.__solidMenuPress && Math.abs(x - this.__solidMenuPress.x) + Math.abs(y - this.__solidMenuPress.y) >= 8) this.__solidMenuPress = null;   // a pan, not a click
                 try { this.__solidHover = this.__solidAt(x, y); } catch (e) { this.__solidHover = null; }
                 // Over a document's resize corner the pointer says so (and its grip lights up).
@@ -10857,6 +10890,83 @@ function (progress) {
                 const at = this.objectAt(x, y);
                 return (at && at.kind === 'plate' && this.__isSolidTable(at.obj)) ? at.obj : null;
             }
+            // THE BLOCK'S RESIZE CORNER. A block (a table with sub-10 px rows, a document too
+            // small to read) can be resized by its bottom right corner, as the object it
+            // stands for can: press and drag, no menu first. The corner is tested before the
+            // block itself, since the handle reaches a few pixels outside the block.
+            __solidScreenBox(o) {
+                try {
+                    if (!o) return null;
+                    if (o.plateType === 'document') return (typeof o.__screenBox === 'function') ? o.__screenBox(this) : null;
+                    const b = this.__tinyTableBox(o);
+                    return b ? { x: b.left, y: b.top, w: b.w, h: b.h } : null;
+                } catch (e) { return null; }
+            }
+            __solidCornerAt(x, y) {
+                if (this.menu || this.__maximized || this.__selectGesture || this.__readOnly) return null;
+                const id = this.wbid;
+                if (id && id !== 'drag-navigate' && !('' + id).startsWith('click_and_drag')) return null;
+                const IN = 16, OUT = 8;
+                const list = this.root || [];
+                for (let i = list.length - 1; i >= 0; i--) {
+                    const o = list[i];
+                    if (!this.__isSolidTable(o)) continue;
+                    const b = this.__solidScreenBox(o);
+                    if (!b || b.w < 24 || b.h < 16) continue;                  // too small to have a corner of its own
+                    const rx = b.x + b.w, by = b.y + b.h;
+                    if (x >= rx - Math.min(IN, b.w / 3) && x <= rx + OUT && y >= by - Math.min(IN, b.h / 3) && y <= by + OUT) return o;
+                }
+                return null;
+            }
+            __solidResizeStart(o, x, y) {
+                const b = this.__solidScreenBox(o);
+                if (!b) return false;
+                this.__solidArmed = null; this.__solidMenuPress = null;
+                this.__solidResize = { o, sx: x, sy: y, w0: b.w, h0: b.h, moved: false };
+                try { this.cancelLayoutAnimation(); } catch (e) { }
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+                return true;
+            }
+            __solidResizeMove(x, y) {
+                const d = this.__solidResize; if (!d) return;
+                if (!d.moved) {
+                    if (Math.abs(x - d.sx) + Math.abs(y - d.sy) < 3) return;
+                    d.moved = true;
+                    try { pushHistory(HM(this)); } catch (e) { }      // one undo puts it back
+                    try { if (this.__collab && this.__collab.holds && !this.__collab.holds(d.o)) this.__collab.acquire(d.o); } catch (e) { }
+                }
+                const g = this.grid, o = d.o;
+                const wpx = Math.max(24, d.w0 + (x - d.sx)), hpx = Math.max(16, d.h0 + (y - d.sy));
+                // setHeight keeps the TOP edge where it is (tables and documents both), so the
+                // top left corner stays put and the dragged corner follows the pointer.
+                try { if (o.setWidth) o.setWidth(g.worldWidth(wpx)); else o.grid.width = g.worldWidth(wpx); } catch (e) { }
+                try { if (o.setHeight) o.setHeight(g.worldHeight(hpx)); else o.grid.height = g.worldHeight(hpx); } catch (e) { }
+                try { o.grid.rescale && o.grid.rescale(); } catch (e) { }
+                try { o.__colFontCache = null; o.__layoutKey = ''; } catch (e) { }
+            }
+            __solidResizeEnd() {
+                const d = this.__solidResize; this.__solidResize = null;
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
+                if (d && d.moved) {
+                    this.__gestureEndedAt = Date.now();                     // not a swipe (see captureSwipes in draw)
+                    try { this.setMessage((d.o.name || 'It') + ' resized (Ctrl+Z undoes).', 2); } catch (e) { }
+                }
+            }
+            // The grip a block shows at its resize corner: faint, plain under the pointer.
+            __drawSolidGrip(ctx, x, y, w, h, o) {
+                if (!(w >= 24 && h >= 16)) return;
+                const on = this.__solidCornerHover === o || !!(this.__solidResize && this.__solidResize.o === o);
+                ctx.save();
+                ctx.setLineDash([]);
+                ctx.strokeStyle = on ? '#1aa3bd' : 'rgba(10,37,64,0.35)';
+                ctx.lineWidth = on ? 2 : 1.25; ctx.lineCap = 'round';
+                const gx = x + w - 3, gy = y + h - 3, n = Math.min(h, w) < 34 ? [3, 7] : [3, 7, 11];
+                ctx.beginPath();
+                for (const k of n) { ctx.moveTo(gx - k, gy); ctx.lineTo(gx, gy - k); }
+                ctx.stroke();
+                ctx.restore();
+            }
+
             __solidOpenMenu(o, x, y) {
                 const close = () => { this.menu = null; this.menu_vis = false; };
                 const ml = [
@@ -11353,6 +11463,9 @@ function (progress) {
                     else { ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(name, dl, dt - 2); }
                 }
                 ctx.restore();
+                // Its resize corner (see __solidCornerAt): only a TABLE block takes one; a folder
+                // card or a note drawn small keeps its own handling.
+                try { if (this.__isSolidTable(obj)) this.__drawSolidGrip(ctx, left, top, w, h, obj); } catch (e) { }
                 return true;
             }
             // Zoom the canvas so the object fills the window, with room around it for the
@@ -23764,7 +23877,7 @@ function (progress) {
                         // A quick drag that MOVED or RESIZED something is not a swipe: a block
                         // flicked into place, a column edge or a resize corner dragged fast all
                         // finish inside the swipe window, and the view slid away under them.
-                        if (this.__solidDrag || this.__msDrag || (Date.now() - (this.__gestureEndedAt || 0)) < 500) return;
+                        if (this.__solidDrag || this.__solidResize || this.__msDrag || (Date.now() - (this.__gestureEndedAt || 0)) < 500) return;
 
                         this.panGridSlide(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
                         setTimeout(() => {
