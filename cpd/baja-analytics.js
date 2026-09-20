@@ -4343,14 +4343,17 @@ function (path, config) {
                             }, 10);
                         }, 150);
 
-                        const run = async (prompt) => {
-                            pt.setMessage('Researching patient populations… this takes a few minutes', 5);
+                        // opts.fresh: research again even if earlier research would answer this
+                        // prompt (offered below after a stored run has been loaded).
+                        const run = async (prompt, opts) => {
+                            pt.setMessage((opts && opts.fresh) ? 'Researching again… this takes a few minutes'
+                                : 'Checking earlier research, then researching patient populations…', 5);
                             const em = new EngineMonitor((msg) => {
                                 pt.updateSprite(msg)
                             });
                             let result;
                             try {
-                                result = await exec('py/analytics/indication-market.py', em, prompt, {});
+                                result = await exec('py/analytics/indication-market.py', em, prompt, opts || {});
                             } catch (e) {
                                 pt.killSprite();
                                 pt.setMessage('Indication market failed: ' + (e && e.message ? e.message : e), 1.1);
@@ -4479,6 +4482,31 @@ function (path, config) {
                             if (modelNote) pt.setMessage(modelNote, 3);
                             const g = CurrentLayout.getStashed('graph');
                             if (g) g.touchMe();
+                            // Answered from EARLIER RESEARCH (py/ion-lib/indication_store.py): every
+                            // prompt is kept in a structured form, and the model judged an earlier
+                            // run to ask the same question. Say so, with its date and the reason,
+                            // and offer the new run: the figures go into forecasts, so whether
+                            // they are a month old is the user's call, not a silent one.
+                            try {
+                                const c = result.cache;
+                                if (c && c.hit) {
+                                    let when = '';
+                                    try { when = new Date(c.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch (e) { when = ''; }
+                                    const age = Number.isFinite(c.age_days) ? (c.age_days === 0 ? 'today' : c.age_days === 1 ? 'yesterday' : c.age_days + ' days ago') : '';
+                                    pt.setMessage('Loaded from earlier research' + (when ? ' (' + when + (age ? ', ' + age : '') + ')' : '') + '. ' + (c.reason || ''), 3);
+                                    const closeMenu = () => { pt.menu = null; pt.menu_vis = false; };
+                                    // after the layout and the zoom have settled, or the menu opens under them
+                                    setTimeout(() => {
+                                        try {
+                                            if (pt.menu || pt.__maximized) return;
+                                            pt.showMenuWithTitle('Earlier research' + (when ? ' · ' + when : ''), [
+                                                { label: 'Keep these tables', click: closeMenu },
+                                                { label: 'Research again (a few minutes)', click: async () => { closeMenu(); await run(prompt, { fresh: true }); } },
+                                            ]);
+                                        } catch (e) { }
+                                    }, 600);
+                                }
+                            } catch (e) { console.warn('[indication market] earlier research notice', e); }
                         };
 
                         let sequence_input = {

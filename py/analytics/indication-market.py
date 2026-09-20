@@ -1027,6 +1027,115 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
     }
 
 
+# ---------------------------------------------------------------- earlier research
+#
+# Every prompt is recorded in a structured form, and a prompt that asks a question already
+# researched is answered from that research (py/ion-lib/indication_store.py keeps the records).
+# "The same question" is a judgement, so it is put to the model, in one small call that does
+# two things: it structures THIS prompt, and it says whether one of the earlier runs shown to
+# it answers it. The same model as the research: the call costs a cent or two against a
+# dollar-and-three-minutes run, and the one mistake that matters here -- handing someone the
+# numbers for a different disease, region or approach -- is a quiet one, which is where the
+# stronger model earns its place.
+
+ANALYZE_MODEL = os.environ.get("INDICATION_ANALYZE_MODEL") or MODEL
+
+ANALYZE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["structured", "decision", "match_id", "reason"],
+    "properties": {
+        "structured": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["indications", "aliases", "target", "modality", "region", "population", "wants_fresh"],
+            "properties": {
+                "indications": {"type": "array", "items": {"type": "string"},
+                                "description": "The diseases or indications the prompt asks about, each by its standard full name."},
+                "aliases": {"type": "array", "items": {"type": "string"},
+                            "description": "Other names, abbreviations and spellings those indications go by (HD, Huntington disease, ATTR-CM...)."},
+                "target": {"type": "string", "description": "The gene, protein or mechanism named, or an empty string."},
+                "modality": {"type": "string", "description": "siRNA, ASO, antibody, small molecule..., or an empty string."},
+                "region": {"type": "string", "description": "The region the sizing is for, by its standard name."},
+                "population": {"type": "string", "description": "Any restriction on which patients (paediatric, a genotype, a line of therapy), or an empty string."},
+                "wants_fresh": {"type": "boolean", "description": "True when the prompt itself asks for new, latest, updated or re-run research."},
+            },
+        },
+        "decision": {"type": "string", "enum": ["reuse", "new"]},
+        "match_id": {"type": "integer", "description": "The id of the earlier run to reuse, or 0."},
+        "reason": {"type": "string", "description": "One sentence for the person who typed the prompt. Do not quote the earlier prompt."},
+    },
+}
+
+ANALYZE_SYSTEM = """A therapeutics team types a prompt to size a market: a disease or a list of indications, sometimes with the therapeutic approach (a target, a mechanism, a modality) and a region. Researching one takes a few minutes of web search and the figures go into patient forecasts and revenue models. Earlier research is kept, and your job is to say whether one of the earlier runs shown to you already answers the new prompt, so that it can be loaded instead of researched again.
+
+First put the new prompt in structured form. Give each indication its standard full name, and list the other names it goes by in `aliases` (abbreviations, eponyms, spelling variants): those aliases are how a later prompt finds this one.
+
+Then decide. Reuse an earlier run only when someone asking the new prompt would be fully served by it. The wording does not have to match: abbreviations, synonyms, word order, spelling, a disease named by its eponym or by its gene are all the same question. What has to match is the substance:
+- the same set of indications. A subset or a superset is a different question, because the totals and the overlap notes change.
+- the same region, however it is written (US, USA, United States).
+- a compatible therapeutic approach. The expansion indications, the competitors and the price comparators in a run all follow from its approach, so a run made for "siRNA against TTR" does not answer a prompt that names no approach, or a different target or modality, and the reverse.
+- the same patient population, when either prompt restricts it.
+If the new prompt itself asks for new, latest, updated or re-run research, set wants_fresh and decide "new". Age matters too: each run shows its age in days, and pipelines and prices move faster than prevalence, so prefer "new" for an old run when the prompt is about competitors, prices or a fast-moving field.
+
+When you are unsure, decide "new". A needless new run costs a few minutes; a wrong reuse puts another question's numbers into someone's forecast without their knowing.
+
+Set match_id to the id of the run to reuse, or 0 with "new". The reason is one plain sentence for the person who typed the prompt; it must not quote the earlier prompt, which may be someone else's."""
+
+
+def analyze_prompt(prompt: str, region: str, max_expansions: int,
+                   cands: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Structure the prompt and judge it against earlier runs. Returns (analysis, error)."""
+    if requests is None or not ANTHROPIC_API_KEY:
+        return None, "no API access"
+    shown = [{"id": c["id"], "age_days": c["age_days"], "prompt": c["prompt"], "region": c["region"],
+              "max_expansions": c["max_expansions"], "structured": c.get("structured") or {}}
+             for c in cands]
+    user = ("New prompt:\n" + json.dumps({"prompt": prompt, "region_option": region,
+                                           "max_expansions": max_expansions}, ensure_ascii=False)
+            + "\n\nEarlier runs"
+            + (" (none: structure the prompt and decide \"new\")" if not shown else "")
+            + ":\n" + json.dumps(shown, ensure_ascii=False, indent=1))
+    body: Dict[str, Any] = {
+        "model": ANALYZE_MODEL,
+        "max_tokens": 4000,
+        "system": ANALYZE_SYSTEM,
+        "messages": [{"role": "user", "content": user}],
+        "output_config": {"effort": "low", "format": {"type": "json_schema", "schema": ANALYZE_SCHEMA}},
+        "fallbacks": "default",
+    }
+    try:
+        with_fallback = True
+        r = requests.post(API_URL, headers=_headers(True), json=body, timeout=90)
+        if r.status_code == 400 and "fallback" in (r.text or "").lower():
+            with_fallback = False
+            body.pop("fallbacks", None)
+            r = requests.post(API_URL, headers=_headers(False), json=body, timeout=90)
+        if r.status_code != 200:
+            return None, "anthropic %s: %s" % (r.status_code, (r.text or "")[:200])
+        data = r.json()
+        if data.get("stop_reason") == "refusal":
+            return None, "declined"
+        txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text").strip()
+        out = json.loads(txt)
+        if not isinstance(out, dict) or not isinstance(out.get("structured"), dict):
+            return None, "unexpected analysis"
+        out["_model"] = data.get("model") or ANALYZE_MODEL
+        return out, ""
+    except Exception as ex:  # the store must never be why a run fails
+        return None, "%s: %s" % (type(ex).__name__, ex)
+
+
+def _structured_from_findings(findings: Dict[str, Any], region: str) -> Dict[str, Any]:
+    """The structured form of a prompt when the model could not be asked: what the research
+    itself says it was about."""
+    rows = [r for r in (findings.get("indications") or []) if isinstance(r, dict)]
+    requested = [_txt(r.get("name")) for r in rows if _txt(r.get("type")).lower() != "expansion" and _txt(r.get("name"))]
+    return {"indications": requested or [_txt(r.get("name")) for r in rows if _txt(r.get("name"))][:6],
+            "aliases": [], "target": "", "modality": _txt(findings.get("approach"))[:120],
+            "region": _txt(findings.get("region")) or region, "population": "", "wants_fresh": False}
+
+
 def run(prompt: Any, opts: Dict[str, Any]) -> Dict[str, Any]:
     prompt = _txt(prompt)
     # Two characters is a real indication: HD, MS, CF, AD.
@@ -1053,19 +1162,87 @@ def run(prompt: Any, opts: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
+    # Earlier research first (see "earlier research" above). `fresh` skips the lookup: the
+    # canvas offers it after a stored run has been loaded.
+    store = None
+    try:
+        import indication_store as store  # type: ignore
+        if not store.enabled():
+            store = None
+    except Exception:
+        store = None
+    fresh = bool(opts.get("fresh"))
+    options_log = {"region": region, "max_expansions": max_expansions, "max_searches": max_searches, "fresh": fresh}
+    structured: Optional[Dict[str, Any]] = None
+    judge_model, judge_ms, reason = "", 0, ""
+
+    if store is not None:
+        works.msg("Checking earlier research…")
+        works.progress(2)
+        cands = [] if fresh else store.candidates(prompt, max_expansions)
+        t0 = time.time()
+        analysis, err = analyze_prompt(prompt, region, max_expansions, cands)
+        judge_ms = int((time.time() - t0) * 1000)
+        if analysis is not None:
+            structured = analysis.get("structured")
+            judge_model = _txt(analysis.get("_model"))
+            reason = _txt(analysis.get("reason"))
+            ids = {c["id"] for c in cands}
+            match_id = analysis.get("match_id")
+            wants_fresh = bool((structured or {}).get("wants_fresh"))
+            if (not fresh and not wants_fresh and analysis.get("decision") == "reuse"
+                    and isinstance(match_id, int) and match_id in ids):
+                prior = store.get_run(match_id)
+                if prior and isinstance(prior.get("findings"), dict):
+                    prior_info = prior.get("info") if isinstance(prior.get("info"), dict) else {}
+                    result = build_tables(prior["findings"], prior.get("found") or [], prior_info, prompt)
+                    if result.get("status") == "ok":
+                        store.touch_hit(match_id)
+                        store.log_prompt(prompt, region, options_log, structured, "reused", match_id,
+                                         reason, judge_model, judge_ms)
+                        result["cache"] = {
+                            "hit": True, "run_id": match_id, "created_at": prior.get("created_at"),
+                            "age_days": prior.get("age_days"), "reason": reason,
+                            # someone else's wording is theirs: only your own earlier prompt is shown back
+                            "prompt": prior.get("prompt") if prior.get("same_user") else "",
+                        }
+                        return result
+        else:
+            reason = "analysis unavailable: " + err
+
     works.msg("Researching patient populations…")
     works.progress(5)
-    text, blocks, info = research(prompt, region, max_expansions, max_searches)
+    try:
+        text, blocks, info = research(prompt, region, max_expansions, max_searches)
+    except Exception:
+        if store is not None:
+            store.log_prompt(prompt, region, options_log, structured, "error", None, reason, judge_model, judge_ms)
+        raise
     found = found_sources(blocks)
     works.progress(85)
 
     findings = _last_json_block(text)
     if findings is None:
         if not text.strip():
+            if store is not None:
+                store.log_prompt(prompt, region, options_log, structured, "error", None, reason, judge_model, judge_ms)
             return {"status": "error", "error": "The research returned nothing. Try again, or name the indication more specifically."}
         findings = structure(prompt, text, found)
     works.progress(95)
-    return build_tables(findings, found, info, prompt)
+    result = build_tables(findings, found, info, prompt)
+
+    if store is not None:
+        run_id = None
+        if result.get("status") == "ok":
+            if not isinstance(structured, dict):
+                structured = _structured_from_findings(findings, region)
+            run_id = store.save_run(prompt, region, max_expansions, max_searches, structured, findings, found, info)
+        store.log_prompt(prompt, region, options_log, structured,
+                         ("forced_new" if fresh else "new") if result.get("status") == "ok" else "error",
+                         run_id, reason, judge_model, judge_ms)
+        if result.get("status") == "ok":
+            result["cache"] = {"hit": False, "run_id": run_id, "reason": reason}
+    return result
 
 
 def _load_json_param(v: Any) -> Any:
