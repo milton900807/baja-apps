@@ -6526,10 +6526,13 @@ function (progress) {
                                 ctx.globalAlpha = alpha;
                                 ctx.lineJoin = 'round';
                                 ctx.lineCap = 'round';
-                                ctx.strokeStyle = 'rgb(0, 255, 136)';
+                                // The selection colour of everything else on the canvas (cells,
+                                // tables, documents): the app's teal. It was a neon green here and
+                                // magenta for select-all below, neither of them in the palette.
+                                ctx.strokeStyle = '#1aa3bd';
                                 ctx.lineWidth = lineWidth;
 
-                                ctx.shadowColor = 'rgba(9, 255, 0, 0.45)';
+                                ctx.shadowColor = 'rgba(26, 163, 189, 0.45)';
                                 ctx.shadowBlur = 10 + 12 * pulse;
                                 ctx.shadowOffsetX = 0;
                                 ctx.shadowOffsetY = 0;
@@ -7342,11 +7345,11 @@ function (progress) {
                             ctx.globalAlpha = alpha;
                             ctx.lineJoin = 'round';
                             ctx.lineCap = 'round';
-                            ctx.strokeStyle = 'rgb(255, 0, 255)';
+                            ctx.strokeStyle = '#1aa3bd';                  // teal, as a single selected note is (see selectGlyph__)
                             ctx.lineWidth = lineWidth;
 
                             if (heavyMode) {
-                                ctx.shadowColor = 'rgba(0, 150, 255, 0.45)';
+                                ctx.shadowColor = 'rgba(26, 163, 189, 0.45)';
                                 ctx.shadowBlur = shadowBlur;
                                 ctx.shadowOffsetX = 0;
                                 ctx.shadowOffsetY = 0;
