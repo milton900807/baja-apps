@@ -168,6 +168,22 @@ Finish your reply with exactly one fenced ```json block, and keep any text befor
       "source": { "title": "source title", "url": "https://...", "year": "publication year" }
     }
   ],
+  "genetics": [
+    {
+      "gene": "HGNC symbol, e.g. TTR",
+      "gene_name": "the gene's full name",
+      "transcript": "Ensembl canonical transcript as ENST00000000000, or \"\" if you cannot establish it - NEVER guess one and never take one from another gene",
+      "role": "causal", "risk", "modifier", "protective" or "other",
+      "indication": "which of the indications above this gene bears on",
+      "mutations": [
+        { "name": "the name clinicians use, e.g. V30M, F508del, C9orf72 repeat expansion",
+          "hgvs": "p. or c. change if you have it, else \"\"",
+          "effect": "what it does, in a few words",
+          "frequency": "how common, where known, else \"\"" }
+      ],
+      "source": { "title": "source title", "url": "https://...", "year": "publication year" }
+    }
+  ],
   "development": {
     "preclinical_cost_usd": number or null, "preclinical_years": number or null,
     "phase_i_cost_usd": number or null, "phase_i_years": number or null, "phase_i_success_rate": number or null,
