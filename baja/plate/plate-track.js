@@ -10555,6 +10555,76 @@ function (progress) {
                     };
                 } catch (e) { return null; }
             }
+            // THE TABLE IS ALWAYS IN DATE ORDER, so row order IS date order and a formula
+            // that reads the row above it -- "...[Required_To_Date,row${i-1}]" -- accumulates
+            // through the milestones in the order they happen. Without this the running total
+            // followed whatever order the rows were typed in, which is no order at all.
+            //
+            // Values move; so do single-cell formulas, which follow their row. A "Total" row
+            // stays at the bottom whatever its date, and rows with no date keep their place
+            // after the dated ones rather than being thrown to the top by an unparseable cell.
+            __msSortByDate(plate) {
+                try {
+                    if (!plate || !Array.isArray(plate.wells) || !plate.wells.length) return false;
+                    const colOf = (h) => {
+                        for (let c = 0; c < plate.wells.length; c++) {
+                            const w = plate.wells[c] && plate.wells[c][0];
+                            if (w && ('' + w.value).trim() === h) return c;
+                        }
+                        return -1;
+                    };
+                    const cDate = colOf('Date');
+                    if (cDate < 0) return false;
+                    const col0 = plate.wells[0] || [];
+                    const rows = [];
+                    for (let r = 1; r < col0.length; r++) {
+                        const label = col0[r] ? ('' + col0[r].value).trim() : '';
+                        const cell = plate.wells[cDate] && plate.wells[cDate][r];
+                        const dt = this.__parseYmd(cell ? cell.value : null);
+                        rows.push({ r, t: dt ? dt.getTime() : null, label });
+                    }
+                    if (rows.length < 2) return false;
+                    const total = rows.filter(x => x.label === 'Total');
+                    const body = rows.filter(x => x.label !== 'Total');
+                    const dated = body.filter(x => x.t != null).sort((a, b) => (a.t - b.t) || (a.r - b.r));
+                    const undated = body.filter(x => x.t == null);
+                    const order = dated.concat(undated, total).map(x => x.r);
+
+                    let already = true;
+                    for (let i = 0; i < order.length; i++) if (order[i] !== i + 1) { already = false; break; }
+                    if (already) return false;
+
+                    // Read everything BEFORE writing anything: the two orders overlap.
+                    const vals = order.map((src) => plate.wells.map((cw) => (cw && cw[src]) ? cw[src].value : null));
+                    const held = {};
+                    for (const k of Object.keys(plate.formula || {})) {
+                        const m = /^\[(\d+):(\d+)\]\[(\d+):(\d+)\]$/.exec(k);
+                        if (!m || m[1] !== m[2] || m[3] !== m[4]) continue;   // only a single cell travels
+                        held[m[1] + ':' + m[3]] = plate.formula[k];
+                        delete plate.formula[k];
+                    }
+                    for (let i = 0; i < order.length; i++) {
+                        const dst = i + 1, src = order[i];
+                        for (let c = 0; c < plate.wells.length; c++) {
+                            const w = plate.wells[c] && plate.wells[c][dst];
+                            if (!w) continue;
+                            try { w.formula = null; w.__hasFormula = false; } catch (e) { }
+                            const v = vals[i][c];
+                            try { w.setValue(v, true); } catch (e) { w.value = v; }
+                        }
+                        for (let c = 0; c < plate.wells.length; c++) {
+                            const f = held[c + ':' + src];
+                            if (f == null) continue;
+                            plate.formula['[' + c + ':' + c + '][' + dst + ':' + dst + ']'] = f;
+                            const w = plate.wells[c] && plate.wells[c][dst];
+                            if (w) { try { w.formula = ('' + f).startsWith('=') ? ('' + f) : ('=' + f); w.__hasFormula = true; } catch (e) { } }
+                        }
+                    }
+                    try { if (typeof this.setMessage === 'function') this.setMessage('Milestones re-ordered by date.', 2); } catch (e) { }
+                    return true;
+                } catch (e) { console.warn('milestone date sort', e); return false; }
+            }
+
             __msRefreshRow(plate, r, dt) {
                 // TAKEN OFF ON PURPOSE MEANS TAKEN OFF. This rebuilds the milestone table's
                 // Required_To_Date column from the timeline every time a date is edited or a
@@ -10562,7 +10632,16 @@ function (progress) {
                 // nudge, which looked like the delete had not worked at all. Clearing the
                 // formulas sets msAuto false (no underscore: a "_" key is stripped when the
                 // document is saved, and this has to survive a reload).
-                if (plate && plate.msAuto === false) return false;
+                //
+                // THE ORDER IS NOT PART OF THAT BARGAIN. Whoever owns the formulas, the rows
+                // are kept in date order, because that is what makes a formula reading the row
+                // above it mean "the milestone before this one".
+                let __sorted = false;
+                try { __sorted = this.__msSortByDate(plate); } catch (e) { }
+                if (plate && plate.msAuto === false) {
+                    if (__sorted) { clearTimeout(this.__msRecalcTimer); this.__msRecalcTimer = setTimeout(() => { try { this.updateCalculations(); } catch (e) { } }, 350); }
+                    return __sorted;
+                }
                 try {
                     const has = (h) => { for (let c = 0; c < plate.wells.length; c++) { const w = plate.wells[c] && plate.wells[c][0]; if (w && ('' + w.value).trim() === h) return true; } return false; };
                     if (has('Budget')) return this.__msRefreshCumulative(plate);
