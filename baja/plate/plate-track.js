@@ -4554,6 +4554,7 @@ function (progress) {
             }
             addPlateWithConsistentWellSize(newPlate, opts = {}) {
                 if (!newPlate || !newPlate.grid) return newPlate;
+                try { newPlate.__addedAt = Date.now(); } catch (e) { }
 
                 this.root = this.root || [];
 
@@ -21989,6 +21990,31 @@ function (progress) {
 
             async zoomtfit() {
                 this.clearActionGlyphs();
+                // HOLD BACK WHAT HAS JUST ARRIVED. Anything added since the last fit is not
+                // drawn while the camera travels: it was placed under the old zoom, so every
+                // frame of the animation would draw it at the wrong size and at great cost.
+                // The release is in a finally, and a timer backs that up -- a table that is
+                // never drawn is worse than a choppy zoom.
+                const __held = [];
+                try {
+                    for (const p of (this.root || [])) {
+                        if (p && p.__addedAt) { p.__pendingDraw = true; __held.push(p); }
+                    }
+                    if (__held.length) {
+                        clearTimeout(this.__pendingDrawTimer);
+                        this.__pendingDrawTimer = setTimeout(() => {
+                            for (const p of __held) { try { p.__pendingDraw = false; } catch (e) { } }
+                            try { this.wb(null); } catch (e) { }
+                        }, 4000);
+                    }
+                } catch (e) { }
+                const __release = () => {
+                    try { clearTimeout(this.__pendingDrawTimer); } catch (e) { }
+                    for (const p of __held) {
+                        try { p.__pendingDraw = false; p.__addedAt = 0; } catch (e) { }
+                    }
+                    try { this.wb(null); } catch (e) { }
+                };
 
                 this.pushGrid();
                 let xmin = 0;
@@ -22024,6 +22050,7 @@ function (progress) {
                     xmin == null || xmax == null || ymin == null || ymax == null ||
                     xmin === undefined || xmax === undefined || ymin === undefined || ymax === undefined
                 ) {
+                    __release();
                     return null;
                 }
 
@@ -22062,7 +22089,9 @@ function (progress) {
                     if (chromePx > 0 && this.grid.height > 0) chromeWorld = (height + 2 * marginY + 10) * chromePx / Math.max(1, this.grid.height - chromePx);
                 } catch (e) { }
 
-                await ag.animateTo(xmin - marginX, xmax + marginX, ymin - marginY - 5 - chromeWorld, ymax + marginY + 5, 50);
+                try {
+                    await ag.animateTo(xmin - marginX, xmax + marginX, ymin - marginY - 5 - chromeWorld, ymax + marginY + 5, 50);
+                } finally { __release(); }
 
             }
 
@@ -24848,6 +24877,13 @@ function (progress) {
                     }
 
                     const drawObj = (obj) => {
+                        // JUST ADDED, NOT YET FRAMED. A table arrives while the camera is still
+                        // wherever it was -- often zoomed right in -- so its cells are enormous
+                        // and drawing it costs a fortune per frame, which is what made the fit
+                        // animation stutter. It is held back until the zoom has settled and then
+                        // appears at the size it belongs at. Cleared by zoomtfit (and by a
+                        // timer, so nothing can be held for ever).
+                        if (obj && obj.__pendingDraw) return;
                         if (obj.drawPlot) {
                             obj.drawPlot(this, ctx);
                         } else if (obj.draw) {
