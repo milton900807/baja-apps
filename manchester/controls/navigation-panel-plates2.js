@@ -24,12 +24,69 @@ function (plate_graph, selectedPlate, selectedPoint) {
             if (m.__ctx === 'table') return 'table_chart';
             return 'more_horiz';
         };
+        // GO TO THE CELL A REFERENCE NAMES. When the caret in the command field sits at the
+        // end of a finished reference -- Inputs[Phase_II_Success_Rate,Value] -- the field
+        // offers this at the top of its list, and picking it brings that cell up on the
+        // canvas instead of typing anything. The tags are a set, so whichever names a ROW
+        // and whichever names a COLUMN is worked out here rather than assumed by position;
+        // with only a row the value column is used, which is the Label | Value convention.
+        const gotoReference = async (tableName, tags) => {
+            try {
+                const tb = pt.getTableByName(('' + tableName).trim());
+                if (!tb || !Array.isArray(tb.wells)) { pt.setMessage('No table named ' + tableName, 2); return; }
+                const txt = (w) => (w && w.value != null) ? ('' + w.value).trim() : '';
+                const want = (Array.isArray(tags) ? tags : [tags]).map((t) => ('' + t).trim()).filter(Boolean);
+
+                const col0 = tb.wells[0] || [];
+                let row = -1, rowTag = '';
+                for (const t of want) {
+                    for (let r = 1; r < col0.length; r++) {
+                        if (txt(col0[r]).toLowerCase() === t.toLowerCase()) { row = r; rowTag = t; break; }
+                    }
+                    if (row >= 0) break;
+                }
+                let col = -1;
+                for (const t of want) {
+                    if (t === rowTag) continue;
+                    for (let c = 1; c < tb.wells.length; c++) {
+                        if (txt(tb.wells[c] && tb.wells[c][0]).toLowerCase() === t.toLowerCase()) { col = c; break; }
+                    }
+                    if (col >= 0) break;
+                }
+                if (col < 0) col = 1;
+
+                if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
+                try { pt.wb(null); } catch (e) { }
+                for (const pl of (pt.root || [])) { try { if (pl.deselectAll) pl.deselectAll(); } catch (e) { } }
+                pt.setSelected(tb);
+                if (row >= 0) {
+                    for (let c = 0; c < tb.wells.length; c++) {
+                        const w = tb.wells[c] && tb.wells[c][row];
+                        if (w) { try { w.selectIt(); } catch (e) { w.select = true; } }
+                    }
+                }
+                if (pt.zoomToFitTable) await pt.zoomToFitTable(tb); else await pt.zoomintoplate(tb);
+                // AFTER the zoom: framing the table selects within it, and doing this first
+                // left the label cell current instead of the one the reference names.
+                if (row >= 0) {
+                    const v = tb.wells[col] && tb.wells[col][row];
+                    if (v) pt.selected_well = v;
+                }
+                pt.setMessage(row >= 0
+                    ? (tableName + ' › ' + (rowTag || 'row ' + row) + (col > 0 ? ' › ' + txt(tb.wells[col][0]) : ''))
+                    : (tableName + ': no row named ' + want.join(', ')), 2);
+            } catch (e) { console.warn('go to reference', e); }
+        };
+
         const finishMenubar = (menuItm) => {
             try {
                 const mobile = (typeof isMobile === 'function') && isMobile();
                 const data = menuItm && menuItm.data ? menuItm.data : null;
                 const menus = data && Array.isArray(data.menus) ? data.menus : null;
                 if (!menus || !menus.length) return menuItm;
+                // Every menubar this module builds goes through here, so this is the one
+                // place the field needs to be handed the way to navigate.
+                try { if (data && !data.gotoRef) data.gotoRef = createIonFunction((t, tags) => { gotoReference(t, tags); }); } catch (e) { }
                 const APP = new Set(['file', 'build', 'draw', 'share', 'main menu']);
                 const first = [], second = [];
                 for (const m of menus) {
