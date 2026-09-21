@@ -298,9 +298,19 @@ function (pt, graph) {
                 const t = liveTrack() || pt;
                 const c = t && t.__canvas__;
                 if (c && c.isConnected) { sawCanvas = true; return false; }
+                // A CANVAS STILL ON THE PAGE MEANS THE APP IS STILL HERE. __canvas__ is only
+                // refreshed when the track next DRAWS, so anything that replaces the canvas
+                // element -- saving rebuilds the panel it lives in -- leaves this pointing at
+                // the removed one until the next frame. Read that as the app closing and the
+                // bar destroys itself over a save. The page is the authority.
+                if (document.querySelector('canvas')) { sawCanvas = true; return false; }
                 return sawCanvas && !!c && !c.isConnected;
             } catch (e) { return false; }
         };
+        // ...and even then, not on one reading. A tick can land in the gap between the old
+        // canvas going and the new one arriving; the bar is only given up when it has been
+        // gone for several ticks together.
+        let goneTicks = 0;
         // A different canvas: going into or out of a folder swaps the whole canvas, and the
         // places remembered so far are views of the one that was left -- Back would fly to
         // coordinates that mean nothing here. They go, and this canvas starts its own.
@@ -314,7 +324,9 @@ function (pt, graph) {
                 // The rebuild is tested FIRST: a swapped track must be followed, not read as
                 // the app closing.
                 const lt = liveTrack();
-                if (appGone() && (!lt || lt === pt)) { nav.destroy(); return; }
+                if (appGone() && (!lt || lt === pt)) {
+                    if (++goneTicks >= 4) { nav.destroy(); return; }
+                } else { goneTicks = 0; }
                 if (lt && lt !== pt) {
                     nav.destroy();
                     exec('baja/plate/views/navigation-history.js', lt, graph).then((n) => { try { lt.__nav = n; } catch (e) { } }).catch(() => { });
