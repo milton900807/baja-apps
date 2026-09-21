@@ -867,8 +867,15 @@ HISTORY_COLOURS = {
     "other": "#9aa5ad",
 }
 # Each kind keeps its own lane, so the three strands of the story read across the axis:
-# what was understood, when it could be found, when it could be treated.
-HISTORY_LANES = {"discovery": 0.78, "diagnostic": 0.54, "therapeutic": 0.30, "other": 0.92}
+# what was understood, when it could be found, when it could be treated. Read from the
+# axis upwards in the order a disease is actually dealt with.
+HISTORY_LANE_ORDER = ["therapeutic", "diagnostic", "discovery", "other"]
+# The band the lanes are spread over, in the plot's y units (the axis is 0, the top of the
+# window is 1). It stops well short of the top because a pill is drawn ABOVE its point:
+# lanes any higher and the labels are cut off by the edge of the timeline window. Only the
+# kinds actually present get a lane, so a history of one kind sits low and readable rather
+# than being pushed up by empty lanes below it.
+HISTORY_LANE_LOW, HISTORY_LANE_HIGH = 0.14, 0.62
 
 
 def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -905,6 +912,14 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
         return None
     events.sort(key=lambda e: e[0])
 
+    # Lanes for the kinds this history actually has, spread over the band above the axis.
+    present = [k for k in HISTORY_LANE_ORDER if any(e[2] == k for e in events)]
+    if len(present) == 1:
+        lanes = {present[0]: HISTORY_LANE_LOW}
+    else:
+        step = (HISTORY_LANE_HIGH - HISTORY_LANE_LOW) / (len(present) - 1)
+        lanes = {k: HISTORY_LANE_LOW + i * step for i, k in enumerate(present)}
+
     # The axis runs from the first event to a little past the last, so the newest band is
     # not flush against the right edge.
     first, last = events[0][0], events[-1][0]
@@ -932,7 +947,7 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
             "name": label,
             "x": at,
             "startX": at,
-            "y": HISTORY_LANES[kind],
+            "y": lanes.get(kind, HISTORY_LANE_LOW),
             "color": HISTORY_COLOURS[kind],
             "start": f"{y:04d}-01-01T00:00:00",
             "end": f"{y:04d}-01-01T00:00:00",
