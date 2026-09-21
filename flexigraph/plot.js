@@ -13696,6 +13696,63 @@ function (MGrid) {
                 }
                 this.__tlTopmostPx = Infinity;
 
+                // MILESTONE LABELS SHRINK TO FIT THE PLOT. Their pills are laid out in screen
+                // pixels and stacked upwards to avoid each other, bounded only by the canvas
+                // -- so zoomed out, where the whole plot may be a couple of hundred pixels
+                // tall, they marched straight out of the top of it. The room between the axis
+                // and the top of the frame is measured here, against what the pills will need
+                // if they all have to stack, and one scale for the whole frame comes out of
+                // it. One scale, not per-label, or the same event would be set in a different
+                // size each time the view moved. Never enlarges, and never below MIN_SCALE:
+                // past that the text is not worth reading and it is better to let it clip.
+                this.__tlLabelScale = 1;
+                try {
+                    if (this.type === 'timeline') {
+                        const pts = (this.scatterData && this.scatterData.points) || [];
+                        const stones = pts.filter(p => p && p.type === 'milestone');
+                        if (stones.length) {
+                            // The plot's own height IN PIXELS. grid.height is kept in screen
+                            // pixels by the draw above (graph.screenHeight(this.h)); ymin/ymax
+                            // are the plot's own 0..1 units and mean nothing to the canvas
+                            // grid, so converting them with graph.Y gives a nonsense number.
+                            let roomPx = Number(this.grid && this.grid.height) || 0;
+                            if (!roomPx && typeof graph.screenHeight === 'function') {
+                                roomPx = Math.abs(graph.screenHeight(this.h) || 0);
+                            }
+                            // What one pill costs at full size: a line of text, its padding
+                            // and the gap that findNonOverlappingY leaves between them.
+                            // What one pill costs: its text, its padding and the gap under it.
+                            // Both the padding and the gap scale with the text, so the cost is
+                            // solved for rather than taken at full size -- at scale s a pill is
+                            // about (base*s + 1) + 2*(6s) + 6s, i.e. base*s + 18s + 1.
+                            const basePx = (fonts && fonts.size) || 12;
+                            const perLabelAtFull = basePx + 18 + 1;
+                            // Only labels close enough in time to collide end up stacked, but
+                            // the worst case is what has to fit, so all of them are counted.
+                            // Labels stack UPWARD from their own point, so what has to be fitted
+                            // is not the whole plot but the room above the HIGHEST one: a lane at
+                            // 0.62 of the height has only the top 38% to grow into. y is in the
+                            // plot's own 0..1 units, where 1 is the top.
+                            let maxY = 0;
+                            for (const st of stones) {
+                                const yv = Number(st.y);
+                                if (isFinite(yv) && yv > maxY) maxY = yv;
+                            }
+                            const span = Math.max(0.15, 1 - Math.min(maxY, 0.85));
+                            roomPx = roomPx * span;
+
+                            const neededPx = stones.length * perLabelAtFull;
+                            const MIN_SCALE = 0.42;
+                            if (roomPx > 0 && neededPx > roomPx) {
+                                // Scaling shrinks the cost almost linearly, so the scale that
+                                // fits is close to the ratio itself; a little is held back so
+                                // the topmost pill is not flush against the frame.
+                                this.__tlLabelScale = Math.max(MIN_SCALE, (roomPx * 0.92) / neededPx);
+                            }
+                        }
+                    }
+                } catch (e) { }
+
                 if (this.broken || !this.scatterData || !this.scatterData.points) {
                     ctx.fillStyle = brokenState.fill || "red";
                     ctx.fillRect(grid.xi, grid.yi, grid.width, grid.height);
@@ -14865,6 +14922,9 @@ function (MGrid) {
                                             let fs = baseFontSize;
                                             if (typeof point.fontSize === "number") fs = point.fontSize;
                                             else if (point.fontSize === "large") fs = Math.max(18, baseFontSize + 8);
+                                            // Zoomed out, everything about the pill comes off this.
+                                            const tlScale = this.__tlLabelScale || 1;
+                                            if (tlScale < 1) fs = Math.max(6, fs * tlScale);
 
                                             const font = `${fontWeight} ${fs}px ${fontFamily}`;
                                             ctx.font = font;
@@ -14872,13 +14932,15 @@ function (MGrid) {
                                             const nameWidth = ctx.measureText(point.name).width;
                                             const nameHeight = fs + 1;
                                             const paddingX = 2;
-                                            const paddingY = 6;
+                                            // The pill's own padding shrinks with its text, or the
+                                            // box stays nearly as tall however small the words get.
+                                            const paddingY = Math.max(2, 6 * tlScale);
                                             const maxWidth = 500;
                                             // A second line (the required-to-date figure, or a file name) lives
                                             // INSIDE the panel: sized for it, and as wide as the wider of the two.
                                             // It used to be painted below the panel, across the stem and the
                                             // axis, where the digits were hard to read.
-                                            const subFs = Math.max(10, Math.round(fs * 0.85));
+                                            const subFs = Math.max(tlScale < 1 ? 7 : 10, Math.round(fs * 0.85));
                                             const subFont = `${fontWeight} ${subFs}px ${fontFamily}`;
                                             let subWidth = 0;
                                             if (point.filename) { ctx.save(); ctx.font = subFont; subWidth = ctx.measureText('' + point.filename).width; ctx.restore(); }
@@ -14886,8 +14948,8 @@ function (MGrid) {
                                             // The label is a pill badge that reads as a menu, so it carries a
                                             // caret on the right and needs the room for it. The text stays
                                             // centred on the milestone by shifting left half that room.
-                                            const CARET_W = 14;
-                                            const pillPadX = Math.max(paddingX, 12);
+                                            const CARET_W = Math.max(7, 14 * tlScale);
+                                            const pillPadX = Math.max(paddingX, 12 * tlScale);
                                             const boxWidth = Math.min(Math.max(nameWidth, subWidth), maxWidth) + pillPadX * 2 + CARET_W;
 
                                             const DAY_MS = 24 * 60 * 60 * 1000;
@@ -14941,7 +15003,9 @@ function (MGrid) {
                                                 { x: nameBox.x, y, w: nameBox.w, h: boxHeight },
                                                 previousLabels,
                                                 ctx.canvas.height,
-                                                6
+                                                // The gap between stacked pills shrinks with them;
+                                                // left at 6 it was most of the height of a small one.
+                                                Math.max(2, 6 * tlScale)
                                             );
                                             const adjustedFilenameY = adjustedBoxY + paddingY + nameHeight;
                                             if (adjustedBoxY < this.__tlTopmostPx) this.__tlTopmostPx = adjustedBoxY;
