@@ -2856,6 +2856,58 @@ function (path, config) {
                 }
             })
 
+            // CTRL+S SAVES OVER THE FILE IT CAME FROM. "Save as" asks where it goes,
+            // which is the wrong question once that has been answered -- and its file
+            // browser rebuilds mainPanel on its way out, taking the canvas and the
+            // panels hanging off it with it. The quick path does neither.
+            //
+            // Where the document lives is whatever the address bar says, because that is
+            // what a save updates (?path=...); falling back to the path this session was
+            // opened with. With neither, there is nothing to save OVER, so Save as it is.
+            const currentDocPath = () => {
+                try {
+                    const q = new URLSearchParams(location.search).get('path');
+                    if (q && q.trim()) return decodeURIComponent(q.trim());
+                } catch (e) { }
+                return ('' + (path || '')).trim();
+            };
+            const quickSave = async () => {
+                // A shared document always saves to its shared path, for both people.
+                if (pm.plateTrack.__collab && pm.plateTrack.__collabDoc) {
+                    try { await pm.plateTrack.__collab.save(graph); }
+                    catch (e) { try { pm.plateTrack.setMessage('Could not save the shared document: ' + (e && e.message ? e.message : e), 1); } catch (e2) { } }
+                    return;
+                }
+                const p = currentDocPath();
+                if (!p || p === '/' || !p.split('/').pop()) { await saveAsSaveScreen(); return; }
+                try { pm.plateTrack.setMessage('Saving…', 2); } catch (e) { }
+                await exec('manchester/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path, undefined, { path: p });
+            };
+            // BOUND ONCE, BUT NEVER HOLDING THE OLD ONE. This runs again on every menubar
+            // rebuild, so binding a listener here each time would save once per rebuild;
+            // and a listener bound only the first time would keep calling the FIRST
+            // quickSave, with the graph and track that document had. The listener is
+            // attached once and reads whichever quickSave is current when the key is hit.
+            window['__bajaQuickSave'] = quickSave;
+            if (!window['__bajaQuickSaveBound']) {
+                window['__bajaQuickSaveBound'] = true;
+                window.addEventListener('keydown', (e) => {
+                    if (!(e.key === 's' || e.key === 'S') || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+                    // Wherever the caret is: Ctrl+S means save the document, and the
+                    // browser's own Save Page is never what is wanted here.
+                    e.preventDefault(); e.stopPropagation();
+                    const f = window['__bajaQuickSave'];
+                    if (typeof f === 'function') f();
+                }, true);
+            }
+
+            file_items.push({
+                label: 'Save',
+                click: async (xwc, ywc) => {
+                    await quickSave();
+                }
+            })
+
             file_items.push({
                 label: 'Save as',
                 click: async (xwc, ywc) => {

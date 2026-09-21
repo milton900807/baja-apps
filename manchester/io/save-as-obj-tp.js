@@ -1,4 +1,4 @@
-function (graph, main_layout, path, reference_object) {
+function (graph, main_layout, path, reference_object, quick) {
     return new Promise(async (resolve, reject) => {
 
         function getLastFolderFromPath(filePath) {
@@ -50,6 +50,10 @@ function (graph, main_layout, path, reference_object) {
         let comp = null;
 
         path = removeMyFilesNode(path);
+        // THE SAVE ITSELF, on its own, so Ctrl+S can use it without the file browser.
+        // It was the body of the browser's Save button, which meant the only way to write
+        // a document was to pick where it goes -- even when that had already been decided
+        // the last time it was saved.
         let currentPath = path;
 
         if (!currentPath || currentPath.trim() < 0) {
@@ -227,152 +231,7 @@ function (graph, main_layout, path, reference_object) {
                                     buttons: [{
 
                                         'label': 'Save', 'function': createIonFunction(async (button_label, input_params) => {
-                                            let name = input_params['Name'];
-                                            currentPath = comp.currentPath;
-                                            if (!currentPath) {
-                                                currentPath = '/'
-                                            }
-                                            graph.canvas = null;
-                                            graph.mouseDownListeners = []
-                                            graph.mouseUpListeners = []
-                                            graph.mouseMoveListeners = []
-                                            const seenObjects = new WeakSet();
-
-                                            for (let t of graph.track) {
-                                                for (let o of t.oligos) {
-                                                    if (o.mi_targets_transient_) {
-                                                        o.mi_targets_transient_ = null;
-                                                    }
-                                                }
-                                            }
-                                            progressBar(20)
-                                            let gs = JSON.stringify(graph, function (key, value) {
-                                                if (key != null && key.toLowerCase().startsWith('_')) {
-                                                    return null;
-                                                }
-                                                else
-                                                    if (typeof value === 'object' && value !== null) {
-                                                        if (Array.isArray(value) && value.every(elem => elem && typeof elem === 'object' && 'x' in elem && 'y' in elem)) {
-                                                            return value;
-                                                        } else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) {
-                                                            return value;
-                                                        }
-                                                        else {
-                                                            return value;
-                                                        }
-                                                    }
-                                                return value;
-                                            });
-
-                                            if (!name.endsWith('.bjb')) {
-                                                name = name + '.bjb'
-                                            }
-                                            gs.owner = getUser();
-
-                                            if (gs.track === null) {
-                                                alert(' no track ')
-                                                return;
-                                            }
-                                            hideAllModal();
-                                            progressBar(40)
-                                            let binaryData = compressString(gs)
-                                            const chunkSize = 0x8000;
-                                            let stringData = '';
-                                            for (let i = 0; i < binaryData.length; i += chunkSize) {
-                                                const chunk = binaryData.subarray(i, i + chunkSize);
-                                                stringData += String.fromCharCode.apply(null, chunk);
-                                            }
-                                            progressBar(80)
-                                            currentPath = currentPath.replace('//', '/')
-                                            let host_ = window['env']['apiUrl']
-                                            let jsonobj = {
-                                                "name": name,
-                                                "key": "user",
-                                                "user": getUser(),
-                                                "spath": currentPath,
-                                                "value": stringData
-                                            }
-
-                                            let rs = await POSTJSON(jsonobj, host_ + '/save-user-data');
-                                            // The server refuses to replace a workbook that has content with an
-                                            // empty one (a 409; the HTTP error comes back as the answer here, its
-                                            // body in .error). Say so, and do not carry on as if it had saved.
-                                            {
-                                                const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
-                                                if (body && body.refused === 'empty-overwrite') {
-                                                    progressBar(100);
-                                                    try { infoPrompt(body.error || body.msg || 'Not saved: this would replace a workbook with an empty one.'); } catch (e) { }
-                                                    return;
-                                                }
-                                            }
-
-                                            if (rs['path'].indexOf('myfiles') >= 0 && rs['path'].indexOf(getUser()) >= 0) {
-                                                rs['path'] = rs['path'].replace('/' + getUser(), '')
-                                            }
-                                            currentPath = rs['path']
-                                            currentPath = currentPath.replace('//', '/')
-                                            currentPath = replaceFirstNode(currentPath, 'myfiles')
-
-                                            if (!reference_object) {
-                                                reference_object = '/app/cpd/baja-analytics'
-                                            }
-                                            window.history.pushState({ 'yak': currentPath }, 'editor', `${reference_object}?path=${currentPath}`); progressBar(100)
-
-                                            if (rs.status === "saved") {
-                                                let returned = await GETJSON(host_ + '/validate-file?path=/' + rs['path'] + "&key=user&user=" + getUser());
-                                                let tcount = 0;
-                                                let ocount = 0;
-                                                let snpsc = 0;
-                                                let tracks = returned.track;
-                                                tcount = tracks.length;
-                                                for (let t of tracks) {
-                                                    if (t.oligos) {
-                                                        ocount += t.oligos.length;
-                                                    }
-                                                    if (t.snpindels)
-                                                        snpsc += t.snpindels.length;
-
-                                                }
-                                                infoPrompt(` Saved`)
-                                                let zoom_to = {
-                                                    wid: 'card',
-                                                    componentRef: 'bottomPanel',
-                                                    data: {
-                                                        height: '800px',
-                                                        cards: [
-                                                            [
-                                                                {
-                                                                    'title': ' ', 'body': ``
-                                                                    ,
-                                                                    'width': '90%',
-                                                                    'component':
-                                                                    {
-                                                                        wid: 'html',
-                                                                        data: '<font color=blue> Saved </font>'
-                                                                    }
-                                                                },
-                                                                {
-                                                                    'title': '',
-                                                                    'width': '100%',
-                                                                    'component': {
-                                                                        wid: 'mt-button', data: {
-                                                                            buttons: [
-                                                                                {
-                                                                                    label: 'OK', ionFunction: createIonFunction(async () => {
-                                                                                        hideAllModal();
-                                                                                    })
-                                                                                },
-                                                                            ]
-                                                                        }
-                                                                    }
-                                                                }
-                                                            ]]
-                                                    }
-                                                }
-
-                                                graph.setMessage("Saved.")
-                                            }
-
+                                            await doSave(input_params['Name'], comp.currentPath);
                                             CurrentLayout.clearComponent('mainPanel')
                                             CurrentLayout.setComponent('mainPanel', main_layout);
 
@@ -431,6 +290,177 @@ function (graph, main_layout, path, reference_object) {
                 ]
             }
         }
+
+        // QUICK SAVE (Ctrl+S): the document already knows where it lives, so there is
+        // nothing to ask. No file browser is shown, and -- the part that matters beyond
+        // the keystroke -- mainPanel is never cleared and rebuilt, which is what the
+        // browser's Save does on its way out and what takes the canvas, and anything
+        // hanging off it, with it.
+        const quickSave = async () => {
+            try {
+                const full = ('' + (quick && quick.path ? quick.path : '')).replace(/\/+$/, '');
+                const name = full.split('/').pop();
+                const dir = full.slice(0, full.length - name.length).replace(/\/$/, '') || '/';
+                if (!name) { try { graph.setMessage('Nothing to save over yet -- use Save as.', 2); } catch (e) { } return resolve(null); }
+                await doSave(name, dir);
+                return resolve(true);
+            } catch (e) {
+                console.warn('quick save', e);
+                try { graph.setMessage('Could not save: ' + (e && e.message ? e.message : e), 1); } catch (e2) { }
+                return resolve(null);
+            }
+        };
+
+        const doSave = async (name, spath) => {
+            // progressBar is handed over when ITS COMPONENT MOUNTS, and a quick save never
+            // shows the panel it lives in -- so it is simply not there. It is progress
+            // reporting; its absence is not a reason to fail a save.
+            const __bar = (v) => { try { if (typeof progressBar === 'function') progressBar(v); } catch (e) { } };
+            currentPath = spath || '/';
+            graph.canvas = null;
+            graph.mouseDownListeners = []
+            graph.mouseUpListeners = []
+            graph.mouseMoveListeners = []
+            const seenObjects = new WeakSet();
+
+            for (let t of graph.track) {
+                for (let o of t.oligos) {
+                    if (o.mi_targets_transient_) {
+                        o.mi_targets_transient_ = null;
+                    }
+                }
+            }
+            __bar(20)
+            let gs = JSON.stringify(graph, function (key, value) {
+                if (key != null && key.toLowerCase().startsWith('_')) {
+                    return null;
+                }
+                else
+                    if (typeof value === 'object' && value !== null) {
+                        if (Array.isArray(value) && value.every(elem => elem && typeof elem === 'object' && 'x' in elem && 'y' in elem)) {
+                            return value;
+                        } else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) {
+                            return value;
+                        }
+                        else {
+                            return value;
+                        }
+                    }
+                return value;
+            });
+
+            if (!name.endsWith('.bjb')) {
+                name = name + '.bjb'
+            }
+            gs.owner = getUser();
+
+            if (gs.track === null) {
+                alert(' no track ')
+                return;
+            }
+            hideAllModal();
+            __bar(40)
+            let binaryData = compressString(gs)
+            const chunkSize = 0x8000;
+            let stringData = '';
+            for (let i = 0; i < binaryData.length; i += chunkSize) {
+                const chunk = binaryData.subarray(i, i + chunkSize);
+                stringData += String.fromCharCode.apply(null, chunk);
+            }
+            __bar(80)
+            currentPath = currentPath.replace('//', '/')
+            let host_ = window['env']['apiUrl']
+            let jsonobj = {
+                "name": name,
+                "key": "user",
+                "user": getUser(),
+                "spath": currentPath,
+                "value": stringData
+            }
+
+            let rs = await POSTJSON(jsonobj, host_ + '/save-user-data');
+            // The server refuses to replace a workbook that has content with an
+            // empty one (a 409; the HTTP error comes back as the answer here, its
+            // body in .error). Say so, and do not carry on as if it had saved.
+            {
+                const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
+                if (body && body.refused === 'empty-overwrite') {
+                    __bar(100);
+                    try { infoPrompt(body.error || body.msg || 'Not saved: this would replace a workbook with an empty one.'); } catch (e) { }
+                    return;
+                }
+            }
+
+            if (rs['path'].indexOf('myfiles') >= 0 && rs['path'].indexOf(getUser()) >= 0) {
+                rs['path'] = rs['path'].replace('/' + getUser(), '')
+            }
+            currentPath = rs['path']
+            currentPath = currentPath.replace('//', '/')
+            currentPath = replaceFirstNode(currentPath, 'myfiles')
+
+            if (!reference_object) {
+                reference_object = '/app/cpd/baja-analytics'
+            }
+            window.history.pushState({ 'yak': currentPath }, 'editor', `${reference_object}?path=${currentPath}`); __bar(100)
+
+            if (rs.status === "saved") {
+                let returned = await GETJSON(host_ + '/validate-file?path=/' + rs['path'] + "&key=user&user=" + getUser());
+                let tcount = 0;
+                let ocount = 0;
+                let snpsc = 0;
+                let tracks = returned.track;
+                tcount = tracks.length;
+                for (let t of tracks) {
+                    if (t.oligos) {
+                        ocount += t.oligos.length;
+                    }
+                    if (t.snpindels)
+                        snpsc += t.snpindels.length;
+
+                }
+                infoPrompt(` Saved`)
+                let zoom_to = {
+                    wid: 'card',
+                    componentRef: 'bottomPanel',
+                    data: {
+                        height: '800px',
+                        cards: [
+                            [
+                                {
+                                    'title': ' ', 'body': ``
+                                    ,
+                                    'width': '90%',
+                                    'component':
+                                    {
+                                        wid: 'html',
+                                        data: '<font color=blue> Saved </font>'
+                                    }
+                                },
+                                {
+                                    'title': '',
+                                    'width': '100%',
+                                    'component': {
+                                        wid: 'mt-button', data: {
+                                            buttons: [
+                                                {
+                                                    label: 'OK', ionFunction: createIonFunction(async () => {
+                                                        hideAllModal();
+                                                    })
+                                                },
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]]
+                    }
+                }
+
+                graph.setMessage("Saved.")
+            }
+
+        };
+
+        if (quick && quick.path) { return await quickSave(); }
 
         CurrentLayout.clearComponent('mainPanel')
         CurrentLayout.setComponent('mainPanel', w);
