@@ -2666,43 +2666,13 @@ function (path, config) {
             // The viewer has no menubar at all: an empty menu strip stands where it would be.
             let button_canvas2 = __viewer ? { wid: 'card', data: { cards: [[]] } } : await exec('manchester/controls/navigation-panel-plates2.js', pm)
 
-            // DESKTOP: THE MENUBAR IS TWO LINES -- the tools (File, Build, Draw, Share, zoom, select,
-            // layout...) and then the text input on a line of its own. They shared one line, so
-            // every tool added took its width out of the input. The menubar is one flex toolbar
-            // (simple-menu: .left-section then .span-container), so it is allowed to wrap and the
-            // input is given the whole second line; the card layout sizes the menubar from its
-            // content, so the canvas moves down by itself. (Two stacked menubars in a card do
-            // not work: the card measures one toolbar's height, clips the second and draws the
-            // canvas over it.) Scoped by a class on <body> that goes when the app's page does,
-            // because the style outlives the app in this single-page shell. Not on a phone,
-            // where the bars are icons side by side, nor in the viewer, which has no menubar.
-            try {
-                if (!__viewer && !isMobile()) {
-                    const CLS = 'baja-menubar-two-lines';
-                    if (!document.getElementById('baja-menubar-two-lines-css')) {
-                        const st = document.createElement('style');
-                        st.id = 'baja-menubar-two-lines-css';
-                        st.textContent =
-                            'body.' + CLS + ' simple-menu mat-toolbar.white-toolbar{flex-wrap:wrap !important;height:auto !important;min-height:0 !important;max-height:none !important;flex:0 0 auto !important;align-content:flex-start;row-gap:3px;padding-top:2px;padding-bottom:5px;}'
-                            + 'body.' + CLS + ' simple-menu mat-toolbar.white-toolbar > .left-section{flex:0 0 100%;min-width:0;}'
-                            + 'body.' + CLS + ' simple-menu mat-toolbar.white-toolbar > .span-container{flex:1 0 100% !important;width:100%;height:28px !important;max-height:28px !important;box-sizing:border-box;}'
-                            // The card wrappers around a menubar are flex items with a zero basis, so
-                            // they stay one toolbar high and clip the second line. Those that hold a
-                            // menubar and NOT the canvas (the outer row holds both, and must keep
-                            // filling the window) take their height from their content instead.
-                            + 'body.' + CLS + ' :is(.card-item,.card-row,.card-container,card,card-single,simple-menu):has(simple-menu mat-toolbar.white-toolbar > .span-container):not(:has(app-canvas)){flex:0 0 auto !important;height:auto !important;min-height:0 !important;max-height:none !important;}'
-                            // The old round-button strip shares the menubar's row. It has always been
-                            // there and never seen: it wrapped under the one-line menubar and was
-                            // clipped. A row that sizes to its content would show it, so it is kept
-                            // out of sight explicitly (never the canvas, which is a sibling one level up).
-                            + 'body.' + CLS + ' .card-item:has(simple-menu mat-toolbar.white-toolbar > .span-container) ~ .card-item:not(:has(app-canvas)){display:none !important;}';
-                        document.head.appendChild(st);
-                    }
-                    document.body.classList.add(CLS);
-                    const home = location.pathname;
-                    const watch = setInterval(() => { try { if (location.pathname !== home) { document.body.classList.remove(CLS); clearInterval(watch); } } catch (e) { } }, 1000);
-                }
-            } catch (e) { console.warn('two-line menubar', e); }
+            // THE MENUBAR IS ONE LINE: the tools and the text input side by side, as the
+            // simple-menu toolbar lays them out on its own (.left-section, then
+            // .span-container taking what is left). It was given a second line to itself
+            // here for a while -- a body class that let the toolbar wrap -- and that has
+            // been taken back out on the ask. Left as a note because the reason for the
+            // change is still true: every tool added to the left takes width from the
+            // input, which shrinks to 90px before it hides itself entirely.
             buttonMenuPanel = {
                 wid: 'card',
                 componentRef: 'staticPanel',
