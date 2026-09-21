@@ -29,6 +29,13 @@ from claude_chat import Claude as OpenAI  # Claude replaces OpenAI
 MODEL = "claude-haiku-4-5"   # the fast model, always: this is a short structured plan
 
 
+# Every table this model references is a two-column Label|Value sheet. A one-tag
+# reference (Table[Row]) only resolves to a single cell while that stays true -- on a
+# wider table it returns the whole row -- so every reference below is written in the
+# unambiguous Table[row,column] form, naming the column through VALUE_COL.
+LABEL_COL, VALUE_COL = "Label", "Value"
+
+
 def _key(table: str, i: int, j: int) -> str:
     return f"{table}[{i}:{i}][{j}:{j}]"
 
@@ -184,8 +191,8 @@ def build(prompt: str) -> Dict[str, Any]:
     ms_lab = {m["name"]: m["lab"] for m in plan_ms}
     for m in plan_ms:
         rows_a.append((f"{m['lab']}_Budget", m["budget"], "USD"))
-    ms_refs_all = [f"{A}[{m['lab']}_Budget]" for m in plan_ms]
-    tables[_key(A, 0, 0)] = "Label"; tables[_key(A, 1, 0)] = "Value"
+    ms_refs_all = [f"{A}[{m['lab']}_Budget,{VALUE_COL}]" for m in plan_ms]
+    tables[_key(A, 0, 0)] = LABEL_COL; tables[_key(A, 1, 0)] = VALUE_COL
     for r, (lab, val, unit) in enumerate(rows_a, start=1):
         tables[_key(A, 0, r)] = lab
         tables[_key(A, 1, r)] = val
@@ -194,57 +201,57 @@ def build(prompt: str) -> Dict[str, Any]:
     ann[A] = "Inputs: edit any value and the budget below recalculates."
 
     # ---- income: one row per source, monthly and over the project ----
-    tables[_key(I, 0, 0)] = "Label"; tables[_key(I, 1, 0)] = "Value"
+    tables[_key(I, 0, 0)] = LABEL_COL; tables[_key(I, 1, 0)] = VALUE_COL
     r = 1
     inc_labels = []
     for lab, amt, note in inc:
         tables[_key(I, 0, r)] = f"{lab}_Per_Month"
-        formulas[_key(I, 1, r)] = f"{A}[{lab}_Per_Month]"
-        inc_labels.append(f"{I}[{lab}_Per_Month]")
+        formulas[_key(I, 1, r)] = f"{A}[{lab}_Per_Month,{VALUE_COL}]"
+        inc_labels.append(f"{I}[{lab}_Per_Month,{VALUE_COL}]")
         r += 1
     tables[_key(I, 0, r)] = "Total_Income_Per_Month"
     formulas[_key(I, 1, r)] = "+".join(inc_labels) if inc_labels else "0"
     r += 1
     tables[_key(I, 0, r)] = "Total_Income_Over_Project"
-    formulas[_key(I, 1, r)] = f"{I}[Total_Income_Per_Month]*{A}[Duration_Months]"
+    formulas[_key(I, 1, r)] = f"{I}[Total_Income_Per_Month,{VALUE_COL}]*{A}[Duration_Months,{VALUE_COL}]"
     ann[I] = "No revenue: the project is carried by donations, grants and other income."
 
     # ---- expenses: one row per category, one-offs, totals ----
-    tables[_key(E, 0, 0)] = "Label"; tables[_key(E, 1, 0)] = "Value"
+    tables[_key(E, 0, 0)] = LABEL_COL; tables[_key(E, 1, 0)] = VALUE_COL
     r = 1
     exp_labels = []
     for lab, amt, note in exp:
         tables[_key(E, 0, r)] = f"{lab}_Per_Month"
-        formulas[_key(E, 1, r)] = f"{A}[{lab}_Per_Month]"
-        exp_labels.append(f"{E}[{lab}_Per_Month]")
+        formulas[_key(E, 1, r)] = f"{A}[{lab}_Per_Month,{VALUE_COL}]"
+        exp_labels.append(f"{E}[{lab}_Per_Month,{VALUE_COL}]")
         r += 1
     tables[_key(E, 0, r)] = "Total_Expenses_Per_Month"
     formulas[_key(E, 1, r)] = "+".join(exp_labels) if exp_labels else "0"
     r += 1
     tables[_key(E, 0, r)] = "Monthly_Expenses_Over_Project"
-    formulas[_key(E, 1, r)] = f"{E}[Total_Expenses_Per_Month]*{A}[Duration_Months]"
+    formulas[_key(E, 1, r)] = f"{E}[Total_Expenses_Per_Month,{VALUE_COL}]*{A}[Duration_Months,{VALUE_COL}]"
     r += 1
     tables[_key(E, 0, r)] = "One_Time_Costs_Total"
-    formulas[_key(E, 1, r)] = f"{O}[Total_One_Time_Costs]"
+    formulas[_key(E, 1, r)] = f"{O}[Total_One_Time_Costs,{VALUE_COL}]"
     r += 1
     tables[_key(E, 0, r)] = "Milestone_Budgets_Total"
     formulas[_key(E, 1, r)] = "+".join(ms_refs_all) if ms_refs_all else "0"
     r += 1
     tables[_key(E, 0, r)] = "Total_Expenses_Over_Project"
-    formulas[_key(E, 1, r)] = f"{E}[Monthly_Expenses_Over_Project]+{E}[One_Time_Costs_Total]+{E}[Milestone_Budgets_Total]"
+    formulas[_key(E, 1, r)] = f"{E}[Monthly_Expenses_Over_Project,{VALUE_COL}]+{E}[One_Time_Costs_Total,{VALUE_COL}]+{E}[Milestone_Budgets_Total,{VALUE_COL}]"
     ann[E] = "Monthly costs by category; the one-time costs and the milestone budgets come from their own tables."
 
     # ---- one-time costs: each item with its amount and the date it falls due ----
     # Their own table, so they read as what they are: the equipment, set-up, launch and
     # close-out costs paid once, on a date, on top of the monthly categories. The amounts
     # are inputs in the Assumptions (edit them there); the dates sit beside them here.
-    tables[_key(O, 0, 0)] = "Label"; tables[_key(O, 1, 0)] = "Value"
+    tables[_key(O, 0, 0)] = LABEL_COL; tables[_key(O, 1, 0)] = VALUE_COL
     r = 1
     one_labels = []
     for lab, amt, d in one:
         tables[_key(O, 0, r)] = lab
-        formulas[_key(O, 1, r)] = f"{A}[{lab}_One_Off]"
-        one_labels.append(f"{O}[{lab}]")
+        formulas[_key(O, 1, r)] = f"{A}[{lab}_One_Off,{VALUE_COL}]"
+        one_labels.append(f"{O}[{lab},{VALUE_COL}]")
         units[O][lab] = "USD"
         r += 1
         tables[_key(O, 0, r)] = f"{lab}_Due"
@@ -257,21 +264,21 @@ def build(prompt: str) -> Dict[str, Any]:
 
     # ---- budget: the P&L of a project ----
     rows_b = [
-        ("Total_Income_Per_Month", f"{I}[Total_Income_Per_Month]"),
-        ("Total_Expenses_Per_Month", f"{E}[Total_Expenses_Per_Month]"),
-        ("Net_Per_Month", f"{B}[Total_Income_Per_Month]-{B}[Total_Expenses_Per_Month]"),
-        ("Total_Income_Over_Project", f"{I}[Total_Income_Over_Project]"),
-        ("Monthly_Expenses_Over_Project", f"{E}[Monthly_Expenses_Over_Project]"),
-        ("Total_One_Time_Costs", f"{O}[Total_One_Time_Costs]"),
-        ("Total_Milestone_Budgets", f"{E}[Milestone_Budgets_Total]"),
-        ("Total_Expenses_Over_Project", f"{E}[Total_Expenses_Over_Project]"),
-        ("Net_Over_Project", f"{B}[Total_Income_Over_Project]-{B}[Total_Expenses_Over_Project]"),
-        ("Reserve_At_End", f"{A}[Opening_Reserve]+{B}[Net_Over_Project]"),
-        ("Funding_Gap", f"{B}[Total_Expenses_Over_Project]-{B}[Total_Income_Over_Project]-{A}[Opening_Reserve]"),
-        ("Months_Of_Runway", f"({A}[Opening_Reserve]+{B}[Total_Income_Per_Month]*{A}[Duration_Months])/{B}[Total_Expenses_Per_Month]"),
-        ("Income_Covers_Costs_Pct", f"{B}[Total_Income_Per_Month]/{B}[Total_Expenses_Per_Month]"),
+        ("Total_Income_Per_Month", f"{I}[Total_Income_Per_Month,{VALUE_COL}]"),
+        ("Total_Expenses_Per_Month", f"{E}[Total_Expenses_Per_Month,{VALUE_COL}]"),
+        ("Net_Per_Month", f"{B}[Total_Income_Per_Month,{VALUE_COL}]-{B}[Total_Expenses_Per_Month,{VALUE_COL}]"),
+        ("Total_Income_Over_Project", f"{I}[Total_Income_Over_Project,{VALUE_COL}]"),
+        ("Monthly_Expenses_Over_Project", f"{E}[Monthly_Expenses_Over_Project,{VALUE_COL}]"),
+        ("Total_One_Time_Costs", f"{O}[Total_One_Time_Costs,{VALUE_COL}]"),
+        ("Total_Milestone_Budgets", f"{E}[Milestone_Budgets_Total,{VALUE_COL}]"),
+        ("Total_Expenses_Over_Project", f"{E}[Total_Expenses_Over_Project,{VALUE_COL}]"),
+        ("Net_Over_Project", f"{B}[Total_Income_Over_Project,{VALUE_COL}]-{B}[Total_Expenses_Over_Project,{VALUE_COL}]"),
+        ("Reserve_At_End", f"{A}[Opening_Reserve,{VALUE_COL}]+{B}[Net_Over_Project,{VALUE_COL}]"),
+        ("Funding_Gap", f"{B}[Total_Expenses_Over_Project,{VALUE_COL}]-{B}[Total_Income_Over_Project,{VALUE_COL}]-{A}[Opening_Reserve,{VALUE_COL}]"),
+        ("Months_Of_Runway", f"({A}[Opening_Reserve,{VALUE_COL}]+{B}[Total_Income_Per_Month,{VALUE_COL}]*{A}[Duration_Months,{VALUE_COL}])/{B}[Total_Expenses_Per_Month,{VALUE_COL}]"),
+        ("Income_Covers_Costs_Pct", f"{B}[Total_Income_Per_Month,{VALUE_COL}]/{B}[Total_Expenses_Per_Month,{VALUE_COL}]"),
     ]
-    tables[_key(B, 0, 0)] = "Label"; tables[_key(B, 1, 0)] = "Value"
+    tables[_key(B, 0, 0)] = LABEL_COL; tables[_key(B, 1, 0)] = VALUE_COL
     for r, (lab, f) in enumerate(rows_b, start=1):
         tables[_key(B, 0, r)] = lab
         formulas[_key(B, 1, r)] = f
@@ -281,9 +288,10 @@ def build(prompt: str) -> Dict[str, Any]:
     # ---- quarterly: the budget required at quarterly intervals, and cumulatively ----
     # One column per quarter of the project (a short last quarter keeps its real month
     # count) plus a project total. Every cell is a formula back to the assumptions, so a
-    # changed cost or a re-dated one-off flows through: label references read column 1
-    # of a two-column table, so the running totals are expressed straight from the inputs
-    # rather than from the quarter before.
+    # changed cost or a re-dated one-off flows through. This table is WIDE, so nothing may
+    # reference it by a row label alone; it only reads the Label|Value tables above, and
+    # the running totals are expressed straight from the inputs rather than from the
+    # quarter before.
     Q = "Project_Quarterly"
     units[Q] = {}
     nq = (months + 2) // 3
@@ -296,14 +304,14 @@ def build(prompt: str) -> Dict[str, Any]:
 
     def one_offs_between(a: datetime, b: datetime) -> List[str]:
         # dated on or after a, before b (the project's final quarter closes on its end)
-        return [f"{A}[{lab}_One_Off]" for lab, amt, d in one if a <= d < b or (b >= end and d >= a)]
+        return [f"{A}[{lab}_One_Off,{VALUE_COL}]" for lab, amt, d in one if a <= d < b or (b >= end and d >= a)]
 
     def ms_between(a: datetime, b: datetime) -> List[str]:
-        return [f"{A}[{m['lab']}_Budget]" for m in plan_ms if a <= m["date"] < b or (b >= end and m["date"] >= a)]
+        return [f"{A}[{m['lab']}_Budget,{VALUE_COL}]" for m in plan_ms if a <= m["date"] < b or (b >= end and m["date"] >= a)]
 
-    inc_pm = f"{I}[Total_Income_Per_Month]"
-    exp_pm = f"{E}[Total_Expenses_Per_Month]"
-    tables[_key(Q, 0, 0)] = "Label"
+    inc_pm = f"{I}[Total_Income_Per_Month,{VALUE_COL}]"
+    exp_pm = f"{E}[Total_Expenses_Per_Month,{VALUE_COL}]"
+    tables[_key(Q, 0, 0)] = LABEL_COL
     for c, (qlab, q_start, q_end, q_months) in enumerate(quarters, start=1):
         tables[_key(Q, c, 0)] = f"{qlab} {q_start.strftime('%b %Y')}"
     total_c = len(quarters) + 1
@@ -329,7 +337,7 @@ def build(prompt: str) -> Dict[str, Any]:
             "Budget_Required": f"{exp_pm}*{q_months}+{one_q}+{ms_q}",
             "Cumulative_Budget_Required": f"{exp_pm}*{so_far}+{one_cum}+{ms_c}",
             "Net": f"{inc_pm}*{q_months}-({exp_pm}*{q_months}+{one_q}+{ms_q})",
-            "Reserve_At_Quarter_End": f"{A}[Opening_Reserve]+{inc_pm}*{so_far}-({exp_pm}*{so_far}+{one_cum}+{ms_c})",
+            "Reserve_At_Quarter_End": f"{A}[Opening_Reserve,{VALUE_COL}]+{inc_pm}*{so_far}-({exp_pm}*{so_far}+{one_cum}+{ms_c})",
         }
 
     row_order = ["Period_Start", "Period_End", "Months", "Income", "Expenses", "One_Time_Costs", "Milestone_Budgets",
@@ -347,19 +355,19 @@ def build(prompt: str) -> Dict[str, Any]:
                 formulas[_key(Q, c, r)] = v
             else:
                 tables[_key(Q, c, r)] = v
-    all_ones = "+".join(f"{A}[{lab}_One_Off]" for lab, amt, d in one) or "0"
+    all_ones = "+".join(f"{A}[{lab}_One_Off,{VALUE_COL}]" for lab, amt, d in one) or "0"
     totals = {
         "Period_Start": start.strftime("%Y-%m-%d"),
         "Period_End": end.strftime("%Y-%m-%d"),
-        "Months": f"{A}[Duration_Months]",
-        "Income": f"{I}[Total_Income_Over_Project]",
-        "Expenses": f"{exp_pm}*{A}[Duration_Months]",
+        "Months": f"{A}[Duration_Months,{VALUE_COL}]",
+        "Income": f"{I}[Total_Income_Over_Project,{VALUE_COL}]",
+        "Expenses": f"{exp_pm}*{A}[Duration_Months,{VALUE_COL}]",
         "One_Time_Costs": all_ones,
-        "Milestone_Budgets": f"{E}[Milestone_Budgets_Total]",
-        "Budget_Required": f"{E}[Total_Expenses_Over_Project]",
-        "Cumulative_Budget_Required": f"{E}[Total_Expenses_Over_Project]",
-        "Net": f"{B}[Net_Over_Project]",
-        "Reserve_At_Quarter_End": f"{B}[Reserve_At_End]",
+        "Milestone_Budgets": f"{E}[Milestone_Budgets_Total,{VALUE_COL}]",
+        "Budget_Required": f"{E}[Total_Expenses_Over_Project,{VALUE_COL}]",
+        "Cumulative_Budget_Required": f"{E}[Total_Expenses_Over_Project,{VALUE_COL}]",
+        "Net": f"{B}[Net_Over_Project,{VALUE_COL}]",
+        "Reserve_At_Quarter_End": f"{B}[Reserve_At_End,{VALUE_COL}]",
     }
     for r, lab in enumerate(row_order, start=1):
         v = totals[lab]
@@ -398,7 +406,7 @@ def build(prompt: str) -> Dict[str, Any]:
     M = "Project_Milestones"
     units[M] = {}
     by_name = {m["name"]: m for m in plan_ms}
-    cols = ["Label", "Date", "Day", "Comment", "Budget", "Required_To_Date"]
+    cols = [LABEL_COL, "Date", "Day", "Comment", "Budget", "Required_To_Date"]
     for c, h in enumerate(cols):
         tables[_key(M, c, 0)] = h
     one_by_lab = {lab: (amt, d) for lab, amt, d in one}
@@ -416,9 +424,9 @@ def build(prompt: str) -> Dict[str, Any]:
         pt_["table"] = M
         d = m["date"]
         months_elapsed = max(0.0, (d - start).days / 30.44)
-        due = [f"{A}[{l}_One_Off]" for l, (a_, dd) in one_by_lab.items() if dd <= d]
+        due = [f"{A}[{l}_One_Off,{VALUE_COL}]" for l, (a_, dd) in one_by_lab.items() if dd <= d]
         if src is not None:
-            accumulated.append(f"{A}[{lab}_Budget]")
+            accumulated.append(f"{A}[{lab}_Budget,{VALUE_COL}]")
             comment = src["comment"]
         elif is_one:
             comment = "One-time cost falls due."
@@ -426,14 +434,14 @@ def build(prompt: str) -> Dict[str, Any]:
             comment = "Project starts."
         else:
             comment = "Project ends."
-        required = f"{E}[Total_Expenses_Per_Month]*{months_elapsed:.2f}" + ("+" + "+".join(due) if due else "") \
+        required = f"{E}[Total_Expenses_Per_Month,{VALUE_COL}]*{months_elapsed:.2f}" + ("+" + "+".join(due) if due else "") \
             + ("+" + "+".join(accumulated) if accumulated else "")
         tables[_key(M, 0, r)] = lab
         tables[_key(M, 1, r)] = d.strftime("%Y-%m-%d")
         tables[_key(M, 2, r)] = d.strftime("%a")
         tables[_key(M, 3, r)] = comment
         if src is not None:
-            formulas[_key(M, 4, r)] = f"{A}[{lab}_Budget]"
+            formulas[_key(M, 4, r)] = f"{A}[{lab}_Budget,{VALUE_COL}]"
         else:
             tables[_key(M, 4, r)] = ""
         formulas[_key(M, 5, r)] = required
