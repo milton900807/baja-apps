@@ -10059,7 +10059,7 @@ function (progress) {
                     else if (c > 0 && !Object.prototype.hasOwnProperty.call(w.group, newLabel)) { w.group[newLabel] = [new Date().toISOString().slice(0, 19).replace('T', ' ')]; }
                 }
             }
-            async __tlAddBudgetedMilestone(o) {
+            async __tlAddBudgetedMilestone(o, presetMs) {
                 if (this.__readOnly) return;
                 // The milestones table: the one this timeline's points link to, else the first
                 // table with a Date and a Required_To_Date column.
@@ -10081,11 +10081,25 @@ function (progress) {
                 if (!A) A = this.getTableByName('Milestone_Budgets') || this.getTableByName('Project_Assumptions');
                 // Ask.
                 let mid = Date.now();
-                try { const w = this.__tlWin(o); if (Number.isFinite(w.startMs) && Number.isFinite(w.endMs)) mid = (w.startMs + w.endMs) / 2; } catch (e) { }
+                // The date picked on the timeline, when the milestone was started by clicking
+                // there; the middle of the window when it was not.
+                if (Number.isFinite(presetMs)) mid = presetMs;
+                else { try { const w = this.__tlWin(o); if (Number.isFinite(w.startMs) && Number.isFinite(w.endMs)) mid = (w.startMs + w.endMs) / 2; } catch (e) { } }
+                // THE RUNNING TOTAL, OFFERED AS THE DEFAULT AND EDITABLE BEFORE IT IS SAVED.
+                // Every row past the first reads the budget on its own row and the total on
+                // the row above it, and the table is kept in date order, so "the row above"
+                // is the milestone before this one. Row 1 has no row above it: the reference
+                // drops out and it comes to its own budget, so one formula serves the column.
+                const __defFormula = '=' + M.name + '[Budget,row${i}]+' + M.name + '[Required_To_Date,row${i-1}]';
                 let va = null;
                 // Not a field called "Name": the prompt squeezes that one into an identifier
                 // (no spaces); a milestone is titled in words.
-                try { va = await prompt('Add a budgeted milestone', ['Milestone', 'Date', 'Budget', 'Comment'], { 'Milestone': '', 'Date': this.__ymd(new Date(mid)), 'Budget': '0', 'Comment': '' }, 300, 420); } catch (e) { va = null; }
+                try {
+                    va = await prompt('Add a budgeted milestone',
+                        ['Milestone', 'Date', 'Budget', 'Comment', 'Required_To_Date formula'],
+                        { 'Milestone': '', 'Date': this.__ymd(new Date(mid)), 'Budget': '0', 'Comment': '', 'Required_To_Date formula': __defFormula },
+                        300, 520);
+                } catch (e) { va = null; }
                 if (!va || va['Milestone'] == null || !('' + va['Milestone']).trim()) return;
                 const name = ('' + va['Milestone']).trim();
                 const dt = this.__parseYmd(('' + (va['Date'] || '')).trim());
@@ -10145,6 +10159,26 @@ function (progress) {
                 try { if (labelCell && labelCell.uid) point.rowUid = labelCell.uid; } catch (e) { }
                 point.__syncedDate = this.__ymd(dt);
                 o.scatterData.points.push(point);
+                // THE FORMULA GOES ON EVERY ROW PAST THE FIRST, as offered in the prompt and
+                // as the user may have edited it there. It is the table's own formula from
+                // this moment on: msAuto goes off, so the sync keeps the rows in date order
+                // and stops writing this column. A cell that already carries an iterator
+                // formula is left as it is -- the column may have been tuned row by row.
+                try {
+                    const uf = ('' + (va['Required_To_Date formula'] || '')).trim();
+                    if (uf && cReq >= 0) {
+                        const body = uf.replace(/^=/, '').trim();
+                        for (let r = 2; r < M.wells[0].length; r++) {
+                            const k = '[' + cReq + ':' + cReq + '][' + r + ':' + r + ']';
+                            const cur = M.formula ? M.formula[k] : null;
+                            if (typeof cur === 'string' && cur.indexOf('${') >= 0) continue;
+                            if (!M.formula) M.formula = {};
+                            M.formula[k] = body;
+                            try { this.addFormula(M.name + k, body); } catch (e) { }
+                        }
+                        M.msAuto = false;
+                    }
+                } catch (e) { console.warn('milestone default formula', e); }
                 // Required_To_Date for every row, then the recalculation that shows it.
                 try { this.__msRefreshRow(M, ty, dt); } catch (e) { console.warn('accumulate', e); }
                 try { this.updateCalculations(); } catch (e) { }
