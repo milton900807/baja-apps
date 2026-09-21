@@ -177,6 +177,18 @@ function (pt, graph) {
                 bar.dataset.dock = 'bottom';
             }
         };
+        // HOW DEEP INSIDE A FOLDER, read off the track that is on the canvas NOW. ptracks is
+        // one link long however deep you are (each entry holds the canvas you left), so the
+        // count comes from folderDepth where it has one -- the same pair folder-back.js
+        // reads, for the same reason.
+        const folderLevels = () => {
+            try {
+                const t = liveTrack() || pt;
+                const stack = (t && Array.isArray(t.ptracks)) ? t.ptracks.length : 0;
+                return Math.max(stack, (t && Number(t.folderDepth)) || 0);
+            } catch (e) { return 0; }
+        };
+
         const render = () => {
             dock();
             // Leaving a maximized object is the title bar's "Exit maximize" pill (and
@@ -207,6 +219,11 @@ function (pt, graph) {
                 const objs = allObjects().filter(o => !pt.__objectOnlyId || ('' + (o.uid || o.id)) === ('' + pt.__objectOnlyId));
                 const groups = [['Tables', 'Table'], ['Charts', 'Chart'], ['Timelines', 'Timeline'], ['Notes', 'Note']];
                 let any = false;
+                // INSIDE A FOLDER, THE WAY OUT COMES FIRST. The canvas you are looking at is
+                // the folder's, so nothing else in this list can take you back up.
+                const __lv = folderLevels();
+                if (__lv > 0) html += item('<span style="font-weight:600;">\u21B0 Up a folder</span>'
+                    + '<span style="color:#6b7a90;font-size:11px;white-space:nowrap;">' + __lv + ' level' + (__lv === 1 ? '' : 's') + ' in</span>', 'data-up="1"');
                 if (pt.__maximized && !pt.__objectOnly) html += item('<span style="color:#b42318;">Exit maximize</span>', 'data-exit="1"');
                 if (!pt.__objectOnly) html += item('<span style="font-weight:600;">Show all</span><span style="color:#6b7a90;font-size:11px;">zoom out to everything</span>', 'data-all="1"');
                 for (const [title, kind] of groups) {
@@ -244,6 +261,15 @@ function (pt, graph) {
                 el.onmouseleave = () => { el.style.background = 'transparent'; };
                 el.onclick = async () => {
                     if (el.hasAttribute('data-place')) { nav.index = +el.getAttribute('data-place'); await goTo(nav.history[nav.index].view); closeLists(); }
+                    else if (el.hasAttribute('data-up')) {
+                        // popFolder on the LIVE track: the one this panel was built with may
+                        // have been replaced, and popping a dead track pops nothing.
+                        const t = liveTrack() || pt;
+                        closeLists();
+                        try { if (t && t.__maximized && t.exitMaximize) t.exitMaximize(); } catch (e) { }
+                        try { await t.popFolder(); } catch (e) { console.warn('up a folder', e); }
+                        try { render(); } catch (e) { }
+                    }
                     else if (el.hasAttribute('data-exit')) { try { pt.exitMaximize(); } catch (e) { } closeLists(); }
                     else if (el.hasAttribute('data-all')) { await showAll(); }
                     else if (el.hasAttribute('data-obj')) { const id = el.getAttribute('data-obj'); const o = allObjects().find(x => ('' + (x.uid || x.id || '')) === id); if (o) open(o); }
