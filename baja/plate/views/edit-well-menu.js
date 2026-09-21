@@ -12,9 +12,17 @@ function (pt) {
             editor = p;
         })
 
-        // "Deselect cells" was the first thing this menu offered, on every well, on the
-        // canvas -- a row spent on undoing the selection you had just made. Clicking off
-        // the cells does the same thing without a menu.
+        menuList.push({
+            label: `Deselect cells`,
+            click: (scx, scy) => {
+                if (pt.selectedPlate && pt.selectedPlate.deselectAll)
+                    pt.selectedPlate.deselectAll();
+                pt.menu_vis = false;
+
+            },
+            move: () => {
+            }
+        });
 
         menuList.push({
             label: `Paste in values...`,

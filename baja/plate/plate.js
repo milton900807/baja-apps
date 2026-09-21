@@ -1233,33 +1233,58 @@ function () {
                 // visible and can be edited afterwards. Start with an operator; without one
                 // "+" is assumed, which is what "add" means when nothing says otherwise.
                 if (r.action === 'each') {
-                    let term = code.trim().replace(/^=/, '').trim();
-                    if (!term) { try { pt.setMessage('Type what to add first.', 2); } catch (e) { } return; }
-                    if (!/^[+\-*\/^]/.test(term)) term = '+' + term;
+                    const raw = code.trim();
+                    if (!raw) { try { pt.setMessage('Type what to add first.', 2); } catch (e) { } return; }
                     try { pushHistory(HM(this)); } catch (e) { }
                     let n = 0, skipped = 0;
-                    for (const x of w) {
-                        let base = null;
-                        let f = null;
-                        try { f = this.formulaTextForWell(x); } catch (e) { f = null; }
-                        if (f) base = ('' + f).replace(/^=/, '').trim();
-                        else {
-                            const v = x.value;
-                            // Nothing to add to: an empty cell or one holding a word. Left
-                            // alone and counted, rather than turned into "=+2".
-                            if (v === null || v === undefined || ('' + v).trim() === '' || isNaN(Number(v))) { skipped++; continue; }
-                            base = '' + Number(v);
+
+                    if (raw.startsWith('=')) {
+                        // A FORMULA: it is SET on each cell, one entry per cell, rather than
+                        // one entry across the selection the way Save formula does it. That
+                        // is the difference that matters for an iterator -- a formula stored
+                        // against a single cell expands ${i} over that cell's own row, so
+                        // "=T[Budget,row${i}]" reads row 3 in row 3, not the first row of a
+                        // range. Whatever the cell held before is replaced.
+                        const f = '=' + raw.replace(/^=/, '').trim();
+                        for (const x of w) {
+                            const wr = this.getWellRange([x]);
+                            try { this.formula[wr] = f; } catch (e) { }
+                            try { pt.addFormula(this.name + '' + wr, f); } catch (e) { }
+                            try { x.setValue(f); } catch (e) { }
+                            n++;
                         }
-                        const nf = '=' + base + term;
-                        const wr = this.getWellRange([x]);
-                        try { this.formula[wr] = nf; } catch (e) { }
-                        try { pt.addFormula(this.name + '' + wr, nf); } catch (e) { }
-                        try { x.setValue(nf); } catch (e) { }
-                        n++;
+                    } else {
+                        // NOT A FORMULA: the text is added to what each cell already holds.
+                        // A cell WITH a formula gets the term on the end of it; a cell with a
+                        // plain number becomes a formula built from that number, so the
+                        // arithmetic stays visible and can be edited afterwards. Start with an
+                        // operator; without one "+" is assumed, which is what "add" means when
+                        // nothing says otherwise.
+                        let term = raw;
+                        if (!/^[+\-*\/^]/.test(term)) term = '+' + term;
+                        for (const x of w) {
+                            let base = null, f = null;
+                            try { f = this.formulaTextForWell(x); } catch (e) { f = null; }
+                            if (f) base = ('' + f).replace(/^=/, '').trim();
+                            else {
+                                const v = x.value;
+                                // Nothing to add to: an empty cell or one holding a word. Left
+                                // alone and counted, rather than turned into "=+2".
+                                if (v === null || v === undefined || ('' + v).trim() === '' || isNaN(Number(v))) { skipped++; continue; }
+                                base = '' + Number(v);
+                            }
+                            const nf = '=' + base + term;
+                            const wr = this.getWellRange([x]);
+                            try { this.formula[wr] = nf; } catch (e) { }
+                            try { pt.addFormula(this.name + '' + wr, nf); } catch (e) { }
+                            try { x.setValue(nf); } catch (e) { }
+                            n++;
+                        }
                     }
+
                     try { pt.updateCalculations(); } catch (e) { }
                     try {
-                        pt.setMessage('Added to ' + n + ' cell' + (n === 1 ? '' : 's')
+                        pt.setMessage((raw.startsWith('=') ? 'Formula set on ' : 'Added to ') + n + ' cell' + (n === 1 ? '' : 's')
                             + (skipped ? ' (' + skipped + ' had nothing to add to)' : '') + '.', 2);
                     } catch (e) { }
                     return;

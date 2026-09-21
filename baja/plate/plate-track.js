@@ -24365,22 +24365,10 @@ function (progress) {
 
 
 
-                const selected_objects = this.getSelectedWells();
-                if (selected_objects.length > 0 && ___previous_selected_objects !== selected_objects.length) {
-                    ___previous_selected_objects = selected_objects.length;
-                    // Not while maximized: the "Deselect Cells" side control is left off there
-                    // (a click on the backdrop clears the selection instead).
-                    if (!this.__maximized) this.showSideMenu([
-                        {
-                            'label': 'Deselect Cells (' + selected_objects.length + ')', click: () => {
-                                setTimeout(() => {
-                                    this.showSideMenu(null);
-                                    this.deselectAll();
-                                }, 50)
-                            }
-                        }
-                    ])
-                }
+                // NO "DESELECT CELLS (n)" SIDE CONTROL. Selecting cells used to put a
+                // button at the top-left of the canvas offering to undo the selection --
+                // a control that appeared exactly when you had just done the thing it
+                // offers to take back. Clicking off the cells does the same thing.
 
 
 
