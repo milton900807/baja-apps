@@ -5286,7 +5286,9 @@ function (MGrid) {
                         // How wide it has to be to give every event room: a strip is drawn at
                         // 1400x800 and holds about 8 events comfortably.
                         const strips = Math.max(1, Math.min(12, Math.ceil(pts.length / 8)));
-                        const SW = 1400, SH = 800;
+                        // Shaped like the landscape page it lands on (712 x 532 usable),
+                        // so it fills the width without leaving a band of white under it.
+                        const SW = 1600, SH = 1195;
                         const W = SW * strips, H = SH;
 
                         const off = document.createElement('canvas');
@@ -5383,7 +5385,10 @@ function (MGrid) {
                     const pics = await __tlSlices();
 
                     const sheets = [];
-                    if (pics.length) sheets.push({ name: 'The timeline', rows: [{ Picture: (pics.length > 1 ? pics.length + ' parts, left to right' : 'the whole span') }], images: pics });
+                    // LANDSCAPE for the drawing: a timeline reads across, and the long edge
+                    // gives it 712pt instead of 532pt. The written sections go back to
+                    // portrait, which is what reading columns of text wants.
+                    if (pics.length) sheets.push({ name: 'The timeline', landscape: true, rows: [{ Picture: (pics.length > 1 ? pics.length + ' parts, left to right' : 'the whole span') }], images: pics });
                     else { try { pt.setMessage('The timeline could not be drawn; the report has the events only.', 5); } catch (e) { } }
                     if (rep && Array.isArray(rep.sections) && rep.sections.length) {
                         for (const sec of rep.sections) if (sec && Array.isArray(sec.rows)) sheets.push({ name: sec.name || 'Section', rows: sec.rows });
