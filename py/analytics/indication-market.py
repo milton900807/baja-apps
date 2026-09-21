@@ -119,6 +119,8 @@ Also build the HISTORY of the primary indication, which is what the team reads t
 - THERAPEUTIC: the first therapy approved for it by a regulator, and each later approval that changed the standard of care, with the drug's name.
 Give at most twelve events, oldest first, every one with a four-digit year and a source. Use the FDA, EMA, the regulator's own announcement or a peer-reviewed history in preference to a news summary. Spend at most two searches on this. Return an empty list rather than guessing: an invented date is worse than a short history, and a year you are unsure of belongs in the detail, not the year field.
 
+Also give the GENETICS of the primary indication: the genes it is caused by or strongly associated with, and the mutations that matter. For each gene give the HGNC symbol, the gene's full name, its role (causal, risk, modifier or protective), and -- where you can establish it -- the Ensembl canonical transcript as an ENST accession (ENST followed by eleven digits, with its version if you have it). Do not invent an ENST: leave it empty rather than guess, and never adapt one from another gene. For each gene give the mutations that are established in this disease, each with the name clinicians use (V30M, F508del, C9orf72 repeat expansion), the HGVS protein or coding change where you have it, what it does, and how common it is where that is known. Cover at most eight genes and at most eight mutations per gene, the best established first, each with a source -- ClinVar, OMIM, GeneReviews, Ensembl, HGNC or a peer-reviewed paper in preference to a news summary. Spend at most two searches on this. Return an empty list for a disease with no established genetic basis; that is an answer, not a gap.
+
 Also estimate what it costs to take one program of this approach to market, from published benchmarks for the modality and therapeutic area where they exist: the cost and duration of preclinical work, Phase I, Phase II, Phase III and regulatory review, the cost of launch, and the probability of moving from Phase I to Phase II, Phase II to Phase III, Phase III to filing, and filing to approval. Spend at most two searches on this, and put the figures in the development object with their sources. Use null for any figure you cannot support; the canvas fills gaps with clearly marked defaults.
 
 Then propose expansion indications: other conditions where the same therapeutic approach could plausibly work, which would enlarge the market. Good candidates share the target, pathway, causal genetics or affected tissue with a named indication, or follow a precedent where an approved drug with a similar mechanism expanded its label. If the user gave a target, mechanism or modality, anchor on it. If they did not, reason from shared pathophysiology and record that assumption in the approach field. Order them from most to least plausible, give the same population figures for each, and explain the link in one sentence. Leave out an indication when the only connection is that it is large; a short list the team can defend is worth more than a long one.
@@ -208,8 +210,43 @@ DEV_NUMBERS = [
 SCHEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["region", "approach", "summary", "indications", "history", "development", "competitors", "companies", "notes"],
+    "required": ["region", "approach", "summary", "indications", "history", "genetics", "development", "competitors", "companies", "notes"],
     "properties": {
+        "genetics": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["gene", "gene_name", "transcript", "role", "indication", "mutations", "source"],
+                "properties": {
+                    "gene": {"type": "string"},
+                    "gene_name": {"type": "string"},
+                    # An ENST accession, or empty. Never a guess: a wrong transcript is
+                    # worse than none, because it looks like an answer.
+                    "transcript": {"type": "string"},
+                    "role": {"type": "string", "enum": ["causal", "risk", "modifier", "protective", "other"]},
+                    "indication": {"type": "string"},
+                    "mutations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object", "additionalProperties": False,
+                            "required": ["name", "hgvs", "effect", "frequency"],
+                            "properties": {
+                                "name": {"type": "string"},
+                                "hgvs": {"type": "string"},
+                                "effect": {"type": "string"},
+                                "frequency": {"type": "string"},
+                            },
+                        },
+                    },
+                    "source": {
+                        "type": "object", "additionalProperties": False,
+                        "required": ["title", "url", "year"],
+                        "properties": {"title": {"type": "string"}, "url": {"type": "string"},
+                                       "year": {"type": "string"}},
+                    },
+                },
+            },
+        },
         "history": {
             "type": "array",
             "items": {
@@ -900,6 +937,57 @@ HISTORY_SYSTEM = (
 )
 
 
+GENETICS_SYSTEM = (
+    "You establish the GENETICS of a disease: the genes it is caused by or strongly "
+    "associated with, and the mutations that matter. For each gene give the HGNC symbol, "
+    "the gene's full name, its role (causal, risk, modifier, protective or other), and -- "
+    "where you can establish it -- the Ensembl canonical transcript as an ENST accession. "
+    "DO NOT INVENT AN ENST: leave it empty rather than guess, and never adapt one from "
+    "another gene. For each gene give the established mutations, each with the name "
+    "clinicians use (V30M, F508del, C9orf72 repeat expansion), the HGVS change where you "
+    "have it, what it does, and how common it is where that is known. At most eight genes "
+    "and eight mutations per gene, best established first, each with a source -- ClinVar, "
+    "OMIM, GeneReviews, Ensembl, HGNC or a peer-reviewed paper over a news summary. Return "
+    "an empty list for a disease with no established genetic basis; that is an answer.\n"
+    "Return ONLY JSON: {\"genetics\": [{\"gene\": \"TTR\", \"gene_name\": \"...\", "
+    "\"transcript\": \"ENST00000237014\", \"role\": \"causal\", \"indication\": \"...\", "
+    "\"mutations\": [{\"name\": \"V30M\", \"hgvs\": \"p.Val50Met\", \"effect\": \"...\", "
+    "\"frequency\": \"...\"}], \"source\": {\"title\": \"...\", \"url\": \"...\", "
+    "\"year\": \"...\"}}]}"
+)
+
+
+def research_genetics(prompt: str, findings: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """The genes and mutations, on their own, for a run stored before they were asked for."""
+    try:
+        names = [_txt(i.get("name")) for i in (findings.get("indications") or [])
+                 if isinstance(i, dict) and _txt(i.get("name"))]
+        subject = names[0] if names else prompt.strip()
+        user = ("Indication: " + subject + "\n"
+                "The question it came from: " + prompt.strip() + "\n"
+                "Today's date: " + time.strftime("%Y-%m-%d") + ".")
+        body: Dict[str, Any] = {
+            "model": MODEL,
+            "max_tokens": 8000,
+            "system": GENETICS_SYSTEM,
+            "messages": [{"role": "user", "content": user}],
+            "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": 2}],
+            "output_config": {"effort": "low"},
+        }
+        msg = _stream_message(body, lambda q: works.msg("Searching: " + q[:110]))
+        m = re.search(r"\{.*\}", _text_of(msg.get("content") or []) or "", re.S)
+        if not m:
+            return None
+        got = json.loads(m.group(0)).get("genetics")
+        if not isinstance(got, list):
+            return None
+        keep = [g for g in got if isinstance(g, dict) and _txt(g.get("gene"))]
+        return keep or None
+    except Exception as e:
+        print("indication-market: genetics top-up failed: " + str(e), file=sys.stderr)
+        return None
+
+
 def research_history(prompt: str, findings: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
     """The dated history of the indication, on its own.
 
@@ -1132,6 +1220,34 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
                              _txt(h.get("detail")), _txt(src.get("url")) or _txt(src.get("title"))])
     history_rows.sort(key=lambda r: r[0])
 
+    # THE GENETICS: one row per mutation, so the table can be read, sorted and searched
+    # like any other. A gene with no mutation on record still gets its row -- that it is
+    # implicated at all is the finding -- with the mutation columns left empty. The ENST
+    # is kept only when it LOOKS like one: a transcript adapted from another gene, or a
+    # plausible-looking invention, is worse than an empty cell because it reads as an
+    # answer and would be pasted into a design.
+    genetics_rows: List[List[Any]] = []
+    for g in (findings.get("genetics") or []):
+        if not isinstance(g, dict):
+            continue
+        sym = _txt(g.get("gene"))
+        if not sym:
+            continue
+        enst = _txt(g.get("transcript"))
+        if not re.match(r"^ENST\d{11}(\.\d+)?$", enst, re.I):
+            enst = ""
+        src = g.get("source") if isinstance(g.get("source"), dict) else {}
+        srctxt = _txt(src.get("url")) or _txt(src.get("title"))
+        muts = [m for m in (g.get("mutations") or []) if isinstance(m, dict) and _txt(m.get("name"))]
+        base = [sym, _txt(g.get("gene_name")), enst, _txt(g.get("role")) or "other",
+                _txt(g.get("indication"))]
+        if not muts:
+            genetics_rows.append(base + ["", "", "", "", srctxt])
+            continue
+        for m in muts[:8]:
+            genetics_rows.append(base + [_txt(m.get("name")), _txt(m.get("hgvs")),
+                                         _txt(m.get("effect")), _txt(m.get("frequency")), srctxt])
+
     req_total, exp_total = total(requested), total(expansion)
     both = [v for v in (req_total, exp_total) if v != ""]
     summary_rows: List[List[Any]] = [
@@ -1207,6 +1323,10 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
          "headers": ["Year", "Event", "Kind", "Detail", "Source"],
          "rows": history_rows},
         {"name": f"{prefix}_Market_Summary", "group": "Market", "headers": ["Item", "Value"], "rows": summary_rows},
+        {"name": f"{prefix}_Genetics", "group": "Genetics",
+         "headers": ["Gene", "Gene name", "Transcript (ENST)", "Role", "Indication",
+                     "Mutation", "HGVS", "Effect", "Frequency", "Source"],
+         "rows": genetics_rows},
         # EVERY TABLE CARRIES ITS GROUP. The canvas puts each group inside a folder of
         # that name, so the workbench opens with a handful of cards instead of seven loose
         # tables. The notes, the timeline and the chart are not tables and stay outside.
@@ -1452,6 +1572,16 @@ def run(prompt: Any, opts: Dict[str, Any]) -> Dict[str, Any]:
                     # and written to the run, so the next reuse already has it.
                     #
                     # A run that DOES draw a timeline is never touched.
+                    # A RUN FROM BEFORE THE GENETICS has no genes either. Same rule as the
+                    # timeline: what is missing is looked up on its own and written back, so
+                    # the next reuse has it. A run that already carries genetics is left as
+                    # it is, empty list included -- that is research that looked.
+                    if "genetics" not in prior["findings"]:
+                        works.msg("No genetics in the earlier research: looking up the genes…")
+                        genes = research_genetics(prompt, prior["findings"])
+                        prior["findings"]["genetics"] = genes or []
+                        try: store.update_findings(match_id, prior["findings"])
+                        except Exception: pass
                     if not build_history("probe", prior["findings"]):
                         works.msg("No timeline in the earlier research: looking up the history…")
                         hist = research_history(prompt, prior["findings"])
