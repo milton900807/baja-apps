@@ -9423,7 +9423,35 @@ function (progress) {
                 this.menu = new Menu(ml, this.grid.Xwc(10), this.grid.Ywc(20), 'rgba(255,255,255,0.98)', '#0a2540')
             }
 
+            /**
+             * THE CANVAS MOVED UNDER A STILL POINTER. Panning, zooming, framing a table,
+             * leaving a folder -- all of them put different content under the pointer
+             * without the pointer moving, so no mousemove is sent and the hover highlight
+             * goes on pointing at whatever WAS there: a cell button lit on a cell that has
+             * scrolled away, the wrong row under the fisheye. Re-asking the same question
+             * at the same place is all it takes, and it is the ordinary move path, so
+             * everything that follows from a hover follows from this too.
+             *
+             * Coalesced onto the next frame: a pan sends a great many of these.
+             */
+            __rehover() {
+                if (this.__ptrX == null || this.__ptrY == null) return;
+                if (this.__rehoverQueued) return;
+                this.__rehoverQueued = true;
+                const run = () => {
+                    this.__rehoverQueued = false;
+                    // Not while a gesture owns the pointer: it is mid-drag, and the drag
+                    // handlers are already being told where it is.
+                    if (this.__msDrag || this.__solidDrag || this.__solidResize || this.__docScroll || this.__docSel) return;
+                    try { this.mouseMove(this.__ptrX, this.__ptrY); } catch (e) { }
+                };
+                try { (window.requestAnimationFrame || setTimeout)(run, 0); } catch (e) { run(); }
+            }
+
             mouseMove(x, y) {
+                // Where the pointer last was, so the hover can be worked out again after the
+                // CANVAS has moved under it (see __rehover). Kept on every move, cheap.
+                this.__ptrX = x; this.__ptrY = y;
                 if (this.__msHold && Math.abs(x - this.__msHold.x) + Math.abs(y - this.__msHold.y) > 10) this.__msHoldCancel();   // a pan, not a hold
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
                 if (this.__solidDrag) { this.__solidDragMove(x, y); return; }
@@ -24759,6 +24787,20 @@ function (progress) {
                     }
                     if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     if (this.__maximized) { try { this.__drawMaximizeChrome(ctx); } catch (e) { } }
+
+                    // THE CAMERA MOVED SINCE THE LAST FRAME. Every pan, zoom, framing of a
+                    // table and change of canvas ends up here, which is why the hover is
+                    // refreshed from the draw rather than from each of the seventy-odd
+                    // places that rescale the grid. Whatever is under the pointer has
+                    // changed, so the hover is asked again at the same place.
+                    try {
+                        const g = this.grid;
+                        const key = g ? (g.xmin + ':' + g.xmax + ':' + g.ymin + ':' + g.ymax) : '';
+                        if (key !== this.__lastViewKey) {
+                            this.__lastViewKey = key;
+                            this.__rehover();
+                        }
+                    } catch (e) { }
 
                     // Maximized: the bookmark strip stays (it is how you get around from
                     // there); the rest of the workbench chrome is not painted.
