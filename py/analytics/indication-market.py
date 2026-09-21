@@ -1440,26 +1440,25 @@ def run(prompt: Any, opts: Dict[str, Any]) -> Dict[str, Any]:
                 prior = store.get_run(match_id)
                 if prior and isinstance(prior.get("findings"), dict):
                     prior_info = prior.get("info") if isinstance(prior.get("info"), dict) else {}
-                    # A RUN FROM BEFORE THE TIMELINE has no history key at all -- nothing
-                    # asked for one when it was made -- so reusing it gave tables and no
-                    # timeline. Look the history up on its own (two searches, not the whole
-                    # five-minute run), use it, and write it back so the next reuse of this
-                    # run already has it. UNLESS IT IS ALREADY THERE: a run that carries a
-                    # history, even an empty one the research deliberately returned, is left
-                    # exactly as it is.
-                    if "history" not in prior["findings"]:
-                        works.msg("Adding the indication's history to earlier research…")
+                    # NO TIMELINE MEANS SEARCH AGAIN. The test is whether a timeline can
+                    # actually be BUILT from what is stored, not whether the run happens to
+                    # carry a history key: a run from before the timeline has no key at all,
+                    # and one whose history is empty, or holds only events without a usable
+                    # year, draws nothing either. All three are an indication with no
+                    # timeline, and all three are looked up again -- the history alone, two
+                    # searches, not the whole five-minute run. What comes back is used here
+                    # and written to the run, so the next reuse already has it.
+                    #
+                    # A run that DOES draw a timeline is never touched.
+                    if not build_history("probe", prior["findings"]):
+                        works.msg("No timeline in the earlier research: looking up the history…")
                         hist = research_history(prompt, prior["findings"])
                         if hist:
                             prior["findings"]["history"] = hist
                             try: store.update_findings(match_id, prior["findings"])
                             except Exception: pass
                         else:
-                            # Remember that it was asked and answered with nothing, or every
-                            # reuse pays for the same fruitless search again.
-                            prior["findings"]["history"] = []
-                            try: store.update_findings(match_id, prior["findings"])
-                            except Exception: pass
+                            works.msg("No datable history found for this indication.")
                     result = build_tables(prior["findings"], prior.get("found") or [], prior_info, prompt)
                     if result.get("status") == "ok":
                         store.touch_hit(match_id)
