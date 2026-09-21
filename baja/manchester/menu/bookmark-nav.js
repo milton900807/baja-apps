@@ -95,13 +95,22 @@ function (graph, layout) {
         document.body.appendChild(panel);
         applyCollapsed();
 
-        // LEAVE WITH THE EDITOR. The panel is fixed to the viewport and hung off <body>, so
-        // it outlived the screen it belongs to: go to the home menu, the genome viewer or
-        // another design and the bookmarks of the last one stayed in the corner, naming
-        // views that no longer existed. So it watches the graph's own canvas -- the one
-        // element that IS the editor -- and takes itself down the moment that canvas leaves
-        // the document, or has been hidden for two consecutive checks (a single check would
-        // also catch a modal that briefly hides the canvas and then puts it back).
+        // LEAVE WITH THE EDITOR, AND ONLY WITH IT. The panel is fixed to the viewport and
+        // hung off <body>, so it outlived the screen it belongs to: go to the home menu,
+        // the genome viewer or another design and the bookmarks of the last one stayed in
+        // the corner, naming views that no longer existed.
+        //
+        // It used to also take itself down when the canvas was merely HIDDEN for two
+        // checks, and those checks were driven by a MutationObserver on the whole of
+        // <body> as well as by the timer -- so two DOM mutations while a dialog covered
+        // the canvas were enough to close it within milliseconds, and it never came back.
+        // That is why it kept disappearing: anything that puts a panel over the editor
+        // (a picker, a download, a maximized object) looked like leaving.
+        //
+        // Now it goes only when the editor is really gone: the route changed, or the
+        // canvas has been OUT OF THE DOCUMENT for two consecutive ticks of the timer --
+        // a gap wide enough to sit out the editor rebuilding its own canvas. Being
+        // covered up or hidden is not leaving, so it stays.
         const hostEl = () => {
             try {
                 const c = graph && graph.canvas;
@@ -112,35 +121,30 @@ function (graph, layout) {
             } catch (e) { }
             return null;
         };
-        const shown = (el) => {
-            try { return !!(el && el.isConnected && (el.offsetWidth || el.offsetHeight || el.getClientRects().length)); }
-            catch (e) { return true; }
-        };
-        let watchTimer = 0, observer = null, hiddenTicks = 0;
+        const home = (() => { try { return location.pathname; } catch (e) { return ''; } })();
+        let watchTimer = 0, goneTicks = 0;
         const stopWatch = () => {
             if (watchTimer) { clearInterval(watchTimer); watchTimer = 0; }
-            try { if (observer) observer.disconnect(); } catch (e) { }
-            observer = null;
-            try { window.removeEventListener('popstate', check); window.removeEventListener('hashchange', check); } catch (e) { }
+            try { window.removeEventListener('popstate', routeCheck); window.removeEventListener('hashchange', routeCheck); } catch (e) { }
         };
         const close = () => {
             stopWatch();
             try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
         };
+        // Only the timer counts the canvas out, so a burst of DOM changes cannot rush it.
         const check = () => {
             if (!panel.isConnected) { stopWatch(); return; }
+            try { if (home && location.pathname !== home) { close(); return; } } catch (e) { }
             const h = hostEl();
-            if (!h) return;                          // no canvas to judge by: leave it to ✕
-            if (!h.isConnected) { close(); return; }  // the editor is gone
-            if (shown(h)) { hiddenTicks = 0; return; }
-            if (++hiddenTicks >= 2) close();
+            if (!h) { goneTicks = 0; return; }        // no canvas to judge by: leave it to ✕
+            if (h.isConnected) { goneTicks = 0; return; }
+            if (++goneTicks >= 2) close();            // out of the document, not just hidden
         };
+        const routeCheck = () => { try { if (home && location.pathname !== home) close(); } catch (e) { } };
         try {
             watchTimer = setInterval(check, 800);
-            observer = new MutationObserver(() => { try { check(); } catch (e) { } });
-            observer.observe(document.body, { childList: true, subtree: true });
-            window.addEventListener('popstate', check);
-            window.addEventListener('hashchange', check);
+            window.addEventListener('popstate', routeCheck);
+            window.addEventListener('hashchange', routeCheck);
         } catch (e) { }
 
         header.querySelector('#bn-min').onclick = () => { collapsed = !collapsed; applyCollapsed(); };

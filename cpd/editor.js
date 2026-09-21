@@ -4880,6 +4880,17 @@ function (path, config) {
                 CurrentLayout.stash('graph-canvas', graph.graph.canvas)
                 CurrentLayout.stash('plate-track', pm)
                 CurrentLayout.stash('graph', graph)
+                // THE WAY BACK OUT OF A FOLDER. Opening one swaps the whole canvas for the
+                // one inside it and pushes what was left onto pt.ptracks. Analytics has had
+                // this button since folders arrived; here there was nothing, so a folder
+                // opened on this screen was a one-way door. The pill shows itself only while
+                // there is a canvas to go back to, names the folder, and knows to put a
+                // maximized object down before it leaves.
+                try {
+                    exec('baja/plate/views/folder-back.js', pm.plateTrack, graph)
+                        .then((fb) => { try { pm.plateTrack.__folderBack = fb; } catch (e) { } })
+                        .catch((e) => console.warn('folder back', e));
+                } catch (e) { console.warn('folder back', e); }
             }, 1000)
         })
 
