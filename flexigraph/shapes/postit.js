@@ -193,6 +193,8 @@ function () {
                 const noteWidth = graph.screenWidth(this.w);
                 const noteHeight = graph.screenHeight(this.h);
                 if (noteWidth < 40 || noteHeight < 40) return false;
+                // Nothing with a non-finite box can be under the pointer (see draw).
+                if (![centerX, centerY, noteWidth, noteHeight].every(Number.isFinite)) return false;
 
                 const x = -noteWidth / 2;
                 const y = -noteHeight / 2;
@@ -271,6 +273,19 @@ function () {
                 if (noteWidth < 40 || noteHeight < 40) return;
 
                 const peelSize = graph.screenHeight(this.h / 3);
+                // A NOTE WITH NO REAL GEOMETRY. The size check above is a COMPARISON, and
+                // every comparison against NaN is false -- so a note whose x, y, w or h had
+                // become NaN sailed past it and reached createLinearGradient, which rejects
+                // a non-finite value and threw on EVERY frame, filling the console and
+                // taking the rest of the canvas's draw down with it.
+                if (![centerX, centerY, noteWidth, noteHeight, peelSize].every(Number.isFinite)) {
+                    if (!this.__badGeomWarned) {
+                        this.__badGeomWarned = true;
+                        console.warn('note not drawn: its position or size is not a number',
+                            { name: this.name || this.comment || '(unnamed)', x: this.x, y: this.y, w: this.w, h: this.h });
+                    }
+                    return;
+                }
 
                 ctx.save();
                 ctx.translate(centerX, centerY);

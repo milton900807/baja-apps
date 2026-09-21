@@ -216,6 +216,21 @@ function () {
 
                 const noteWidth = graph.screenWidth(this.w);
                 const noteHeight = graph.screenHeight(this.h);
+                // A NOTE WITH NO REAL GEOMETRY IS NOT DRAWN. The size check below is a
+                // COMPARISON, and every comparison against NaN is false -- so a note whose
+                // x, y, w or h had become NaN (a collab update or a load that left one
+                // unset) sailed past it and reached createLinearGradient, which rejects a
+                // non-finite value and threw on EVERY frame, filling the console and taking
+                // the rest of the canvas's draw down with it.
+                if (![xStart, yStart, noteWidth, noteHeight].every(Number.isFinite)) {
+                    if (!this.__badGeomWarned) {
+                        this.__badGeomWarned = true;
+                        console.warn('note skipped: its position or size is not a number',
+                            { name: this.name || this.comment || '(unnamed)', x: this.x, y: this.y, w: this.w, h: this.h });
+                    }
+                    return;
+                }
+
 
                 if (noteWidth < 40 || noteHeight < 40) {
                     return;
