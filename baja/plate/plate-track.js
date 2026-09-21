@@ -1437,14 +1437,15 @@ function (progress) {
                     const parts = match[1].split(",").map(p => p.trim());
 
                     for (const part of parts) {
-                        if (/^col(?:\$\{i\}|\d+)?$/i.test(part)) return "col";
-                        if (/^row(?:\$\{i\}|\d+)?$/i.test(part)) return "row";
+                        // ${i}, ${i-1}, {i+2}, 3 -- any of them names the iterator.
+                        if (/^col(?:\$?\{[^{}]*\}|\d+)?$/i.test(part)) return "col";
+                        if (/^row(?:\$?\{[^{}]*\}|\d+)?$/i.test(part)) return "row";
                     }
                 }
 
                 // Fallback for formulas containing bare iterator words elsewhere
-                if (/\bcol\b|\bcol\$\{i\}/i.test(formula)) return "col";
-                if (/\brow\b|\brow\$\{i\}/i.test(formula)) return "row";
+                if (/\bcol\b|\bcol\$?\{/i.test(formula)) return "col";
+                if (/\brow\b|\brow\$?\{/i.test(formula)) return "row";
 
                 return "row";
             }
@@ -1452,18 +1453,65 @@ function (progress) {
             function replaceStandaloneIterator(formula, iterator) {
                 if (typeof formula !== "string") return formula;
 
+                // A BARE row/col becomes row${i}; one that ALREADY carries an index
+                // expression must be left exactly as it is. The lookahead used to spell out
+                // "${i}", so "row${i-1}" did not match it and was rewritten to
+                // "row${i}${i-1}" -- which names no row at all.
                 if (iterator === "col") {
                     return formula.replace(
-                        /\bcol\b(?!\$\{i\})(?![a-zA-Z0-9_])/g,
+                        /\bcol\b(?!\s*\$?\{)(?![a-zA-Z0-9_])/g,
                         "col${i}"
                     );
                 }
 
                 return formula.replace(
-                    /\brow\b(?!\$\{i\})(?![a-zA-Z0-9_])/g,
+                    /\brow\b(?!\s*\$?\{)(?![a-zA-Z0-9_])/g,
                     "row${i}"
                 );
             }
+
+            // WHAT GOES INSIDE ${...} IS AN EXPRESSION, not just the letter. ${i} is this
+            // row, ${i-1} the one above it, ${i+1} the one below -- which is what a running
+            // total needs: each row reads the total of the row before. Only arithmetic on
+            // i/y is evaluated; anything else is left in the text untouched, so a formula
+            // that happens to contain a brace is not disturbed. The "$" is optional because
+            // "{i}" is the easier thing to type and reads the same.
+            const ITER_SAFE = /^[iy0-9+\-*/%().\s]+$/;
+            // THE ROW BEFORE THE FIRST ROW CONTRIBUTES NOTHING. row0 is the header, which
+            // carries no row tag, so "Required,row0" matches no cell and the whole
+            // expression comes out empty -- and because the second row reads the first,
+            // one unmatched reference emptied the entire column. A running total has to
+            // start somewhere: a ROW index below 1 makes its own reference a plain 0.
+            // Only rows. col0 is the label column, a real column with real tags.
+            const OOR = " oor ";
+            const substituteIterator = (formula, i) =>
+                ('' + formula).replace(/\$?\{([^{}]*)\}/g, (whole, expr, offset, str) => {
+                    const e = ('' + expr).trim();
+                    if (!e || !ITER_SAFE.test(e) || !/[iy]/.test(e)) return whole;
+                    let v;
+                    try { v = Function("i", "y", "return (" + e + ");")(i, i); }
+                    catch (err) { return whole; }
+                    if (!Number.isFinite(v)) return whole;
+                    const isRow = /row$/i.test(('' + str).slice(0, offset));
+                    if (isRow && v < 1) return OOR;
+                    return String(v);
+                });
+            // The reference that named a row above the first drops out ALONG WITH THE
+            // OPERATOR that binds it: "A + <no such row>" is "A". Substituting a literal 0
+            // reads better but does not work -- the evaluator answers null for "A+0" while
+            // it answers 11 for "A+1", so a zero term takes the whole formula with it.
+            // Dropping the operator gives each one its identity anyway: nothing added,
+            // nothing subtracted, nothing scaled.
+            const OOR_TOKEN = "[A-Za-z_][\\w.-]*\\s*\\[[^\\]]*\\u0000oor\\u0000[^\\]]*\\]";
+            const dropOutOfRange = (s) => {
+                if (s.indexOf(OOR) < 0) return s;
+                let out = s
+                    .replace(new RegExp("[+\\-*/]\\s*" + OOR_TOKEN, "g"), "")
+                    .replace(new RegExp(OOR_TOKEN + "\\s*[+\\-*/]", "g"), "");
+                // Standing entirely on its own there is no operator to take it away with.
+                out = out.replace(new RegExp(OOR_TOKEN, "g"), "0");
+                return out.split(OOR).join("");
+            };
 
             const iterator = deriveIterator(funcString);
             funcString = replaceStandaloneIterator(funcString, iterator);
@@ -1472,9 +1520,7 @@ function (progress) {
             const cappedEndIndex = Math.min(endIndex, startIndex + MAX_EXPRESSIONS - 1);
 
             for (let i = startIndex; i <= cappedEndIndex; i++) {
-                let updatedString = funcString
-                    .replace(/\$\{i\}/g, String(i))
-                    .replace(/\$\{y\}/g, String(i));
+                let updatedString = dropOutOfRange(substituteIterator(funcString, i));
 
                 updatedString = updatedString.replace(
                     /\[(\s*\d+\s*)\]/g,
