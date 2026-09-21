@@ -10556,6 +10556,13 @@ function (progress) {
                 } catch (e) { return null; }
             }
             __msRefreshRow(plate, r, dt) {
+                // TAKEN OFF ON PURPOSE MEANS TAKEN OFF. This rebuilds the milestone table's
+                // Required_To_Date column from the timeline every time a date is edited or a
+                // point is moved -- so a formula deleted here came straight back on the next
+                // nudge, which looked like the delete had not worked at all. Clearing the
+                // formulas sets msAuto false (no underscore: a "_" key is stripped when the
+                // document is saved, and this has to survive a reload).
+                if (plate && plate.msAuto === false) return false;
                 try {
                     const has = (h) => { for (let c = 0; c < plate.wells.length; c++) { const w = plate.wells[c] && plate.wells[c][0]; if (w && ('' + w.value).trim() === h) return true; } return false; };
                     if (has('Budget')) return this.__msRefreshCumulative(plate);

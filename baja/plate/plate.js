@@ -1129,6 +1129,12 @@ function () {
                     }
                 }
                 for (const w of ws) { try { w.formula = null; w.__hasFormula = false; } catch (e) { } }
+                // The milestone sync (plate-track's __msRefreshRow) rebuilds a milestone
+                // table's Required_To_Date column whenever a date moves or a point is
+                // dragged. Having just been asked to take the formulas off, say so -- or the
+                // next nudge of the timeline puts them straight back, which reads as the
+                // delete not having worked. No underscore: a "_" key is stripped on save.
+                try { this.msAuto = false; } catch (e) { }
                 return cleared || ws.length;
             }
 
