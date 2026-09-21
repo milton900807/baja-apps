@@ -5275,14 +5275,135 @@ function (MGrid) {
                     for (const r of rows) delete r.__sort;
                     return rows;
                 };
+                // THE TIMELINE AS A PICTURE, cut into pieces that stay READABLE. The plot is
+                // rendered wide -- as wide as it needs to be for its span -- and then sliced
+                // across into page-shaped strips, because /export-table scales a picture down
+                // to fit one page and a long timeline scaled to 532pt has labels nobody can
+                // read. Several pages of legible timeline beat one page of grey smear.
+                const __tlSlices = async () => {
+                    try {
+                        const pts = (this.scatterData && this.scatterData.points) || [];
+                        // How wide it has to be to give every event room: a strip is drawn at
+                        // 1400x800 and holds about 8 events comfortably.
+                        const strips = Math.max(1, Math.min(12, Math.ceil(pts.length / 8)));
+                        const SW = 1400, SH = 800;
+                        const W = SW * strips, H = SH;
+
+                        const off = document.createElement('canvas');
+                        off.width = W; off.height = H;
+                        const ctx = off.getContext('2d');
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, W, H);
+
+                        // Draw through the plot's own renderer on a cloned grid, exactly as
+                        // toPNG does, so what comes out is the timeline and not a screenshot.
+                        const keepHL = this.highlight;
+                        MGrid.GP = true;
+                        const ng = this.grid.clone();
+                        // A small left margin, not a wide one: the drawing should START at the
+                        // left of the page, and every pixel of padding here is padding the PDF
+                        // then shows before the timeline begins.
+                        ng.width = W - 48; ng.height = H - 120;
+                        ng.xi = 16; ng.yi = 60;
+                        ng.rescale();
+                        this.highlight = false;
+                        try { this.drawPlot(pt, ctx, ng, true); } finally { MGrid.GP = false; this.highlight = keepHL; }
+
+                        // NOTHING DRAWN, NOTHING TO SEND. A plot that renders blank -- no grid
+                        // to draw against yet -- would otherwise go into the report as white
+                        // pages. Checked on a small copy of the whole canvas rather than by
+                        // reading back 11 megapixels.
+                        try {
+                            const tiny = document.createElement('canvas');
+                            tiny.width = 200; tiny.height = 120;
+                            const tx = tiny.getContext('2d');
+                            tx.fillStyle = '#ffffff'; tx.fillRect(0, 0, 200, 120);
+                            tx.drawImage(off, 0, 0, W, H, 0, 0, 200, 120);
+                            const d = tx.getImageData(0, 0, 200, 120).data;
+                            let ink = false;
+                            for (let i = 0; i < d.length; i += 4) {
+                                if (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245) { ink = true; break; }
+                            }
+                            if (!ink) { console.warn('timeline picture: nothing was drawn'); return []; }
+                        } catch (e) { }
+
+                        // WHERE THE DRAWING ACTUALLY STARTS. The plot lays itself out with its
+                        // own padding on top of the margin above, so the first strip began with
+                        // a band of white and the timeline looked indented on the page. Find
+                        // the first column carrying any ink and cut from there. Only the first
+                        // 240 columns are read: that is where a left margin can be, and reading
+                        // the whole canvas back is slow enough to be felt.
+                        let x0 = 0;
+                        try {
+                            const probe = ctx.getImageData(0, 0, Math.min(240, W), H).data;
+                            const pw = Math.min(240, W);
+                            scan: for (let x = 0; x < pw; x++) {
+                                for (let y = 0; y < H; y++) {
+                                    const o = (y * pw + x) * 4;
+                                    // anything that is not the white we filled with
+                                    if (probe[o] < 245 || probe[o + 1] < 245 || probe[o + 2] < 245) { x0 = Math.max(0, x - 8); break scan; }
+                                }
+                            }
+                        } catch (e) { x0 = 0; }
+
+                        const out = [];
+                        for (let i = 0; i < strips; i++) {
+                            const c = document.createElement('canvas');
+                            c.width = SW; c.height = SH;
+                            const cx = c.getContext('2d');
+                            cx.fillStyle = '#ffffff';
+                            cx.fillRect(0, 0, SW, SH);
+                            cx.drawImage(off, x0 + i * SW, 0, SW, SH, 0, 0, SW, SH);
+                            out.push({
+                                png_b64: c.toDataURL('image/png').replace(/^data:image\/png;base64,/, ''),
+                                title: strips > 1 ? ((this.name || 'Timeline') + ' — part ' + (i + 1) + ' of ' + strips) : (this.name || 'Timeline')
+                            });
+                        }
+                        return out;
+                    } catch (e) { console.warn('timeline picture', e); return []; }
+                };
+
+                // The formatted report: Claude groups the events into phases and writes the
+                // summary, the browser draws the timeline, and /export-table puts the two
+                // together. If the write-up fails the report still goes -- the events ARE the
+                // report, the prose is commentary, and losing it is no reason to lose the
+                // download.
+                const __tlReport = async () => {
+                    const rows = __tlRows();
+                    if (!rows.length) { try { pt.setMessage('There are no events on this timeline to report.', 4); } catch (e) { } return; }
+                    const base = (('' + (this.name || 'timeline')).replace(/[^A-Za-z0-9_\- .]+/g, '_').replace(/\s+/g, '_')) || 'timeline';
+                    try { pt.setMessage('Writing up the timeline…', 30); } catch (e) { }
+                    let rep = null;
+                    try {
+                        rep = await exec('py/analytics/timeline-report.py', JSON.stringify({ name: this.name || 'Timeline', events: rows }));
+                        if (typeof rep === 'string') rep = JSON.parse(rep);
+                    } catch (e) { console.warn('timeline write-up', e); rep = null; }
+
+                    try { pt.setMessage('Drawing the timeline…', 30); } catch (e) { }
+                    const pics = await __tlSlices();
+
+                    const sheets = [];
+                    if (pics.length) sheets.push({ name: 'The timeline', rows: [{ Picture: (pics.length > 1 ? pics.length + ' parts, left to right' : 'the whole span') }], images: pics });
+                    else { try { pt.setMessage('The timeline could not be drawn; the report has the events only.', 5); } catch (e) { } }
+                    if (rep && Array.isArray(rep.sections) && rep.sections.length) {
+                        for (const sec of rep.sections) if (sec && Array.isArray(sec.rows)) sheets.push({ name: sec.name || 'Section', rows: sec.rows });
+                    } else {
+                        sheets.push({ name: 'Events', rows: rows });
+                    }
+                    await __tlPost('pdf', base + '_report', (rep && rep.title) || ((this.name || 'Timeline') + ' — ' + rows.length + ' event' + (rows.length === 1 ? '' : 's')), sheets);
+                };
+
                 const __tlExport = async (fmt) => {
                     const rows = __tlRows();
                     if (!rows.length) { try { pt.setMessage('There are no events on this timeline to export.', 4); } catch (e) { } return; }
                     const base = (('' + (this.name || 'timeline')).replace(/[^A-Za-z0-9_\- .]+/g, '_').replace(/\s+/g, '_')) || 'timeline';
                     try { pt.setMessage('Building the ' + fmt.toUpperCase() + '…', 4); } catch (e) { }
+                    await __tlPost(fmt, base, (this.name || 'Timeline') + ' — ' + rows.length + ' event' + (rows.length === 1 ? '' : 's'), [{ name: 'Timeline', rows: rows }]);
+                };
+                const __tlPost = async (fmt, base, title, sheets) => {
                     try {
                         const host = window['env']['apiUrl'];
-                        const r = await POSTJSON({ format: fmt, filename: base, title: (this.name || 'Timeline') + ' — ' + rows.length + ' event' + (rows.length === 1 ? '' : 's'), sheets: [{ name: 'Timeline', rows: rows }] }, host + '/export-table');
+                        const r = await POSTJSON({ format: fmt, filename: base, title: title, sheets: sheets }, host + '/export-table');
                         const body = (r && r.error && typeof r.error === 'object') ? r.error : r;
                         if (!body || !body.b64) { try { pt.setMessage('Could not build the ' + fmt.toUpperCase() + ': ' + ((body && (body.error || body.message)) || 'server error'), 8); } catch (e) { } return; }
                         const bin = atob(body.b64);
@@ -5301,7 +5422,8 @@ function (MGrid) {
                 menuList.push(
                     { label: `Download PNG`, __date: '', click: async () => { try { await this.toPNG(pt); } catch (e) { try { pt.setMessage('Could not render the PNG: ' + (e && e.message || e), 8); } catch (e2) { } } }, move: () => { } },
                     { label: `Download PDF`, __date: '', click: async () => { await __tlExport('pdf'); }, move: () => { } },
-                    { label: `Download XLSX`, __date: '', click: async () => { await __tlExport('xlsx'); }, move: () => { } }
+                    { label: `Download XLSX`, __date: '', click: async () => { await __tlExport('xlsx'); }, move: () => { } },
+                    { label: `Download timeline report`, __date: '', click: async () => { await __tlReport(); }, move: () => { } }
                 );
                 menuList.push(
                     {
@@ -9374,7 +9496,8 @@ function (MGrid) {
                 const __download = __pick(
                     ['Download PNG', 'Picture (PNG)'],
                     ['Download PDF', 'Events as a PDF'],
-                    ['Download XLSX', 'Events as a spreadsheet (XLSX)']
+                    ['Download XLSX', 'Events as a spreadsheet (XLSX)'],
+                    ['Download timeline report', 'Report: the drawing and the events (PDF)']
                 );
                 const __share = __pick(
                     ['Save plot', 'Save…'],
