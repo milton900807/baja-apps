@@ -113,6 +113,12 @@ Then find the COMPETITION, which is what a market sizing is read against:
 - The companies active in this field: who they are, what they have in it, and what is distinctive about their position. Include the owners of the assets above and any company whose declared programmes target the same pathway or patient group.
 Spend at most three searches on this between them, and prefer regulator approvals, company pipelines and trial registries over news summaries. Use an empty list when a field genuinely has no competition on record.
 
+Also build the HISTORY of the primary indication, which is what the team reads the forecast against: how long the disease has been understood, how long it has been diagnosable, and how long anything has been available to treat it. Find the dated events that matter, each with a year:
+- DISCOVERY: when the disease was first described, and when its cause was established -- the gene, the pathogen, the mechanism -- as separate events where they differ.
+- DIAGNOSTIC: the first test cleared or approved by a regulator to diagnose or screen for it, and later ones that changed practice (a genetic test, an imaging standard, newborn screening).
+- THERAPEUTIC: the first therapy approved for it by a regulator, and each later approval that changed the standard of care, with the drug's name.
+Give at most twelve events, oldest first, every one with a four-digit year and a source. Use the FDA, EMA, the regulator's own announcement or a peer-reviewed history in preference to a news summary. Spend at most two searches on this. Return an empty list rather than guessing: an invented date is worse than a short history, and a year you are unsure of belongs in the detail, not the year field.
+
 Also estimate what it costs to take one program of this approach to market, from published benchmarks for the modality and therapeutic area where they exist: the cost and duration of preclinical work, Phase I, Phase II, Phase III and regulatory review, the cost of launch, and the probability of moving from Phase I to Phase II, Phase II to Phase III, Phase III to filing, and filing to approval. Spend at most two searches on this, and put the figures in the development object with their sources. Use null for any figure you cannot support; the canvas fills gaps with clearly marked defaults.
 
 Then propose expansion indications: other conditions where the same therapeutic approach could plausibly work, which would enlarge the market. Good candidates share the target, pathway, causal genetics or affected tissue with a named indication, or follow a precedent where an approved drug with a similar mechanism expanded its label. If the user gave a target, mechanism or modality, anchor on it. If they did not, reason from shared pathophysiology and record that assumption in the approach field. Order them from most to least plausible, give the same population figures for each, and explain the link in one sentence. Leave out an indication when the only connection is that it is large; a short list the team can defend is worth more than a long one.
@@ -149,6 +155,15 @@ Finish your reply with exactly one fenced ```json block, and keep any text befor
       "annual_price_usd": number or null,
       "price_basis": "one sentence: the comparator drug and how the price was annualised",
       "sources": [ { "figure": "which figure this supports", "title": "source title", "url": "https://...", "year": "publication or data year" } ]
+    }
+  ],
+  "history": [
+    {
+      "event": "what happened, in a few words",
+      "year": 4-digit year as a number,
+      "kind": "discovery", "diagnostic", "therapeutic" or "other",
+      "detail": "one sentence, including any uncertainty about the date",
+      "source": { "title": "source title", "url": "https://...", "year": "publication year" }
     }
   ],
   "development": {
@@ -193,8 +208,27 @@ DEV_NUMBERS = [
 SCHEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["region", "approach", "summary", "indications", "development", "competitors", "companies", "notes"],
+    "required": ["region", "approach", "summary", "indications", "history", "development", "competitors", "companies", "notes"],
     "properties": {
+        "history": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["event", "year", "kind", "detail", "source"],
+                "properties": {
+                    "event": {"type": "string"},
+                    "year": {"type": ["number", "null"]},
+                    "kind": {"type": "string", "enum": ["discovery", "diagnostic", "therapeutic", "other"]},
+                    "detail": {"type": "string"},
+                    "source": {
+                        "type": "object", "additionalProperties": False,
+                        "required": ["title", "url", "year"],
+                        "properties": {"title": {"type": "string"}, "url": {"type": "string"},
+                                       "year": {"type": "string"}},
+                    },
+                },
+            },
+        },
         "development": {
             "type": "object",
             "additionalProperties": False,
@@ -825,6 +859,101 @@ def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict
             "diagnostics": "NO_ISSUES_DETECTED", "names": [I, S, C, M]}
 
 
+# The colour a band takes on the canvas, by what kind of event it is.
+HISTORY_COLOURS = {
+    "discovery": "#6f7dbc",      # understanding the disease
+    "diagnostic": "#2f8f9d",     # being able to find it
+    "therapeutic": "#16a34a",    # being able to treat it
+    "other": "#9aa5ad",
+}
+# Each kind keeps its own lane, so the three strands of the story read across the axis:
+# what was understood, when it could be found, when it could be treated.
+HISTORY_LANES = {"discovery": 0.78, "diagnostic": 0.54, "therapeutic": 0.30, "other": 0.92}
+
+
+def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The indication's history as a timeline the canvas can draw.
+
+    Each event becomes a one-year band at its year, in the shape the timeline plot reads
+    (name / start / end, plus startX and x as hours from the window's start, which is what
+    py/openai/timeline.py produces and flexigraph/plot.js consumes). Events with no year
+    are dropped rather than placed at a guess, and if nothing survives there is no
+    timeline: an empty axis says less than no axis at all.
+    """
+    raw = findings.get("history")
+    if not isinstance(raw, list) or not raw:
+        return None
+
+    events: List[Tuple[int, str, str, str, str]] = []
+    for h in raw:
+        if not isinstance(h, dict):
+            continue
+        year = _num(h.get("year"))
+        name = _txt(h.get("event"))
+        if year is None or not name:
+            continue
+        y = int(year)
+        if y < 1000 or y > 2200:          # a four-digit year, not a count or a duration
+            continue
+        kind = (_txt(h.get("kind")) or "other").lower()
+        if kind not in HISTORY_COLOURS:
+            kind = "other"
+        src = h.get("source") if isinstance(h.get("source"), dict) else {}
+        events.append((y, name, kind, _txt(h.get("detail")), _txt(src.get("url"))))
+
+    if not events:
+        return None
+    events.sort(key=lambda e: e[0])
+
+    # The axis runs from the first event to a little past the last, so the newest band is
+    # not flush against the right edge.
+    first, last = events[0][0], events[-1][0]
+    span_end = max(last + 1, first + 2)
+    pad = max(2.0, (span_end - first) * 0.10)
+    start_dt = f"{first:04d}-01-01T00:00:00"
+    end_dt = f"{span_end:04d}-01-01T00:00:00"
+    HOURS_PER_YEAR = 365.2425 * 24
+
+    intervals: List[Dict[str, Any]] = []
+    seen: set = set()
+    for y, name, kind, detail, url in events:
+        label = f"{y} {name}"
+        n = 1
+        while label in seen:                 # the plot wants unique names
+            n += 1
+            label = f"{y} {name} ({n})"
+        seen.add(label)
+        # A MILESTONE, not an interval. These are dated events, not durations: as one-year
+        # bands on an axis spanning a century they came out as specks too small to carry
+        # their own name. A milestone is a point with a pill, which is what a date wants.
+        at = (y - first) * HOURS_PER_YEAR
+        intervals.append({
+            "type": "milestone",
+            "name": label,
+            "x": at,
+            "startX": at,
+            "y": HISTORY_LANES[kind],
+            "color": HISTORY_COLOURS[kind],
+            "start": f"{y:04d}-01-01T00:00:00",
+            "end": f"{y:04d}-01-01T00:00:00",
+            "kind": kind,
+            "detail": detail,
+            "url": url,
+        })
+
+    return {
+        "name": f"{prefix}_History",
+        "intervals": intervals,
+        "window": {"start": start_dt, "end": end_dt},
+        # The axis is padded a tenth of the span at each end. Without it the first and
+        # last pills hang over the edges of the frame, since a pill is drawn centred on
+        # its year and the outermost years sit exactly at the ends.
+        "axis": {"min": -pad * HOURS_PER_YEAR,
+                 "max": (span_end - first + pad) * HOURS_PER_YEAR},
+        "span": {"first_year": first, "last_year": last},
+    }
+
+
 def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Dict[str, Any],
                  prompt: str) -> Dict[str, Any]:
     region = _txt(findings.get("region")) or DEFAULT_REGION
@@ -895,6 +1024,21 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
         vals = [_num(r.get("addressable_region")) for r in rows]
         vals = [v for v in vals if v is not None]
         return sum(vals) if vals else ""
+
+    # The history, as rows as well as a timeline: the timeline shows WHEN, the table keeps
+    # the detail and the source a date has to be checkable against.
+    history_rows: List[List[Any]] = []
+    for h in (findings.get("history") or []):
+        if not isinstance(h, dict):
+            continue
+        yr = _num(h.get("year"))
+        name = _txt(h.get("event"))
+        if yr is None or not name:
+            continue
+        src = h.get("source") if isinstance(h.get("source"), dict) else {}
+        history_rows.append([int(yr), name, _txt(h.get("kind")) or "other",
+                             _txt(h.get("detail")), _txt(src.get("url")) or _txt(src.get("title"))])
+    history_rows.sort(key=lambda r: r[0])
 
     req_total, exp_total = total(requested), total(expansion)
     both = [v for v in (req_total, exp_total) if v != ""]
@@ -967,6 +1111,9 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
         {"name": f"{prefix}_Sources",
          "headers": ["Indication", "Figure", "Title", "URL", "Year"],
          "rows": source_rows},
+        {"name": f"{prefix}_History",
+         "headers": ["Year", "Event", "Kind", "Detail", "Source"],
+         "rows": history_rows},
         {"name": f"{prefix}_Market_Summary", "headers": ["Item", "Value"], "rows": summary_rows},
         # The Competition group: drawn together and bookmarked under that name on the canvas.
         {"name": f"{prefix}_Competition", "group": "Competition",
@@ -1028,6 +1175,7 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
         },
         "tables": [t for t in tables if t["rows"]],
         "model": build_model(prefix, ordered, expansion, findings),
+        "timeline": build_history(prefix, findings),
         "notes": notes,
     }
 

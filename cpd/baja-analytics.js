@@ -4398,6 +4398,38 @@ function (path, config) {
                                     if (d && d.html) await pt.addDocument(d.name || 'Notes', d.html, { width: 480, height: 360 });
                                 }
                             } catch (e) { console.warn('[indication market] document', e); }
+                            // THE HISTORY OF THE INDICATION, as a timeline beside the numbers: when
+                            // the disease was first described and its cause found, when it first
+                            // became diagnosable, and every approval that changed how it is treated.
+                            // A forecast reads differently against a condition treatable for decades
+                            // than against one with nothing approved yet, so it is drawn rather than
+                            // left in a table. The bands are coloured by kind (discovery / diagnostic /
+                            // therapeutic) and the dates keep their sources in the History table.
+                            try {
+                                const tl = result.timeline;
+                                if (tl && Array.isArray(tl.intervals) && tl.intervals.length) {
+                                    const old = (pt.m_plots || []).find(p => p && p.name === tl.name);
+                                    if (old && pt.removePlot) pt.removePlot(old);
+                                    const MPlot = await exec('flexigraph/plot.js');
+                                    const plot = new MPlot({ points: tl.intervals });
+                                    plot.type = 'timeline';
+                                    plot.name = tl.name;
+                                    plot.startDate = new Date(tl.window.start);
+                                    plot.endDate = new Date(tl.window.end);
+                                    const ax = tl.axis || {};
+                                    const xMin = Number.isFinite(ax.min) ? ax.min : Math.min(...tl.intervals.map(p => p.startX));
+                                    const xMax = Number.isFinite(ax.max) ? ax.max : Math.max(...tl.intervals.map(p => p.x));
+                                    plot.grid.zoom(xMin, xMax, 0, 1);
+                                    plot.w = 900; plot.h = 260;
+                                    plot.x_axis_label = 'Year';
+                                    plot.fitScaleToData = false;
+                                    plot.grid.rescale();
+                                    pt.setPlotCenter(plot);
+                                    const yrs = tl.span || {};
+                                    pt.setMessage('History: ' + tl.intervals.length + ' dated events'
+                                        + (yrs.first_year ? ', ' + yrs.first_year + ' to ' + yrs.last_year : ''), 2);
+                                }
+                            } catch (e) { console.warn('[indication market] timeline', e); }
                             // The Competition tables go into a PUBLISHED OBJECT named Competition:
                             // the app's own folder for a set of tables. The object sits on the
                             // canvas as one card; opening it (its menu) loads the tables it holds.
