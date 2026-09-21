@@ -1002,7 +1002,16 @@ function () {
                         if (trimmed.startsWith('=')) {
                             const afterEq = trimmed.slice(1).replace(/,/g, '').trim();
 
-                            this.formula = trimmed;
+                            // A FORMULA KEEPS ITS COMMAS. The strip above is for a number
+                            // written with thousands separators ("1,234"); applied to a
+                            // formula it turned "=T[Budget,row${i}]" into
+                            // "=T[Budgetrow${i}]" -- the separator between the two tags
+                            // gone, so the reference named nothing. The plate's own copy of
+                            // the formula was right, so it still CALCULATED; it was this
+                            // per-cell copy that was wrong, and formulaTextForWell reads
+                            // this one first -- so the "i" window and the menubar field
+                            // showed the broken text back, and saving it made it real.
+                            this.formula = ('' + originalString).trim();
                             this.has_formula_time_set = Date.now()
                             this.__hasFormula = true;
                             v = originalString;
