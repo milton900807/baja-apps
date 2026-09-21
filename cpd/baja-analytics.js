@@ -4482,27 +4482,41 @@ function (path, config) {
                                         + (yrs.first_year ? ', ' + yrs.first_year + ' to ' + yrs.last_year : ''), 2);
                                 }
                             } catch (e) { console.warn('[indication market] timeline', e); }
-                            // The Competition tables go into a PUBLISHED OBJECT named Competition:
-                            // the app's own folder for a set of tables. The object sits on the
-                            // canvas as one card; opening it (its menu) loads the tables it holds.
-                            // The loose tables are taken off the canvas once they are inside it.
+                            // EVERY GROUP OF TABLES GOES INTO A FOLDER OF ITS OWN -- the app's
+                            // published object, which sits on the canvas as one card and loads
+                            // the tables it holds when opened. Seven loose tables become a
+                            // handful of cards.
+                            //
+                            // WHAT STAYS OUT: the notes, the timeline and the chart. None of
+                            // them is a table, so none is in result.tables and none is packed;
+                            // they are what the workbench should show at a glance, and putting
+                            // them behind a card would be hiding the summary of the work.
                             try {
-                                const compNames = new Set((result.tables || []).filter(t => t && t.group === 'Competition').map(t => t.name));
-                                const comp = (pt.root || []).filter(p => p && compNames.has(p.name));
-                                if (comp.length) {
+                                const byGroup = new Map();
+                                for (const t of (result.tables || [])) {
+                                    if (!t || !t.name || !t.group) continue;
+                                    if (!byGroup.has(t.group)) byGroup.set(t.group, new Set());
+                                    byGroup.get(t.group).add(t.name);
+                                }
+                                if (byGroup.size) {
                                     const HM = await exec('baja/history/HM');
                                     const Plate = await exec('baja/plate/plate.js');
-                                    // The payload is a canvas holding just these tables: the track is
-                                    // serialised with its root swapped for them, then put back.
-                                    const keep = { root: pt.root, plots: pt.m_plots, glyphs: pt.glyphs };
-                                    let payload = null;
-                                    try {
-                                        pt.root = comp; pt.m_plots = []; pt.glyphs = [];
-                                        payload = compressbinaryData(compressString(HM(pt)));
-                                    } finally { pt.root = keep.root; pt.m_plots = keep.plots; pt.glyphs = keep.glyphs; }
-                                    if (payload) {
-                                        for (const c of comp) { try { pt.removePlate(c); } catch (e) { } }
-                                        const name = 'Competition';
+                                    const packed = [];
+                                    for (const [name, names] of byGroup) {
+                                        const inside = (pt.root || []).filter(p => p && names.has(p.name));
+                                        if (!inside.length) continue;
+                                        // The payload is a canvas holding just these tables: the track
+                                        // is serialised with its root swapped for them, then put back.
+                                        // Only the plates go in -- m_plots and glyphs are emptied, which
+                                        // is what keeps the timeline and the chart out of every folder.
+                                        const keep = { root: pt.root, plots: pt.m_plots, glyphs: pt.glyphs };
+                                        let payload = null;
+                                        try {
+                                            pt.root = inside; pt.m_plots = []; pt.glyphs = [];
+                                            payload = compressbinaryData(compressString(HM(pt)));
+                                        } finally { pt.root = keep.root; pt.m_plots = keep.plots; pt.glyphs = keep.glyphs; }
+                                        if (!payload) continue;
+                                        for (const c of inside) { try { pt.removePlate(c); } catch (e) { } }
                                         const prev = (pt.root || []).find(p => p && p.name === name && p.plateType === 'package');
                                         if (prev) { try { pt.removePlate(prev); } catch (e) { } }
                                         const pack = new Plate(name, 1, 1);
@@ -4515,11 +4529,15 @@ function (path, config) {
                                         pack.grid.height = pt.grid.worldHeight(100);
                                         try { pt.addNextAvailableX(pack); } catch (e) { pt.root.push(pack); }
                                         if ((pt.root || []).indexOf(pack) < 0) pt.root.push(pack);
-                                        pt.setMessage('Competition published as an object: ' + comp.length
-                                            + (comp.length === 1 ? ' table' : ' tables') + ' inside it. Open it from its menu.', 3);
+                                        packed.push(name + ' (' + inside.length + ')');
+                                    }
+                                    if (packed.length) {
+                                        pt.setMessage('Tables filed into ' + packed.length + ' folder'
+                                            + (packed.length === 1 ? '' : 's') + ': ' + packed.join(', ')
+                                            + '. Open one from its menu.', 3);
                                     }
                                 }
-                            } catch (e) { console.warn('[indication market] competition package', e); }
+                            } catch (e) { console.warn('[indication market] table folders', e); }
                             // Every table this build put on the canvas, the researched ones and the
                             // model's, on one cell size: they are read together, so they should
                             // sit on the same plane.
@@ -4560,7 +4578,23 @@ function (path, config) {
                             } catch (e) { console.warn('[indication market] population pie', e); }
                             // Spread every table so none sits on another, wait for the layout
                             // to settle, then zoom out, animated, until all of them are in view.
-                            try { await pt.layoutCompactTetris(); } catch (e) { }
+                            // THE TIMELINE FIRST, THEN THE CHART, THEN THE FOLDERS. The layout
+                            // places pieces in the order it is given them, and it gathers
+                            // plates before plots, so without this the timeline and the chart
+                            // ended up under every folder. They are the two things the
+                            // workbench should open on.
+                            try {
+                                await pt.layoutCompactTetris({
+                                    rank: (b) => {
+                                        if (b && b.kind === 'plot') {
+                                            let isTl = false;
+                                            try { isTl = !!(pt.__tlIs && pt.__tlIs(b.ref)); } catch (e) { isTl = false; }
+                                            return isTl ? 0 : 1;      // timeline, then the chart
+                                        }
+                                        return 2;                     // the folders and anything else
+                                    }
+                                });
+                            } catch (e) { }
                             try { await pt.zoomtfit(); } catch (e) { }
                             const d = result.detection || {};
                             const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : '—');

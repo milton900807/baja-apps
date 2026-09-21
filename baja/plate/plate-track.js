@@ -19818,6 +19818,22 @@ function (progress) {
                 const viewH = grid.getymax() - grid.getymin();
                 const viewAR = Math.abs(viewW / Math.max(Math.abs(viewH), 1e-9)) || 1.6;
                 const totalArea = boxes.reduce((acc, b) => acc + (b.w + gutterX) * (b.hEff + gutterY), 0) || 1;
+                // WHAT GOES DOWN FIRST. The pieces are placed in the order they are in, and
+                // they are gathered plates-then-plots, so a timeline and a chart always
+                // landed after every table however much they belong at the top. opts.rank
+                // lets the caller say otherwise: lower goes down first, and equal ranks keep
+                // the order they came in, so this stays a stable sort and changes nothing
+                // for a caller that does not pass one.
+                if (typeof opts.rank === 'function') {
+                    boxes.forEach((b, i) => { b.__ord = i; });
+                    boxes.sort((a, c) => {
+                        let ra = 0, rc = 0;
+                        try { ra = Number(opts.rank(a)) || 0; } catch (e) { ra = 0; }
+                        try { rc = Number(opts.rank(c)) || 0; } catch (e) { rc = 0; }
+                        return (ra - rc) || (a.__ord - c.__ord);
+                    });
+                }
+
                 const widest = Math.max(...boxes.map(b => b.w + gutterX));
                 const W = Math.max(widest, Math.sqrt(totalArea * viewAR) * 1.08);
                 let sky = [{ x: 0, w: W, v: 0 }];

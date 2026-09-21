@@ -1192,22 +1192,24 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
         notes.append("Competition is what was found on the record at the date of the run; a field like this moves, so check before relying on it.")
 
     tables = [
-        {"name": f"{prefix}_Market",
+        {"name": f"{prefix}_Market", "group": "Market",
          "headers": ["Indication", "Type", f"Prevalence ({region})", f"Incidence per year ({region})",
                      "Prevalence (global)", f"Addressable patients ({region})", "Addressable basis",
                      "Confidence", "Primary source"],
          "rows": market_rows},
-        {"name": f"{prefix}_Expansion",
+        {"name": f"{prefix}_Expansion", "group": "Market",
          "headers": ["Indication", "Type", "Link to the approach", "Plausibility", "Standard of care", "Unmet need"],
          "rows": detail_rows},
-        {"name": f"{prefix}_Sources",
+        {"name": f"{prefix}_Sources", "group": "Sources",
          "headers": ["Indication", "Figure", "Title", "URL", "Year"],
          "rows": source_rows},
-        {"name": f"{prefix}_History",
+        {"name": f"{prefix}_History", "group": "History",
          "headers": ["Year", "Event", "Kind", "Detail", "Source"],
          "rows": history_rows},
-        {"name": f"{prefix}_Market_Summary", "headers": ["Item", "Value"], "rows": summary_rows},
-        # The Competition group: drawn together and bookmarked under that name on the canvas.
+        {"name": f"{prefix}_Market_Summary", "group": "Market", "headers": ["Item", "Value"], "rows": summary_rows},
+        # EVERY TABLE CARRIES ITS GROUP. The canvas puts each group inside a folder of
+        # that name, so the workbench opens with a handful of cards instead of seven loose
+        # tables. The notes, the timeline and the chart are not tables and stay outside.
         {"name": f"{prefix}_Competition", "group": "Competition",
          "headers": ["Drug", "Company", "Modality", "Stage", "Indication", "Competes", "Note", "Source"],
          "rows": comp_rows},
