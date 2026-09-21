@@ -10059,7 +10059,28 @@ function (progress) {
                     else if (c > 0 && !Object.prototype.hasOwnProperty.call(w.group, newLabel)) { w.group[newLabel] = [new Date().toISOString().slice(0, 19).replace('T', ' ')]; }
                 }
             }
-            async __tlAddBudgetedMilestone(o, presetMs) {
+            // THE FORM ON ITS OWN, so the menu can ask before the milestone is placed. No
+            // Date field: the click on the timeline is the date, and a field asking for one
+            // as well would only disagree with it.
+            async __tlAskBudgetedMilestone(o) {
+                if (this.__readOnly) return null;
+                let M = null;
+                for (const p of ((o && o.scatterData && o.scatterData.points) || [])) { if (p && p.table) { M = this.getTableByName(p.table); if (M) break; } }
+                if (!M) M = this.__msTables()[0] || null;
+                if (!M) { try { this.setMessage('No milestones table here (one with Date and Required_To_Date columns). Build a Project or Milestone Budget first.', 4); } catch (e) { } return null; }
+                const def = '=' + M.name + '[Budget,row${i}]+' + M.name + '[Required_To_Date,row${i-1}]';
+                let va = null;
+                try {
+                    va = await prompt('Add a budgeted milestone',
+                        ['Milestone', 'Budget', 'Comment', 'Required_To_Date formula'],
+                        { 'Milestone': '', 'Budget': '0', 'Comment': '', 'Required_To_Date formula': def },
+                        300, 480);
+                } catch (e) { va = null; }
+                if (!va || va['Milestone'] == null || !('' + va['Milestone']).trim()) return null;
+                return va;
+            }
+
+            async __tlAddBudgetedMilestone(o, presetMs, answers) {
                 if (this.__readOnly) return;
                 // The milestones table: the one this timeline's points link to, else the first
                 // table with a Date and a Required_To_Date column.
@@ -10091,19 +10112,29 @@ function (progress) {
                 // is the milestone before this one. Row 1 has no row above it: the reference
                 // drops out and it comes to its own budget, so one formula serves the column.
                 const __defFormula = '=' + M.name + '[Budget,row${i}]+' + M.name + '[Required_To_Date,row${i-1}]';
-                let va = null;
-                // Not a field called "Name": the prompt squeezes that one into an identifier
-                // (no spaces); a milestone is titled in words.
-                try {
-                    va = await prompt('Add a budgeted milestone',
-                        ['Milestone', 'Date', 'Budget', 'Comment', 'Required_To_Date formula'],
-                        { 'Milestone': '', 'Date': this.__ymd(new Date(mid)), 'Budget': '0', 'Comment': '', 'Required_To_Date formula': __defFormula },
-                        300, 520);
-                } catch (e) { va = null; }
+                // ANSWERS MAY ARRIVE ALREADY FILLED IN. The menu asks first and then has the
+                // user place the milestone on the timeline, so by the time this runs the
+                // form has been answered and only the date is still open. Called without
+                // them -- from anywhere else -- it asks here as it always did.
+                let va = answers || null;
+                if (!va) {
+                    // Not a field called "Name": the prompt squeezes that one into an
+                    // identifier (no spaces); a milestone is titled in words.
+                    try {
+                        va = await prompt('Add a budgeted milestone',
+                            ['Milestone', 'Date', 'Budget', 'Comment', 'Required_To_Date formula'],
+                            { 'Milestone': '', 'Date': this.__ymd(new Date(mid)), 'Budget': '0', 'Comment': '', 'Required_To_Date formula': __defFormula },
+                            300, 520);
+                    } catch (e) { va = null; }
+                }
                 if (!va || va['Milestone'] == null || !('' + va['Milestone']).trim()) return;
                 const name = ('' + va['Milestone']).trim();
-                const dt = this.__parseYmd(('' + (va['Date'] || '')).trim());
-                if (!dt) { try { this.setMessage('The date must be YYYY-MM-DD.', 3); } catch (e) { } return; }
+                // The form carries a Date only when it asked for one; placed on the timeline,
+                // the click is the date.
+                const __dtxt = ('' + (va['Date'] || '')).trim();
+                const dt = __dtxt ? this.__parseYmd(__dtxt)
+                    : (Number.isFinite(presetMs) ? new Date(presetMs) : null);
+                if (!dt) { try { this.setMessage(__dtxt ? 'The date must be YYYY-MM-DD.' : 'No date for the milestone.', 3); } catch (e) { } return; }
                 const amount = this.__msNum(('' + (va['Budget'] || '0')).replace(/[$,\s]/g, ''));
                 const budget = Number.isFinite(amount) ? amount : 0;
                 const comment = ('' + (va['Comment'] || '')).trim();

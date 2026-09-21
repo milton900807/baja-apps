@@ -5130,23 +5130,34 @@ function (MGrid) {
                         label: `Add budgeted milestone`,
                         __date: '',
                         click: async (scx, scy) => {
-                            // PICK THE DATE ON THE TIMELINE, then fill the milestone in. It
-                            // used to open the form straight away with the middle of the
-                            // window in the Date field, which is never the answer -- you then
-                            // typed a date for a place you were already looking at. The
-                            // pointer now reads the date under it as it moves (the same
-                            // readout the other timeline tools use), and the click is what
-                            // decides it.
+                            // ASK FIRST, PLACE SECOND. The form takes the name, the budget,
+                            // the comment and the formula; everything except WHERE it goes.
+                            // On OK the pointer is armed and carries the date under it as it
+                            // moves -- the same readout the other timeline tools use -- and
+                            // the press is what places the milestone. Then the pointer goes
+                            // back to the ordinary mouse-over highlight.
                             if (!pt || typeof pt.__tlAddBudgetedMilestone !== 'function') return;
                             const plot = this;
+                            let answers = null;
+                            try { answers = await pt.__tlAskBudgetedMilestone(plot); } catch (e) { answers = null; }
+                            if (!answers) return;          // cancelled, or no milestones table
+
                             let armed = true;
-                            try { pt.setMessage('Click the timeline where the milestone goes.', 4); } catch (e) { }
+                            const disarm = () => {
+                                armed = false;
+                                try { pt.__tlDrawing = false; } catch (e) { }
+                                try { plot.__date = ''; } catch (e) { }
+                                try { pt.wb(null); } catch (e) { }
+                                try { if (typeof pt.__rehover === 'function') pt.__rehover(); } catch (e) { }
+                            };
+                            try { pt.setMessage('Place ' + (('' + answers['Milestone']).trim() || 'the milestone') + ': click the timeline.', 6); } catch (e) { }
                             try { pt.__tlDrawing = true; } catch (e) { }
                             const lasso = {
-                                id: 'pick-date-for-budgeted-milestone' + Math.random(),
+                                id: 'place-budgeted-milestone' + Math.random(),
                                 mouseMoveListener: (x, y) => {
-                                    // What the hover readout draws: where the pointer is and
-                                    // the date under it.
+                                    if (!armed) return;
+                                    // The cursor label: where the pointer is, and the date and
+                                    // time under it.
                                     try {
                                         plot.grid.rescale();
                                         const tx = plot.grid.Xwc(x - plot.grid.xi * 2);
@@ -5154,9 +5165,8 @@ function (MGrid) {
                                         plot.__date = formatTime(tx, plot.grid.xmin, plot.grid.xmax, plot.startDate, plot.endDate);
                                     } catch (e) { }
                                 },
-                                mouseUpListener: async (x, y) => {
+                                mouseDownListener: async (x, y) => {
                                     if (!armed) return;
-                                    armed = false;
                                     let ms = NaN;
                                     try {
                                         const xu = (typeof pt.__tlXUnitsAt === 'function')
@@ -5164,14 +5174,14 @@ function (MGrid) {
                                             : plot.grid.Xwc(x - plot.grid.xi * 2);
                                         ms = pt.__tlXToMs(plot, xu);
                                     } catch (e) { ms = NaN; }
-                                    // Give the pointer back BEFORE the form opens, or the
-                                    // canvas stays in picking mode behind it.
-                                    try { pt.__tlDrawing = false; } catch (e) { }
-                                    try { plot.__date = ''; } catch (e) { }
-                                    try { pt.wb(null); } catch (e) { }
-                                    try { if (typeof pt.__rehover === 'function') pt.__rehover(); } catch (e) { }
-                                    await pt.__tlAddBudgetedMilestone(plot, Number.isFinite(ms) ? ms : undefined);
+                                    // The pointer goes back BEFORE the milestone is built, so
+                                    // the canvas is not left in placing mode behind whatever
+                                    // that does.
+                                    disarm();
+                                    if (!Number.isFinite(ms)) { try { pt.setMessage('Could not read a date there.', 3); } catch (e) { } return; }
+                                    await pt.__tlAddBudgetedMilestone(plot, ms, answers);
                                 },
+                                mouseUpListener: () => { },
                                 draw: () => { }
                             };
                             pt.wb(lasso);
