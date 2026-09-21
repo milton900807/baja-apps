@@ -3814,7 +3814,7 @@ function (MGrid) {
                                 const brx = rect.x + rect.w - pad;
                                 const bry = rect.y + rect.h - pad;
                                 const active = !!(this.resizing || this.__resizing);
-                                if (this.showMenuBar)
+                                if (this.showMenuBar && !this.__printing)
                                     drawResizeHandle(ctx, cornerX, cornerY, arrowSize, active)
 
                                 const hbSize = size + pad;
@@ -5309,7 +5309,9 @@ function (MGrid) {
                         ng.xi = 16; ng.yi = 60;
                         ng.rescale();
                         this.highlight = false;
-                        try { this.drawPlot(pt, ctx, ng, true); } finally { MGrid.GP = false; this.highlight = keepHL; }
+                        this.__printing = true;          // no border, no resize handle on a page
+                        try { this.drawPlot(pt, ctx, ng, true); }
+                        finally { MGrid.GP = false; this.highlight = keepHL; this.__printing = false; }
 
                         // NOTHING DRAWN, NOTHING TO SEND. A plot that renders blank -- no grid
                         // to draw against yet -- would otherwise go into the report as white
@@ -5399,11 +5401,27 @@ function (MGrid) {
                 };
 
                 const __tlExport = async (fmt) => {
-                    const rows = __tlRows();
+                    let rows = __tlRows();
                     if (!rows.length) { try { pt.setMessage('There are no events on this timeline to export.', 4); } catch (e) { } return; }
+                    // THE PDF IS A LIST OF MILESTONES: the name and when it happens, nothing
+                    // else. The table, the row it links to, the comment and the link are
+                    // working detail -- they belong in the spreadsheet, which keeps every
+                    // column, and in the report, which has room to say what they mean. An
+                    // interval has no single date, so it shows its span in the same column
+                    // rather than being dropped.
+                    if (fmt === 'pdf') {
+                        rows = rows.map((r) => ({
+                            Name: r.Name || '',
+                            Date: r.Date || [r.Start, r.End].filter(Boolean).join(' to ') || ''
+                        }));
+                    }
                     const base = (('' + (this.name || 'timeline')).replace(/[^A-Za-z0-9_\- .]+/g, '_').replace(/\s+/g, '_')) || 'timeline';
                     try { pt.setMessage('Building the ' + fmt.toUpperCase() + '…', 4); } catch (e) { }
-                    await __tlPost(fmt, base, (this.name || 'Timeline') + ' — ' + rows.length + ' event' + (rows.length === 1 ? '' : 's'), [{ name: 'Timeline', rows: rows }]);
+                    // LANDSCAPE for a PDF of a timeline, whichever download it came from: a
+                    // timeline reads across, and the long edge is what it wants. The
+                    // spreadsheet has no pages, so the flag means nothing there and is
+                    // harmless.
+                    await __tlPost(fmt, base, (this.name || 'Timeline') + ' — ' + rows.length + ' event' + (rows.length === 1 ? '' : 's'), [{ name: 'Timeline', landscape: fmt === 'pdf', rows: rows }]);
                 };
                 const __tlPost = async (fmt, base, title, sheets) => {
                     try {
@@ -13661,7 +13679,7 @@ function (MGrid) {
 
                             const active = !!(this.resizing || this.__resizing);
                             if (this.showMenuBar)
-                                if (!(typeof pt !== 'undefined' && pt && pt.__readOnly)) drawResizeHandle(ctx, brx + 40, bry + 40, size, true, this.____callout);
+                                if (!(typeof pt !== 'undefined' && pt && pt.__readOnly) && !this.__printing) drawResizeHandle(ctx, brx + 40, bry + 40, size, true, this.____callout);
 
                             const hbSize = size + pad;
                             this.__resizeHandle = {
@@ -13686,7 +13704,7 @@ function (MGrid) {
                                 const bry = rect.y + rect.h - pad;
 
                                 const active = !!(this.resizing || this.__resizing);
-                                if (!(typeof pt !== 'undefined' && pt && pt.__readOnly)) drawResizeHandle(ctx, brx + 40, bry + 40, size, false, this.____callout);
+                                if (!(typeof pt !== 'undefined' && pt && pt.__readOnly) && !this.__printing) drawResizeHandle(ctx, brx + 40, bry + 40, size, false, this.____callout);
 
                                 const hbSize = size + pad;
                                 this.__resizeHandle = {
@@ -14226,7 +14244,10 @@ function (MGrid) {
                     ctx.fillRect(grid.xi, grid.yi, grid.width, grid.height);
                     clearShadow(ctx);
 
-                    if (panel.border && panel.border.width) {
+                    // NOT WHEN PRINTING. The border and the resize handle are furniture for
+                    // working with the plot on a canvas; on a page they are a box drawn round
+                    // the picture and a grab tab nobody can grab.
+                    if (panel.border && panel.border.width && !this.__printing) {
                         ctx.lineWidth = panel.border.width;
                         ctx.strokeStyle = panel.border.color || "rgba(0,0,0,0.15)";
 
