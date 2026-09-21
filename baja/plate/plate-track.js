@@ -4540,21 +4540,16 @@ function (progress) {
                     return;
                 }
 
+                // NO YELLOW STICKY NOTE. Selecting a point used to drop a postit on the
+                // canvas carrying the point's name, whose only job was to be clicked to open
+                // the point's menu -- a note stuck over the timeline, and a second click
+                // before anything happened. The menu opens straight away instead.
                 setTimeout(() => {
                     this.clearActionGlyphs();
-                    this.addActionGlyph(this, '' + __selected.name + '', () => {
-                        this.clearActionGlyphs();
-                        setTimeout(() => {
-                            this.menu = new Menu(m, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
-                                this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 2)
-                            this.menu_vis = true;
-                            this.menu_width = 550
-                            this.menu_vis = true;
-
-                        }, 1000)
-
-                    })
-
+                    this.menu = new Menu(m, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
+                        this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 2)
+                    this.menu_width = 550
+                    this.menu_vis = true;
                 }, 300)
             }
             addPlateWithConsistentWellSize(newPlate, opts = {}) {
@@ -9401,10 +9396,42 @@ function (progress) {
                 try { (window.requestAnimationFrame || setTimeout)(run, 0); } catch (e) { run(); }
             }
 
+            // IS A MODAL COVERING THE CANVAS? The app's own windows -- the cell's text
+            // window, a prompt, a confirm, the file browser -- sit over it with a backdrop.
+            // The canvas never hears about them, so it went on lighting things up under the
+            // sheet as the pointer crossed it, and a press there landed on the modal while
+            // the highlight said the canvas was live. Read from the DOM, which is the only
+            // place that knows.
+            __modalOver() {
+                try {
+                    if (typeof document === 'undefined') return false;
+                    if (document.getElementById('baja-prompt-text')) return true;
+                    if (document.getElementById('baja-prompt-text-backdrop')) return true;
+                    // Angular Material overlays (every dialog the app opens through the
+                    // layout) live in one container; it exists empty, so it is its CONTENT
+                    // that matters.
+                    const cdk = document.querySelector('.cdk-overlay-container');
+                    if (cdk && cdk.children && cdk.children.length) return true;
+                    const modal = document.querySelector('.modal.show, .modal-backdrop, [role="dialog"]:not([hidden])');
+                    if (modal) {
+                        const r = modal.getBoundingClientRect();
+                        if (r.width > 40 && r.height > 40) return true;
+                    }
+                    return false;
+                } catch (e) { return false; }
+            }
+
             mouseMove(x, y) {
                 // Where the pointer last was, so the hover can be worked out again after the
                 // CANVAS has moved under it (see __rehover). Kept on every move, cheap.
                 this.__ptrX = x; this.__ptrY = y;
+                // A window is open over the canvas: nothing here is reachable, so nothing
+                // here lights up. The position is still recorded above, so the hover comes
+                // back correctly the moment the window closes (__rehover).
+                if (this.__modalOver()) {
+                    if (this.wb) { try { this.wb(null); } catch (e) { } }
+                    return;
+                }
                 if (this.__msHold && Math.abs(x - this.__msHold.x) + Math.abs(y - this.__msHold.y) > 10) this.__msHoldCancel();   // a pan, not a hold
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
                 if (this.__solidDrag) { this.__solidDragMove(x, y); return; }
