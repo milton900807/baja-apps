@@ -10625,6 +10625,19 @@ function (progress) {
                 } catch (e) { console.warn('milestone date sort', e); return false; }
             }
 
+            // A HAND-WRITTEN FORMULA IS NEVER OVERWRITTEN. The sync's own formulas are built
+            // from plain references -- "Project_Expenses[Total_Expenses_Per_Month]*3.00+..."
+            // -- and never contain an iterator, so a "${...}" in the cell means a person put
+            // it there. This does not depend on msAuto being set, which matters: a document
+            // saved before that flag existed has no way to say "these are mine", and its
+            // formulas were being rebuilt out from under it on every milestone move.
+            __msMine(plate, key) {
+                try {
+                    const f = plate && plate.formula ? plate.formula[key] : null;
+                    return typeof f === 'string' && f.indexOf('${') >= 0;
+                } catch (e) { return false; }
+            }
+
             __msRefreshRow(plate, r, dt) {
                 // TAKEN OFF ON PURPOSE MEANS TAKEN OFF. This rebuilds the milestone table's
                 // Required_To_Date column from the timeline every time a date is edited or a
@@ -10681,13 +10694,14 @@ function (progress) {
                         const base = this.__msBaseRequired(row.dt);
                         if (base) baseSeen = true;
                         const parts = (base ? [base.formula] : []).concat(refs);
-                        plate.formula['[' + cReq + ':' + cReq + '][' + row.r + ':' + row.r + ']'] = parts.length ? parts.join('+') : '0';
+                        const __kReq = '[' + cReq + ':' + cReq + '][' + row.r + ':' + row.r + ']';
+                        if (!this.__msMine(plate, __kReq)) plate.formula[__kReq] = parts.length ? parts.join('+') : '0';
                         const v = (base ? base.value : 0) + sum;
                         if (Number.isFinite(v)) set(cReq, row.r, Math.round(v));
                     }
                     if (totalRow >= 0 && refs.length) {
-                        plate.formula['[' + cReq + ':' + cReq + '][' + totalRow + ':' + totalRow + ']'] = refs.join('+');
-                        plate.formula['[' + cBud + ':' + cBud + '][' + totalRow + ':' + totalRow + ']'] = refs.join('+');
+                        { const __k = '[' + cReq + ':' + cReq + '][' + totalRow + ':' + totalRow + ']'; if (!this.__msMine(plate, __k)) plate.formula[__k] = refs.join('+'); }
+                        { const __k = '[' + cBud + ':' + cBud + '][' + totalRow + ':' + totalRow + ']'; if (!this.__msMine(plate, __k)) plate.formula[__k] = refs.join('+'); }
                         set(cReq, totalRow, Math.round(sum)); set(cBud, totalRow, Math.round(sum));
                     }
                     console.log('[milestone sync] re-accumulated', plate.name, rows.length, 'rows; milestone budgets', Math.round(sum), baseSeen ? '+ monthly and one-time costs' : '');
@@ -10726,7 +10740,7 @@ function (progress) {
                     }
                     const required = 'Project_Expenses[Total_Expenses_Per_Month]*' + months.toFixed(2) + (due.length ? '+' + due.join('+') : '');
                     if (!plate.formula) plate.formula = {};
-                    plate.formula['[' + cReq + ':' + cReq + '][' + r + ':' + r + ']'] = required;
+                    { const __k = '[' + cReq + ':' + cReq + '][' + r + ':' + r + ']'; if (!this.__msMine(plate, __k)) plate.formula[__k] = required; }
                     if (cDiff >= 0) {
                         const kd = '[' + cDiff + ':' + cDiff + '][' + r + ':' + r + ']';
                         const m = /^(Project_Assumptions\[[^\]]+_Expected_Budget\])-\(/.exec('' + (plate.formula[kd] || ''));
