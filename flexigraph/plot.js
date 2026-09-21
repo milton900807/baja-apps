@@ -15518,7 +15518,13 @@ function (MGrid) {
                                                 ctx.textAlign = "center";
                                                 ctx.textBaseline = "top";
                                                 ctx.font = font;
-                                                applyShadow("text");
+                                                // NO SHADOW ON THE TEXT. The pill under it already carries the
+                                                // panel shadow; a second one behind each character -- the text
+                                                // shadow is a 4px blur by default -- puts a grey halo on every
+                                                // letter, which on an opaque white pill reads as a smudge rather
+                                                // than as depth. A shadow lifts a SHAPE off the canvas; on text
+                                                // sitting on that shape it only softens the edges.
+                                                clearShadow(ctx);
                                                 // The pill forces a white surface, so the text colour has to be
                                                 // forced too: the themed cText is light on the dark themes and
                                                 // would vanish against it.

@@ -8412,6 +8412,8 @@ function (progress) {
                                     // press, the same click's release closed it again at once.
                                     this.__msMenuPress = { o, p: mp, x, y }; return;
                                 }
+                                // Moving a maximized object: the same snapshot, before it moves.
+                                try { pushHistory(HM(o)); } catch (e) { }
                                 this.__maxDrag = { sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
                                 // Timeline gestures: a held press (550 ms, still) starts a time
                                 // range that the next tap closes; a double tap adds a milestone
@@ -9433,6 +9435,33 @@ function (progress) {
                     if (this.wb) { try { this.wb(null); } catch (e) { } }
                     return;
                 }
+                // LEAVING A TIMELINE PUTS THE HIGHLIGHT BACK. While the pointer is over one,
+                // the timeline owns the hover -- its own pills light up. Step off it in any
+                // direction and the workbench's mouse-over highlight has to take over again,
+                // and it did not: the pills stayed lit and nothing under the pointer lit up
+                // until something else forced a pass. The object under the pointer is worked
+                // out again the moment it stops being the timeline.
+                try {
+                    let over = null;
+                    for (const o of (this.m_plots || [])) {
+                        if (!this.__tlIs || !this.__tlIs(o)) continue;
+                        const b = this.__maxWorldBounds ? this.__maxWorldBounds(o) : null;
+                        if (!b) continue;
+                        const g = this.grid;
+                        const x0 = Math.min(g.X(b.x0), g.X(b.x1)), x1 = Math.max(g.X(b.x0), g.X(b.x1));
+                        const y0 = Math.min(g.Y(b.yTop), g.Y(b.yBot)), y1 = Math.max(g.Y(b.yTop), g.Y(b.yBot));
+                        if (x >= x0 && x <= x1 && y >= y0 && y <= y1) { over = o; break; }
+                    }
+                    if (this.__hoverTl && this.__hoverTl !== over) {
+                        const left = this.__hoverTl;
+                        // Only the HOVER is dropped. isSelected is the user's selection and
+                        // is none of this code's business.
+                        try { for (const pnt of ((left.scatterData && left.scatterData.points) || [])) pnt.highlight = false; } catch (e) { }
+                        try { left.___hover = null; } catch (e) { }
+                        try { this.wb(null); } catch (e) { }
+                    }
+                    this.__hoverTl = over;
+                } catch (e) { }
                 if (this.__msHold && Math.abs(x - this.__msHold.x) + Math.abs(y - this.__msHold.y) > 10) this.__msHoldCancel();   // a pan, not a hold
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
                 if (this.__solidDrag) { this.__solidDragMove(x, y); return; }
@@ -10309,6 +10338,9 @@ function (progress) {
             }
             __msHoldCancel() { if (this.__msHold) { try { clearTimeout(this.__msHold.timer); } catch (e) { } this.__msHold = null; } }
             __msDragStart(o, p, x, y) {
+                // A milestone about to be dragged along the timeline: the timeline is what
+                // changes, so it is the timeline that is remembered, before the move.
+                try { pushHistory(HM(o)); } catch (e) { }
                 this.__tlCancelPress();
                 this.__maxDrag = null; this.__maxTap = null;
                 this.__msDrag = { o, p, sx: x, sy: y, y0: p.y, yu0: this.__tlYUnitsAt(o, y), moved: false };
@@ -11320,6 +11352,10 @@ function (progress) {
                 return null;
             }
             __solidResizeStart(o, x, y) {
+                // THE STATE BEFORE THE RESIZE. Taken here, not when the pointer is let go:
+                // by then the object is already its new size and the snapshot would record
+                // the change rather than what preceded it, so Ctrl+Z would do nothing.
+                try { pushHistory(HM(o)); } catch (e) { }
                 const b = this.__solidScreenBox(o);
                 if (!b) return false;
                 this.__solidArmed = null; this.__solidMenuPress = null;
@@ -11398,6 +11434,9 @@ function (progress) {
                 this.menu_vis = true;
             }
             __solidDragStart(o, x, y) {
+                // Before the move, for the same reason: a snapshot taken after it holds the
+                // position it was dragged to.
+                try { pushHistory(HM(o)); } catch (e) { }
                 this.__solidDrag = { o, sx: x, sy: y, ox: o.grid.xi, oy: o.grid.yi, moved: false };
                 try { this.cancelLayoutAnimation(); } catch (e) { }
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
