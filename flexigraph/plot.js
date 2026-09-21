@@ -5182,7 +5182,50 @@ function (MGrid) {
                                     await pt.__tlAddBudgetedMilestone(plot, ms, answers);
                                 },
                                 mouseUpListener: () => { },
-                                draw: () => { }
+                                // THE CURSOR LABEL. Nothing else draws it: a lasso paints its
+                                // own overlay, and an empty draw here is why arming the
+                                // pointer showed no date at all. The date and time under the
+                                // pointer, in a pill beside it, with a tick down to the exact
+                                // spot the press will use.
+                                draw: (_grid, ctx) => {
+                                    if (!armed || !ctx) return;
+                                    try {
+                                        const x = plot.__scx_, y = plot.__scy_;
+                                        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                                        const d = new Date(plot.__date);
+                                        if (isNaN(d.getTime())) return;
+                                        const dateText = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
+                                        let timeText = '';
+                                        try {
+                                            const rounded = new Date(Math.floor(d.getTime() / (15 * 60 * 1000)) * (15 * 60 * 1000));
+                                            if (typeof abbrTime === 'function') timeText = abbrTime(rounded);
+                                        } catch (e) { }
+                                        const label = timeText ? (dateText + '   ' + timeText) : dateText;
+
+                                        ctx.save();
+                                        ctx.font = '13px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+                                        ctx.textAlign = 'left';
+                                        ctx.textBaseline = 'middle';
+                                        const w = ctx.measureText(label).width + 22, h = 26;
+                                        const bx = x + 16, by = y - 30;
+
+                                        // where it will land, before the label that names it
+                                        ctx.strokeStyle = '#1aa3bd';
+                                        ctx.lineWidth = 2;
+                                        ctx.beginPath(); ctx.moveTo(x, y - 14); ctx.lineTo(x, y + 14); ctx.stroke();
+                                        ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+                                        ctx.fillStyle = '#1aa3bd'; ctx.fill();
+
+                                        ctx.beginPath();
+                                        if (ctx.roundRect) ctx.roundRect(bx, by - h / 2, w, h, 7);
+                                        else ctx.rect(bx, by - h / 2, w, h);
+                                        ctx.fillStyle = 'rgba(17,24,39,0.88)';
+                                        ctx.fill();
+                                        ctx.fillStyle = '#FFFFFF';
+                                        ctx.fillText(label, bx + 11, by);
+                                        ctx.restore();
+                                    } catch (e) { }
+                                }
                             };
                             pt.wb(lasso);
                         },
