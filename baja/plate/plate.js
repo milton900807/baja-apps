@@ -1203,10 +1203,10 @@ function () {
                         value: '' + (__value == null ? '' : __value),
                         mono: true,
                         actions: isNaNResult
-                            ? [{ key: 'trace', label: 'Trace NaN' }, { key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            ? [{ key: 'trace', label: 'Trace NaN' }, { key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'each', label: 'Add to each' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
                             : hasFormula
-                            ? [{ key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
-                            : [{ key: 'text', label: 'Save text' }, { key: 'formula', label: 'Save formula' }, { key: 'tag', label: 'Tag…' }],
+                            ? [{ key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'each', label: 'Add to each' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            : [{ key: 'text', label: 'Save text' }, { key: 'formula', label: 'Save formula' }, { key: 'each', label: 'Add to each' }, { key: 'tag', label: 'Tag…' }],
                         completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
                     });
                 } catch (e) { r = null; }
@@ -1223,6 +1223,47 @@ function () {
                 }
                 try { pushHistory(HM(this)); } catch (e) { }
                 try { if (pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
+                // ADD TO EACH. Save formula puts ONE formula across the selection; this adds
+                // what is typed to each cell separately, on top of whatever that cell
+                // already holds -- so a column of different numbers stays a column of
+                // different numbers, each moved by the same amount.
+                //
+                // A cell WITH a formula gets the term on the end of it. A cell with a plain
+                // number becomes a formula built from that number, so the arithmetic is
+                // visible and can be edited afterwards. Start with an operator; without one
+                // "+" is assumed, which is what "add" means when nothing says otherwise.
+                if (r.action === 'each') {
+                    let term = code.trim().replace(/^=/, '').trim();
+                    if (!term) { try { pt.setMessage('Type what to add first.', 2); } catch (e) { } return; }
+                    if (!/^[+\-*\/^]/.test(term)) term = '+' + term;
+                    try { pushHistory(HM(this)); } catch (e) { }
+                    let n = 0, skipped = 0;
+                    for (const x of w) {
+                        let base = null;
+                        let f = null;
+                        try { f = this.formulaTextForWell(x); } catch (e) { f = null; }
+                        if (f) base = ('' + f).replace(/^=/, '').trim();
+                        else {
+                            const v = x.value;
+                            // Nothing to add to: an empty cell or one holding a word. Left
+                            // alone and counted, rather than turned into "=+2".
+                            if (v === null || v === undefined || ('' + v).trim() === '' || isNaN(Number(v))) { skipped++; continue; }
+                            base = '' + Number(v);
+                        }
+                        const nf = '=' + base + term;
+                        const wr = this.getWellRange([x]);
+                        try { this.formula[wr] = nf; } catch (e) { }
+                        try { pt.addFormula(this.name + '' + wr, nf); } catch (e) { }
+                        try { x.setValue(nf); } catch (e) { }
+                        n++;
+                    }
+                    try { pt.updateCalculations(); } catch (e) { }
+                    try {
+                        pt.setMessage('Added to ' + n + ' cell' + (n === 1 ? '' : 's')
+                            + (skipped ? ' (' + skipped + ' had nothing to add to)' : '') + '.', 2);
+                    } catch (e) { }
+                    return;
+                }
                 if (r.action === 'formula') {
                     const f = code.trim() ? ('=' + code.trim().replace(/^=/, '').trim()) : '';
                     for (const x of w) {
