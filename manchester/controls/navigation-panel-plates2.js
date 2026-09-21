@@ -858,7 +858,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                             // Named as a completion, not a bare string: the insert text
                                             // closes the bracket and `table` is what scopes it to the
                                             // table written before it.
-                                            if (c) commands.push({ label: c, insert: c + ']', hint: tableName, table: tableName })
+                                            if (c) commands.push({ label: c, insert: c + ']', hint: tableName, table: tableName, kind: 'column' })
                                             menuitems.push({
                                                 'label': c, click: () => {
                                                     let insertion = tableName + '.' + c;

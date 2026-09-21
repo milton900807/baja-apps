@@ -8114,7 +8114,7 @@ function (progress) {
                     const name = (p && p.name != null ? '' + p.name : '').trim();
                     if (!name || seen.has(name)) continue;
                     seen.add(name);
-                    out.push({ label: name, insert: name + '[', hint: 'table' });
+                    out.push({ label: name, insert: name + '[', hint: 'table', kind: 'table' });
                 }
                 for (const p of plates) {
                     const name = (p && p.name != null ? '' + p.name : '').trim();
@@ -8126,12 +8126,12 @@ function (progress) {
                         const lab = (w && w.value != null ? '' + w.value : '').trim();
                         if (!lab || labs.has(lab) || /^[-+]?\d+(\.\d+)?$/.test(lab)) continue;
                         labs.add(lab);
-                        out.push({ label: lab, insert: lab + ']', hint: name, table: name });
+                        out.push({ label: lab, insert: lab + ']', hint: name, table: name, kind: 'row' });
                     }
                 }
                 try {
                     for (const k of this.getTablesAndTagNames()) {
-                        if (!seen.has(k)) { seen.add(k); out.push({ label: k, insert: k + ' ', hint: 'tag' }); }
+                        if (!seen.has(k)) { seen.add(k); out.push({ label: k, insert: k + ' ', hint: 'tag', kind: 'tag' }); }
                     }
                 } catch (e) { }
                 return out;
