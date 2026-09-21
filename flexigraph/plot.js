@@ -4107,6 +4107,20 @@ function (MGrid) {
                 return dataURL;
             }
 
+            // THE LINE UNDER A MILESTONE'S NAME. The milestone sync writes "Required to
+            // date: $X" there, which is the budget accumulated to that point; anything else
+            // in filename is the user's own subtitle and is never hidden. showBudget is a
+            // plain name on purpose -- a "_" key is stripped when the document is saved, and
+            // this has to survive a reload.
+            __subtitleOf(point) {
+                try {
+                    const f = '' + ((point && point.filename) || '');
+                    if (!f) return '';
+                    if (this.showBudget === false && /^\s*Required to date\s*:/i.test(f)) return '';
+                    return f;
+                } catch (e) { return (point && point.filename) || ''; }
+            }
+
             async toPNG(pt) {
 
                 const graph = pt.grid;
@@ -5442,6 +5456,21 @@ function (MGrid) {
                         try { pt.setMessage((body.filename || base) + ' downloaded.', 4); } catch (e) { }
                     } catch (e) { try { pt.setMessage('Download failed: ' + (e && e.message || e), 8); } catch (e2) { } }
                 };
+                menuList.push(
+                    {
+                        // The budget under each milestone's name: useful while planning, in
+                        // the way when the timeline is being read or shown to someone.
+                        label: this.showBudget === false ? `Show budget on milestones` : `Hide budget on milestones`,
+                        __date: '',
+                        click: async () => {
+                            try { pushHistory(HM(this)); } catch (e) { }
+                            this.showBudget = (this.showBudget === false);
+                            try { pt.setMessage(this.showBudget === false ? 'Budget hidden on the milestones.' : 'Budget shown on the milestones.', 3); } catch (e) { }
+                            try { pt.wb(null); } catch (e) { }
+                        },
+                        move: () => { }
+                    }
+                );
                 menuList.push(
                     { label: `Download PNG`, __date: '', click: async () => { try { await this.toPNG(pt); } catch (e) { try { pt.setMessage('Could not render the PNG: ' + (e && e.message || e), 8); } catch (e2) { } } }, move: () => { } },
                     { label: `Download PDF`, __date: '', click: async () => { await __tlExport('pdf'); }, move: () => { } },
@@ -9513,6 +9542,7 @@ function (MGrid) {
                     ['Transparent background', 'Transparent background'],
                     ['Plot Name', 'Rename…'],
                     [/^(show|hide) \[now\] mark$/, this.showNowBar ? 'Hide the now marker' : 'Show the now marker'],
+                    [/^(show|hide) budget on milestones$/, this.showBudget === false ? 'Show the budget on milestones' : 'Hide the budget on milestones'],
                     [/^(lock to|unlock from) background$/, this.isBackground ? 'Unlock from background' : 'Lock to background'],
                     [/^(maximize|default \(un-maximize\) size)$/, this.maximize ? 'Restore size' : 'Maximize']
                 );
@@ -14148,7 +14178,12 @@ function (MGrid) {
                             roomPx = roomPx * span;
 
                             const neededPx = stones.length * perLabelAtFull;
-                            const MIN_SCALE = 0.42;
+                            // HOW SMALL A LABEL IS ALLOWED TO GET. At 0.42 a 12px name came out
+                            // near 5px, which fits the bounds and cannot be read -- and a label
+                            // nobody can read is not worth the room it saves. The floor is 0.62:
+                            // a crowded timeline may now stack a little past the top of its
+                            // lane rather than shrink out of legibility.
+                            const MIN_SCALE = 0.62;
                             if (roomPx > 0 && neededPx > roomPx) {
                                 // Scaling shrinks the cost almost linearly, so the scale that
                                 // fits is close to the ratio itself; a little is held back so
@@ -15198,9 +15233,9 @@ function (MGrid) {
                                                 ctx.font = '14px Arial';
                                                 ctx.fillText(`${point.name}`, x, topY - 4);
 
-                                                if (point.filename) {
+                                                if (this.__subtitleOf(point)) {
                                                     ctx.font = '12px Arial';
-                                                    ctx.fillText(`${point.filename}`, x, topY - 20);
+                                                    ctx.fillText(`${this.__subtitleOf(point)}`, x, topY - 20);
                                                 }
 
                                             } else {
@@ -15256,9 +15291,9 @@ function (MGrid) {
                                                 ctx.textBaseline = 'bottom';
                                                 ctx.font = '14px Arial';
                                                 ctx.fillText(`${point.name}`, x, topY - 4);
-                                                if (point.filename) {
+                                                if (this.__subtitleOf(point)) {
                                                     ctx.font = '12px Arial';
-                                                    ctx.fillText(`${point.filename}`, x, topY - 20);
+                                                    ctx.fillText(`${this.__subtitleOf(point)}`, x, topY - 20);
                                                 }
                                             }
                                         }
@@ -15334,7 +15369,8 @@ function (MGrid) {
                                             else if (point.fontSize === "large") fs = Math.max(18, baseFontSize + 8);
                                             // Zoomed out, everything about the pill comes off this.
                                             const tlScale = this.__tlLabelScale || 1;
-                                            if (tlScale < 1) fs = Math.max(6, fs * tlScale);
+                                            // 6px was a floor in name only -- nothing reads at 6px.
+                                            if (tlScale < 1) fs = Math.max(9, fs * tlScale);
 
                                             const font = `${fontWeight} ${fs}px ${fontFamily}`;
                                             ctx.font = font;
@@ -15353,8 +15389,9 @@ function (MGrid) {
                                             const subFs = Math.max(tlScale < 1 ? 7 : 10, Math.round(fs * 0.85));
                                             const subFont = `${fontWeight} ${subFs}px ${fontFamily}`;
                                             let subWidth = 0;
-                                            if (point.filename) { ctx.save(); ctx.font = subFont; subWidth = ctx.measureText('' + point.filename).width; ctx.restore(); }
-                                            const subHeight = point.filename ? subFs + 3 : 0;
+                                            const subText = this.__subtitleOf(point);
+                                            if (subText) { ctx.save(); ctx.font = subFont; subWidth = ctx.measureText('' + subText).width; ctx.restore(); }
+                                            const subHeight = subText ? subFs + 3 : 0;
                                             // The label is a pill badge that reads as a menu, so it carries a
                                             // caret on the right and needs the room for it. The text stays
                                             // centred on the milestone by shifting left half that room.
@@ -15512,10 +15549,10 @@ function (MGrid) {
 
                                                 ctx.fillText(nameText, textCx, adjustedBoxY + paddingY);
 
-                                                if (point.filename) {
+                                                if (this.__subtitleOf(point)) {
                                                     ctx.font = subFont;
                                                     ctx.fillStyle = '#4a5b6b';   // muted navy, readable on the pill
-                                                    let subText = '' + point.filename;
+                                                    let subText = '' + this.__subtitleOf(point);
                                                     if (ctx.measureText(subText).width > maxWidth) {
                                                         while (ctx.measureText(subText + "...").width > maxWidth && subText.length > 0) subText = subText.slice(0, -1);
                                                         subText += "...";
