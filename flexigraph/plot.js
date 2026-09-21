@@ -7547,7 +7547,11 @@ function (MGrid) {
                                                 this.__scy_ = y;
 
                                                 this.__date = formatTime(tx, this.grid.xmin, this.grid.xmax, this.startDate, this.endDate)
-                                                if (arr) {
+                                                // ONLY WHILE THE BUTTON IS DOWN. The arrow stays on
+                                                // screen after the release, waiting for the comment
+                                                // window -- and without this guard every mouse move
+                                                // in that gap went on dragging its end point.
+                                                if (arr && md) {
                                                     const xxi = this.grid.Xwc(x - this.grid.xi * 2);
                                                     arr.xf = xxi;
                                                     arr.yf = arr.y;
@@ -7557,6 +7561,20 @@ function (MGrid) {
 
                                             mouseUpListener: async (x, y) => {
                                                 if (isDrawing) {
+                                                    // THE RELEASE IS THE END POINT. It used to be
+                                                    // wherever the last mouse MOVE had left it, and
+                                                    // the comment window opened on the same tick --
+                                                    // so the finished arrow, head and all, was never
+                                                    // actually seen. Land it, let it draw, and only
+                                                    // then ask what it is.
+                                                    try {
+                                                        const xf = this.grid.Xwc(x - this.grid.xi * 2);
+                                                        if (isFinite(xf)) { arr.xf = xf; arr.yf = arr.y; }
+                                                    } catch (e) { }
+                                                    md = false;
+                                                    try { if (pt) pt.wb(null); } catch (e) { }
+                                                    await new Promise(r => setTimeout(r, 500));
+
                                                     const start = formatTimeLabel(
                                                         arr.x,
                                                         this.grid.xmin,
@@ -7639,32 +7657,63 @@ function (MGrid) {
                                                 const grid = this.grid;
 
                                                 const drawArrow = (ctx, x1, y1, x2, y2) => {
-                                                    const headLen = 12;
-                                                    const angle = Math.atan2(y2 - y1, x2 - x1);
+                                                    // Every number here reaches a gradient or an arc,
+                                                    // and one NaN takes the whole canvas down with it.
+                                                    if (![x1, y1, x2, y2].every(Number.isFinite)) return;
+                                                    const dx = x2 - x1, dy = y2 - y1;
+                                                    const len = Math.hypot(dx, dy);
+                                                    if (len < 0.5) return;               // nothing drawn yet
+                                                    const angle = Math.atan2(dy, dx);
+
+                                                    // The head is in proportion to the arrow, so a short
+                                                    // interval is not all head and a long one still has
+                                                    // a head you can see.
+                                                    const head = Math.max(10, Math.min(20, len * 0.28));
+                                                    const body = Math.max(0, len - head * 0.8);
+                                                    const bx = x1 + Math.cos(angle) * body;
+                                                    const by = y1 + Math.sin(angle) * body;
 
                                                     const grad = ctx.createLinearGradient(x1, y1, x2, y2);
                                                     grad.addColorStop(0, '#4F46E5');
                                                     grad.addColorStop(1, '#22D3EE');
 
                                                     ctx.save();
-                                                    ctx.lineWidth = 5;
                                                     ctx.lineCap = 'round';
+                                                    ctx.lineJoin = 'round';
+
+                                                    // A soft halo under the shaft: it lifts the arrow off
+                                                    // a busy timeline without the heavy glow the old
+                                                    // shadow put on everything, head included.
+                                                    ctx.strokeStyle = 'rgba(79,70,229,0.16)';
+                                                    ctx.lineWidth = 11;
+                                                    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
+
+                                                    // The shaft, stopped short so it does not show
+                                                    // through the head.
                                                     ctx.strokeStyle = grad;
+                                                    ctx.lineWidth = 4.5;
+                                                    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
 
-                                                    ctx.shadowColor = 'rgba(79,70,229,0.6)';
-                                                    ctx.shadowBlur = 12;
-                                                    ctx.shadowOffsetX = 0;
-                                                    ctx.shadowOffsetY = 0;
+                                                    // The tail: a round cap, so where the interval STARTS
+                                                    // is as clear as where it ends.
+                                                    ctx.beginPath(); ctx.arc(x1, y1, 4.5, 0, Math.PI * 2);
+                                                    ctx.fillStyle = '#4F46E5'; ctx.fill();
+                                                    ctx.lineWidth = 1.5; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
 
-                                                    ctx.beginPath();
-                                                    ctx.moveTo(x1, y1);
-                                                    ctx.lineTo(x2, y2);
-                                                    ctx.stroke();
-
+                                                    // The head: notched at the back, which reads as an
+                                                    // arrow rather than as a wedge on the end of a line.
+                                                    const at = (back, side) => [
+                                                        x2 - Math.cos(angle) * back + Math.cos(angle + Math.PI / 2) * side,
+                                                        y2 - Math.sin(angle) * back + Math.sin(angle + Math.PI / 2) * side
+                                                    ];
+                                                    const [lx, ly] = at(head, head * 0.5);
+                                                    const [rx, ry] = at(head, -head * 0.5);
+                                                    const [nx, ny] = at(head * 0.7, 0);
                                                     ctx.beginPath();
                                                     ctx.moveTo(x2, y2);
-                                                    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 7), y2 - headLen * Math.sin(angle - Math.PI / 7));
-                                                    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 7), y2 - headLen * Math.sin(angle + Math.PI / 7));
+                                                    ctx.lineTo(lx, ly);
+                                                    ctx.lineTo(nx, ny);
+                                                    ctx.lineTo(rx, ry);
                                                     ctx.closePath();
                                                     ctx.fillStyle = grad;
                                                     ctx.fill();
