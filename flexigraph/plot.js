@@ -5232,6 +5232,77 @@ function (MGrid) {
                         move: () => {
                         }
                     });
+                // ---- Download: the picture, or the events as a table ----------------------
+                // PNG is the plot itself (toPNG renders it off-screen at 1500px rather than
+                // grabbing the canvas, so it does not come out at whatever the window
+                // happens to be). PDF and XLSX are the EVENTS -- one row per point, which is
+                // what a timeline is once it is not a picture -- built by /export-table, the
+                // same endpoint the editor's downloads and the LOH report use.
+                const __tlRows = () => {
+                    const pts = (this.scatterData && this.scatterData.points) || [];
+                    const ymd = (ms) => Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : '';
+                    const msOf = (p, xv) => {
+                        let ms = NaN;
+                        if (xv == null && p && p.date) { try { ms = new Date(p.date).getTime(); } catch (e) { } }
+                        if (!Number.isFinite(ms)) {
+                            try { if (pt && typeof pt.__tlXToMs === 'function') ms = pt.__tlXToMs(this, xv == null ? p.x : xv); } catch (e) { }
+                        }
+                        return ms;
+                    };
+                    const rows = [];
+                    for (const p of pts) {
+                        if (!p) continue;
+                        const end = msOf(p, null);
+                        const row = { Name: ('' + (p.name == null ? '' : p.name)), Type: p.type || 'milestone' };
+                        if (p.type === 'interval' && p.startX != null) {
+                            // BOTH ENDS FROM THE SAME SOURCE. startX is a position on the
+                            // axis and there is no matching date field for it, so reading the
+                            // end from p.date and the start from the axis put the two in
+                            // different units and the interval came out centuries long.
+                            row.Start = ymd(msOf(p, p.startX));
+                            row.End = ymd(msOf(p, p.x));
+                        } else {
+                            row.Date = ymd(end);
+                        }
+                        if (p.table) row.Table = p.table;
+                        if (p.row) row.Row = p.row;
+                        if (p.comment) row.Comment = '' + p.comment;
+                        if (p.videoURL) row.Link = '' + p.videoURL;
+                        row.__sort = Number.isFinite(end) ? end : Infinity;
+                        rows.push(row);
+                    }
+                    rows.sort((a, b) => a.__sort - b.__sort);       // a timeline reads in time order
+                    for (const r of rows) delete r.__sort;
+                    return rows;
+                };
+                const __tlExport = async (fmt) => {
+                    const rows = __tlRows();
+                    if (!rows.length) { try { pt.setMessage('There are no events on this timeline to export.', 4); } catch (e) { } return; }
+                    const base = (('' + (this.name || 'timeline')).replace(/[^A-Za-z0-9_\- .]+/g, '_').replace(/\s+/g, '_')) || 'timeline';
+                    try { pt.setMessage('Building the ' + fmt.toUpperCase() + '…', 4); } catch (e) { }
+                    try {
+                        const host = window['env']['apiUrl'];
+                        const r = await POSTJSON({ format: fmt, filename: base, title: (this.name || 'Timeline') + ' — ' + rows.length + ' event' + (rows.length === 1 ? '' : 's'), sheets: [{ name: 'Timeline', rows: rows }] }, host + '/export-table');
+                        const body = (r && r.error && typeof r.error === 'object') ? r.error : r;
+                        if (!body || !body.b64) { try { pt.setMessage('Could not build the ' + fmt.toUpperCase() + ': ' + ((body && (body.error || body.message)) || 'server error'), 8); } catch (e) { } return; }
+                        const bin = atob(body.b64);
+                        const bytes = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(new Blob([bytes], { type: body.mime || 'application/octet-stream' }));
+                        a.download = body.filename || (base + '.' + fmt);
+                        a.style.display = 'none';
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
+                        try { pt.setMessage((body.filename || base) + ' downloaded.', 4); } catch (e) { }
+                    } catch (e) { try { pt.setMessage('Download failed: ' + (e && e.message || e), 8); } catch (e2) { } }
+                };
+                menuList.push(
+                    { label: `Download PNG`, __date: '', click: async () => { try { await this.toPNG(pt); } catch (e) { try { pt.setMessage('Could not render the PNG: ' + (e && e.message || e), 8); } catch (e2) { } } }, move: () => { } },
+                    { label: `Download PDF`, __date: '', click: async () => { await __tlExport('pdf'); }, move: () => { } },
+                    { label: `Download XLSX`, __date: '', click: async () => { await __tlExport('xlsx'); }, move: () => { } }
+                );
                 menuList.push(
                     {
                         label: `Plot Name`,
@@ -9300,13 +9371,17 @@ function (MGrid) {
                     [/^(lock to|unlock from) background$/, this.isBackground ? 'Unlock from background' : 'Lock to background'],
                     [/^(maximize|default \(un-maximize\) size)$/, this.maximize ? 'Restore size' : 'Maximize']
                 );
+                const __download = __pick(
+                    ['Download PNG', 'Picture (PNG)'],
+                    ['Download PDF', 'Events as a PDF'],
+                    ['Download XLSX', 'Events as a spreadsheet (XLSX)']
+                );
                 const __share = __pick(
                     ['Save plot', 'Save…'],
                     ['Open plot', 'Open…'],
                     ['Publish plot', 'Publish…'],
                     [/^pui?blish timeline$/, 'Publish timeline…'],
                     ['Export', 'Export…'],
-                    ['Download PNG', 'Download PNG'],
                     ['Copy', 'Copy'],
                     ['Title', 'Title…']
                 );
@@ -9322,6 +9397,7 @@ function (MGrid) {
                     __group('Edit', __edit),
                     __group('Data', __data),
                     __group('Appearance', __look),
+                    __group('Download', __download),
                     __group('Share', __share),
                     __rest.length ? __group('More', __rest) : null,
                     __delete
