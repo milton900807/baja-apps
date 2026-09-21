@@ -4478,7 +4478,12 @@ function (path, config) {
                                     const xMin = Number.isFinite(ax.min) ? ax.min : Math.min(...tl.intervals.map(p => p.startX));
                                     const xMax = Number.isFinite(ax.max) ? ax.max : Math.max(...tl.intervals.map(p => p.x));
                                     plot.grid.zoom(xMin, xMax, 0, 1);
-                                    plot.w = 900; plot.h = 260;
+                                    // WIDER. A timeline reads across: at 900 the pills of a
+                                    // twelve-event history were shrinking to fit each other,
+                                    // and the whole point of the thing is the order and the
+                                    // spacing of what happened. The height stays -- it is
+                                    // lanes of labels above one axis, not a plot area.
+                                    plot.w = 1500; plot.h = 260;
                                     plot.x_axis_label = 'Year';
                                     plot.fitScaleToData = false;
                                     plot.grid.rescale();
@@ -4576,6 +4581,13 @@ function (path, config) {
                                     const name = ((result.tables && result.tables[0] && result.tables[0].name) || 'Indication')
                                         .replace(/_Market.*$/, '').replace(/_/g, ' ') + ' — addressable patients';
                                     const old = (pt.m_plots || []).find(o => o && o.name === name);
+                                    // A rebuild replaces the chart, so whatever height it had
+                                    // would be lost unless it is carried over. Kept before the
+                                    // old one goes: resizing a chart and having the next run
+                                    // undo it is the sort of thing that makes a build feel
+                                    // like it is fighting you.
+                                    let prevH = null;
+                                    try { if (old) prevH = (old.getHeight ? old.getHeight() : old.h) || null; } catch (e) { prevH = null; }
                                     if (old && pt.removePlot) { try { pt.removePlot(old); } catch (e) { } }
                                     const points = pops.map((p) => ({
                                         name: (p.type === 'Expansion' ? p.name + ' (expansion)' : p.name),
@@ -4587,8 +4599,13 @@ function (path, config) {
                                         plot.name = name;
                                         plot.fitScaleToData = false;
                                         plot.grid.setxmin(0); plot.grid.setxmax(1); plot.grid.setymin(0); plot.grid.setymax(1);
+                                        // TALLER the first time it is put down: the pie and its
+                                        // legend share the box, and at 300 the slices were
+                                        // squeezed to make room for the names. A chart that was
+                                        // already there keeps the height it had, so a rebuild
+                                        // does not undo a resize.
                                         plot.setWidth(pt.grid.worldWidth(420));
-                                        plot.setHeight(pt.grid.worldHeight(300));
+                                        plot.setHeight(prevH || pt.grid.worldHeight(460));
                                         pt.addPlot ? pt.addPlot(plot) : (pt.m_plots = (pt.m_plots || []).concat(plot));
                                     }
                                 }
