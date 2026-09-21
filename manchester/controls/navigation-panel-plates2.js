@@ -176,7 +176,6 @@ function (plate_graph, selectedPlate, selectedPoint) {
         const pm = {
             plateTrack: plate_graph.plateTrack
         }
-        let __lastNavTxt = '';   // the formula text the go-to menu was last shown for
 
 
         const MSGraph = await exec('lib/msgraph.js')
@@ -822,80 +821,13 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         data: {
                             text: tmc,
                             txtListener: createIonFunction((txt) => {
-                                // A formula in the field (=Table[Label]…): a menu that navigates to
-                                // each table and row it references, one item per reference, shown
-                                // when the field is clicked into or a reference is just completed
-                                // (the text ends with "]"); typing on past it brings the completion
-                                // menus below back.
-                                try {
-                                    const t = ('' + (txt || '')).trim();
-                                    if (t.endsWith(']') && t !== __lastNavTxt) {
-                                        const refs = [];
-                                        const re = /([A-Za-z_][\w.-]*)\s*\[\s*([A-Za-z_]\w*)\s*\]/g;
-                                        let mm;
-                                        while ((mm = re.exec(t))) {
-                                            const tb = pt.getTableByName(mm[1]);
-                                            if (tb && !refs.some(r => r.table === mm[1] && r.label === mm[2])) refs.push({ table: mm[1], label: mm[2], tb });
-                                        }
-                                        if (refs.length) {
-                                            __lastNavTxt = t;
-                                            const goTo = async (r) => {
-                                                try {
-                                                    if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
-                                                    try { pt.wb(null); } catch (e) { }
-                                                    for (const pl of (pt.root || [])) { try { if (pl.deselectAll) pl.deselectAll(); } catch (e) { } }
-                                                    pt.setSelected(r.tb);
-                                                    // the row: every cell of it lit, the value cell current
-                                                    const col0 = r.tb.wells[0] || [];
-                                                    let row = -1;
-                                                    for (let i = 1; i < col0.length; i++) if (col0[i] && ('' + col0[i].value).trim() === r.label) { row = i; break; }
-                                                    if (row >= 0) {
-                                                        for (let c = 0; c < r.tb.wells.length; c++) { const w = r.tb.wells[c] && r.tb.wells[c][row]; if (w) { try { w.selectIt(); } catch (e) { w.select = true; } } }
-                                                        const v = r.tb.wells[1] && r.tb.wells[1][row];
-                                                        if (v) pt.selected_well = v;
-                                                    }
-                                                    if (pt.zoomToFitTable) await pt.zoomToFitTable(r.tb); else await pt.zoomintoplate(r.tb);
-                                                    pt.setMessage(row >= 0 ? (r.table + ' row ' + r.label) : (r.table + ': no row named ' + r.label), 2);
-                                                } catch (e) { console.warn('go to reference', e); }
-                                            };
-                                            // The application's menu look: a navy title band, white body,
-                                            // one column, navy text; placed under the toolbar, not centred
-                                            // over the canvas in three columns as the generic showMenu does.
-                                            // The row is what the reader is looking for, so it is never the
-                                            // part that gets cut: the menu is sized to its longest entry, and
-                                            // where that still does not fit, the TABLE name loses its middle
-                                            // and the row name is left whole. Names are long here by design
-                                            // (Project_Assumptions, Total_Expenses_Per_Month), and at a fixed
-                                            // 300px the row sat off the end of every line.
-                                            const CH = 7.1;                       // ~1 character at the menu's 12px
-                                            const room = Math.max(280, Math.min(880, (pt.grid.width || 900) - 48));
-                                            const fits = Math.max(18, Math.floor((room - 34) / CH));
-                                            const mid = (t, n) => {
-                                                t = '' + t;
-                                                if (n < 6 || t.length <= n) return t;
-                                                const head = Math.ceil((n - 1) / 2), tail = Math.floor((n - 1) / 2);
-                                                return t.slice(0, head) + '\u2026' + t.slice(t.length - tail);
-                                            };
-                                            const SEP = '  \u203A  ';
-                                            const nav = refs.map(r => {
-                                                const leaf = '' + r.label;
-                                                const spare = fits - SEP.length - Math.min(leaf.length, fits - 8);
-                                                const table = mid(r.table, Math.max(6, spare));
-                                                return { label: table + SEP + mid(leaf, fits - SEP.length - table.length), click: () => { goTo(r); }, fg: '#0a2540' };
-                                            });
-                                            const width = Math.min(room, Math.max(300, Math.round(Math.max(...nav.map(n => n.label.length)) * CH) + 34));
-                                            try {
-                                                pt.grid.rescale();
-                                                const m = new Menu(nav, pt.grid.Xwc(Math.max(12, pt.grid.width / 2 - width / 2)), pt.grid.Ywc(64), 'rgba(255,255,255,0.98)', '#0a2540', 1);
-                                                m.title = refs.length === 1 ? 'Go to the referenced row' : 'Go to a referenced row';
-                                                m.menu_width = width;
-                                                pt.menu = m; pt.menu_vis = true;
-                                                try { pt.wb(null); } catch (e) { }
-                                            } catch (e) { pt.showMenu(nav); }
-                                            return;
-                                        }
-                                    }
-                                } catch (e) { }
+                                // THE REFERENCES IN THE FIELD ARE THE FIELD'S OWN BUSINESS.
+                                // This used to open a canvas menu -- 'Go to the referenced
+                                // row' -- across the top of the screen whenever the text
+                                // ended in ']'. The completion list now carries a Go to row
+                                // for the reference the caret is standing in, at ANY position
+                                // inside it rather than only just past the bracket: the menu
+                                // was the narrower of the two and covered the canvas to say it.
                                 const triggers = ['>=', '<=', '!=', '&&', '||', '=', '>', '<', '[', ']', '(', ')'];
                                 let currentword = txt;
                                 let lastTriggerIndex = -1;
@@ -919,7 +851,6 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     let table = pt.getTableByName(tableName.trim());
                                     if (table !== null) {
                                         let columns = table.getColumnNames();
-                                        let menuitems = []
                                         let commands = []
                                         for (let c of columns) {
                                             c = c.trim();
@@ -927,40 +858,16 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                             // closes the bracket and `table` is what scopes it to the
                                             // table written before it.
                                             if (c) commands.push({ label: c, insert: c + ']', hint: tableName, table: tableName, kind: 'column' })
-                                            menuitems.push({
-                                                'label': c, click: () => {
-                                                    let insertion = tableName + '.' + c;
-                                                    let newText = txt.slice(0, index) + insertion + txt.slice(index);
-                                                    panel.setText(newText);
-                                                }
-                                            })
-
                                         }
+                                        // The field's own completion list is the only one now. This used
+                                        // to ALSO throw a canvas menu of the same columns over the middle
+                                        // of the screen -- two lists answering one keystroke, and the
+                                        // canvas one inserted "Table.Column", which is not a reference
+                                        // this evaluator has ever understood.
                                         setCompletions(commands, 'cols:' + tableName);
-                                        pt.showMenu(menuitems)
-
-
                                     } else {
-
-
-
-                                        let items = pt.getTablesAndTagNames();
-                                        let filtered = items.filter(i =>
-                                            i.toLowerCase().includes(currentword.toLowerCase())
-                                        );
-                                        let menuitems = []
-                                        for (let f of filtered) {
-                                            f = f.trim();
-                                            menuitems.push({
-                                                'label': f, click: () => {
-                                                    panel.setText(txt.slice(0, index) + f + txt.slice(index));
-                                                }
-                                            })
-                                        }
-
-
-                                        pt.showMenu(menuitems)
-
+                                        // Nothing to offer for an unknown table: the field's list stays
+                                        // as it is rather than a menu opening over the canvas.
                                     }
 
                                 } else {
@@ -983,28 +890,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     if (currentword.length <= 1) {
                                         return;
                                     }
-                                    let items = pt.getTableNames();
-                                    let filtered = items.filter(i =>
-                                        i.toLowerCase().includes(currentword.toLowerCase())
-                                    );
-                                    let menuitems = []
-                                    let commands = []
-                                    for (let f of filtered) {
-                                        f = f.trim();
-                                        commands.push(f)
-                                        menuitems.push({
-                                            'label': f, click: () => {
-
-                                                setTimeout(() => {
-
-
-                                                    panel.setText(txt.slice(0, lastTriggerIndex + lastTrigger.length) + ' ' + f + ' ' + txt.slice(lastTriggerIndex + lastTrigger.length).trim());
-                                                }, 3000)
-                                            }
-                                        })
-                                    }
+                                    // Table names after a trigger: the field's list again, not a
+                                    // canvas menu on top of it. The menu this replaces waited
+                                    // THREE SECONDS on a setTimeout before it inserted anything.
                                     setCompletions(null, 'tables');
-                                    pt.showMenu(menuitems)
                                 }
                             }),
                             cmd: createIon(async (str, panel) => {
