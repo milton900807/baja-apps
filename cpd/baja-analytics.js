@@ -4575,9 +4575,9 @@ function (path, config) {
                             if (g) g.touchMe();
                             // Answered from EARLIER RESEARCH (py/ion-lib/indication_store.py): every
                             // prompt is kept in a structured form, and the model judged an earlier
-                            // run to ask the same question. Say so, with its date and the reason,
-                            // and offer the new run: the figures go into forecasts, so whether
-                            // they are a month old is the user's call, not a silent one.
+                            // run to ask the same question. Say so, with its date and the reason:
+                            // the figures go into forecasts, so where they came from and how old
+                            // they are is worth knowing -- it is just not worth a question.
                             try {
                                 const c = result.cache;
                                 if (c && c.hit) {
@@ -4585,17 +4585,13 @@ function (path, config) {
                                     try { when = new Date(c.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch (e) { when = ''; }
                                     const age = Number.isFinite(c.age_days) ? (c.age_days === 0 ? 'today' : c.age_days === 1 ? 'yesterday' : c.age_days + ' days ago') : '';
                                     pt.setMessage('Loaded from earlier research' + (when ? ' (' + when + (age ? ', ' + age : '') + ')' : '') + '. ' + (c.reason || ''), 3);
-                                    const closeMenu = () => { pt.menu = null; pt.menu_vis = false; };
-                                    // after the layout and the zoom have settled, or the menu opens under them
-                                    setTimeout(() => {
-                                        try {
-                                            if (pt.menu || pt.__maximized) return;
-                                            pt.showMenuWithTitle('Earlier research' + (when ? ' · ' + when : ''), [
-                                                { label: 'Keep these tables', click: closeMenu },
-                                                { label: 'Research again (a few minutes)', click: async () => { closeMenu(); await run(prompt, { fresh: true }); } },
-                                            ]);
-                                        } catch (e) { }
-                                    }, 600);
+                                    // FOUND IN THE DATABASE IS NOT A QUESTION. This used to stop
+                                    // and ask "Keep these tables / Research again" every time an
+                                    // earlier run answered the same question -- a menu over the
+                                    // tables you had just asked for, to confirm you wanted them.
+                                    // The message above already says where they came from and how
+                                    // old they are; researching again is a button on the panel
+                                    // that started the run, not an interruption at the end of it.
                                 }
                             } catch (e) { console.warn('[indication market] earlier research notice', e); }
                         };
@@ -4681,6 +4677,22 @@ function (path, config) {
                                                                     return;
                                                                 }
                                                                 await run(prompt);
+                                                            })
+                                                        },
+                                                        {
+                                                            // Run takes earlier research when it answers the same
+                                                            // question. This is how you say no to that, and it is
+                                                            // here -- with the prompt -- rather than in a menu after
+                                                            // the tables have already been built.
+                                                            label: 'Research again', ionFunction: createIonFunction(async () => {
+                                                                const prompt = (initalText ? txt : sequenceTextEditor.getContent() || '').trim();
+                                                                hideAllModal();
+                                                                CurrentLayout.reset('mainPanel')
+                                                                if (prompt.length < 2) {
+                                                                    pt.setMessage('Enter a disease or a list of indications.', 1.1);
+                                                                    return;
+                                                                }
+                                                                await run(prompt, { fresh: true });
                                                             })
                                                         }
                                                     ]
