@@ -4437,7 +4437,13 @@ function (path, config) {
                                         const old = (pt.root || []).find(p => p && p.name === nm);
                                         if (old) pt.removePlate(old);
                                     }
-                                    const built = await exec('baja/draw/data-model-to-tables-gpt', pt, result.model);
+                                    // 'no-layout': the model builder otherwise fires its OWN
+                                    // layoutCompactTetris and does not await it, so it was still
+                                    // running while the timeline, the folders and the chart were
+                                    // being added -- and could land after the ranked layout below,
+                                    // undoing it. One layout, at the end, once everything is on
+                                    // the canvas.
+                                    const built = await exec('baja/draw/data-model-to-tables-gpt', pt, result.model, 'no-layout');
                                     const rep = built && built.report ? built.report : null;
                                     const errs = rep ? [].concat(rep.errors || [], rep.missingValues || []) : [];
                                     if (errs.length) { modelNote = errs.length + ' model formula cell(s) did not resolve; see the console.'; console.log('[indication market] model report:', rep); }
@@ -4589,6 +4595,13 @@ function (path, config) {
                             } catch (e) { console.warn('[indication market] population pie', e); }
                             // Spread every table so none sits on another, wait for the layout
                             // to settle, then zoom out, animated, until all of them are in view.
+                            // EVERYTHING IS ON THE CANVAS BY HERE -- the researched tables, the
+                            // model's, the notes, the timeline, the folders and the chart -- so
+                            // this is the one layout that decides where they all go. A frame is
+                            // given up first so anything added a moment ago has its real size;
+                            // a table measured before its cells are sized lays out at the wrong
+                            // width and everything after it is placed around that mistake.
+                            await new Promise((r) => setTimeout(r, 0));
                             // THE TIMELINE FIRST, THEN THE CHART, THEN THE FOLDERS. The layout
                             // places pieces in the order it is given them, and it gathers
                             // plates before plots, so without this the timeline and the chart
