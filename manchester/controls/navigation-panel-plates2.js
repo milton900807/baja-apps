@@ -38,21 +38,47 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 const want = (Array.isArray(tags) ? tags : [tags]).map((t) => ('' + t).trim()).filter(Boolean);
 
                 const col0 = tb.wells[0] || [];
-                let row = -1, rowTag = '';
-                for (const t of want) {
-                    for (let r = 1; r < col0.length; r++) {
-                        if (txt(col0[r]).toLowerCase() === t.toLowerCase()) { row = r; rowTag = t; break; }
-                    }
-                    if (row >= 0) break;
-                }
-                let col = -1;
-                for (const t of want) {
-                    if (t === rowTag) continue;
+                let row = -1, rowTag = '', col = -1, colTag = '';
+
+                // A TAG IS NOT ALWAYS A ROW LABEL. It can name a column instead (the tags
+                // are a set, so Budget,row5 and row5,Budget mean the same cell), it can be
+                // positional -- row5, col2 -- or it can still be an iterator the row
+                // expansion has not filled in yet, because this runs while the formula is
+                // being TYPED: row${i} has no one value, and asking for "the row named
+                // row${i}" was the whole of the "no row named" complaint.
+                const iterish = (t) => /^(?:row|col)\s*\$?\{/i.test(t);
+                const idxOf = (t, word) => {
+                    const m = new RegExp('^' + word + '(\\d+)$', 'i').exec(t);
+                    return m ? parseInt(m[1], 10) : -1;
+                };
+                const rowByLabel = (t) => {
+                    for (let r = 1; r < col0.length; r++) if (txt(col0[r]).toLowerCase() === t.toLowerCase()) return r;
+                    return -1;
+                };
+                const colByHeader = (t) => {
                     for (let c = 1; c < tb.wells.length; c++) {
-                        if (txt(tb.wells[c] && tb.wells[c][0]).toLowerCase() === t.toLowerCase()) { col = c; break; }
+                        if (txt(tb.wells[c] && tb.wells[c][0]).toLowerCase() === t.toLowerCase()) return c;
                     }
-                    if (col >= 0) break;
+                    return -1;
+                };
+
+                const unresolved = [];
+                for (const t of want) {
+                    if (iterish(t)) { unresolved.push(t); continue; }
+                    let n = idxOf(t, 'row');
+                    if (n >= 0) { if (row < 0) { row = n; rowTag = t; } continue; }
+                    n = idxOf(t, 'col');
+                    if (n >= 0) { if (col < 0) { col = n; colTag = t; } continue; }
+                    // A name: a row label first (the Label | Value convention), else a header.
+                    n = rowByLabel(t);
+                    if (n >= 0 && row < 0) { row = n; rowTag = t; continue; }
+                    n = colByHeader(t);
+                    if (n >= 0 && col < 0) { col = n; colTag = t; continue; }
+                    unresolved.push(t);
                 }
+                if (row >= col0.length) row = -1;              // past the end of the table
+                if (col >= tb.wells.length) col = -1;
+                const colOnly = row < 0 && col >= 0;           // a whole column to show
                 if (col < 0) col = 1;
 
                 if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
@@ -64,6 +90,14 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         const w = tb.wells[c] && tb.wells[c][row];
                         if (w) { try { w.selectIt(); } catch (e) { w.select = true; } }
                     }
+                } else if (colOnly) {
+                    // No one row -- the reference names a column and an iterator that has
+                    // no single value while it is being typed. The column IS the answer.
+                    const cw = tb.wells[col] || [];
+                    for (let r = 1; r < cw.length; r++) {
+                        const w = cw[r];
+                        if (w) { try { w.selectIt(); } catch (e) { w.select = true; } }
+                    }
                 }
                 if (pt.zoomToFitTable) await pt.zoomToFitTable(tb); else await pt.zoomintoplate(tb);
                 // AFTER the zoom: framing the table selects within it, and doing this first
@@ -71,10 +105,18 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 if (row >= 0) {
                     const v = tb.wells[col] && tb.wells[col][row];
                     if (v) pt.selected_well = v;
+                } else if (colOnly) {
+                    const v = tb.wells[col] && tb.wells[col][1];
+                    if (v) pt.selected_well = v;
                 }
+                const colName = () => txt(tb.wells[col] && tb.wells[col][0]) || (colTag || 'column ' + col);
                 pt.setMessage(row >= 0
-                    ? (tableName + ' › ' + (rowTag || 'row ' + row) + (col > 0 ? ' › ' + txt(tb.wells[col][0]) : ''))
-                    : (tableName + ': no row named ' + want.join(', ')), 2);
+                    ? (tableName + ' › ' + (rowTag || 'row ' + row) + (col > 0 ? ' › ' + colName() : ''))
+                    : colOnly
+                        ? (tableName + ' › ' + colName() + (!unresolved.length ? ' (whole column)'
+                            : unresolved.some(iterish) ? ' (whole column: ' + unresolved.join(', ') + ' is one per row)'
+                                : ' (whole column: no row named ' + unresolved.join(', ') + ')'))
+                        : (tableName + ': nothing named ' + want.join(', ')), 2);
             } catch (e) { console.warn('go to reference', e); }
         };
 
