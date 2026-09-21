@@ -1198,15 +1198,23 @@ function () {
                         message: isNaNResult
                             ? 'This formula comes out as NaN. Trace NaN follows its references back to the cell where it starts, and jumps there.'
                             : hasFormula
-                            ? 'A formula. Save formula applies it to every selected cell; Save text stores the text as typed. Ctrl+Enter saves.'
-                            : 'Save text stores what you type in the selected cells; start with = to make it a formula. Ctrl+Enter saves.',
+                            ? 'A formula. Add to each puts it on every selected cell, one per cell; Save text stores the text as typed. Ctrl+Enter does the first button.'
+                            : 'Save text stores what you type in the selected cells. Add to each adds it to what each already holds, or sets a formula on each when it starts with =. Ctrl+Enter does the first button.',
                         value: '' + (__value == null ? '' : __value),
                         mono: true,
+                        // ORDER MATTERS: Ctrl+Enter fires the FIRST of these (prompt-text
+                        // resolves acts[0]). Save formula is gone -- Add to each sets a
+                        // formula on every selected cell when the text starts with "=", and
+                        // it stores one per cell, so an iterator reads each cell's own row.
+                        // It leads on a cell that HOLDS a formula, which is what Save
+                        // formula used to do there; a cell with no formula still leads with
+                        // Save text, so Ctrl+Enter on plain text cannot silently add to it.
+                        // Delete formula is never first: nothing destructive on Ctrl+Enter.
                         actions: isNaNResult
-                            ? [{ key: 'trace', label: 'Trace NaN' }, { key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'each', label: 'Add to each' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            ? [{ key: 'each', label: 'Add to each' }, { key: 'trace', label: 'Trace NaN' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
                             : hasFormula
-                            ? [{ key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'each', label: 'Add to each' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
-                            : [{ key: 'text', label: 'Save text' }, { key: 'formula', label: 'Save formula' }, { key: 'each', label: 'Add to each' }, { key: 'tag', label: 'Tag…' }],
+                            ? [{ key: 'each', label: 'Add to each' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            : [{ key: 'text', label: 'Save text' }, { key: 'each', label: 'Add to each' }, { key: 'tag', label: 'Tag…' }],
                         completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
                     });
                 } catch (e) { r = null; }
@@ -1223,8 +1231,8 @@ function () {
                 }
                 try { pushHistory(HM(this)); } catch (e) { }
                 try { if (pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
-                // ADD TO EACH. Save formula puts ONE formula across the selection; this adds
-                // what is typed to each cell separately, on top of whatever that cell
+                // ADD TO EACH. This is how a formula is put on cells from this window now:
+                // it adds what is typed to each cell separately, on top of whatever that cell
                 // already holds -- so a column of different numbers stays a column of
                 // different numbers, each moved by the same amount.
                 //
