@@ -8529,7 +8529,13 @@ function (progress) {
                 } catch (e) { console.warn('document press', e); }
                 // A press on a milestone of a timeline on the canvas picks it up (see __msDrag*).
                 // Not on a phone: there a finger pans the canvas, whatever it lands on.
-                if (!this.menu && !this.__maximized) {
+                // ...and not while something is being DRAWN on a timeline. Both of the
+                // presses below belong to the timeline itself -- picking a milestone up, and
+                // dragging the window through time -- and while an interval is being drawn
+                // the press belongs to the drawing instead. Without this the press that sets
+                // the start of an interval slid the window through time, and the interval
+                // could never be begun. Set and cleared by the Interval tool (plot.js).
+                if (!this.menu && !this.__maximized && !this.__tlDrawing) {
                     try {
                         const at = this.objectAt(x, y);
                         if (at && at.kind === 'plot' && this.__tlIs(at.obj)) {

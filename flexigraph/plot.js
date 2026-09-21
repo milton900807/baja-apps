@@ -7608,12 +7608,20 @@ function (MGrid) {
                                                     }
                                                     this.scatterData.points.push(point);
                                                     arr = null;
-                                                    if (pt) {
-                                                        pt.wb(null)
-                                                    }
-
                                                     isDrawing = false;
-                                                    pt.wb(null)
+                                                    // DONE DRAWING, SO GIVE THE POINTER BACK.
+                                                    // Dropping the workbench alone left the
+                                                    // canvas in drawing mode as far as the
+                                                    // timeline was concerned, and nothing
+                                                    // re-asked what was under the pointer, so
+                                                    // the mouse-over highlight stayed wherever
+                                                    // it had last been left.
+                                                    if (pt) {
+                                                        try { pt.__tlDrawing = false; } catch (e) { }
+                                                        try { pt.wb(null); } catch (e) { }
+                                                        try { if (typeof pt.__rehover === 'function') pt.__rehover(); } catch (e) { }
+                                                        try { pt.setMessage('Interval added.', 2); } catch (e) { }
+                                                    }
                                                 }
                                                 md = false;
 
@@ -7809,6 +7817,14 @@ function (MGrid) {
                                             ,
                                             menuManager: null
                                         }
+                                        // A PRESS ON A TIMELINE NORMALLY DRAGS THROUGH TIME
+                                        // (plate-track's mouseDown), which is exactly what made
+                                        // this impossible: the press meant to set the start of
+                                        // the interval slid the window instead, and the interval
+                                        // could never be begun. This says the canvas is drawing
+                                        // on a timeline; that press handler stands aside while
+                                        // it is set.
+                                        try { pt.__tlDrawing = true; } catch (e) { }
                                         pt.wb(lasso)
 
                                     },
