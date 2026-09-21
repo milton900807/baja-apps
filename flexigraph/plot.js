@@ -15392,10 +15392,13 @@ function (MGrid) {
                                             const subText = this.__subtitleOf(point);
                                             if (subText) { ctx.save(); ctx.font = subFont; subWidth = ctx.measureText('' + subText).width; ctx.restore(); }
                                             const subHeight = subText ? subFs + 3 : 0;
-                                            // The label is a pill badge that reads as a menu, so it carries a
-                                            // caret on the right and needs the room for it. The text stays
-                                            // centred on the milestone by shifting left half that room.
-                                            const CARET_W = Math.max(7, 14 * tlScale);
+                                            // NO CARET. The pill used to carry a chevron on its right saying
+                                            // "this opens a menu", and reserve the width for it. It still opens
+                                            // a menu when pressed; the mark was noise on every milestone, and
+                                            // on a crowded timeline it was width spent on decoration. Kept as a
+                                            // zero so the pill's width and the text's centring fall out of the
+                                            // same arithmetic as before rather than being rewritten around it.
+                                            const CARET_W = 0;
                                             const pillPadX = Math.max(paddingX, 12 * tlScale);
                                             const boxWidth = Math.min(Math.max(nameWidth, subWidth), maxWidth) + pillPadX * 2 + CARET_W;
 
@@ -15509,22 +15512,6 @@ function (MGrid) {
                                                 ctx.fill();
                                                 ctx.stroke();
 
-                                                // The caret says "this opens a menu". Navy, same as the border.
-                                                // Not for a view-only reader: nothing opens for them.
-                                                if (!(pt && pt.__readOnly)) {
-                                                    const cx = nameBox.x + nameBox.w - pillPadX - CARET_W / 2;
-                                                    const cy = adjustedBoxY + boxHeight / 2;
-                                                    ctx.shadowColor = 'transparent';
-                                                    ctx.strokeStyle = '#0a2540';
-                                                    ctx.lineWidth = 1.6;
-                                                    ctx.lineCap = 'round';
-                                                    ctx.lineJoin = 'round';
-                                                    ctx.beginPath();
-                                                    ctx.moveTo(cx - 4, cy - 2);
-                                                    ctx.lineTo(cx, cy + 2.5);
-                                                    ctx.lineTo(cx + 4, cy - 2);
-                                                    ctx.stroke();
-                                                }
                                                 ctx.restore();
 
                                                 ctx.save();
