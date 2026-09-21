@@ -77,9 +77,25 @@ function (pt, plate, wells, opts) {
         bar.appendChild(input);
         document.body.appendChild(bar);
 
-        // The bar follows the keyboard as it opens, closes or resizes.
-        const reDock = () => { try { bar.style.bottom = dockBottom() + 'px'; } catch (e) { } };
+        // DO NOT SIT ON THE BOOKMARKS BADGE. It lives at the bottom right and on a phone it
+        // is the way round the workbench -- the way to open a table full window, now that a
+        // tap does not. A full-width bar across the bottom covered it, so the badge is
+        // lifted to sit just above this bar for as long as it is up, and put back after.
+        const navBar = document.getElementById('baja-nav-panel');
+        const navBottom0 = navBar ? navBar.style.bottom : null;
+        const liftNav = () => {
+            if (!navBar) return;
+            try {
+                const h = Math.ceil(bar.getBoundingClientRect().height) || 56;
+                navBar.style.bottom = (dockBottom() + h + 10) + 'px';
+            } catch (e) { }
+        };
+        const dropNav = () => { try { if (navBar) navBar.style.bottom = navBottom0 || '14px'; } catch (e) { } };
+
+        // The bar follows the keyboard as it opens, closes or resizes; the badge rides with it.
+        const reDock = () => { try { bar.style.bottom = dockBottom() + 'px'; liftNav(); } catch (e) { } };
         try { if (vv) { vv.addEventListener('resize', reDock); vv.addEventListener('scroll', reDock); } } catch (e) { }
+        liftNav();
         const height = 40;
         for (const w of list) { try { w.__editing = true; } catch (e) { } }   // painters skip the input arrow
 
@@ -145,6 +161,9 @@ function (pt, plate, wells, opts) {
             stopVoice();
             try { input.removeEventListener('keydown', onKey); input.removeEventListener('blur', onBlur); } catch (e) { }
             try { document.removeEventListener('mousedown', onDown, true); document.removeEventListener('touchstart', onDown, true); } catch (e) { }
+            try { dropNav(); } catch (e) { }
+            try { if (vv) { vv.removeEventListener('resize', reDock); vv.removeEventListener('scroll', reDock); } } catch (e) { }
+            try { if (bar.parentNode) bar.parentNode.removeChild(bar); } catch (e) { }
             try { if (input.parentNode) input.parentNode.removeChild(input); } catch (e) { }
             try { if (mic.parentNode) mic.parentNode.removeChild(mic); } catch (e) { }
             try { pt.setTextActive(false); } catch (e) { }
