@@ -9885,6 +9885,22 @@ function (progress) {
                     // rather than set by the branch that happened to fire last, so the fill
                     // gets its sideways scroll and a table the minimum-size rule left NARROWER
                     // than the window no longer claims one it does not need.
+                    // FILL THE WIDTH. Everything above sets the scale from the cell HEIGHT
+                    // and then derives x from it, so a table whose rows hit the 40px cap with
+                    // room to spare was left as a narrow column adrift in an empty window --
+                    // maximized, but not filling the screen. x is pulled back to the table's
+                    // own width, INDEPENDENTLY of y, the way a timeline's axes are set: the
+                    // cells simply come out wider than they are tall, which is what a table's
+                    // cells look like anyway, and the height cap is untouched.
+                    const xRangeFit = width * (1 + 2 * sideFrac);
+                    if (Number.isFinite(xRangeFit) && xRangeFit > 0 && xRange > xRangeFit) {
+                        xRange = xRangeFit;
+                        // ...and say so, or it is undone on the next frame: __maxEnforceView
+                        // re-derives yRange from xRange unless tlFill is set. The flag reads
+                        // as "timeline", but what it actually means is "the two axes were set
+                        // independently, keep them" -- which is exactly the case here.
+                        tlFill = true;
+                    }
                     hscroll = xRange < width * (1 + 2 * sideFrac) - 1e-9;
                 }
                 // A TIMELINE FITS THE WINDOW'S HEIGHT. It grows sideways, not down, so it is
