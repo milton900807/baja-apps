@@ -4,7 +4,7 @@ function (pt, graph) {
     //
     // Camera history: when the view has stayed put for 20 seconds it becomes a place in
     // the history; Back and Forward walk the places (Alt+Left / Alt+Right too), and the
-    // Places list jumps to any of them. Bookmarks list every table, chart, timeline and
+    // The Bookmarks list jumps to any of them. Go to... lists every table, chart, timeline and
     // note on the workbench and open the chosen one maximized. Fixed at the bottom
     // right, above the canvas, in the site palette; sized for a finger on a phone.
     return (async () => {
@@ -114,12 +114,15 @@ function (pt, graph) {
         const svg = (d) => '<svg width="' + IC + '" height="' + IC + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;">' + d + '</svg>';
         const ICON_BACK = '<svg width="' + IC + '" height="' + IC + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;"><path d="M15 5l-7 7 7 7"/></svg>';
         const ICON_FWD = '<svg width="' + IC + '" height="' + IC + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;"><path d="M9 5l7 7-7 7"/></svg>';
-        // Places: a clock with a history arrow. Bookmarks: a bookmark ribbon.
+        // The two lists: Bookmarks (views) keeps the clock with a history arrow, because
+        // that is what it holds -- where the camera has been. Go to... (objects) keeps the
+        // ribbon. The internal ids stay 'places' and 'marks': renaming what the user reads
+        // is not a reason to rewrite what the code calls it.
         const ICON_PLACES = svg('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/>');
         const ICON_MARKS = svg('<path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>');
         bar.innerHTML = B('nv-back', ICON_BACK, 'Back (Alt+Left)') + B('nv-fwd', ICON_FWD, 'Forward (Alt+Right)')
             + '<span style="width:1px;height:' + (H - 10) + 'px;background:rgba(255,255,255,0.18);"></span>'
-            + B('nv-places', ICON_PLACES + '<span class="nv-lbl">Places</span>', 'Places the camera has stayed at') + B('nv-marks', ICON_MARKS + '<span class="nv-lbl">Bookmarks</span>', 'Open a table, chart, timeline or note maximized')
+            + B('nv-places', ICON_PLACES + '<span class="nv-lbl">Bookmarks</span>', 'Views you have bookmarked, and the ones the camera stayed at') + B('nv-marks', ICON_MARKS + '<span class="nv-lbl">Go to...</span>', 'Go to a table, chart, timeline or note')
             // ON A PHONE THE LIST IS THE WHOLE WINDOW. As a 320px dropdown above the badge
             // it showed three rows at a time with the canvas distracting behind it, and the
             // Go to / Maximize buttons beside each name were too small to hit. Full window,
@@ -205,7 +208,7 @@ function (pt, graph) {
             if (!listMode) return;
             let html = '';
             if (listMode === 'places') {
-                html += head('Places (' + nav.history.length + ')');
+                html += head('Bookmarks (' + nav.history.length + ')');
                 if (!nav.history.length) html += '<div style="padding:8px 10px;font-size:12px;color:#6b7a90;">Stay on a view for 20 seconds and it is added here.</div>';
                 for (let i = nav.history.length - 1; i >= 0; i--) {
                     const h = nav.history[i];
@@ -248,7 +251,7 @@ function (pt, graph) {
                 html = '<div style="position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;'
                     + 'padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px;background:#0a2540;color:#eaf6f9;">'
                     + '<span style="flex:1;font:700 15px system-ui;">'
-                    + (listMode === 'places' ? 'Places' : 'Workbench') + '</span>'
+                    + (listMode === 'places' ? 'Bookmarks' : 'Go to') + '</span>'
                     + '<button id="nv-close" type="button" style="min-height:40px;padding:0 16px;border-radius:10px;'
                     + 'border:1px solid rgba(255,255,255,0.28);background:transparent;color:#eaf6f9;font:600 14px system-ui;">Close</button>'
                     + '</div><div style="padding:6px;">' + html + '</div>';
