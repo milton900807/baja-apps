@@ -795,19 +795,20 @@ function () {
             }
 
             async updateCalculations() {
-                function generateExpressionsInRange(funcString, startIndex, endIndex) {
-                    const variablePattern = /\$\{[^}]+\}/g;
-                    if (!variablePattern.test(funcString)) {
+                // ONE EXPANDER, SHARED WITH THE OTHER TRACK. This used to be its own copy,
+                // and it had fallen behind: a literal replace of "${i}", so ${i-1} did
+                // nothing here and a running total worked on plate-track and not on this
+                // one. updateCalculations is async, so it is simply awaited per run.
+                let __expandIter = null;
+                try { __expandIter = await exec('baja/plate/ops/expand-iterator.js'); }
+                catch (e) { console.warn('expand-iterator failed to load', e); }
+                const generateExpressionsInRange = (funcString, startIndex, endIndex) => {
+                    if (typeof __expandIter !== "function") {
+                        console.warn("expand-iterator not loaded; formula left unexpanded");
                         return [funcString];
                     }
-                    const expressions = [];
-                    for (let i = startIndex; i <= endIndex; i++) {
-                        const indexStr = String(i);
-                        const updatedString = funcString.replace(/\$\{i\}/g, indexStr);
-                        expressions.push(updatedString);
-                    }
-                    return expressions;
-                }
+                    return __expandIter(funcString, startIndex, endIndex);
+                };
 
                 function parseTableStructure(input) {
 
