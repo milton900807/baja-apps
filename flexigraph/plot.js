@@ -16562,7 +16562,15 @@ function (MGrid) {
                             ctx.fillStyle = nowColor;
                             ctx.textAlign = "center";
                             ctx.textBaseline = "top";
-                            const nowLabel = `${now.getUTCMonth() + 1}/${now.getUTCDate()} ${now.getUTCHours()}:${now.getUTCMinutes().toString().padStart(2, "0")} UTC`;
+                            // THE TIME OF DAY ONLY WHEN THE AXIS IS SHOWING DAYS. On an axis
+                            // ticking in years or months, "3:12 UTC" is noise to four decimal
+                            // places -- it says where in a day the marker sits when a whole
+                            // year is a few pixels wide. daysVisible is the axis's own test
+                            // for day resolution (pxPerDay >= 10), so the label says exactly
+                            // as much as the axis can actually show.
+                            const nowLabel = daysVisible
+                                ? `${now.getUTCMonth() + 1}/${now.getUTCDate()} ${now.getUTCHours()}:${now.getUTCMinutes().toString().padStart(2, "0")} UTC`
+                                : `${now.getUTCMonth() + 1}/${now.getUTCDate()}`;
                             ctx.fillText(nowLabel, nowX, cymin + 35);
 
                             ctx.restore();
