@@ -1082,6 +1082,56 @@ function () {
                 this.__holdAt = null;
             }
 
+            // TAKE THE FORMULA OFF THESE CELLS, wherever it happens to be held. A formula
+            // lives against a RANGE -- a column formula on "[2:2][1:3]" -- so a single cell
+            // inside it has no key of its own, and matching keys exactly left the formula
+            // in place to recalculate and put its value straight back. Every key whose
+            // range COVERS one of these cells goes, on the plate and on the track that
+            // recalculates from them, and the per-cell markers go with it across the whole
+            // range rather than only the cells handed in. The VALUE stays: what the formula
+            // last worked out is left standing as a plain number.
+            clearFormulaCovering(wells, pt) {
+                const ws = Array.isArray(wells) ? wells.filter(Boolean) : [];
+                if (!ws.length) return 0;
+                const span = (k) => {
+                    const m = /\[(\d+):(\d+)\]\[(\d+):(\d+)\]$/.exec('' + k);
+                    return m ? { x0: +m[1], x1: +m[2], y0: +m[3], y1: +m[4] } : null;
+                };
+                const at = [];
+                for (const w of ws) { try { const r = this.getWellIndicies(w); if (r) at.push(r); } catch (e) { } }
+                const covers = (k) => {
+                    const sp = span(k);
+                    return !!sp && at.some((r) => r.colIdx >= sp.x0 && r.colIdx <= sp.x1
+                        && r.rowIdx >= sp.y0 && r.rowIdx <= sp.y1);
+                };
+                const gone = [];
+                for (const k of Object.keys(this.formula || {})) {
+                    if (covers(k)) { gone.push(span(k)); delete this.formula[k]; }
+                }
+                if (!gone.length) return 0;          // there was no formula here to take off
+                try {
+                    if (pt && pt.formulas) {
+                        for (const k of Object.keys(pt.formulas)) {
+                            if (k.indexOf(this.name) !== 0) continue;
+                            if (covers(k.slice(this.name.length))) delete pt.formulas[k];
+                        }
+                    }
+                } catch (e) { }
+                let cleared = 0;
+                for (const sp of gone) {
+                    if (!sp) continue;
+                    for (let c = sp.x0; c <= sp.x1; c++) {
+                        for (let r = sp.y0; r <= sp.y1; r++) {
+                            const w = this.wells[c] && this.wells[c][r];
+                            if (!w) continue;
+                            try { w.formula = null; w.__hasFormula = false; cleared++; } catch (e) { }
+                        }
+                    }
+                }
+                for (const w of ws) { try { w.formula = null; w.__hasFormula = false; } catch (e) { } }
+                return cleared || ws.length;
+            }
+
             async showWellAction(pt, __value, ref, w) {
                 // A DATE cell is set from a calendar, not the text editor.
                 try {
@@ -1153,9 +1203,9 @@ function () {
                         value: '' + (__value == null ? '' : __value),
                         mono: true,
                         actions: isNaNResult
-                            ? [{ key: 'trace', label: 'Trace NaN' }, { key: 'formula', label: 'Save formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            ? [{ key: 'trace', label: 'Trace NaN' }, { key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
                             : hasFormula
-                            ? [{ key: 'formula', label: 'Save formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            ? [{ key: 'formula', label: 'Save formula' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
                             : [{ key: 'text', label: 'Save text' }, { key: 'formula', label: 'Save formula' }, { key: 'tag', label: 'Tag…' }],
                         completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
                     });
@@ -1164,6 +1214,13 @@ function () {
                 const code = '' + (r.text == null ? '' : r.text);
                 if (r.action === 'tag') { setTimeout(() => { try { this.goTag(null, pt); } catch (e) { } }, 100); return; }
                 if (r.action === 'trace') { try { await pt.traceNaN(this, first); } catch (e) { console.warn('trace NaN', e); } return; }
+                if (r.action === 'delete') {
+                    try { pushHistory(HM(this)); } catch (e) { }
+                    const n = this.clearFormulaCovering(w, pt);
+                    try { pt.updateCalculations(); } catch (e) { }
+                    try { pt.setMessage('Formula deleted from ' + n + ' cell' + (n === 1 ? '' : 's') + '; the value stays.', 2); } catch (e) { }
+                    return;
+                }
                 try { pushHistory(HM(this)); } catch (e) { }
                 try { if (pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
                 if (r.action === 'formula') {

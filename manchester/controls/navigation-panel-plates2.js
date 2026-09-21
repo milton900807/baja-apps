@@ -1005,61 +1005,18 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     // number, empty removes it.
                                     if (str && /^=\s*$/.test(str)) {
                                         const wells = selectedPlate.getSelectedWellsInOrder() || [];
-                                        const range = selectedPlate.getWellRange(wells);
-                                        // THE FORMULA IS RARELY HELD AGAINST EXACTLY WHAT IS
-                                        // SELECTED. A column formula lives on the whole column
-                                        // -- "[2:2][1:3]" -- so clearing from one cell inside it
-                                        // matched no key and the formula survived, went on
-                                        // recalculating, and put its value straight back. Every
-                                        // key whose RANGE COVERS a selected cell goes.
-                                        const span = (k) => {
-                                            const m = /\[(\d+):(\d+)\]\[(\d+):(\d+)\]$/.exec('' + k);
-                                            return m ? { x0: +m[1], x1: +m[2], y0: +m[3], y1: +m[4] } : null;
-                                        };
-                                        const at = [];
-                                        for (const w of wells) {
-                                            try { const r = selectedPlate.getWellIndicies(w); if (r) at.push(r); } catch (e) { }
-                                        }
-                                        const covers = (k) => {
-                                            const sp = span(k);
-                                            if (!sp) return false;
-                                            return at.some((r) => r.colIdx >= sp.x0 && r.colIdx <= sp.x1
-                                                && r.rowIdx >= sp.y0 && r.rowIdx <= sp.y1);
-                                        };
                                         const track = plate_graph.plateTrack;
-                                        let n = 0;
-                                        const gone = [];
-                                        for (const k of Object.keys(selectedPlate.formula || {})) {
-                                            if (k === range || covers(k)) { gone.push(span(k)); delete selectedPlate.formula[k]; n++; }
-                                        }
-                                        // the track recalculates from its own copy, keyed by table name
-                                        try {
-                                            for (const k of Object.keys(track.formulas || {})) {
-                                                if (k.indexOf(selectedPlate.name) !== 0) continue;
-                                                const tail = k.slice(selectedPlate.name.length);
-                                                if (tail === range || covers(tail)) { delete track.formulas[k]; }
-                                            }
-                                        } catch (e) { }
-                                        // The marker belongs to every cell the removed range
-                                        // covered, not only the ones that happened to be
-                                        // selected: taking a column formula off from inside it
-                                        // takes it off the whole column.
+                                        // One implementation, shared with the "Delete formula"
+                                        // button in the cell's text window: a formula is held
+                                        // against a RANGE, so removing it means every key whose
+                                        // range covers a selected cell, not an exact match.
+                                        try { pushHistory(HM(selectedPlate)); } catch (e) { }   // before the change, so undo brings it back
                                         let cleared = 0;
-                                        for (const sp of gone) {
-                                            if (!sp) continue;
-                                            for (let c = sp.x0; c <= sp.x1; c++) {
-                                                for (let r = sp.y0; r <= sp.y1; r++) {
-                                                    const w = selectedPlate.wells[c] && selectedPlate.wells[c][r];
-                                                    if (!w) continue;
-                                                    try { w.formula = null; w.__hasFormula = false; cleared++; } catch (e) { }
-                                                }
-                                            }
-                                        }
-                                        for (const w of wells) { try { w.formula = null; w.__hasFormula = false; } catch (e) { } }
-                                        try { pushHistory(HM(selectedPlate)); } catch (e) { }
+                                        try { cleared = selectedPlate.clearFormulaCovering(wells, track) || 0; } catch (e) { console.warn('clear formula', e); }
+                                        const n = cleared;
                                         try {
                                             track.setMessage(n
-                                                ? ('Formula cleared from ' + (cleared || wells.length) + ' cell' + ((cleared || wells.length) === 1 ? '' : 's') + '.')
+                                                ? ('Formula cleared from ' + cleared + ' cell' + (cleared === 1 ? '' : 's') + '; the value stays.')
                                                 : ('No formula on ' + (wells.length === 1 ? 'that cell' : 'those cells') + '.'), 2);
                                         } catch (e) { }
                                         panel.setText('');
