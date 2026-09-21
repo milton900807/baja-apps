@@ -285,6 +285,25 @@ function () {
             return !Number.isNaN(parsed);
         }
 
+        // A WELL'S `group` IS A SET OF TAGS, held as an object whose KEYS are the tags.
+        // It has been seen arriving as a plain string instead -- a group name that was
+        // assigned directly somewhere, or a document saved that way and restored by
+        // fromJSON. A string is truthy, so the `if (!this.group)` guards let it through,
+        // and the first `this.group[tag] = ...` threw
+        //     TypeError: Cannot create property 'Value' on string '[a_c]'
+        // out of setGroup, up through applyHeaderWellForColumn and reapplyHeaderWells,
+        // and killed the whole of updateCalculations with it.
+        //
+        // Anything that is not a usable object becomes one here, and a string is not
+        // thrown away: it was a tag, so it stays a tag.
+        const __asGroupSet = (g) => {
+            if (g && typeof g === 'object' && !Array.isArray(g)) return g;
+            const out = {};
+            if (typeof g === 'string' && g.trim()) out[g.trim()] = true;
+            else if (Array.isArray(g)) for (const k of g) { if (k != null && ('' + k).trim()) out['' + k] = true; }
+            return out;
+        };
+
         let GenericWell = class GenericWell {
             name = 'unknown';
             score;
@@ -343,7 +362,11 @@ function () {
                 this.has_formula_time_set = Date.now()
                 this.position = name;
                 this.uid = uuid();
-                this.group = group;
+                // A caller passing a bare tag name is taken to mean that one tag. Left
+                // undefined when nothing was passed: plenty of code asks `well.group != null`
+                // to mean "has any tags at all", and handing it an empty object would quietly
+                // answer yes for every well that has none.
+                this.group = (group != null && typeof group !== 'object') ? __asGroupSet(group) : group;
 
                 if (typeof value === 'string') {
                     const cleanedValue = value.trim().replace(/,/g, '');
@@ -453,8 +476,8 @@ function () {
                 this.group = {};
             }
             appendGroups(newGroups) {
-                if (!this.group) {
-                    this.group = {};
+                if (!this.group || typeof this.group !== 'object' || Array.isArray(this.group)) {
+                    this.group = __asGroupSet(this.group);
                 }
                 if (Array.isArray(newGroups)) {
                     for (let groupKey of newGroups) {
@@ -544,8 +567,10 @@ function () {
 
             setGroup(__group) {
 
-                if (!this.group) {
-                    this.group = {};
+                // Not `if (!this.group)`: a string is truthy and would survive it, only to
+                // throw on the assignment below.
+                if (!this.group || typeof this.group !== 'object' || Array.isArray(this.group)) {
+                    this.group = __asGroupSet(this.group);
                 }
 
                 if (!__group || __group === null) {
@@ -1440,7 +1465,7 @@ function () {
                 this.name = jsonObj.name || 'unknown';
                 this.value = jsonObj.value;
                 this.obj = jsonObj.obj;
-                this.group = jsonObj.group || {};
+                this.group = __asGroupSet(jsonObj.group);   // a string here used to survive and crash later
                 this.font = jsonObj.font;
                 this.score = jsonObj.score;
                 this.concentration = jsonObj.concentration;
