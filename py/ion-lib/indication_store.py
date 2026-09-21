@@ -325,6 +325,31 @@ def candidates(prompt, max_expansions=0, limit=12):
             pass
 
 
+def update_findings(run_id, findings):
+    """Replace a stored run's research in place.
+
+    For topping up a run that predates a field the canvas now draws -- the history, which
+    older runs have no key for at all. The run keeps its id, its date and its hit count:
+    it is the same piece of research, with something added that was never asked for when
+    it was made. Returns True when the row was written.
+    """
+    con = _conn()
+    if con is None:
+        return False
+    try:
+        con.execute("UPDATE runs SET findings = ? WHERE id = ?",
+                    (json.dumps(findings, ensure_ascii=False, default=str), int(run_id)))
+        con.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
 def get_run(run_id):
     """A stored run with its research decoded, or None."""
     con = _conn()

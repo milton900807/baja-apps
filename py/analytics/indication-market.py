@@ -878,6 +878,83 @@ HISTORY_LANE_ORDER = ["therapeutic", "diagnostic", "discovery", "other"]
 HISTORY_LANE_LOW, HISTORY_LANE_HIGH = 0.14, 0.62
 
 
+# The history on its own, for a stored run that predates it. The wording is the same
+# paragraph the full research uses, so a topped-up run reads like one that was researched
+# with a history from the start.
+HISTORY_SYSTEM = (
+    "You establish the HISTORY of a disease: how long it has been understood, how long it has "
+    "been diagnosable, and how long anything has been available to treat it. Find the dated "
+    "events that matter, each with a four-digit year.\n"
+    "- DISCOVERY: when the disease was first described, and when its cause was established -- "
+    "the gene, the pathogen, the mechanism -- as separate events where they differ.\n"
+    "- DIAGNOSTIC: the first test cleared or approved by a regulator to diagnose or screen for "
+    "it, and later ones that changed practice.\n"
+    "- THERAPEUTIC: the first therapy approved for it by a regulator, and each later approval "
+    "that changed the standard of care, with the drug's name.\n"
+    "At most twelve events, oldest first, every one with a year and a source. Prefer the FDA, "
+    "the EMA, the regulator's own announcement or a peer-reviewed history over a news summary. "
+    "Return an empty list rather than guessing: an invented date is worse than a short history.\n"
+    "Return ONLY JSON: {\"history\": [{\"event\": \"...\", \"year\": 1993, "
+    "\"kind\": \"discovery|diagnostic|therapeutic|other\", \"detail\": \"...\", "
+    "\"source\": {\"title\": \"...\", \"url\": \"...\", \"year\": \"...\"}}]}"
+)
+
+
+def research_history(prompt: str, findings: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """The dated history of the indication, on its own.
+
+    For a stored run that predates the history: the research is good, it simply has no
+    such key, because nothing asked for one when it was made. Rather than send the user
+    back through a five-minute re-research to get a timeline, the history alone is
+    looked up -- two searches, the same schema the full run uses -- and folded into the
+    findings. Returns None when nothing usable comes back; a run without a timeline is
+    still a run.
+    """
+    try:
+        names = []
+        for ind in (findings.get("indications") or []):
+            if isinstance(ind, dict) and _txt(ind.get("name")):
+                names.append(_txt(ind.get("name")))
+        subject = names[0] if names else prompt.strip()
+        user = (
+            "Indication: " + subject + "\n"
+            "The question it came from: " + prompt.strip() + "\n"
+            "Today's date: " + time.strftime("%Y-%m-%d") + "."
+        )
+        body: Dict[str, Any] = {
+            "model": MODEL,
+            "max_tokens": 8000,
+            "system": HISTORY_SYSTEM,
+            "messages": [{"role": "user", "content": user}],
+            "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": 2}],
+            "output_config": {"effort": "low"},
+        }
+        msg = _stream_message(body, lambda q: works.msg("Searching: " + q[:110]))
+        text = _text_of(msg.get("content") or [])
+        m = re.search(r"\{.*\}", text or "", re.S)
+        if not m:
+            return None
+        out = json.loads(m.group(0))
+        hist = out.get("history")
+        if not isinstance(hist, list) or not hist:
+            return None
+        # Only events the timeline can place: a four-digit year and a name.
+        keep = []
+        for h in hist:
+            if not isinstance(h, dict):
+                continue
+            y = _num(h.get("year"))
+            if y is None or not _txt(h.get("event")):
+                continue
+            if int(y) < 1000 or int(y) > 2200:
+                continue
+            keep.append(h)
+        return keep or None
+    except Exception as e:
+        print("indication-market: history top-up failed: " + str(e), file=sys.stderr)
+        return None
+
+
 def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """The indication's history as a timeline the canvas can draw.
 
@@ -1363,6 +1440,26 @@ def run(prompt: Any, opts: Dict[str, Any]) -> Dict[str, Any]:
                 prior = store.get_run(match_id)
                 if prior and isinstance(prior.get("findings"), dict):
                     prior_info = prior.get("info") if isinstance(prior.get("info"), dict) else {}
+                    # A RUN FROM BEFORE THE TIMELINE has no history key at all -- nothing
+                    # asked for one when it was made -- so reusing it gave tables and no
+                    # timeline. Look the history up on its own (two searches, not the whole
+                    # five-minute run), use it, and write it back so the next reuse of this
+                    # run already has it. UNLESS IT IS ALREADY THERE: a run that carries a
+                    # history, even an empty one the research deliberately returned, is left
+                    # exactly as it is.
+                    if "history" not in prior["findings"]:
+                        works.msg("Adding the indication's history to earlier research…")
+                        hist = research_history(prompt, prior["findings"])
+                        if hist:
+                            prior["findings"]["history"] = hist
+                            try: store.update_findings(match_id, prior["findings"])
+                            except Exception: pass
+                        else:
+                            # Remember that it was asked and answered with nothing, or every
+                            # reuse pays for the same fruitless search again.
+                            prior["findings"]["history"] = []
+                            try: store.update_findings(match_id, prior["findings"])
+                            except Exception: pass
                     result = build_tables(prior["findings"], prior.get("found") or [], prior_info, prompt)
                     if result.get("status") == "ok":
                         store.touch_hit(match_id)
