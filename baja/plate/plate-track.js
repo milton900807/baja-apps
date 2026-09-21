@@ -11252,6 +11252,16 @@ function (progress) {
                     else if (t.kind === 'plot') this.setActive(t.obj);
                     else this.selectGlyph__(t.obj);
                 } catch (e) { }
+                // A TABLE IS NOT MAXIMIZED BY A TAP. On a phone that took over the whole
+                // window every time a thumb brushed one while panning, and getting back out
+                // meant finding Exit. A tap selects it and nothing more; the way to open one
+                // full-window is the Bookmarks badge at the bottom right, which lists every
+                // object with Go to and Maximize beside it. Charts, timelines and notes are
+                // unreadable at thumbnail size on a phone, so those still open on a tap.
+                if (t.kind === 'plate') {
+                    try { this.setMessage('Selected. Bookmarks (bottom right) opens it full window.', 2); } catch (e) { }
+                    return true;
+                }
                 try { this.maximizeObject(t.obj); } catch (e) { return false; }
                 return true;
             }

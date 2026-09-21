@@ -120,8 +120,16 @@ function (pt, graph) {
         bar.innerHTML = B('nv-back', ICON_BACK, 'Back (Alt+Left)') + B('nv-fwd', ICON_FWD, 'Forward (Alt+Right)')
             + '<span style="width:1px;height:' + (H - 10) + 'px;background:rgba(255,255,255,0.18);"></span>'
             + B('nv-places', ICON_PLACES + '<span class="nv-lbl">Places</span>', 'Places the camera has stayed at') + B('nv-marks', ICON_MARKS + '<span class="nv-lbl">Bookmarks</span>', 'Open a table, chart, timeline or note maximized')
-            + '<div id="nv-list" hidden style="position:absolute;right:0;bottom:' + (H + 14) + 'px;width:min(320px,calc(100vw - 40px));max-height:min(60vh,420px);overflow:auto;'
-            + 'background:#ffffff;color:#0a2540;border:1px solid rgba(10,37,64,0.14);border-radius:12px;box-shadow:0 12px 40px rgba(10,37,64,0.35);padding:6px;"></div>';
+            // ON A PHONE THE LIST IS THE WHOLE WINDOW. As a 320px dropdown above the badge
+            // it showed three rows at a time with the canvas distracting behind it, and the
+            // Go to / Maximize buttons beside each name were too small to hit. Full window,
+            // it is the way to open anything on the workbench -- which is now the ONLY way
+            // to open a table full window, since a tap no longer maximizes one.
+            + (mobile
+                ? '<div id="nv-list" hidden style="position:fixed;inset:0;width:100vw;height:100dvh;max-height:none;overflow:auto;'
+                + 'background:#ffffff;color:#0a2540;border:none;border-radius:0;padding:0 0 env(safe-area-inset-bottom,0px);"></div>'
+                : '<div id="nv-list" hidden style="position:absolute;right:0;bottom:' + (H + 14) + 'px;width:min(320px,calc(100vw - 40px));max-height:min(60vh,420px);overflow:auto;'
+                + 'background:#ffffff;color:#0a2540;border:1px solid rgba(10,37,64,0.14);border-radius:12px;box-shadow:0 12px 40px rgba(10,37,64,0.35);padding:6px;"></div>');
         document.body.appendChild(bar);
         const $ = (id) => bar.querySelector('#' + id);
         const list = $('nv-list');
@@ -218,8 +226,19 @@ function (pt, graph) {
                 }
                 if (!any) html += '<div style="padding:8px 10px;font-size:12px;color:#6b7a90;">Nothing on the workbench yet.</div>';
             }
+            // The sheet needs a heading and a way out; the dropdown is closed by tapping off it.
+            if (mobile) {
+                html = '<div style="position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;'
+                    + 'padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px;background:#0a2540;color:#eaf6f9;">'
+                    + '<span style="flex:1;font:700 15px system-ui;">'
+                    + (listMode === 'places' ? 'Places' : 'Workbench') + '</span>'
+                    + '<button id="nv-close" type="button" style="min-height:40px;padding:0 16px;border-radius:10px;'
+                    + 'border:1px solid rgba(255,255,255,0.28);background:transparent;color:#eaf6f9;font:600 14px system-ui;">Close</button>'
+                    + '</div><div style="padding:6px;">' + html + '</div>';
+            }
             list.innerHTML = html;
             list.hidden = false;
+            const cx = list.querySelector('#nv-close'); if (cx) cx.onclick = () => closeLists();
             list.querySelectorAll('.nv-item').forEach((el) => {
                 el.onmouseenter = () => { el.style.background = '#e6f6f9'; };
                 el.onmouseleave = () => { el.style.background = 'transparent'; };
