@@ -4503,6 +4503,13 @@ function (path, config) {
                                     const Plate = await exec('baja/plate/plate.js');
                                     const packed = [];
                                     for (const [name, names] of byGroup) {
+                                      // ONE FOLDER FAILING MUST NOT TAKE THE REST WITH IT. All of
+                                      // them used to be packed inside a single try, so a throw on
+                                      // the first group left every later one loose on the canvas --
+                                      // and which group came first was an accident of the table
+                                      // order. Each is its own attempt now, and one that fails says
+                                      // so instead of disappearing into the outer catch.
+                                      try {
                                         const inside = (pt.root || []).filter(p => p && names.has(p.name));
                                         if (!inside.length) continue;
                                         // The payload is a canvas holding just these tables: the track
@@ -4530,6 +4537,10 @@ function (path, config) {
                                         try { pt.addNextAvailableX(pack); } catch (e) { pt.root.push(pack); }
                                         if ((pt.root || []).indexOf(pack) < 0) pt.root.push(pack);
                                         packed.push(name + ' (' + inside.length + ')');
+                                      } catch (e) {
+                                        console.warn('[indication market] folder ' + name + ' not packed', e);
+                                        try { pt.setMessage('The ' + name + ' tables stayed on the canvas: ' + (e && e.message || e), 4); } catch (e2) { }
+                                      }
                                     }
                                     if (packed.length) {
                                         pt.setMessage('Tables filed into ' + packed.length + ' folder'
