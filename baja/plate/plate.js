@@ -1123,38 +1123,10 @@ function () {
 
                     return resolve();
                 }
-                // DESKTOP: THE MENUBAR'S FORMULA FIELD IS THE EDITOR, not a modal on top of
-                // it. Selecting the cell has already put its formula in that field
-                // (navigation-panel-plates2's selected-well listener), the field's own
-                // completion list offers the same Table[row,column] type-ahead, and saving
-                // there writes back to every selected cell -- so the centred window was
-                // asking the same question a second time. Tag and Trace NaN are in the
-                // plate's own menu. Put the caret at the end and let the user type.
-                try {
-                    const __mb = document.querySelector('.compact-text-field input');
-                    if (__mb && __mb.offsetParent !== null) {
-                        const __w0 = (w && w.length) ? w[0] : null;
-                        let __t = '' + (__value == null ? '' : __value);
-                        try {
-                            const __f = __w0 ? this.formulaTextForWell(__w0) : null;
-                            if (__f) __t = '=' + ('' + __f).replace(/^\s*=/, '').trim();
-                        } catch (e) { }
-                        // Write through a native input event, not just .value: the field is
-                        // bound to a FormControl, which would otherwise keep the old string
-                        // and save THAT. This does not rely on the selected-well listener
-                        // having fired, so the field is right even when it has not.
-                        if (__mb.value !== __t) {
-                            __mb.value = __t;
-                            try { __mb.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) { }
-                        }
-                        __mb.focus();
-                        try { __mb.setSelectionRange(__t.length, __t.length); } catch (e) { }
-                        return;
-                    }
-                } catch (e) { }
-
-                // No menubar field -- a published page, or a screen that does not carry the
-                // toolbar. The text window is still the only way in, so it stays.
+                // THE CELL'S TEXT WINDOW. The green "i" mark opens it: a roomy textarea
+                // with room to read a long formula, the same completion list the menubar
+                // field has (they are one implementation now -- see suggest-list.ts), and
+                // buttons to save it as a formula, save it as text, or tag the cells.
                 const first = w && w.length ? w[0] : null;
                 const range = (() => { try { return this.getSelectedWellRange(); } catch (e) { return ''; } })();
                 const cellName = (() => {
