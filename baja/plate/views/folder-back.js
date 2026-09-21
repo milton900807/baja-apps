@@ -98,12 +98,28 @@ function (pt, graph) {
             try { return el ? el.getBoundingClientRect() : null; } catch (e) { return null; }
         };
 
+        // MAXIMIZED: HOW FAR DOWN TO STAND. A maximized object paints its own title bar
+        // across the canvas top -- __drawMaximizeChrome fills 44px and rules 2px under it --
+        // and this pill sits in exactly that corner. It used to hide for the duration, which
+        // left no way out of the folder and no clue why the button had gone. It drops below
+        // the title bar instead. That bar is drawn in the canvas's own pixels, which are not
+        // the page's if the canvas is scaled, so it is measured rather than assumed.
+        const MAX_CHROME = 46;
+        const chromeBelow = () => {
+            try {
+                const c = T() && T().__canvas__;
+                if (c && c.height && c.getBoundingClientRect) {
+                    const rr = c.getBoundingClientRect();
+                    if (rr.height) return MAX_CHROME * (rr.height / c.height);
+                }
+            } catch (e) { }
+            return MAX_CHROME;
+        };
+
         let shownFor = null, atX = null, atY = null, visible = false;
         const render = () => {
             const d = depth();
-            // While an object is maximized the canvas top belongs to its own title bar, and
-            // the folder is not where the eye is: stand aside until it is closed.
-            if (!d || T().__maximized) {
+            if (!d) {
                 if (visible) { bar.style.display = 'none'; visible = false; }
                 shownFor = null;
                 return;
@@ -112,7 +128,8 @@ function (pt, graph) {
             // The canvas is re-measured every tick but only written back when it has moved,
             // so a button that just sits there costs no layout.
             const r = canvasRect();
-            const x = Math.round((r ? r.left : 0) + 14), y = Math.round((r ? r.top : 0) + 10);
+            const top = (T() && T().__maximized) ? (chromeBelow() + 8) : 10;
+            const x = Math.round((r ? r.left : 0) + 14), y = Math.round((r ? r.top : 0) + top);
             if (x !== atX || y !== atY) { bar.style.left = x + 'px'; bar.style.top = y + 'px'; atX = x; atY = y; }
             if (!visible) { bar.style.display = 'flex'; visible = true; }
 
@@ -139,6 +156,11 @@ function (pt, graph) {
 
         const out = () => {
             if (!depth()) return;
+            // Leaving the folder replaces the whole canvas, so a maximized object has to be
+            // put down first: __maximized starts with an underscore and is never serialised,
+            // so it would survive the swap still pointing at an object that is no longer on
+            // the canvas, and the parent would come back wearing a title bar for nothing.
+            try { if (T().__maximized && T().exitMaximize) T().exitMaximize(); } catch (e) { }
             try { T().wb(null); } catch (e) { }
             try { T().popFolder(); }
             catch (e) {
