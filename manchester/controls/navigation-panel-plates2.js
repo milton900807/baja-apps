@@ -105,10 +105,21 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         second.push(m);
                     }
                 }
+                // NO COMMAND FIELD ON A PHONE. It is a formula bar: it wants a keyboard, a
+                // caret and a completion list, none of which are any use on a phone, and it
+                // took a third of the menubar to say so. A cell's formula is reached by
+                // pressing and holding the cell instead (views/mobile-formula-editor.js).
+                // A bar with no `cmd` draws no input, which is how the second bar has always
+                // been made.
+                const stripInput = (d) => {
+                    delete d.cmd; delete d.placeholder; delete d.text;
+                    delete d.txtListener; delete d.toolLookup; delete d.gotoRef;
+                    return d;
+                };
+                if (mobile) stripInput(data);
                 if (!mobile || !second.length) { data.menus = first.concat(second); return menuItm; }
                 const bar1 = Object.assign({}, menuItm, { data: Object.assign({}, data, { menus: first }) });
-                const d2 = Object.assign({}, data, { menus: second });
-                delete d2.cmd; delete d2.placeholder; delete d2.text; delete d2.txtListener; delete d2.toolLookup;
+                const d2 = stripInput(Object.assign({}, data, { menus: second }));
                 const bar2 = { wid: 'menu', data: d2 };
                 return {
                     wid: 'card',

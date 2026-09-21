@@ -13,20 +13,21 @@ function (pt, plate, wells, opts) {
 
         try { const old = document.getElementById('baja-mobile-cell-input'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
 
-        // Where the cell is on the page.
-        let left = 20, top = 120, width = 200, height = 40;
-        try {
-            let el = null;
-            try { const c = CurrentLayout.getStashed('graph-canvas'); el = c && c.canvas; if (el && el.nativeElement) el = el.nativeElement; } catch (e) { el = null; }
-            if (!el || !el.getBoundingClientRect) el = document.querySelector('canvas[tabindex]') || document.querySelector('canvas');
-            const r = el ? el.getBoundingClientRect() : { left: 0, top: 0 };
-            left = Math.round(r.left + (well.__screen_x || 0));
-            top = Math.round(r.top + (well.__screen_y || 0));
-            width = Math.max(120, Math.round(well.__screen_width || 120));
-            height = Math.max(36, Math.round(well.__screen_height || 36));
-        } catch (e) { }
-        left = Math.max(4, Math.min(left, window.innerWidth - width - 4));
-        top = Math.max(4, Math.min(top, window.innerHeight - height - 4));
+        // WHERE IT SITS. Over the cell is the wrong place on a phone: a cell is often
+        // narrower than a finger, and the keyboard covers the bottom half of the screen --
+        // which is where a cell near the foot of a table is. So the editor is a bar docked
+        // to the bottom of the window, full width, and it rides above the keyboard using
+        // the visual viewport (the part of the page not covered by it). The cell it is
+        // editing is named on the bar, since it is no longer next to it.
+        const BAR_H = 56;
+        const vv = window.visualViewport || null;
+        const dockBottom = () => {
+            try {
+                if (!vv) return 0;
+                // How much of the window the keyboard is covering.
+                return Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+            } catch (e) { return 0; }
+        };
 
         // The text to edit: the formula when the cell has one, else its value.
         let initial = (well.value == null) ? '' : ('' + well.value);
@@ -42,10 +43,44 @@ function (pt, plate, wells, opts) {
         input.value = initial;
         input.setAttribute('autocomplete', 'off'); input.setAttribute('autocorrect', 'off'); input.setAttribute('autocapitalize', 'off'); input.setAttribute('spellcheck', 'false');
         input.setAttribute('enterkeyhint', 'done');
-        input.style.cssText = 'position:fixed;left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px;z-index:2147483000;'
-            + 'box-sizing:border-box;padding:0 10px;border:2px solid #1aa3bd;border-radius:6px;background:#ffffff;color:#0a2540;'
-            + 'font:16px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;outline:none;box-shadow:0 8px 24px rgba(10,37,64,0.35);';
-        document.body.appendChild(input);
+        // 16px or larger, or iOS zooms the whole page in when the field takes focus.
+        input.style.cssText = 'flex:1 1 auto;min-width:0;height:40px;box-sizing:border-box;padding:0 12px;'
+            + 'border:1px solid #c7d6de;border-radius:10px;background:#ffffff;color:#0a2540;'
+            + 'font:16px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;outline:none;';
+        input.addEventListener('focus', () => { input.style.borderColor = '#1aa3bd'; input.style.boxShadow = '0 0 0 3px rgba(26,163,189,0.18)'; });
+        input.addEventListener('blur', () => { input.style.boxShadow = 'none'; });
+
+        const bar = document.createElement('div');
+        bar.id = 'baja-mobile-cell-bar';
+        bar.style.cssText = 'position:fixed;left:0;right:0;bottom:' + dockBottom() + 'px;z-index:2147483000;'
+            + 'display:flex;align-items:center;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));'
+            + 'background:#0a2540;border-top:1px solid #1aa3bd;box-shadow:0 -10px 30px rgba(10,37,64,0.35);'
+            + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;';
+
+        // Which cell is being edited, since the bar is no longer beside it.
+        const whereTxt = (() => {
+            try {
+                const col0 = plate.wells[0] || [];
+                const idx = plate.getWellIndicies ? plate.getWellIndicies(well) : null;
+                const rowLab = (idx && col0[idx.rowIdx] && col0[idx.rowIdx].value != null) ? ('' + col0[idx.rowIdx].value).trim() : '';
+                const colLab = (idx && plate.wells[idx.colIdx] && plate.wells[idx.colIdx][0] && plate.wells[idx.colIdx][0].value != null)
+                    ? ('' + plate.wells[idx.colIdx][0].value).trim() : '';
+                return [rowLab, colLab].filter(Boolean).join(' \u203a ') || (plate.name || '');
+            } catch (e) { return plate.name || ''; }
+        })();
+        const where = document.createElement('div');
+        where.textContent = whereTxt;
+        where.style.cssText = 'flex:0 0 auto;max-width:34%;color:#bfeaf3;font:600 11.5px system-ui;white-space:nowrap;'
+            + 'overflow:hidden;text-overflow:ellipsis;';
+
+        bar.appendChild(where);
+        bar.appendChild(input);
+        document.body.appendChild(bar);
+
+        // The bar follows the keyboard as it opens, closes or resizes.
+        const reDock = () => { try { bar.style.bottom = dockBottom() + 'px'; } catch (e) { } };
+        try { if (vv) { vv.addEventListener('resize', reDock); vv.addEventListener('scroll', reDock); } } catch (e) { }
+        const height = 40;
         for (const w of list) { try { w.__editing = true; } catch (e) { } }   // painters skip the input arrow
 
         // ---- Voice entry ------------------------------------------------------------------

@@ -1050,6 +1050,38 @@ function () {
                 }
             }
 
+            // PRESS AND HOLD TO EDIT (phones only). A tap selects; only a press held still
+            // for HOLD_MS opens the keyboard. Any movement past HOLD_SLOP is a scroll, not a
+            // hold, so it cancels -- a table is scrolled with the same thumb that would edit.
+            __holdArm(pt, __value, ref, w, x, y) {
+                const HOLD_MS = 420, HOLD_SLOP = 12;
+                this.__holdCancel();
+                this.__holdAt = { x, y };
+                this.__holdTimer = setTimeout(() => {
+                    this.__holdTimer = null;
+                    this.__holdAt = null;
+                    try {
+                        if (navigator.vibrate) navigator.vibrate(12);   // it opened because you held it
+                    } catch (e) { }
+                    try { this.showWellAction(pt, __value, ref, w); } catch (e) { console.warn('hold to edit', e); }
+                }, HOLD_MS);
+                this.__holdSlop = HOLD_SLOP;
+            }
+
+            /** Moved too far, or let go: it was a scroll or a tap, not a hold. */
+            __holdMoved(x, y) {
+                if (!this.__holdTimer || !this.__holdAt) return;
+                const dx = x - this.__holdAt.x, dy = y - this.__holdAt.y;
+                const slop = this.__holdSlop || 12;
+                if ((dx * dx + dy * dy) > slop * slop) this.__holdCancel();
+            }
+
+            __holdCancel() {
+                try { if (this.__holdTimer) clearTimeout(this.__holdTimer); } catch (e) { }
+                this.__holdTimer = null;
+                this.__holdAt = null;
+            }
+
             async showWellAction(pt, __value, ref, w) {
                 // A DATE cell is set from a calendar, not the text editor.
                 try {
@@ -1057,10 +1089,22 @@ function () {
                     if (__dw.length && __dw.every(x => x && x.skin_type === 'DATE')) {
                         return exec('baja/plate/views/date-picker.js', pt, this, __dw);
                     }
-                    // A phone gets a plain field over the cell, not the modal text window.
+                    // A PHONE. A cell that HOLDS A FORMULA opens it full screen, where there
+                    // is room to read it and buttons to cancel or save -- the menubar's
+                    // formula field is not shown on a phone, so this is the way to it. Any
+                    // other cell gets the docked value field, not the modal text window.
                     if (typeof isMobile === 'function' && isMobile()) {
                         const __mw = (w && w.length) ? w : __dw;
-                        if (__mw && __mw.length) return exec('baja/plate/views/mobile-cell-editor.js', pt, this, __mw);
+                        if (__mw && __mw.length) {
+                            const __one = __mw[0];
+                            let __f = '';
+                            try { __f = this.formulaTextForWell(__one) || ''; } catch (e) { __f = ''; }
+                            if (!__f && __one && __one.formula && ('' + __one.formula).trim().startsWith('=')) __f = '' + __one.formula;
+                            if (__f && ('' + __f).trim().startsWith('=')) {
+                                return exec('baja/plate/views/mobile-formula-editor.js', pt, this, __one);
+                            }
+                            return exec('baja/plate/views/mobile-cell-editor.js', pt, this, __mw);
+                        }
                     }
                 } catch (e) { }
                 if (this.plateType === 'package') {
@@ -8948,8 +8992,12 @@ function () {
                         } else if (previous_well === current_well) {
                             // Desktop: the text window opens only from the cell's "i" button (or
                             // the maximized menu's "Edit cell text…"); a double-click just keeps
-                            // the cell selected. A phone keeps its in-place field.
-                            if (isMobile()) this.showWellAction(pt, __value, ref, w);
+                            // the cell selected.
+                            // PHONE: a tap only ever selects. Editing is a PRESS AND HOLD, armed
+                            // here and fired by __holdArm below -- tapping a cell twice used to
+                            // open the keyboard, which happens by accident constantly while
+                            // scrolling a table with a thumb.
+                            if (isMobile()) this.__holdArm(pt, __value, ref, w, x, y);
                         }
 
                         singleSelect = false;
@@ -15753,7 +15801,14 @@ function () {
 
 
                         ctx.closePath();
-                        if (this.selected && this.textBoxX != null && this.textBoxY != null) {
+                        // THE LEGACY ON-CANVAS FIELD -- lightCyan box, yellow text, a drawn
+                        // caret -- is a desktop thing: it cannot be tapped into, the phone's
+                        // own keyboard does not know about it, and it is sized in canvas
+                        // pixels so it comes up illegible. A phone edits in a real input
+                        // laid over the cell (views/mobile-cell-editor.js), so it is not
+                        // drawn here at all.
+                        const __phone = (typeof isMobile === 'function') && isMobile();
+                        if (!__phone && this.selected && this.textBoxX != null && this.textBoxY != null) {
                             this.drawTextBoxWithCursor(
                                 ctx,
                                 this.text,
