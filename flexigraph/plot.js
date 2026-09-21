@@ -13721,6 +13721,28 @@ function (MGrid) {
                 // it. One scale, not per-label, or the same event would be set in a different
                 // size each time the view moved. Never enlarges, and never below MIN_SCALE:
                 // past that the text is not worth reading and it is better to let it clip.
+                // OFF THE SCREEN: NOTHING DRAWN, NOTHING CLICKABLE. A timeline scrolled out
+                // of view still painted its milestone pills -- they are laid out in screen
+                // pixels and stack UPWARD, so they reach the visible canvas long after the
+                // plot itself has left it -- and its milestones still answered the hit test
+                // from the box they had left behind on the last frame. Decided once here,
+                // read by the draw below and by plate-track's __msHit.
+                this.__tlOffScreen = false;
+                try {
+                    const gx = this.grid.xi, gy = this.grid.yi;
+                    const gw = this.grid.width, gh = this.grid.height;
+                    const cwPx = ctx.canvas.width, chPx = ctx.canvas.height;
+                    if (Number.isFinite(gx) && Number.isFinite(gy) && Number.isFinite(gw) && Number.isFinite(gh)) {
+                        if (gx + gw < 0 || gx > cwPx || gy + gh < 0 || gy > chPx) {
+                            this.__tlOffScreen = true;
+                            // The stale boxes go with it, or a click where a pill used to be
+                            // still finds it.
+                            const ps = (this.scatterData && this.scatterData.points) || [];
+                            for (const p of ps) { if (p) p.__tlBox = null; }
+                        }
+                    }
+                } catch (e) { }
+
                 this.__tlLabelScale = 1;
                 try {
                     if (this.type === 'timeline') {
@@ -14870,6 +14892,7 @@ function (MGrid) {
                                             }
                                         }
                                         else if (point.type === 'milestone') {
+                                            if (this.__tlOffScreen) { point.__tlBox = null; continue; }
                                             const TL_THEME = this.theme || THEMES.timeline_default || THEMES["classic-light"];
                                             const { colors: TLC = {}, fonts: TLF = {}, sizes: TLS = {}, effects: TLE = {}, surfaces: TLSURF = {} } = TL_THEME;
                                             const SH = TLE?.shadows || {};

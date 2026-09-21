@@ -10230,6 +10230,9 @@ function (progress) {
             __mobile() { try { return (typeof isMobile === 'function') && isMobile(); } catch (e) { return false; } }
             __msHit(o, x, y) {
                 if (!this.__tlIs(o) || !o.scatterData || !Array.isArray(o.scatterData.points)) return null;
+                // A timeline that is off the screen has no points to hit: its pills are not
+                // drawn, and the boxes they left behind are not an invitation to click them.
+                if (o.__tlOffScreen) return null;
                 const pts = o.scatterData.points;
                 for (let i = pts.length - 1; i >= 0; i--) {
                     const p = pts[i];
