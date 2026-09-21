@@ -73,98 +73,43 @@ function (opts) {
         ta.addEventListener('focus', () => { ta.style.borderColor = '#1aa3bd'; ta.style.boxShadow = '0 0 0 3px rgba(26,163,189,0.25)'; });
         ta.addEventListener('blur', () => { ta.style.borderColor = '#c7d2dd'; ta.style.boxShadow = 'none'; });
 
-        // ---- type-ahead ---------------------------------------------------------------
+        // ---- type-ahead -----------------------------------------------------------------
+        // THE SHARED LIST (the frontend's suggest-list.ts, on window). This prompt used to
+        // carry its own copy: same trigger characters, same scoping to the table before
+        // "[", but ranked startsWith-then-includes where the real one scores six ways,
+        // capped at 12 rows, and styled with inline strings. One list, one set of rules.
+        // If the frontend is older than this file the constructor is simply missing, and
+        // the prompt is a plain text box -- which is what it was before it had suggestions.
         const comps = Array.isArray(o.completions) ? o.completions.map(c => (typeof c === 'string') ? { label: c, insert: c } : c).filter(c => c && c.label) : [];
-        const TRIG = ['=', '+', '-', '*', '/', '^', '(', '[', ',', ' '];
-        let list = null, items = [], hi = 0;
-        if (comps.length) {
-            list = document.createElement('div');
-            list.id = 'pt-suggest';
-            list.hidden = true;
-            list.style.cssText = 'margin-top:4px;max-height:180px;overflow:auto;background:#ffffff;color:#0a2540;border:1px solid rgba(10,37,64,0.18);border-radius:8px;box-shadow:0 8px 24px rgba(10,37,64,0.25);padding:4px;font:13px system-ui;';
-            ta.insertAdjacentElement('afterend', list);
-        }
-        const spanAt = () => {
-            const text = ta.value || '', caret = ta.selectionStart == null ? text.length : ta.selectionStart;
-            const before = text.slice(0, caret);
-            let idx = -1, ch = null;
-            for (const t of TRIG) { const i = before.lastIndexOf(t); if (i > idx) { idx = i; ch = t; } }
-            const insertStart = idx + 1;
-            return { ch, start: idx, insertStart, caret, term: before.slice(insertStart).replace(/^\s+/, ''), before };
-        };
-        const candidates = (sp) => {
-            const isLabel = (c) => !!c.table;
-            if (sp.ch === '[') {
-                const m = /([A-Za-z_][\w.-]*)\s*$/.exec(sp.before.slice(0, sp.start));
-                const ctx = m ? m[1].toLowerCase() : '';
-                const scoped = ctx ? comps.filter(c => isLabel(c) && ('' + c.table).toLowerCase() === ctx) : [];
-                if (scoped.length) return scoped;
-                const labels = comps.filter(isLabel);
-                return labels.length ? labels : comps;
+        let sug = null;
+        try {
+            const SL = window['LionSuggest'];
+            if (SL && comps.length) {
+                sug = new SL({
+                    input: ta,
+                    mode: 'formula',
+                    groupTitles: true,
+                    items: () => comps,
+                    footer: '<b>&#8595;&#8593;</b> move &nbsp; <b>Tab</b>/<b>Enter</b> insert &nbsp; <b>Esc</b> close'
+                });
             }
-            const tables = comps.filter(c => !isLabel(c));
-            return tables.length ? tables : comps;
-        };
-        const rank = (pool, needle) => {
-            if (!needle) return pool.slice();
-            const a = [], b = [];
-            for (const c of pool) { const l = c.label.toLowerCase(); if (l.startsWith(needle)) a.push(c); else if (l.includes(needle)) b.push(c); }
-            return a.concat(b);
-        };
-        const hideList = () => { if (list) { list.hidden = true; items = []; hi = 0; } };
-        const renderList = () => {
-            if (!list) return;
-            list.innerHTML = items.slice(0, 12).map((c, i) => '<div class="pt-opt" data-i="' + i + '" style="display:flex;justify-content:space-between;gap:10px;padding:5px 8px;border-radius:6px;cursor:pointer;'
-                + (i === hi ? 'background:#e6f6f9;' : '') + '"><span>' + esc(c.label) + '</span><span style="color:#6b7a90;font-size:11px;">' + esc(c.hint || c.table || '') + '</span></div>').join('');
-            list.hidden = items.length === 0;
-            list.querySelectorAll('.pt-opt').forEach((el) => {
-                el.onmousedown = (ev) => { ev.preventDefault(); pick(+el.getAttribute('data-i')); };
-            });
-        };
-        const refresh = () => {
-            if (!comps.length) return;
-            const sp = spanAt();
-            const last = sp.before.slice(-1);
-            if (!sp.term || last === ']' || last === ')') { hideList(); return; }
-            items = rank(candidates(sp), sp.term.toLowerCase());
-            if (items.length === 1 && items[0].label.toLowerCase() === sp.term.toLowerCase()) { hideList(); return; }
-            hi = 0;
-            renderList();
-        };
-        const pick = (i) => {
-            const c = items[i]; if (!c) return;
-            const sp = spanAt();
-            const insert = ('' + (c.insert || c.label)).trim();
-            const typed = sp.term;
-            const tail = insert.toLowerCase().startsWith(typed.toLowerCase()) ? insert.slice(typed.length) : insert;
-            const text = ta.value || '';
-            const next = text.slice(0, sp.caret) + tail + text.slice(sp.caret);
-            ta.value = next;
-            const pos = sp.caret + tail.length;
-            try { ta.setSelectionRange(pos, pos); } catch (e) { }
-            hideList();
-            ta.focus();
-            // a table just completed ends in "[": offer its labels straight away
-            setTimeout(refresh, 0);
-        };
-        if (comps.length) {
-            ta.addEventListener('input', refresh);
-            ta.addEventListener('click', refresh);
-            ta.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') refresh(); });
-        }
+        } catch (e) { console.warn('prompt-text: no completion list', e); }
+
         let onKey;
         const close = (val) => {
+            try { if (sug) sug.destroy(); } catch (e) { }
             try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
             try { if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); } catch (e) { }
             try { document.removeEventListener('keydown', onKey, true); } catch (e) { }
             resolve(val);
         };
         onKey = (e) => {
-            const open = !!(list && !list.hidden && items.length);
-            if (open && (e.key === 'Tab' || (e.key === 'Enter' && !(e.ctrlKey || e.metaKey)))) { e.preventDefault(); e.stopPropagation(); pick(hi); return; }
-            if (open && e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); hi = Math.min(items.length - 1, Math.min(11, hi + 1)); renderList(); return; }
-            if (open && e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); hi = Math.max(0, hi - 1); renderList(); return; }
-            if (open && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideList(); return; }
+            // THE LIST'S KEYS GO TO THE LIST. This listener is on the document in capture,
+            // which runs before the textarea's own capture listener, so without standing
+            // aside here the list would never see Up/Down/Tab/Enter/Escape at all.
+            const open = !!(sug && sug.isOpen);
+            if (open && !(e.ctrlKey || e.metaKey) &&
+                ['Tab', 'Enter', 'ArrowDown', 'ArrowUp', 'Escape'].indexOf(e.key) >= 0) return;
             if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); }
             else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); writeHist(ta.value); close(result(('' + ta.value).trim())); }
             else e.stopPropagation();   // typing stays in the textarea, never in the canvas
