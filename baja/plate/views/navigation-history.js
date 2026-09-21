@@ -279,12 +279,24 @@ function (pt, graph) {
         record(view(), 'start');
         // THE APP IS GONE (see folder-back.js): the bar, its lists and its Alt+Left / Alt+Right
         // key handler are attached to the page, and stayed after the Analytics window closed.
+        // A DIFFERENT TRACK: opening or SAVING a file puts a new PlateTrack in the old
+        // one's place (see folder-back.js), and this bar's camera, places and object list
+        // were all bound to the one it was created with.
+        const liveTrack = () => {
+            try { const pm = CurrentLayout.getStashed('plate-track'); return (pm && pm.plateTrack) || pt; } catch (e) { return pt; }
+        };
+
         const homePath = location.pathname;
         let sawCanvas = false;
+        // Whether the APP has gone, judged on the track that is on the canvas now -- not on
+        // the one this bar was built with. Saving puts a new PlateTrack in the old one's
+        // place, so the captured track's canvas is left disconnected: read that way, a save
+        // looked exactly like closing the app and the bar destroyed itself.
         const appGone = () => {
             try {
                 if (location.pathname !== homePath) return true;
-                const c = pt && pt.__canvas__;
+                const t = liveTrack() || pt;
+                const c = t && t.__canvas__;
                 if (c && c.isConnected) { sawCanvas = true; return false; }
                 return sawCanvas && !!c && !c.isConnected;
             } catch (e) { return false; }
@@ -297,13 +309,12 @@ function (pt, graph) {
         // A DIFFERENT TRACK: opening a file puts a new PlateTrack in the old one's place (see
         // folder-back.js), and this bar's camera, places and object list were all bound to the
         // one it was created with. It rebuilds itself on the track that is on the canvas now.
-        const liveTrack = () => {
-            try { const pm = CurrentLayout.getStashed('plate-track'); return (pm && pm.plateTrack) || pt; } catch (e) { return pt; }
-        };
         nav.timer = setInterval(() => {
             try {
-                if (appGone()) { nav.destroy(); return; }
+                // The rebuild is tested FIRST: a swapped track must be followed, not read as
+                // the app closing.
                 const lt = liveTrack();
+                if (appGone() && (!lt || lt === pt)) { nav.destroy(); return; }
                 if (lt && lt !== pt) {
                     nav.destroy();
                     exec('baja/plate/views/navigation-history.js', lt, graph).then((n) => { try { lt.__nav = n; } catch (e) { } }).catch(() => { });
