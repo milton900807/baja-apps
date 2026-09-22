@@ -1366,8 +1366,13 @@ function (path, config) {
                         if (mouse_down) {
                             diffx = x - xi;
                             diffy = y - yi;
-                            plot.w = Math.abs(pm.plateTrack.grid.worldWidth((origWidth + (diffx))))
-                            plot.h = Math.abs(pm.plateTrack.grid.worldHeight((origHeight + (diffy))))
+                            // A chart has a floor of 200 px on each side: dragged below that
+                            // the axes, the legend and the labels have nowhere to go, and what
+                            // is left is a box that has to be resized again before it says
+                            // anything.
+                            const MIN_PLOT = 200;
+                            plot.w = Math.max(pm.plateTrack.grid.worldWidth(MIN_PLOT), Math.abs(pm.plateTrack.grid.worldWidth((origWidth + (diffx)))))
+                            plot.h = Math.max(pm.plateTrack.grid.worldHeight(MIN_PLOT), Math.abs(pm.plateTrack.grid.worldHeight((origHeight + (diffy)))))
                         }
                     }),
                     mouseUpListener: ((x, y) => {
@@ -2569,7 +2574,7 @@ function (path, config) {
             // are fixed objects whose item arrays are filled IN PLACE (never replaced): the
             // menubar's references stay live, and refreshBuildLibrary() can run again after
             // every push without anything going stale or empty.
-            const buildLibraryLive = BUILD_GROUPS.map(([title]) => ({ label: title, items: [] })).concat([{ label: 'More', items: [] }]);
+            const buildLibraryLive = BUILD_GROUPS.map(([title]) => ({ label: title, items: [] })).concat([{ label: 'Market', items: [] }]);
             // The top-level list the menubar holds: ONE array, refilled in place with the
             // groups that have items (a filtered copy would leave the menubar holding the
             // first, empty, copy for ever -- which is what made Build show nothing).
@@ -4550,7 +4555,9 @@ function (path, config) {
                             // The written part as a document object, not rows of a table.
                             try {
                                 for (const d of (result.documents || [])) {
-                                    if (d && d.html) await pt.addDocument(d.name || 'Notes', d.html, { width: 480, height: 360 });
+                                    // Big enough to read without resizing it first (the floor in
+                                    // addDocument is 500 either way).
+                                    if (d && d.html) await pt.addDocument(d.name || 'Notes', d.html, { width: 560, height: 560 });
                                 }
                             } catch (e) { console.warn('[indication market] document', e); }
                             // THE HISTORY OF THE INDICATION, as a timeline beside the numbers: when
@@ -4701,8 +4708,10 @@ function (path, config) {
                                         // squeezed to make room for the names. A chart that was
                                         // already there keeps the height it had, so a rebuild
                                         // does not undo a resize.
-                                        plot.setWidth(pt.grid.worldWidth(420));
-                                        plot.setHeight(prevH || pt.grid.worldHeight(460));
+                                        // Never under 200 px on either side, whatever it is carrying
+                                        // over from the run before.
+                                        plot.setWidth(Math.max(pt.grid.worldWidth(200), pt.grid.worldWidth(420)));
+                                        plot.setHeight(Math.max(pt.grid.worldHeight(200), prevH || pt.grid.worldHeight(460)));
                                         pt.addPlot ? pt.addPlot(plot) : (pt.m_plots = (pt.m_plots || []).concat(plot));
                                     }
                                 }
@@ -4719,6 +4728,14 @@ function (path, config) {
                             // THE CAMERA COMES BACK FIRST. The layout centres the block it packs
                             // on what the user is looking at, so the objects have to be dropped
                             // into the view the run started from, not sixty screens away from it.
+                            // THE CANVAS IS NOT ON SHOW UNTIL THE LAYOUT STARTS. The fade begins
+                            // at nothing and is started BEFORE the camera comes back, so the
+                            // frames in between -- the camera returning, the wait for it to stop
+                            // -- are not a preview of a canvas nobody has arranged yet. It is
+                            // not awaited: the two seconds of coming into focus run WITH the
+                            // pieces dropping, so the first thing seen is the build landing.
+                            let __fade = Promise.resolve();
+                            try { __fade = pt.blurIn(2000); } catch (e) { }
                             camera.back();
                             // NOTHING IS LAID OUT WHILE THE CAMERA IS MOVING. The layout centres
                             // its block on the view, so a camera still travelling -- a fit from
@@ -4727,10 +4744,6 @@ function (path, config) {
                             // the fade, and again after it in case the fade's two seconds gave
                             // something else time to start.
                             try { await pt.cameraSettled(); } catch (e) { }
-                            // ...and what it comes back to comes into focus rather than being
-                            // cut to: two seconds of fading up from a blur, with everything
-                            // still where it landed, and then the layout drops it into place.
-                            try { await pt.blurIn(2000); } catch (e) { }
                             try { await pt.cameraSettled(); } catch (e) { }
                             // THE TIMELINE FIRST, THEN THE CHART, THEN THE FOLDERS. The layout
                             // places pieces in the order it is given them, and it gathers
@@ -4762,6 +4775,7 @@ function (path, config) {
                                     }
                                 });
                             } catch (e) { }
+                            try { await __fade; } catch (e) { }
                             try { await pt.zoomtfit(); } catch (e) { }
                             const d = result.detection || {};
                             const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : '—');

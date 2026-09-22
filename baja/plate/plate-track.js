@@ -11962,7 +11962,12 @@ function (progress) {
                 }
                 // Its size: a readable column by default, in the canvas's units.
                 try {
-                    const w = this.grid.worldWidth(o.width || 460), h = this.grid.worldHeight(o.height || 340);
+                    // A NOTES WINDOW HAS A FLOOR OF 500 px. The written part of a build is
+                    // paragraphs, and at 460 x 340 it opened as a column of clipped text with
+                    // a scroll bar -- the reader had to resize it before reading a word.
+                    const MIN_DOC = 500;
+                    const w = this.grid.worldWidth(Math.max(MIN_DOC, o.width || 560)),
+                        h = this.grid.worldHeight(Math.max(MIN_DOC, o.height || 560));
                     doc.grid.width = w; doc.grid.height = h;
                 } catch (e) { }
                 // Placed where the caller dragged it (world units, bottom left), else where a
@@ -25925,7 +25930,9 @@ function (progress) {
                 const t = Math.min(1, Math.max(0, (Date.now() - b.t0) / b.ms));
                 if (t >= 1) return null;
                 const e = 1 - Math.pow(1 - t, 3);                  // ease out: most of it early
-                return { px: (1 - e) * 20, alpha: 0.12 + 0.88 * e };
+                // From NOTHING, not from a faint version of the canvas: the build is not on
+                // show until the layout that starts with this fade.
+                return { px: (1 - e) * 20, alpha: e };
             }
 
             // ---- A long task's progress, top centre ----------------------------------------
