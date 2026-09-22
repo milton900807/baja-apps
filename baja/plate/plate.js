@@ -8918,6 +8918,46 @@ function () {
                 return false;
             }
 
+            // The bar button under a screen point, or null. Same geometry, same gates as
+            // inButtons -- which now asks here, so the press that FIRES a button and the
+            // test that says one is there can never disagree.
+            barButtonAt(x, y, pt) {
+                try {
+                    if (!pt || !pt.grid) return null;
+                    if (!this.attr__displayMenuButtons) return null;
+                    if (!this.__buttonsVisible(pt.grid) || !this.__buttonRowReady()) return null;
+                    const grid = pt.grid;
+                    const b = this.button_set || [];
+                    const tw = grid.worldWidth(30 * b.length);
+                    let init = grid.X(this.grid.xi + this.grid.width - tw);
+                    if (init < 0) init = grid.Xwc(0);
+                    const by = this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
+                    for (let i = 0; i < b.length; i++) {
+                        const bx = init + i * bsize;
+                        if (x >= bx && x <= bx + bsize && y >= by && y <= by + b[i].height) {
+                            return { button: b[i], x: bx, y: by };
+                        }
+                    }
+                } catch (e) { }
+                return null;
+            }
+            // A bar button answers on the PRESS. Buttons used to run on the release, which is
+            // a beat later than the button looks pressed, and a release can land somewhere
+            // else entirely (a drag that started on the button, a menu opening under the
+            // pointer). The release then has to know one has already gone off, or the same
+            // button fires twice.
+            fireBarButton(x, y, pt) {
+                const hit = this.barButtonAt(x, y, pt);
+                if (!hit) return false;
+                this.__btnFiredAt = Date.now();
+                try { this.highlightbutton = hit.button.name; } catch (e) { }
+                try { hit.button.action(hit.x, hit.y, x, y, pt); } catch (e) { console.warn('[button]', e); }
+                return true;
+            }
+            __btnJustFired() {
+                return !!(this.__btnFiredAt && (Date.now() - this.__btnFiredAt) < 700);
+            }
+
             // ---- Cell buttons: to the RIGHT of the selected cell, after a short delay ----
             // They used to sit under the cell, 100px in, where the release of the click that
             // selected the cell could land on one. Now they sit beside the cell, vertically
@@ -9174,6 +9214,8 @@ function () {
                         return;
                     }
 
+                    // The bar's buttons go off HERE, on the press (see fireBarButton).
+                    if (this.fireBarButton(x, y, pt)) return;
                     if (this.inButtons(x, y, pt)) return;
                     if (pt.menu || pt.__menu__) return;
                     if (this.menu) return;
@@ -9517,24 +9559,11 @@ function () {
 
                     let index = 0;
 
-                    if (this.attr__displayMenuButtons && this.__buttonsVisible(pt.grid) && this.__buttonRowReady()) {
-                        for (let button of b) {
-                            let buttonX = init + index * bsize;
-                            let buttonY = this.__buttonRowY(pt.grid, this.grid.yi + this.getHeight() + pt.grid.worldHeight(this.margin.top));
-
-                            index++;
-
-                            let bbw = bsize;
-
-                            if (
-                                x >= buttonX &&
-                                x <= buttonX + bbw &&
-                                y >= buttonY &&
-                                y <= buttonY + button.height
-                            ) {
-                                return button.action(buttonX, buttonY, x, y, pt);
-                            }
-                        }
+                    // The press already ran it (fireBarButton). The release is left with
+                    // nothing to do but not run it a second time.
+                    if (this.__btnJustFired()) {
+                        this.__btnFiredAt = 0;
+                        return;
                     }
 
                     const releasedCellButton = cellButtonPressed ? getCellButtonAt(x, y) : null;

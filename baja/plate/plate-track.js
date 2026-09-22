@@ -20095,10 +20095,15 @@ function (progress) {
                     if (d.cw > cellW) cellW = d.cw;
                     if (d.ch > cellH) cellH = d.ch;
                 }
-                const gutterY = opts.gutterY ?? opts.gutter ?? (cellH > 0 ? cellH * 2.5 : grid.worldHeight(30));
-                const gutterX = opts.gutterX ?? opts.gutter ?? (cellH > 0 ? Math.max(cellH * 2, cellW * 0.5) : grid.worldWidth(30));
-                // A chart draws its axis labels and legend under its box.
-                const plotHeightPad = opts.plotHeightPad ?? (cellH > 0 ? cellH * 3 : grid.worldHeight(100));
+                let gutterY = opts.gutterY ?? opts.gutter ?? (cellH > 0 ? cellH * 2.5 : grid.worldHeight(30));
+                let gutterX = opts.gutterX ?? opts.gutter ?? (cellH > 0 ? Math.max(cellH * 2, cellW * 0.5) : grid.worldWidth(30));
+                // A chart draws its axis labels and legend under its box; a timeline stacks
+                // its milestone labels upward and GROWS to fit them, so it needs room at that
+                // scale, not at the scale of one table row.
+                let tallestPlot = 0;
+                for (const p of (this.m_plots || [])) { const h = Math.abs(Number(p && p.h) || 0); if (h > tallestPlot) tallestPlot = h; }
+                const plotHeightPad = opts.plotHeightPad ?? Math.max(
+                    (cellH > 0 ? cellH * 3 : grid.worldHeight(100)), tallestPlot * 0.15);
 
                 // Every box is { w, h } with its TOP LEFT corner as its position, y up.
                 const boxes = [];
@@ -20115,6 +20120,16 @@ function (progress) {
                     boxes.push({ kind: "plot", ref: p, w: p.w, h: p.h, hEff: p.h + plotHeightPad, cur: { xw: isNum(p.x) ? p.x : null, yw: isNum(p.y) ? p.y : null } });
                 }
                 if (!boxes.length) return resolve(true);
+
+                // A GAP YOU CAN SEE, WHATEVER THE CELLS ARE. Both gutters were measured from
+                // the tallest table CELL, and a market model is full of long tables whose rows
+                // are hairlines -- so a 260-unit timeline, a folder card and a forty-row table
+                // were packed a couple of pixels apart and read as one pile. The PIECES set a
+                // floor: a gap at the scale of what is being laid out. A caller that names a
+                // gutter still gets exactly what it asked for.
+                const __med = (arr) => { const a = arr.filter(v => v > 0).sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
+                if (opts.gutterY == null && opts.gutter == null) gutterY = Math.max(gutterY, __med(boxes.map(b => b.hEff)) * 0.08);
+                if (opts.gutterX == null && opts.gutter == null) gutterX = Math.max(gutterX, __med(boxes.map(b => b.w)) * 0.05);
 
                 // ---- the packing: a skyline, hung from the top ----------------------------
                 // Each piece goes to the highest free spot that is wide enough, leftmost on a
@@ -20144,7 +20159,26 @@ function (progress) {
                 const W = Math.max(widest, Math.sqrt(totalArea * viewAR) * 1.08);
                 let sky = [{ x: 0, w: W, v: 0 }];
                 const EPS = 1e-9 * W;
+                // BANDS. A skyline packer tucks a small piece into any hole that will take it,
+                // which is what you want for tetris and NOT what you want here: a build's five
+                // folder cards ended up scattered -- one beside the timeline, one under a
+                // table, two more wherever there was a nook -- because each is a fifth the
+                // width of everything else. With opts.bands the ranks are laid out as BANDS:
+                // the skyline is levelled between one rank and the next, so a group never
+                // fills the gaps left by the group before it. The timeline gets the top row,
+                // the chart the next, the tables the next, the folders their own row.
+                const bands = !!opts.bands && typeof opts.rank === 'function';
+                const rankOf = (b) => { try { return Number(opts.rank(b)) || 0; } catch (e) { return 0; } };
+                let __prevRank = null;
                 for (const b of boxes) {
+                    if (bands) {
+                        const r = rankOf(b);
+                        if (__prevRank !== null && r !== __prevRank) {
+                            const floor = Math.max(...sky.map(s => s.v));
+                            sky = [{ x: 0, w: W, v: floor }];
+                        }
+                        __prevRank = r;
+                    }
                     const tw = b.w + gutterX, th = b.hEff + gutterY;
                     let best = null;
                     for (let i = 0; i < sky.length; i++) {
@@ -20245,7 +20279,21 @@ function (progress) {
                 const fitH = Math.max(blockH + 2.5 * margin, (blockW + 2 * margin) / viewAR);
                 const dropH = Math.max(fitH, Math.abs(viewH)) * 1.15;
                 const liftMs = opts.liftMs ?? 420;
-                const order = boxes.slice().sort((a, c) => (c.v + c.hEff) - (a.v + a.hEff) || a.u - c.u);
+                // WHAT FALLS FIRST. Lowest row first is the game's rule -- a piece then never
+                // passes through one that has already landed -- but it buries the piece the
+                // build is about: a timeline packed across the top row drops LAST, after
+                // every table. opts.rank decides here as well as in the packing, so the
+                // caller that says "timeline, then the chart, then the rest" gets that order
+                // in the drop too, and the row rule settles everything it does not rank.
+                const order = boxes.slice().sort((a, c) => {
+                    if (typeof opts.rank === 'function') {
+                        let ra = 0, rc = 0;
+                        try { ra = Number(opts.rank(a)) || 0; } catch (e) { ra = 0; }
+                        try { rc = Number(opts.rank(c)) || 0; } catch (e) { rc = 0; }
+                        if (ra !== rc) return ra - rc;
+                    }
+                    return (c.v + c.hEff) - (a.v + a.hEff) || a.u - c.u;
+                });
                 const stagger = opts.stagger ?? Math.max(25, Math.min(140, 4200 / Math.max(1, order.length)));
                 order.forEach((b, i) => { b.dropAt = i * stagger; });
                 // Gravity, then a bounce that dies out: 0 -> 1 with one small rebound.
@@ -22345,10 +22393,26 @@ function (progress) {
                     }
                     index++;
                 }
+                // A CHART OR A TIMELINE COUNTS AS SOMETHING TO FIT. This loop asked each
+                // plot for its bounds and threw the answer away, so the fit was of the
+                // TABLES only -- and a build that puts a 1500-wide timeline across the top
+                // of everything else had it cut off the moment the view was fitted, which
+                // read as the timeline not being laid out first when it was.
+                //
+                // findBounds() is no use here: for a plot it answers in SCREEN pixels
+                // (grid.xi / grid.width are screen for a plot). Its place in the world is
+                // x / y with the TOP at y, so the box is x..x+w and y-h..y.
                 for (let p of this.m_plots) {
-
-                    const childBounds = p.findBounds();
-
+                    if (!p || p.hidden) continue;
+                    const px = Number(p.x), py = Number(p.y), pw = Number(p.w), ph = Number(p.h);
+                    if (![px, py, pw, ph].every(Number.isFinite) || !(pw > 0 && ph > 0)) continue;
+                    if (index === 0) {
+                        xmin = px; xmax = px + pw; ymin = py - ph; ymax = py;
+                    } else {
+                        xmin = Math.min(xmin, px); xmax = Math.max(xmax, px + pw);
+                        ymin = Math.min(ymin, py - ph); ymax = Math.max(ymax, py);
+                    }
+                    index++;
                 }
 
                 if (isNaN(xmin) || isNaN(xmax) || isNaN(ymin) || isNaN(ymax) ||
@@ -25181,7 +25245,12 @@ function (progress) {
                         }
                     }
 
-                    const drawObj = (obj) => {
+                    // The surface is a parameter so the fade can send the objects to an
+                    // offscreen canvas and blur that ONCE, instead of blurring every draw
+                    // call: ctx.filter is applied per operation, and with a canvas full of
+                    // tables that is hundreds of blurs a frame (measured: a 100 ms timer ran
+                    // 591 ms late during the fade; one composite blur costs nothing like it).
+                    const drawObj = (obj, ctx) => {
                         // JUST ADDED, NOT YET FRAMED. A table arrives while the camera is still
                         // wherever it was -- often zoomed right in -- so its cells are enormous
                         // and drawing it costs a fortune per frame, which is what made the fit
@@ -25293,9 +25362,38 @@ function (progress) {
                         if (!allObjects.length) this.exitMaximize();
                     }
 
+                    // THE FADE. The objects go to an offscreen canvas, which is blurred and
+                    // faded onto this one in a single operation; the chrome (the progress
+                    // card, menus, the maximized title row) is drawn straight to the canvas
+                    // as always, because a blurred menu reads as a fault rather than as an
+                    // entrance.
+                    const __fade = this.__blurState();
+                    let __off = null;
+                    if (__fade) {
+                        try {
+                            const cv = this.__fadeCanvas || (this.__fadeCanvas = document.createElement('canvas'));
+                            if (cv.width !== ctx.canvas.width || cv.height !== ctx.canvas.height) {
+                                cv.width = ctx.canvas.width; cv.height = ctx.canvas.height;
+                            }
+                            __off = cv.getContext('2d');
+                            __off.setTransform(1, 0, 0, 1, 0, 0);
+                            __off.clearRect(0, 0, cv.width, cv.height);
+                            try { if (ctx.getTransform) __off.setTransform(ctx.getTransform()); } catch (e) { }
+                        } catch (e) { __off = null; }
+                    }
+                    const __target = __off || ctx;
                     for (let obj of allObjects) {
-                        if (!this.__maximized) this.drawPackageExportParentLine(obj, ctx);
-                        drawObj(obj);
+                        if (!this.__maximized) this.drawPackageExportParentLine(obj, __target);
+                        drawObj(obj, __target);
+                    }
+                    if (__fade && __off) {
+                        ctx.save();
+                        ctx.setTransform(1, 0, 0, 1, 0, 0);
+                        try { ctx.filter = 'blur(' + __fade.px.toFixed(2) + 'px)'; } catch (e) { }
+                        ctx.globalAlpha = __fade.alpha;
+                        ctx.drawImage(this.__fadeCanvas, 0, 0);
+                        try { ctx.filter = 'none'; } catch (e) { }
+                        ctx.restore();
                     }
                     if (this.__lassoFind && !this.__maximized) { try { this.__drawLassoSelection(ctx); } catch (e) { } }
                     // The active plot (a timeline or chart being edited) is redrawn on top of
@@ -25752,6 +25850,45 @@ function (progress) {
 
                     })
                 }
+            }
+
+            // ---- FADE IN FROM BLUR ---------------------------------------------------------
+            // After a build the canvas is full of objects that arrived while the camera was
+            // away. Cutting straight to them is a jump cut; they come in out of focus and
+            // resolve instead, which reads as "this is what was made" rather than "this was
+            // always here". Nothing about the objects changes -- it is the frame that is
+            // drawn blurred and faint while the fade runs.
+            //
+            // Returns a promise that settles when the fade is over, so a caller can wait for
+            // it before doing the next thing (the layout, in the Indication market build).
+            blurIn(ms) {
+                const d = Math.max(0, Number(ms) || 0);
+                this.__blurIn = d ? { t0: Date.now(), ms: d } : null;
+                if (!d) return Promise.resolve(false);
+                return new Promise((resolve) => {
+                    let g = null;
+                    try { g = CurrentLayout.getStashed('graph'); } catch (e) { g = null; }
+                    const touch = () => { try { if (g && g.touchMe) g.touchMe(); } catch (e) { } };
+                    touch();
+                    // The canvas only redraws when something asks it to, and a fade is the
+                    // one thing on screen that is changing -- so it asks, every frame, for
+                    // as long as it lasts.
+                    const tick = setInterval(touch, 40);
+                    setTimeout(() => {
+                        clearInterval(tick);
+                        this.__blurIn = null;
+                        touch();
+                        resolve(true);
+                    }, d + 60);
+                });
+            }
+            __blurState() {
+                const b = this.__blurIn;
+                if (!b || !(b.ms > 0)) return null;
+                const t = Math.min(1, Math.max(0, (Date.now() - b.t0) / b.ms));
+                if (t >= 1) return null;
+                const e = 1 - Math.pow(1 - t, 3);                  // ease out: most of it early
+                return { px: (1 - e) * 20, alpha: 0.12 + 0.88 * e };
             }
 
             // ---- A long task's progress, top centre ----------------------------------------

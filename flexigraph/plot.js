@@ -4208,6 +4208,8 @@ function (MGrid) {
                         }
                     } catch (e) { }
                     if (!isMobile()) {
+                        // The bar's buttons go off on the press.
+                        if (this.fireBarButton(x, y, pt)) return;
                         if (this.inButtons(x, y, pt)) {
                             return;
                         }
@@ -4544,22 +4546,9 @@ function (MGrid) {
                         return;
                     }
 
-                    for (let button of (this.__buttonRowReady() ? b : [])) {
-                        let buttonX = init + index * bsize;
-
-                        let buttonY = __g.y;
-                        let bbw = bsize;
-                        index++;
-                        if (
-                            x >= buttonX &&
-                            x <= buttonX + bbw &&
-                            y >= buttonY &&
-                            y <= buttonY + button.height
-                        ) {
-                            button.action(x, y, x, y, pt)
-                            return true;
-                        }
-                    }
+                    // The press ran it already (fireBarButton); the release only has to not
+                    // run it twice.
+                    if (this.__btnJustFired()) { this.__btnFiredAt = 0; return true; }
 
                     let scx = x;
                     let scy = y;
@@ -17539,6 +17528,35 @@ function (MGrid) {
                 const t = this.__btnShownAt;
                 return !!(t && (Date.now() - t) >= 1000);
             }
+            // The bar button under a screen point, or null -- one geometry (__btnRowGeom),
+            // one set of gates, shared by the hit test and by the press that fires it.
+            barButtonAt(x, y, pt) {
+                try {
+                    if (!this.__buttonRowReady()) return null;
+                    const g = this.__btnRowGeom();
+                    const b = this.buttons || [];
+                    for (let i = 0; i < b.length; i++) {
+                        const bx = g.init + i * bsize;
+                        if (x >= bx && x <= bx + bsize && y >= g.y && y <= g.y + b[i].height) {
+                            return { button: b[i], x: bx, y: g.y };
+                        }
+                    }
+                } catch (e) { }
+                return null;
+            }
+            // On the PRESS, like the tables' (see plate.js fireBarButton).
+            fireBarButton(x, y, pt) {
+                const hit = this.barButtonAt(x, y, pt);
+                if (!hit) return false;
+                this.__btnFiredAt = Date.now();
+                try { this.highlightbutton = hit.button.name; } catch (e) { }
+                try { hit.button.action(x, y, x, y, pt); } catch (e) { console.warn('[button]', e); }
+                return true;
+            }
+            __btnJustFired() {
+                return !!(this.__btnFiredAt && (Date.now() - this.__btnFiredAt) < 700);
+            }
+
             inButtons(x, y, pt) {
                 let b = this.buttons;
                 if (!this.__buttonRowReady()) return false;

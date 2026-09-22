@@ -729,7 +729,7 @@ def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict
                 findings: Dict[str, Any]) -> Dict[str, Any]:
     """The market model as formulas over one table of editable inputs.
 
-    <P>_Market_Inputs   Label | Value | Unit | Basis    (researched figures and assumptions)
+    <P>_Market_Inputs   Label | Value | Basis           (researched figures and assumptions)
     <P>_Market_Size     per indication and totals: patients, peak patients, price, revenue, TAM
     <P>_Cost_To_Market  per stage: cost, years, success rate, expected (risk-weighted) cost
     <P>_Market_Model    the headline numbers
@@ -740,11 +740,16 @@ def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict
     formulas: Dict[str, str] = {}
     ann: Dict[str, str] = {}
     units: Dict[str, Dict[str, str]] = {I: {}, S: {}, C: {}, M: {}}
+    # NO UNIT COLUMN. The unit is in the label (_Patients, _Years, _Success_Rate,
+    # _Share) or in the format (a USD row is drawn as currency, see `units` below) --
+    # spelling it out again cost a column in every table and said nothing the row did not.
+    # It is still carried internally, because it is what decides the currency formatting.
+    #
     # A row's label tags every OTHER cell in its row, so Inputs[Peak_Share] means "the
     # cells tagged Peak_Share" -- one cell only while the table is Label | Value. This
-    # table also carries Unit and Basis, so the bare label is the whole row and the
-    # arithmetic reading it gets three values where it wanted one. Name the column.
-    INPUT_COLS = ["Label", "Value", "Unit", "Basis"]
+    # table also carries Basis, so the bare label is the whole row and the arithmetic
+    # reading it gets two values where it wanted one. Name the column.
+    INPUT_COLS = ["Label", "Value", "Basis"]
     ref = lambda lab: f"{I}[{lab},{INPUT_COLS[1]}]"
 
     inputs: List[Tuple[str, Any, str, str]] = []
@@ -798,8 +803,7 @@ def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict
     for r, (lab, val, unit, basis) in enumerate(inputs, start=1):
         tables[_key(I, 0, r)] = lab
         tables[_key(I, 1, r)] = val
-        tables[_key(I, 2, r)] = unit
-        tables[_key(I, 3, r)] = basis
+        tables[_key(I, 2, r)] = basis
         if unit.startswith("USD"):
             units[I][lab] = "USD"
     ann[I] = ("Inputs. Patients, prices and development figures come from the research (see Basis and the Sources table); "
@@ -898,12 +902,11 @@ def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict
         ("Years_To_Market", "+".join(years), "years"),
         ("Peak_Revenue_To_Cost_Per_Approval", f"({total(req, 'rev')})/(({exp_sum})/({pos}))", "ratio"),
     ]
-    for c, h in enumerate(["Label", "Value", "Unit"]):
+    for c, h in enumerate(["Label", "Value"]):          # no unit column: see INPUT_COLS
         tables[_key(M, c, 0)] = h
     for r, (lab, f, unit) in enumerate(headline, start=1):
         tables[_key(M, 0, r)] = lab
         formulas[_key(M, 1, r)] = f
-        tables[_key(M, 2, r)] = unit
         if unit == "USD":
             units[M][lab] = "USD"
     ann[M] = "The headline numbers. All formulas over the inputs table: change an input and these follow."

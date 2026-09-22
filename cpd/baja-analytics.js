@@ -4720,6 +4720,10 @@ function (path, config) {
                             // on what the user is looking at, so the objects have to be dropped
                             // into the view the run started from, not sixty screens away from it.
                             camera.back();
+                            // ...and what it comes back to comes into focus rather than being
+                            // cut to: two seconds of fading up from a blur, with everything
+                            // still where it landed, and then the layout drops it into place.
+                            try { await pt.blurIn(2000); } catch (e) { }
                             // THE TIMELINE FIRST, THEN THE CHART, THEN THE FOLDERS. The layout
                             // places pieces in the order it is given them, and it gathers
                             // plates before plots, so without this the timeline and the chart
@@ -4730,13 +4734,23 @@ function (path, config) {
                                     // Dropped in, not slid in: nothing has been visible until
                                     // now, so the pieces should arrive as pieces.
                                     style: 'tetris',
+                                    // ...and in BANDS, one rank to a row block. Without it the
+                                    // packer tucked the folder cards into whatever hole would
+                                    // take them -- one beside the timeline, the rest scattered
+                                    // between the tables -- because a folder is a fifth the
+                                    // width of everything else here.
+                                    bands: true,
                                     rank: (b) => {
                                         if (b && b.kind === 'plot') {
                                             let isTl = false;
                                             try { isTl = !!(pt.__tlIs && pt.__tlIs(b.ref)); } catch (e) { isTl = false; }
-                                            return isTl ? 0 : 1;      // timeline, then the chart
+                                            return isTl ? 0 : 1;      // the timeline, then the chart
                                         }
-                                        return 2;                     // the folders and anything else
+                                        // The tables next, and the folders in a row of their own
+                                        // at the bottom: they are the way IN to everything that
+                                        // has been put away, so they read as a shelf.
+                                        const pkg = !!(b && b.ref && ('' + (b.ref.plateType || '')).indexOf('package') === 0);
+                                        return pkg ? 3 : 2;
                                     }
                                 });
                             } catch (e) { }
