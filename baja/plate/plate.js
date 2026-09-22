@@ -15856,10 +15856,21 @@ function () {
                             const labelInk = maxed ? '#ffffff' : 'gray';
                             const rowGap = maxed ? 36 : 20;
                             const __lg = this.__colGeom();
+                            // THE COLUMN LABELS GO ABOVE THE BAR. 15 px over the table's top edge
+                            // is inside the title bar's strip, where the track already draws the
+                            // table's NAME -- "0 (A)" and the name were painted over each other on
+                            // the left of every bar. When there is a bar (the track stashes its
+                            // rect in __barRect before the table draws), the labels sit just above
+                            // it; maximized, or on an object the bar does not cover, nothing moves.
+                            let __colLabelY = graph.Y((this.grid.yi + this.getHeight(pt))) - (maxed ? 26 : 15);
+                            try {
+                                const __b = this.__barRect;
+                                if (!maxed && this.__barDrawn && __b && Number.isFinite(__b.y)) __colLabelY = __b.y - 5;
+                            } catch (e) { }
                             for (let x = this.grid.xmin; x < this.grid.xmax; x++) {
                                 const __li = x - (Number(this.grid.xmin) || 0);
                                 const textX = graph.X(this.grid.X(__lg && __lg.left[__li] != null ? __lg.left[__li] + __lg.w[__li] / 2 : x + 0.5));
-                                const textY = graph.Y((this.grid.yi + this.getHeight(pt))) - (maxed ? 26 : 15);
+                                const textY = __colLabelY;
                                 const text = `${x} (${getExcelColumnName(x)})`;
 
                                 const textMetrics = ctx.measureText(text);

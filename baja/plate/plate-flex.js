@@ -14431,10 +14431,17 @@ function () {
                                 this.attr__displayNumberValues = false;
                             }
 
+                            // The labels clear the title bar (see plate.js): its strip carries the
+                            // table's name, and these were drawn on top of it.
+                            let __colLabelY = graph.Y((this.grid.yi + this.getHeight(pt))) - 5;
+                            try {
+                                const __b = this.__barRect;
+                                if (!this.__maximizedView && this.__barDrawn && __b && Number.isFinite(__b.y)) __colLabelY = __b.y - 5;
+                            } catch (e) { }
                             for (let x = this.grid.xmin; x < this.grid.xmax; x++) {
 
                                 const textX = graph.X(this.grid.X(x + 0.5));
-                                const textY = graph.Y((this.grid.yi + this.getHeight(pt))) - 5;
+                                const textY = __colLabelY;
                                 const text = `${x} (${getExcelColumnName(x)})`;
 
                                 const textMetrics = ctx.measureText(text);
