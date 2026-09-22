@@ -8920,8 +8920,39 @@ function () {
                     const sh = graph.screenHeight(this.getHeight());
                     const sy = graph.Y(this.grid.yi);
                     if (!Number.isFinite(sh) || !Number.isFinite(sy)) return false;
-                    return (sy + sh) >= 0;
+                    if ((sy + sh) < 0) return false;
                 } catch (e) { return false; }
+                // AND THEY HAVE TO BE ON THE BAR. The buttons are drawn in the title bar's
+                // strip; when the table's top scrolls off, __buttonRowY pins the row at
+                // y=10 while the bar stays with the table -- so the buttons were drawn
+                // somewhere the bar is not, and a click up there still reached them. If the
+                // row does not fall inside the bar, there is nothing to click.
+                //
+                // Only once the track has actually drawn this table: before its first frame
+                // __barDrawn is undefined, and refusing every click until then would make a
+                // newly placed table dead to the pointer. Maximized has no bar and its own
+                // title row, so the rule does not apply there.
+                try {
+                    if (this.__barDrawn !== undefined && !this.__maximizedView) {
+                        const b = this.__barRect;
+                        if (!b) return false;
+                        const mt = (this.margin && this.margin.top) || 0;
+                        const y = this.__buttonRowY(graph, this.grid.yi + this.getHeight() + graph.worldHeight(mt));
+                        const h = 20;
+                        if (!Number.isFinite(y)) return false;
+                        // THE BAR ITSELF HAS TO BE ON SCREEN. Scrolled away, the row is
+                        // still pinned into the viewport by __buttonRowY and would sit on a
+                        // bar that is nowhere to be seen.
+                        if (!(b.y + b.h > 0)) return false;
+                        // And the row has to MEET the bar -- overlap, not sit wholly within
+                        // it. A bar hanging over the top of the viewport is drawn from a
+                        // negative y while the row is pinned to 10, so the two share only
+                        // part of their height; demanding containment there turned the
+                        // buttons off while they were plainly visible on the bar.
+                        if (!(y < b.y + b.h && (y + h) > b.y)) return false;
+                    }
+                } catch (e) { }
+                return true;
             }
             __buttonRowY(graph, worldY) {
                 let y = graph.Y(worldY);

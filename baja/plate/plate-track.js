@@ -25034,7 +25034,9 @@ function (progress) {
                             // the faint copy behind its cells as well.
                             let __bar = null;
                             try { __bar = this.__plateBar(obj); } catch (e) { __bar = null; }
-                            try { obj.__barDrawn = !!__bar; } catch (e) { }
+                            // The rect as well as the flag: the table's own hit tests ask
+                            // whether its buttons fall inside the bar before taking a click.
+                            try { obj.__barDrawn = !!__bar; obj.__barRect = __bar || null; } catch (e) { }
                             if (__bar) { try { this.__drawPlateBar(obj, ctx); } catch (e) { } }
                             obj.draw(this, ctx);
                             // Cell connection arrows: faint and thin, so they hint without intruding.
