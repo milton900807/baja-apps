@@ -4526,6 +4526,12 @@ function (path, config) {
                                 };
                             })();
                             camera.away();
+                            // AND A WHITE CURTAIN OVER THE LOT. The camera being elsewhere is
+                            // enough to hide the filling, but not the moment it comes back:
+                            // between the return and the first piece landing there is a canvas
+                            // nobody has arranged yet. The curtain covers that, and is drawn
+                            // away once the layout has started.
+                            try { pt.curtainUp(); } catch (e) { }
 
                             const drawn = [];
                             for (const spec of (result.tables || [])) drawn.push(await drawValueTable(pt, spec));
@@ -4728,14 +4734,7 @@ function (path, config) {
                             // THE CAMERA COMES BACK FIRST. The layout centres the block it packs
                             // on what the user is looking at, so the objects have to be dropped
                             // into the view the run started from, not sixty screens away from it.
-                            // THE CANVAS IS NOT ON SHOW UNTIL THE LAYOUT STARTS. The fade begins
-                            // at nothing and is started BEFORE the camera comes back, so the
-                            // frames in between -- the camera returning, the wait for it to stop
-                            // -- are not a preview of a canvas nobody has arranged yet. It is
-                            // not awaited: the two seconds of coming into focus run WITH the
-                            // pieces dropping, so the first thing seen is the build landing.
                             let __fade = Promise.resolve();
-                            try { __fade = pt.blurIn(2000); } catch (e) { }
                             camera.back();
                             // NOTHING IS LAID OUT WHILE THE CAMERA IS MOVING. The layout centres
                             // its block on the view, so a camera still travelling -- a fit from
@@ -4750,8 +4749,12 @@ function (path, config) {
                             // plates before plots, so without this the timeline and the chart
                             // ended up under every folder. They are the two things the
                             // workbench should open on.
+                            // THE LAYOUT STARTS BEHIND THE CURTAIN, and the curtain is drawn away
+                            // as the pieces drop: white, then a soft focus, then the build. The
+                            // layout is not awaited before either of them starts -- that is what
+                            // "after the layout starts" means.
                             try {
-                                await pt.layoutCompactTetris({
+                                const __laid = pt.layoutCompactTetris({
                                     // Dropped in, not slid in: nothing has been visible until
                                     // now, so the pieces should arrive as pieces.
                                     style: 'tetris',
@@ -4774,7 +4777,11 @@ function (path, config) {
                                         return pkg ? 3 : 2;
                                     }
                                 });
+                                try { __fade = pt.blurIn(1800); } catch (e) { }
+                                try { pt.curtainDown(1200); } catch (e) { }
+                                await __laid;
                             } catch (e) { }
+                            try { pt.curtainDown(0); } catch (e) { }      // however it ended, no curtain is left
                             try { await __fade; } catch (e) { }
                             try { await pt.zoomtfit(); } catch (e) { }
                             const d = result.detection || {};

@@ -25391,6 +25391,20 @@ function (progress) {
                         if (!this.__maximized) this.drawPackageExportParentLine(obj, __target);
                         drawObj(obj, __target);
                     }
+                    // The curtain, over everything that has just been drawn and under all the
+                    // chrome that follows.
+                    try {
+                        const __ca = this.__curtainAlpha();
+                        if (__ca > 0) {
+                            const cctx = __off || ctx;
+                            cctx.save();
+                            cctx.setTransform(1, 0, 0, 1, 0, 0);
+                            cctx.globalAlpha = __ca;
+                            cctx.fillStyle = (this.__curtain && this.__curtain.colour) || '#ffffff';
+                            cctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                            cctx.restore();
+                        }
+                    } catch (e) { }
                     if (__fade && __off) {
                         ctx.save();
                         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -25855,6 +25869,49 @@ function (progress) {
 
                     })
                 }
+            }
+
+            // ---- A WHITE CURTAIN -----------------------------------------------------------
+            // Held over the canvas while a build fills it, and drawn away once the layout has
+            // started. The fade from blur says "this is arriving"; the curtain is the stronger
+            // statement -- nothing behind it is on show at all, however the objects are
+            // arranged at that moment, which is what a build needs while it is putting tables
+            // down one at a time and only the layout at the end decides where anything goes.
+            //
+            // It covers the OBJECTS and nothing else: the progress card, menus and the
+            // maximized chrome are drawn after it, so the wait still reads.
+            curtainUp(colour) {
+                this.__curtain = { a: 1, colour: colour || '#ffffff', t0: 0, ms: 0 };
+                try { const g = CurrentLayout.getStashed('graph'); if (g && g.touchMe) g.touchMe(); } catch (e) { }
+                return this;
+            }
+            curtainDown(ms) {
+                const d = Math.max(0, Number(ms) || 0);
+                const c = this.__curtain;
+                if (!c) return Promise.resolve(false);
+                if (!d) { this.__curtain = null; return Promise.resolve(true); }
+                c.t0 = Date.now(); c.ms = d;
+                return new Promise((resolve) => {
+                    let g = null;
+                    try { g = CurrentLayout.getStashed('graph'); } catch (e) { g = null; }
+                    const touch = () => { try { if (g && g.touchMe) g.touchMe(); } catch (e) { } };
+                    touch();
+                    const tick = setInterval(touch, 40);
+                    setTimeout(() => {
+                        clearInterval(tick);
+                        if (this.__curtain === c) this.__curtain = null;
+                        touch();
+                        resolve(true);
+                    }, d + 60);
+                });
+            }
+            __curtainAlpha() {
+                const c = this.__curtain;
+                if (!c) return 0;
+                if (!c.ms) return 1;                                  // held, not yet drawing away
+                const t = Math.min(1, Math.max(0, (Date.now() - c.t0) / c.ms));
+                if (t >= 1) return 0;
+                return 1 - (1 - Math.pow(1 - t, 3));                  // ease out, same curve as the fade
             }
 
             // ---- WAIT FOR THE CAMERA TO STOP -----------------------------------------------
