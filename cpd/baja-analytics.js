@@ -4476,6 +4476,52 @@ function (path, config) {
                                 return;
                             }
 
+                            // ---- THE CANVAS FILLS OUT OF SIGHT -------------------------------
+                            // Everything below adds objects one at a time over several seconds:
+                            // the researched tables, the formula model's tables, the notes, the
+                            // timeline, the folders, the chart. Each lands wherever its own rule
+                            // puts it, and only the layout at the end decides where anything
+                            // really goes -- so watching the middle of it is watching a pile
+                            // build up and then jump. The camera is taken off the canvas until
+                            // the last object is in, and the tetris layout drops them all into
+                            // the view it comes back to.
+                            //
+                            // It MOVES rather than zooms out, on purpose: half of what is built
+                            // here is sized through pt.grid.worldWidth/worldHeight at the moment
+                            // it is created (a folder is worldWidth(200) wide, the chart
+                            // worldHeight(460) tall, and the model builder sizes its tables the
+                            // same way). Zoom out first and those objects are created hundreds
+                            // of times too big -- and normalizeTableCellSizes would then blow
+                            // every other table up to match. Moving keeps the scale exactly as
+                            // it was, and the result on screen is the same: nothing to see.
+                            const camera = (() => {
+                                let saved = null, timer = 0;
+                                return {
+                                    away() {
+                                        try {
+                                            if (saved) return;
+                                            const g = pt.grid; g.rescale();
+                                            saved = { x0: g.getxmin(), x1: g.getxmax(), y0: g.getymin(), y1: g.getymax() };
+                                            const dx = Math.abs(saved.x1 - saved.x0) * 60 || 1e5;   // sixty screens
+                                            g.zoom(saved.x0 + dx, saved.x1 + dx, saved.y0, saved.y1);
+                                            // A throw anywhere below must not leave the canvas
+                                            // parked off the edge of the world for good.
+                                            timer = setTimeout(() => { try { camera.back(); } catch (e) { } }, 120000);
+                                        } catch (e) { }
+                                    },
+                                    back() {
+                                        try {
+                                            clearTimeout(timer);
+                                            if (!saved) return;
+                                            pt.grid.zoom(saved.x0, saved.x1, saved.y0, saved.y1);
+                                            saved = null;
+                                            pt.grid.rescale();
+                                        } catch (e) { }
+                                    }
+                                };
+                            })();
+                            camera.away();
+
                             const drawn = [];
                             for (const spec of (result.tables || [])) drawn.push(await drawValueTable(pt, spec));
                             // The market model: formula tables over one table of editable inputs
@@ -4670,6 +4716,10 @@ function (path, config) {
                             // a table measured before its cells are sized lays out at the wrong
                             // width and everything after it is placed around that mistake.
                             await new Promise((r) => setTimeout(r, 0));
+                            // THE CAMERA COMES BACK FIRST. The layout centres the block it packs
+                            // on what the user is looking at, so the objects have to be dropped
+                            // into the view the run started from, not sixty screens away from it.
+                            camera.back();
                             // THE TIMELINE FIRST, THEN THE CHART, THEN THE FOLDERS. The layout
                             // places pieces in the order it is given them, and it gathers
                             // plates before plots, so without this the timeline and the chart
@@ -4677,6 +4727,9 @@ function (path, config) {
                             // workbench should open on.
                             try {
                                 await pt.layoutCompactTetris({
+                                    // Dropped in, not slid in: nothing has been visible until
+                                    // now, so the pieces should arrive as pieces.
+                                    style: 'tetris',
                                     rank: (b) => {
                                         if (b && b.kind === 'plot') {
                                             let isTl = false;
