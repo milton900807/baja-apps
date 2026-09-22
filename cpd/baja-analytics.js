@@ -4758,12 +4758,14 @@ function (path, config) {
                                     // Dropped in, not slid in: nothing has been visible until
                                     // now, so the pieces should arrive as pieces.
                                     style: 'tetris',
-                                    // ...and in BANDS, one rank to a row block. Without it the
-                                    // packer tucked the folder cards into whatever hole would
-                                    // take them -- one beside the timeline, the rest scattered
-                                    // between the tables -- because a folder is a fifth the
-                                    // width of everything else here.
-                                    bands: true,
+                                    // PLACED EXACTLY AS THE TOOLBAR BUTTON PLACES THEM. The
+                                    // button runs the plain packing -- objects in the order they
+                                    // were made, no ranks, no bands -- and that is the
+                                    // arrangement that comes out right; this call was doing
+                                    // something else, which is why the two disagreed. Only the
+                                    // DROP order is ours now (dropRank / dropPause below), and
+                                    // that changes when a piece falls, never where it lands.
+                                    audit: 'indication build',
                                     // WHERE things go (above) and WHEN they fall (here) are
                                     // asked separately. The folders land first -- they are the
                                     // way in to everything that has been put away -- then the
@@ -4778,19 +4780,7 @@ function (path, config) {
                                         const pkg = !!(b && b.ref && ('' + (b.ref.plateType || '')).indexOf('package') === 0);
                                         return pkg ? 0 : 3;           // folders first, tables last
                                     },
-                                    dropPause: (r) => (r === 2 ? 2000 : 0),
-                                    rank: (b) => {
-                                        if (b && b.kind === 'plot') {
-                                            let isTl = false;
-                                            try { isTl = !!(pt.__tlIs && pt.__tlIs(b.ref)); } catch (e) { isTl = false; }
-                                            return isTl ? 0 : 1;      // the timeline, then the chart
-                                        }
-                                        // The tables next, and the folders in a row of their own
-                                        // at the bottom: they are the way IN to everything that
-                                        // has been put away, so they read as a shelf.
-                                        const pkg = !!(b && b.ref && ('' + (b.ref.plateType || '')).indexOf('package') === 0);
-                                        return pkg ? 3 : 2;
-                                    }
+                                    dropPause: (r) => (r === 2 ? 2000 : 0)
                                 });
                                 try { __fade = pt.blurIn(1800); } catch (e) { }
                                 try { pt.curtainDown(2600); } catch (e) { }   // slower: it has more to reveal

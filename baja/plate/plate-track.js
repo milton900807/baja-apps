@@ -20246,6 +20246,7 @@ function (progress) {
                 const settle = () => {
                     for (const b of boxes) writePose(b, b.target.xw, b.target.yw);
                     touch();
+                    if (opts.audit) { try { this.layoutAudit(opts.audit === true ? 'layout' : opts.audit); } catch (e) { } }
                     token.done(true);
                 };
 
@@ -24429,6 +24430,68 @@ function (progress) {
                 const x = Number(p.x), y = Number(p.y), w = Number(p.w), h = Number(p.h);
                 if (![x, y, w, h].every(Number.isFinite) || !(w > 0 && h > 0)) return null;
                 return { x0: x, x1: x + w, y0: y - h, y1: y };
+            }
+            // THE SIZE OF ANYTHING ON THE CANVAS, IN WORLD UNITS. A plate's getWidth() answers
+            // in world units; a PLOT's answers in SCREEN PIXELS (it returns grid.width) and
+            // answers 1 x 1 until the object has drawn its first frame -- measured: a chart
+            // says 1 x 1 at creation and 700 x 600 after drawing, while its world width is
+            // 466. Anything that measures plates and plots through the same call therefore
+            // reads a chart as a dot, or as pixels, depending on when it asks. This answers
+            // in world units for both, at any moment.
+            worldSizeOf(o) {
+                try {
+                    if (!o) return null;
+                    const pb = this.__plotWorldBox(o);
+                    if (pb) return { w: pb.x1 - pb.x0, h: pb.y1 - pb.y0 };
+                    const w = Math.abs(Number(o.getWidth ? o.getWidth() : (o.grid && o.grid.width)) || 0);
+                    const h = Math.abs(Number(o.getHeight ? o.getHeight() : (o.grid && o.grid.height)) || 0);
+                    return (w > 0 && h > 0) ? { w, h } : null;
+                } catch (e) { return null; }
+            }
+            // The world box of ANY object: a plate from its grid (which is the world), a chart
+            // or a timeline from x / y / w / h. Used by the audit below and by anything that
+            // has to compare the two kinds.
+            worldBoxOf(o) {
+                try {
+                    const pb = this.__plotWorldBox(o);
+                    if (pb) return pb;
+                    if (!o || !o.grid || o.hidden) return null;
+                    const s = this.worldSizeOf(o);
+                    if (!s) return null;
+                    const x0 = Number(o.grid.xi), y0 = Number(o.grid.yi);
+                    if (!Number.isFinite(x0) || !Number.isFinite(y0)) return null;
+                    return { x0, x1: x0 + s.w, y0, y1: y0 + s.h };
+                } catch (e) { return null; }
+            }
+            // WHAT ACTUALLY ENDED UP ON TOP OF WHAT. Run after a layout when opts.audit is
+            // set: the packing cannot produce overlapping boxes, so an overlap here means an
+            // object was measured as one size and occupies another -- which is the difference
+            // between laying out objects that have drawn and ones that have not.
+            layoutAudit(where) {
+                const out = { where: where || 'layout', overlaps: [], objects: 0 };
+                try {
+                    const list = [...(this.root || []), ...(this.m_plots || [])].filter(o => o && !o.hidden);
+                    const boxes = list.map(o => ({ o, b: this.worldBoxOf(o) })).filter(r => r.b);
+                    out.objects = boxes.length;
+                    for (let i = 0; i < boxes.length; i++) {
+                        for (let j = i + 1; j < boxes.length; j++) {
+                            const a = boxes[i], c = boxes[j];
+                            const ox = Math.min(a.b.x1, c.b.x1) - Math.max(a.b.x0, c.b.x0);
+                            const oy = Math.min(a.b.y1, c.b.y1) - Math.max(a.b.y0, c.b.y0);
+                            if (ox > 1e-6 && oy > 1e-6) {
+                                out.overlaps.push({
+                                    a: a.o.name, b: c.o.name,
+                                    byX: Math.round(ox), byY: Math.round(oy),
+                                    aBox: [Math.round(a.b.x0), Math.round(a.b.y0), Math.round(a.b.x1 - a.b.x0), Math.round(a.b.y1 - a.b.y0)],
+                                    bBox: [Math.round(c.b.x0), Math.round(c.b.y0), Math.round(c.b.x1 - c.b.x0), Math.round(c.b.y1 - c.b.y0)]
+                                });
+                            }
+                        }
+                    }
+                    if (out.overlaps.length) console.warn('[layout audit] ' + out.overlaps.length + ' overlapping pair(s)', out);
+                    else console.log('[layout audit] ' + out.objects + ' objects, nothing overlapping');
+                } catch (e) { console.warn('[layout audit]', e); }
+                return out;
             }
 
             findMinXCoordinate() {
