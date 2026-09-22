@@ -4407,17 +4407,68 @@ function (path, config) {
                         const run = async (prompt, opts) => {
                             pt.setMessage((opts && opts.fresh) ? 'Researching again… this takes a few minutes'
                                 : 'Checking earlier research, then researching patient populations…', 5);
+                            // A PROGRESS BAR THAT LEARNS. The research runs for minutes and the
+                            // tool's own percentage is coarse and jumpy (2, 5, 10, 16 … 85, 95),
+                            // so the bar is driven by which PHASE the run is in against how long
+                            // that phase has taken in earlier runs on this machine. The first run
+                            // uses the written-in priors below; from the second on, the bar and
+                            // the time remaining come from measurement. A cached answer and a
+                            // fresh search keep separate histories -- one takes seconds, the
+                            // other minutes -- and which of the two this run is becomes clear
+                            // the moment the research phase starts, mid-run.
+                            const Learner = await exec('baja/analytics/progress-learner.js');
+                            const track = Learner.begin('indication-market', {
+                                label: 'Indication market',
+                                variant: (opts && opts.fresh) ? 'fresh' : 'auto',
+                                priorSeconds: { fresh: 210, cached: 8, auto: 150, default: 150 },
+                                // No research phase means the answer came from the store.
+                                variantFrom: (marks) => (marks.research != null || marks.search != null) ? 'fresh' : 'cached',
+                                phases: [
+                                    { id: 'check', label: 'Checking earlier research', match: /^Checking earlier/i, at: 0.02 },
+                                    { id: 'research', label: 'Researching patient populations', match: /Researching patient/i, at: 0.06 },
+                                    { id: 'search', label: 'Searching the literature', match: /^Searching:/i, at: 0.12, repeat: true, expect: 10 },
+                                    { id: 'organise', label: 'Organising the findings', match: /Organising/i, at: 0.72 },
+                                    { id: 'genetics', label: 'Looking up the genes and mutations', match: /genes|genetic/i, at: 0.80 },
+                                    { id: 'history', label: 'Looking up the history', match: /history/i, at: 0.86 },
+                                    { id: 'writing', label: 'Writing the tables', match: /table|writing|summar/i, at: 0.93 }
+                                ]
+                            });
+                            const paint = () => {
+                                try {
+                                    const st = track.state();
+                                    pt.setTaskProgress({
+                                        label: st.label, detail: st.detail, fraction: st.fraction,
+                                        eta: st.eta, basis: st.basis
+                                    });
+                                } catch (e) { }
+                            };
+                            paint();
+                            const ticker = setInterval(paint, 250);
+                            const stop = (ok) => {
+                                clearInterval(ticker);
+                                try { track.finish(ok); } catch (e) { }
+                                try { pt.clearTaskProgress(); } catch (e) { }
+                            };
                             const em = new EngineMonitor((msg) => {
+                                track.message(msg);
+                                paint();
                                 pt.updateSprite(msg)
                             });
+                            // The tool's own percentage, which the monitor has always carried and
+                            // nothing has ever listened to. It is a floor for the bar, never the
+                            // bar itself.
+                            try { em.addProgressListener((p) => { track.progress(p); paint(); }); } catch (e) { }
                             let result;
                             try {
                                 result = await exec('py/analytics/indication-market.py', em, prompt, opts || {});
                             } catch (e) {
+                                stop(false);
                                 pt.killSprite();
                                 pt.setMessage('Indication market failed: ' + (e && e.message ? e.message : e), 1.1);
                                 return;
                             }
+                            // Only a run that reached an answer teaches the bar anything.
+                            stop(!!(result && result.status === 'ok'));
                             pt.killSprite();
 
                             if (!result || result.status !== 'ok') {

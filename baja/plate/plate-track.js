@@ -25368,6 +25368,10 @@ function (progress) {
                         this._drawTopMessage(ctx, this.__msg, 'status');
                     }
 
+                    // A long task's bar sits above everything, including the sprite, which
+                    // returns out of the frame below.
+                    try { this._drawTaskProgress(ctx); } catch (e) { }
+
                     if (sprite && sprite === 5) {
 
                         const centerX = this.grid.xi + this.grid.width / 2;
@@ -25652,6 +25656,122 @@ function (progress) {
 
                     })
                 }
+            }
+
+            // ---- A long task's progress, top centre ----------------------------------------
+            // Set by whatever is running the task (see baja/analytics/progress-learner.js,
+            // which works out the fraction and the time remaining from what earlier runs of
+            // the same task actually took). This only DRAWS: it holds no timers and knows
+            // nothing about the work, so any tool can use it.
+            //   pt.setTaskProgress({ label, detail, fraction, eta, basis })
+            //   pt.clearTaskProgress()
+            setTaskProgress(o) {
+                if (!o) return this.clearTaskProgress();
+                const p = this.__taskProgress || (this.__taskProgress = {});
+                p.label = ('' + (o.label == null ? 'Working' : o.label)).trim();
+                p.detail = ('' + (o.detail == null ? '' : o.detail)).trim();
+                p.eta = ('' + (o.eta == null ? '' : o.eta)).trim();
+                p.basis = ('' + (o.basis == null ? '' : o.basis)).trim();
+                const f = Number(o.fraction);
+                p.fraction = Number.isFinite(f) ? Math.max(0, Math.min(1, f)) : (p.fraction || 0);
+                p.at = Date.now();
+                try { const g = CurrentLayout.getStashed('graph'); if (g && g.touchMe) g.touchMe(); } catch (e) { }
+                return this;
+            }
+            clearTaskProgress() {
+                this.__taskProgress = null;
+                try { const g = CurrentLayout.getStashed('graph'); if (g && g.touchMe) g.touchMe(); } catch (e) { }
+                return this;
+            }
+            _drawTaskProgress(ctx) {
+                const p = this.__taskProgress;
+                if (!p) return;
+                const NAVY = '#0a2540';
+                const CYAN = '#1aa3bd';
+                const rr = (x, y, w, h, r) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y);
+                    ctx.lineTo(x + w - r, y);
+                    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                    ctx.lineTo(x + w, y + h - r);
+                    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                    ctx.lineTo(x + r, y + h);
+                    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                    ctx.lineTo(x, y + r);
+                    ctx.quadraticCurveTo(x, y, x + r, y);
+                    ctx.closePath();
+                };
+                const fit = (text, px) => {
+                    let t = '' + (text || '');
+                    if (!t) return '';
+                    while (t.length > 4 && ctx.measureText(t).width > px) t = t.slice(0, -2).replace(/[\s…]+$/, '') + '…';
+                    return t;
+                };
+                const cw = ctx.canvas.width;
+                const w = Math.max(280, Math.min(560, Math.round(cw * 0.42)));
+                const h = p.detail ? 78 : 62;
+                const x = Math.round(cw / 2 - w / 2);
+                // Under the top message when there is one, so the two do not sit on top of
+                // each other: the message is 36 tall at y 16.
+                const y = (this.__msg || this.__msgb || this.__msgc) ? 62 : 16;
+                const pad = 14;
+
+                ctx.save();
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(10,37,64,0.18)';
+                ctx.shadowBlur = 12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 3;
+                ctx.fillStyle = 'rgba(255,255,255,0.97)';
+                rr(x, y, w, h, 10); ctx.fill();
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                ctx.strokeStyle = 'rgba(10,37,64,0.14)'; ctx.lineWidth = 1;
+                rr(x, y, w, h, 10); ctx.stroke();
+
+                // What it is doing, and how long is left.
+                ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillStyle = 'rgba(10,37,64,0.55)';
+                const etaW = p.eta ? Math.ceil(ctx.measureText(p.eta).width) : 0;
+                if (p.eta) ctx.fillText(p.eta, x + w - pad, y + 18);
+                ctx.textAlign = 'left';
+                ctx.fillStyle = NAVY;
+                ctx.fillText(fit(p.label, w - 2 * pad - etaW - 12), x + pad, y + 18);
+
+                // The bar. The filled part carries a slow shimmer so a long phase still
+                // reads as running rather than stuck.
+                const bx = x + pad, by = y + 34, bw = w - 2 * pad, bh = 7;
+                ctx.fillStyle = 'rgba(10,37,64,0.10)';
+                rr(bx, by, bw, bh, bh / 2); ctx.fill();
+                const fw = Math.max(bh, Math.round(bw * (p.fraction || 0)));
+                if (fw > 0) {
+                    ctx.save();
+                    rr(bx, by, fw, bh, bh / 2); ctx.clip();
+                    const g = ctx.createLinearGradient(bx, by, bx + Math.max(1, fw), by);
+                    g.addColorStop(0, NAVY); g.addColorStop(1, CYAN);
+                    ctx.fillStyle = g;
+                    ctx.fillRect(bx, by, fw, bh);
+                    const t = (Date.now() % 1600) / 1600;
+                    const sx = bx + (fw + 90) * t - 90;
+                    const sh = ctx.createLinearGradient(sx, by, sx + 90, by);
+                    sh.addColorStop(0, 'rgba(255,255,255,0)');
+                    sh.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+                    sh.addColorStop(1, 'rgba(255,255,255,0)');
+                    ctx.fillStyle = sh;
+                    ctx.fillRect(bx, by, fw, bh);
+                    ctx.restore();
+                }
+
+                // The line the tool itself is on, and what the estimate is standing on.
+                if (p.detail) {
+                    ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                    ctx.fillStyle = 'rgba(10,37,64,0.45)';
+                    ctx.textAlign = 'right';
+                    const bW = p.basis ? Math.ceil(ctx.measureText(p.basis).width) : 0;
+                    if (p.basis) ctx.fillText(p.basis, x + w - pad, y + 60);
+                    ctx.textAlign = 'left';
+                    ctx.fillStyle = 'rgba(10,37,64,0.55)';
+                    ctx.fillText(fit(p.detail, w - 2 * pad - bW - 12), x + pad, y + 60);
+                }
+                ctx.restore();
             }
 
             // Top-centre message, in the same look as the rest of the app: a white card with
