@@ -4947,7 +4947,6 @@ function (MGrid) {
                     return;
                 }
 
-                if (!this.__buttonRowReady()) return null;
                 let x = px;
                 let y = py;
                 let b = this.buttons;
@@ -11437,7 +11436,6 @@ function (MGrid) {
                 const moveTabX = optionsTabX + this.tabWidth + this.tabGap;
                 // The move tab is gone -- see isMouseInTab. The bar moves the chart.
                 if ((sy + screenHeight) < 0) return;
-                if (!this.__buttonRowReady()) return null;
                 let index = 0;
                 const __g = this.__btnRowGeom();
                 let init = __g.init;
@@ -16070,7 +16068,6 @@ function (MGrid) {
                 if ((sy + screen_height) < 0) {
                     return;
                 }
-                this.__markButtonRowShown();
                 let index = 0;
                 let b = this.buttons;
                 const __g = this.__btnRowGeom();
@@ -17511,55 +17508,10 @@ function (MGrid) {
                 }
                 return { init, y };
             }
-            // ---- the row waits a second before it takes a click ----------------------------
-            // Same rule the tables follow: the buttons are DRAWN as soon as the chart is, but
-            // a press that lands on one in that first second -- the click that brought the
-            // chart into view, or the release that ended a drag by the bar -- is not what the
-            // pointer was aimed at. The clock starts when the row is on screen and restarts if
-            // it leaves.
-            __markButtonRowShown() {
-                try {
-                    const b = this.__barRect;
-                    if (this.__barDrawn && b && !(b.y + b.h > 0)) { this.__btnShownAt = 0; return; }
-                    if (!this.__btnShownAt) this.__btnShownAt = Date.now();
-                } catch (e) { }
-            }
-            __buttonRowReady() {
-                const t = this.__btnShownAt;
-                return !!(t && (Date.now() - t) >= 1000);
-            }
-            // The bar button under a screen point, or null -- one geometry (__btnRowGeom),
-            // one set of gates, shared by the hit test and by the press that fires it.
-            barButtonAt(x, y, pt) {
-                try {
-                    if (!this.__buttonRowReady()) return null;
-                    const g = this.__btnRowGeom();
-                    const b = this.buttons || [];
-                    for (let i = 0; i < b.length; i++) {
-                        const bx = g.init + i * bsize;
-                        if (x >= bx && x <= bx + bsize && y >= g.y && y <= g.y + b[i].height) {
-                            return { button: b[i], x: bx, y: g.y };
-                        }
-                    }
-                } catch (e) { }
-                return null;
-            }
-            // On the PRESS, like the tables' (see plate.js fireBarButton).
-            fireBarButton(x, y, pt) {
-                const hit = this.barButtonAt(x, y, pt);
-                if (!hit) return false;
-                this.__btnFiredAt = Date.now();
-                try { this.highlightbutton = hit.button.name; } catch (e) { }
-                try { hit.button.action(x, y, x, y, pt); } catch (e) { console.warn('[button]', e); }
-                return true;
-            }
-            __btnJustFired() {
-                return !!(this.__btnFiredAt && (Date.now() - this.__btnFiredAt) < 700);
-            }
-
+            // No wait before a button answers: they run on the PRESS now (see plate.js
+            // fireBarButton for why the wait was there and why it no longer is).
             inButtons(x, y, pt) {
                 let b = this.buttons;
-                if (!this.__buttonRowReady()) return false;
                 const __g = this.__btnRowGeom();
                 let init = __g.init;
                 let index = 0;

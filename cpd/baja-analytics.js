@@ -4356,7 +4356,7 @@ function (path, config) {
                 })
 
                 ai_create_file_items.push({
-                    'label': 'Indication market', 'ionfunction': createIonFunction(async () => {
+                    'label': 'Therapeutic Area', 'ionfunction': createIonFunction(async () => {
                         // Patient-population sizing for one or more indications, plus expansion
                         // indications the same approach could reach. py/analytics/indication-market.py
                         // researches with Claude + live web search (a few minutes) and returns finished
@@ -4720,10 +4720,18 @@ function (path, config) {
                             // on what the user is looking at, so the objects have to be dropped
                             // into the view the run started from, not sixty screens away from it.
                             camera.back();
+                            // NOTHING IS LAID OUT WHILE THE CAMERA IS MOVING. The layout centres
+                            // its block on the view, so a camera still travelling -- a fit from
+                            // the chart that landed a moment ago, a pan easing out -- leaves the
+                            // pieces centred on a view that has already gone. Waited for before
+                            // the fade, and again after it in case the fade's two seconds gave
+                            // something else time to start.
+                            try { await pt.cameraSettled(); } catch (e) { }
                             // ...and what it comes back to comes into focus rather than being
                             // cut to: two seconds of fading up from a blur, with everything
                             // still where it landed, and then the layout drops it into place.
                             try { await pt.blurIn(2000); } catch (e) { }
+                            try { await pt.cameraSettled(); } catch (e) { }
                             // THE TIMELINE FIRST, THEN THE CHART, THEN THE FOLDERS. The layout
                             // places pieces in the order it is given them, and it gathers
                             // plates before plots, so without this the timeline and the chart

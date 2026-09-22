@@ -3225,7 +3225,6 @@ function () {
                 // are no longer the same length, so the row was drawn in one place and clicked
                 // in another.
                 this.button_set = this.buttons;
-                this.__markButtonRowShown(graph);
                 this.grid.rescale();
                 let screen_height = graph.screenHeight(this.getHeight());
                 let sy = graph.Y(this.grid.yi);
@@ -3583,7 +3582,6 @@ function () {
                 }
                 else
                     this.button_set = this.simple_buttons;
-                this.__markButtonRowShown(graph);
                 this.grid.rescale();
                 let screen_height = graph.screenHeight(this.getHeight());
                 let sy = graph.Y(this.grid.yi);
@@ -8870,7 +8868,7 @@ function () {
                     init = grid.Xwc(0)
                 }
 
-                if (this.attr__displayMenuButtons && this.__buttonsVisible(grid) && this.__buttonRowReady()) {
+                if (this.attr__displayMenuButtons && this.__buttonsVisible(grid)) {
                     for (let button of b) {
                         let buttonX = init + index * bsize;
                         let buttonY = this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
@@ -8925,7 +8923,7 @@ function () {
                 try {
                     if (!pt || !pt.grid) return null;
                     if (!this.attr__displayMenuButtons) return null;
-                    if (!this.__buttonsVisible(pt.grid) || !this.__buttonRowReady()) return null;
+                    if (!this.__buttonsVisible(pt.grid)) return null;
                     const grid = pt.grid;
                     const b = this.button_set || [];
                     const tw = grid.worldWidth(30 * b.length);
@@ -8975,25 +8973,32 @@ function () {
                 const h = well.__screen_height || 0;
                 return (well.__screen_y || 0) + Math.max(0, (h - (buttonHeight || 20)) / 2);
             }
-            // ---- The bar's buttons wait a second before they take a click -----------------
-            // The row appears the moment a table is selected, which is the moment a press is
-            // already down over it: the click that selected the table, or the release that
-            // ended a drag by the bar, landed on a button that had just been painted under
-            // the pointer. The buttons are DRAWN at once -- only the clicking (and the hover
-            // highlight, so nothing lights up before it is live) waits, and it waits the same
-            // second the cell buttons wait (__cellBtnReady).
-            __markButtonRowShown(graph) {
-                try {
-                    if (this.__buttonsVisible(graph)) {
-                        if (!this.__btnShownAt) this.__btnShownAt = Date.now();
-                    } else this.__btnShownAt = 0;
-                } catch (e) { }
-            }
-            __buttonRowReady() {
-                const t = this.__btnShownAt;
-                return !!(t && (Date.now() - t) >= 1000);
-            }
+            // NO WAIT ON THE BUTTONS ANY MORE. They used to be deaf for a second after they
+            // appeared, because the RELEASE fired them: the click that selected a table, or
+            // the release that ended a drag by its bar, landed on a button that had just been
+            // painted under the pointer. Buttons answer the PRESS now (fireBarButton), and
+            // during the press that selects a window its buttons are not drawn yet -- so the
+            // thing the wait was guarding against cannot happen, and a button that is on
+            // screen answers the moment it is pressed. The CELL buttons keep their own wait
+            // (__cellBtnReady): those appear under the pointer while it is already down.
 
+            // ---- Cell buttons: to the RIGHT of the selected cell, after a short delay ----
+            // They used to sit under the cell, 100px in, where the release of the click that
+            // selected the cell could land on one. Now they sit beside the cell, vertically
+            // centred on it, and appear (and accept clicks) only a second after selection.
+            __cellBtnReady(well) {
+                const t = well && well.timeSelected;
+                return !(t && (Date.now() - t) < 1000);
+            }
+            __cellBtnX(well, index, buttonWidth) {
+                if (!well || !this.__cellBtnReady(well)) return -1e9;   // off-canvas: neither drawn nor hit
+                return (well.__screen_x || 0) + (well.__screen_width || 0) + 8 + index * ((buttonWidth || 30) + 6);
+            }
+            __cellBtnY(well, buttonHeight) {
+                if (!well || !this.__cellBtnReady(well)) return -1e9;
+                const h = well.__screen_height || 0;
+                return (well.__screen_y || 0) + Math.max(0, (h - (buttonHeight || 20)) / 2);
+            }
             // ONE visibility rule for the table's buttons, shared by drawing and hit-testing:
             // they exist only while the table is selected and its top edge is on screen, and
             // a row that would sit above the screen is pinned at y=10 only while the table
@@ -9399,7 +9404,7 @@ function () {
                             init = pt.grid.Xwc(0);
                         }
 
-                        if (this.attr__displayMenuButtons && this.__buttonsVisible(pt.grid) && this.__buttonRowReady()) {
+                        if (this.attr__displayMenuButtons && this.__buttonsVisible(pt.grid)) {
                             for (let button of b) {
                                 let buttonX = init + index * bsize;
                                 let buttonY = this.__buttonRowY(pt.grid, this.grid.yi + this.getHeight() + pt.grid.worldHeight(this.margin.top));
@@ -13979,7 +13984,7 @@ function () {
                     init = grid.Xwc(0)
                 }
                 index = 0;
-                if (this.attr__displayMenuButtons && this.__buttonsVisible(grid) && this.__buttonRowReady()) {
+                if (this.attr__displayMenuButtons && this.__buttonsVisible(grid)) {
                     for (let button of this.button_set) {
                         let buttonX = init + index * bsize;
                         let buttonY = this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));

@@ -25852,6 +25852,43 @@ function (progress) {
                 }
             }
 
+            // ---- WAIT FOR THE CAMERA TO STOP -----------------------------------------------
+            // The layout centres the block it packs on what the user is looking at. Start it
+            // while the camera is still travelling -- a fit kicked off by something added a
+            // moment ago, a pan still easing out -- and the block is centred on a view that
+            // has moved by the time the pieces land, so they come to rest somewhere nobody
+            // chose.
+            //
+            // Nothing here can be asked "are you animating": the animators (AnimateGrid's
+            // sleep loops, the graph's own pan, zoomtfit) simply walk the grid's bounds. So
+            // the bounds are what is watched -- unchanged for three checks in a row and the
+            // camera has stopped. Resolves false if it never settles, because a build must
+            // not be held up by a camera that will not sit still.
+            cameraSettled(opts = {}) {
+                const stillFor = Math.max(1, (opts.frames == null ? 3 : opts.frames));
+                const every = Math.max(16, (opts.intervalMs == null ? 60 : opts.intervalMs));
+                const timeout = Math.max(0, (opts.timeoutMs == null ? 5000 : opts.timeoutMs));
+                const read = () => {
+                    try {
+                        const g = this.grid;
+                        return [g.getxmin(), g.getxmax(), g.getymin(), g.getymax()].join('|');
+                    } catch (e) { return 'x'; }
+                };
+                return new Promise((resolve) => {
+                    const t0 = Date.now();
+                    let last = read(), still = 0;
+                    const tick = () => {
+                        const now = read();
+                        still = (now === last) ? (still + 1) : 0;
+                        last = now;
+                        if (still >= stillFor) return resolve(true);
+                        if (Date.now() - t0 >= timeout) return resolve(false);
+                        setTimeout(tick, every);
+                    };
+                    setTimeout(tick, every);
+                });
+            }
+
             // ---- FADE IN FROM BLUR ---------------------------------------------------------
             // After a build the canvas is full of objects that arrived while the camera was
             // away. Cutting straight to them is a jump cut; they come in out of focus and
