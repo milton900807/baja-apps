@@ -4703,15 +4703,15 @@ function (path, config) {
                                         plot.name = name;
                                         plot.fitScaleToData = false;
                                         plot.grid.setxmin(0); plot.grid.setxmax(1); plot.grid.setymin(0); plot.grid.setymax(1);
-                                        // TALLER the first time it is put down: the pie and its
-                                        // legend share the box, and at 300 the slices were
-                                        // squeezed to make room for the names. A chart that was
-                                        // already there keeps the height it had, so a rebuild
-                                        // does not undo a resize.
-                                        // Never under 200 px on either side, whatever it is carrying
-                                        // over from the run before.
-                                        plot.setWidth(Math.max(pt.grid.worldWidth(200), pt.grid.worldWidth(420)));
-                                        plot.setHeight(Math.max(pt.grid.worldHeight(200), prevH || pt.grid.worldHeight(460)));
+                                        // 700 x 600. The pie and its legend share the box, and the
+                                        // build sits it beside a 1500-wide timeline -- so the fit
+                                        // at the end zooms out far enough that a 420-wide chart
+                                        // arrived as a thumbnail with the slice labels on top of
+                                        // each other. A chart that was already there keeps the
+                                        // height it had, so a rebuild does not undo a resize, and
+                                        // nothing goes under the 200 px floor either way.
+                                        plot.setWidth(Math.max(pt.grid.worldWidth(200), pt.grid.worldWidth(700)));
+                                        plot.setHeight(Math.max(pt.grid.worldHeight(200), prevH || pt.grid.worldHeight(600)));
                                         pt.addPlot ? pt.addPlot(plot) : (pt.m_plots = (pt.m_plots || []).concat(plot));
                                     }
                                 }
