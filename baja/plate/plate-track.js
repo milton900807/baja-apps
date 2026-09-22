@@ -8453,6 +8453,17 @@ function (progress) {
                 // A press on a table drawn as a solid block (rows under 10 px): its menu opens
                 // on the release, or, armed by that menu's Move, the press picks it up. Either
                 // way the press goes no further, so the table is not selected and no cell is.
+                // A PRESS ON A TABLE'S TITLE BAR PICKS THE TABLE UP -- the whole point of the
+                // bar. Tested before everything else that wants the press, because the bar
+                // sits ABOVE the table's own box and nothing else is looking up there.
+                try {
+                    const bar = this.__plateBarAt(x, y);
+                    if (bar) {
+                        try { this.setSelected(bar); } catch (e) { }
+                        this.__solidDragStart(bar, x, y);
+                        return;
+                    }
+                } catch (e) { }
                 try {
                     const corner = this.__solidCornerAt(x, y);
                     if (corner && this.__solidResizeStart(corner, x, y)) return;   // its resize corner: drag, no menu
@@ -9435,6 +9446,11 @@ function (progress) {
                     if (this.wb) { try { this.wb(null); } catch (e) { } }
                     return;
                 }
+                // Hovering the bar lights it, so it reads as something you can take hold of.
+                try {
+                    const hb = this.__plateBarAt(x, y);
+                    if (hb !== (this.__hoverBar || null)) { this.__hoverBar = hb; try { this.wb(null); } catch (e) { } }
+                } catch (e) { }
                 // LEAVING A TIMELINE PUTS THE HIGHLIGHT BACK. While the pointer is over one,
                 // the timeline owns the hover -- its own pills light up. Step off it in any
                 // direction and the workbench's mouse-over highlight has to take over again,
@@ -11174,6 +11190,76 @@ function (progress) {
             // buttons or its own menu. Move arms ONE drag (the next press picks the table
             // up), the way a milestone's Move does. Folder cards, documents and notes are
             // not tables and are never solid; nothing is while an object is maximized.
+            // THE TITLE BAR ON A TABLE. The notes card has one -- a strip above the body
+            // carrying its name, which is what the card is dragged by -- and a table had
+            // none: it could only be moved from a menu, or by the corner once it was small
+            // enough to be a block. Same idea, same manners: the bar moves the object, the
+            // body is left alone for selecting cells, so the two never compete.
+            __plateBarH() { return 22; }
+            __plateBar(o) {
+                try {
+                    if (!o || o.hidden || o.__maximizedView) return null;
+                    if (this.__maximized) return null;                  // maximized has its own title row
+                    if (o.plateType === 'document') return null;        // the card draws its own
+                    if (!this.__layoutIsTable(o)) return null;
+                    if (this.__tinyTableBox(o)) return null;            // a block is dragged by itself
+                    const b = this.__maxWorldBounds ? this.__maxWorldBounds(o) : null;
+                    if (!b) return null;
+                    const g = this.grid;
+                    const x0 = Math.min(g.X(b.x0), g.X(b.x1)), x1 = Math.max(g.X(b.x0), g.X(b.x1));
+                    const yTop = Math.min(g.Y(b.yTop), g.Y(b.yBot));
+                    const w = x1 - x0, h = this.__plateBarH();
+                    // Too small on screen to carry a bar you could aim at.
+                    if (!(w > 40) || !(h > 0)) return null;
+                    return { x: x0, y: yTop - h, w, h };
+                } catch (e) { return null; }
+            }
+            // The bar under a screen point, when the pointer is the canvas's to give.
+            __plateBarAt(x, y) {
+                if (this.menu || this.__maximized || this.__selectGesture || this.__readOnly) return null;
+                const id = this.wbid;
+                if (id && id !== 'drag-navigate' && !('' + id).startsWith('click_and_drag')) return null;
+                const list = this.root || [];
+                for (let i = list.length - 1; i >= 0; i--) {      // topmost first
+                    const o = list[i];
+                    const b = this.__plateBar(o);
+                    if (!b) continue;
+                    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return o;
+                }
+                return null;
+            }
+            __drawPlateBar(o, ctx) {
+                const b = this.__plateBar(o);
+                if (!b) return;
+                try {
+                    const on = (this.selectedPlate === o) || (this.__hoverBar === o);
+                    ctx.save();
+                    ctx.beginPath();
+                    const r = Math.min(8, b.h / 2);
+                    if (ctx.roundRect) ctx.roundRect(b.x, b.y, b.w, b.h, [r, r, 0, 0]);
+                    else ctx.rect(b.x, b.y, b.w, b.h);
+                    ctx.fillStyle = on ? '#0a2540' : 'rgba(10,37,64,0.72)';
+                    ctx.fill();
+                    // The name, and nothing else: a bar that carries buttons invites a
+                    // mis-click on the thing you are trying to pick the table up by.
+                    const name = ('' + (o.name || '')).trim();
+                    if (name) {
+                        ctx.fillStyle = '#eaf6f9';
+                        ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'middle';
+                        let t = name;
+                        const room = b.w - 20;
+                        if (ctx.measureText(t).width > room) {
+                            while (t.length > 1 && ctx.measureText(t + '…').width > room) t = t.slice(0, -1);
+                            t += '…';
+                        }
+                        ctx.fillText(t, b.x + 10, b.y + b.h / 2);
+                    }
+                    ctx.restore();
+                } catch (e) { }
+            }
+
             __isSolidTable(pl) {
                 try {
                     if (!pl || this.__maximized || pl.hidden || pl.__maximizedView) return false;
@@ -24931,6 +25017,9 @@ function (progress) {
                             // outline, faintly filled, and its name -- and nothing inside.
                             try { if (this.__drawTinyTable(obj, ctx)) return; } catch (e) { }
                             obj.draw(this, ctx);
+                            // The title bar goes on TOP of the table it belongs to, after it,
+                            // so a tall table cannot paint over its own handle.
+                            try { this.__drawPlateBar(obj, ctx); } catch (e) { }
                             // Cell connection arrows: faint and thin, so they hint without intruding.
                             this.drawFormulaDependencyArrows(obj, ctx, this.grid);
                             this.drawFormulaReverseDependencyArrows(obj, ctx, this.grid)
