@@ -709,6 +709,12 @@ function () {
                 this.grid.rescale();
                 this.margin = { top: 25, right: 50, bottom: 50, left: 50 };
 
+                // NO MOVE BUTTON. The table's title bar is the handle now -- press it
+                // anywhere and drag -- so a button that only armed the move listeners
+                // was a second way to do the same thing, sitting where the eye looks
+                // for maximize. What is left on every set: maximize, the menu, and
+                // close. A folder ('package') and an annotation icon get no bar, so those
+                // two sets keep their move button -- see below.
                 this.buttons = [
                     {
                         name: "maximize", x: 0, y: 10, width: 20, height: 20,
@@ -716,10 +722,6 @@ function () {
                         highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
                     },
 
-                    {
-                        name: `move`, x: 0, y: 10, width: 30, height: 20, action: async (bx, by, x, y, pt) => { return await this.setMoveListeners(bx, by, x, y, pt) },
-                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null("move", pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'm'
-                    },
 
                     {
                         name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
@@ -745,11 +747,15 @@ function () {
 
                 this.button_set = this.buttons;
                 this.package_buttons = [
+
                     {
+                        // A FOLDER AND AN ICON KEEP THEIRS. The title bar is what replaced
+                        // the move button, and plate-track's __layoutIsTable refuses a bar to
+                        // 'package' and 'annotation' plates -- so for these two the button is
+                        // still the only way to pick the object up.
                         name: `move`, x: 0, y: 10, width: 30, height: 20, action: async (bx, by, x, y, pt) => { return await this.setMoveListeners(bx, by, x, y, pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null("move", pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'm'
                     },
-
                     {
                         name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.test_menu(bx, by, x, y, pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null('close', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'c'
@@ -757,9 +763,18 @@ function () {
 
                 ];
                 this.simple_buttons = [
+                    // A one-cell table is still a table: same three as the full set, so every
+                    // table carries maximize, the menu and close. It used to be move + close,
+                    // and with the bar taking the move it would have been left with nothing
+                    // but a delete button.
                     {
-                        name: `move`, x: 0, y: 10, width: 30, height: 20, action: async (bx, by, x, y, pt) => { return await this.setMoveListeners(bx, by, x, y, pt) },
-                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null("move", pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'm'
+                        name: "maximize", x: 0, y: 10, width: 20, height: 20,
+                        action: async (bx, by, x, y, pt) => { if (pt && pt.maximizeObject) pt.maximizeObject(this); },
+                        highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
+                    },
+                    {
+                        name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('minimize', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'M'
                     },
                     {
                         name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.test_menu(bx, by, x, y, pt) },
@@ -769,6 +784,10 @@ function () {
                 ];
                 this.icon_buttons = [
                     {
+                        // A FOLDER AND AN ICON KEEP THEIRS. The title bar is what replaced
+                        // the move button, and plate-track's __layoutIsTable refuses a bar to
+                        // 'package' and 'annotation' plates -- so for these two the button is
+                        // still the only way to pick the object up.
                         name: `move`, x: 0, y: 10, width: 30, height: 20, action: async (bx, by, x, y, pt) => { return await this.setMoveListeners(bx, by, x, y, pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null("move", pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'm'
                     },
@@ -2262,6 +2281,10 @@ function () {
                 if (!this.selected) {
                     return;
                 }
+                // DRAWING AND HIT-TESTING OFF THE SAME SET -- drawSimpleButtons reassigns
+                // button_set and never puts it back, and the sets are no longer the same
+                // length, so the row would be drawn in one place and clicked in another.
+                this.button_set = this.buttons;
                 this.grid.rescale();
                 let screen_height = graph.screenHeight(this.getHeight());
 
