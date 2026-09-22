@@ -9138,6 +9138,20 @@ function () {
                 };
 
                 let mouseDownListener = async (x, y) => {
+                    // A dialog is open over the canvas: it has the interaction, not this
+                    // object (see plate-track.mouseDown).
+                    try { if (pt.__modalOver && pt.__modalOver()) return; } catch (e) { }
+                    // NOT MINE. Something is drawn over this point, so this press belongs to
+                    // it: the object on top takes the selection (which installs its own
+                    // handling) and this one does nothing with the press. Without this the
+                    // table holding the pointer answered every click on the canvas, including
+                    // clicks on the table drawn over it.
+                    try {
+                        if (pt.__ownsPoint && !pt.__ownsPoint(this, x, y)) {
+                            pt.__handPointerTo(x, y, this);
+                            return;
+                        }
+                    } catch (e) { }
                     if (this.actionGlyph && this.actionGlyph.inside(pt.grid, x, y)) {
                         if (this.actionGlyph.action) {
                             this.actionGlyph.action(pt, this);
@@ -9291,6 +9305,14 @@ function () {
                 };
 
                 let mouseMoveListener = async (x, y) => {
+                    // A dialog is open over the canvas: it has the interaction, not this
+                    // object (see plate-track.mouseDown).
+                    try { if (pt.__modalOver && pt.__modalOver()) return; } catch (e) { }
+                    // A press that is under way is this object's wherever the pointer goes;
+                    // a plain hover over something drawn on top is not.
+                    try {
+                        if (!md && pt.__ownsPoint && !pt.__ownsPoint(this, x, y)) return;
+                    } catch (e) { }
                     const dragging = md && startIndex != null;
                     // Over the edge between two columns the pointer says so.
                     try { const cv = pt.__canvas__; if (cv && !dragging) cv.style.cursor = (this.__colEdgeAt(pt, x, y) >= 0) ? 'col-resize' : ''; } catch (e) { }
@@ -9461,6 +9483,14 @@ function () {
                 };
 
                 let mouseUpListener = async (x, y) => {
+                    // A dialog is open over the canvas: it has the interaction, not this
+                    // object (see plate-track.mouseDown).
+                    try { if (pt.__modalOver && pt.__modalOver()) return; } catch (e) { }
+                    // The release only belongs here when the press did (md) or the point is
+                    // this object's; a release over the window on top is that window's.
+                    try {
+                        if (!md && pt.__ownsPoint && !pt.__ownsPoint(this, x, y)) return;
+                    } catch (e) { }
                     let mmx = pt.grid.Xwc(x);
                     let mmy = pt.grid.Ywc(y);
 

@@ -8361,6 +8361,14 @@ function (progress) {
             }
 
             mouseDown(x, y) {
+                // A WINDOW IS OPEN OVER THE CANVAS. A dialog -- the cell text window, a
+                // confirm, the milestone comment, anything the layout opens -- takes the
+                // interaction, and nothing underneath it should answer as well. The move
+                // handler has refused presses-worth of hover since the modal check went in;
+                // the press and the release never did, so a click beside an open dialog
+                // still selected cells, picked objects up and fired buttons in the canvas
+                // behind it.
+                if (this.__modalOver()) return;
                 if (this.__selectGesture) return;
                 try { this.__sanitizeRefs(); } catch (e) { }
                 if (this.__maximized) {
@@ -8726,6 +8734,8 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                // The release belongs to the open window too (see mouseDown).
+                if (this.__modalOver()) { this.__msHoldCancel(); return; }
                 this.__msHoldCancel();
                 // A PRESS THAT STARTED ON THE BAR ENDS ON THE BAR. Letting go without moving
                 // is how a table is picked out, and the release was landing on whatever
@@ -11300,7 +11310,11 @@ function (progress) {
                     const o = list[i];
                     const b = this.__plateBar(o);
                     if (!b) continue;
-                    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return o;
+                    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+                        // ...unless something is drawn over the bar at that point. A bar
+                        // reaches above its own object, so it can lie under the one above.
+                        return this.__ownsPoint(o, x, y) ? o : null;
+                    }
                 }
                 return null;
             }
@@ -11629,6 +11643,88 @@ function (progress) {
                 this.__solidArmed = null;   // one move per "Move": the next press reopens the menu
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 if (d && d.moved) { try { this.setMessage((d.o.name || 'Table') + ' moved (Ctrl+Z undoes).', 2); } catch (e) { } }
+            }
+
+            // ---- WHO OWNS THIS POINT ---------------------------------------------------
+            // Objects overlap, and only ONE workbench is installed at a time: selecting a
+            // table replaces the canvas's own mouse handling with that table's, and from
+            // then on every press went to it -- including presses that landed on something
+            // drawn OVER it. A press on the table on top was selecting cells in the table
+            // underneath, because the table underneath was the one holding the pointer.
+            //
+            // The rule is the one every window manager uses: the topmost object at the
+            // point takes the press and anything below it takes nothing. An object's own
+            // listeners ask __ownsPoint before acting, and a press that is not theirs hands
+            // the object on top the selection instead (which installs ITS workbench), so a
+            // click that reaches past a window is the click that raises it.
+            //
+            // A gesture already under way is NOT re-tested: once a drag has started it
+            // belongs to whoever started it, wherever the pointer goes.
+            __hitBox(o) {
+                try {
+                    if (!o || o.hidden) return null;
+                    let x0, x1, y0, y1;
+                    if (this.__isPlotObj(o)) {
+                        const g = o.grid; if (!g) return null;
+                        x0 = Math.min(g.xi, g.xi + g.width); x1 = Math.max(g.xi, g.xi + g.width);
+                        y0 = Math.min(g.yi, g.yi + g.height); y1 = Math.max(g.yi, g.yi + g.height);
+                    } else {
+                        const b = this.__maxWorldBounds ? this.__maxWorldBounds(o) : null;
+                        if (!b) return null;
+                        const G = this.grid;
+                        x0 = Math.min(G.X(b.x0), G.X(b.x1)); x1 = Math.max(G.X(b.x0), G.X(b.x1));
+                        y0 = Math.min(G.Y(b.yTop), G.Y(b.yBot)); y1 = Math.max(G.Y(b.yTop), G.Y(b.yBot));
+                    }
+                    if (!(isFinite(x0) && isFinite(x1) && isFinite(y0) && isFinite(y1))) return null;
+                    // The title bar is part of the window: a press on it is a press on the
+                    // object, not on whatever the bar happens to hang over.
+                    const bar = this.__plateBar(o);
+                    if (bar) {
+                        x0 = Math.min(x0, bar.x); x1 = Math.max(x1, bar.x + bar.w);
+                        y0 = Math.min(y0, bar.y); y1 = Math.max(y1, bar.y + bar.h);
+                    }
+                    return { x0, y0, x1, y1 };
+                } catch (e) { return null; }
+            }
+            // Draw order, bottom first -- the same order the frame uses, including the
+            // selected object being lifted to the end (drawn last, so drawn on top).
+            __drawOrder() {
+                const list = [...(this.root || []), ...(this.m_plots || [])].filter(Boolean);
+                const i = list.indexOf(this.selectedPlate);
+                if (i >= 0) { list.splice(i, 1); list.push(this.selectedPlate); }
+                return list;
+            }
+            __topAt(x, y) {
+                try {
+                    const list = this.__drawOrder();
+                    for (let i = list.length - 1; i >= 0; i--) {
+                        const o = list[i];
+                        if (!o || o.hidden) continue;
+                        const b = this.__hitBox(o);
+                        if (!b) continue;
+                        if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) return o;
+                    }
+                } catch (e) { }
+                return null;
+            }
+            __ownsPoint(o, x, y) {
+                try {
+                    if (!o) return false;
+                    if (this.__maximized) return this.__maximized === o;   // one window, full screen
+                    const top = this.__topAt(x, y);
+                    return !top || top === o;
+                } catch (e) { return true; }   // a failed test must never make an object deaf
+            }
+            // The press was not this object's: give it to the one on top, which installs
+            // that object's own handling. Returns true when it handed over.
+            __handPointerTo(x, y, from) {
+                try {
+                    const top = this.__topAt(x, y);
+                    if (!top || top === from) return false;
+                    if (this.__isPlotObj(top)) { this.setSelected(top); this.setActive(top); }
+                    else this.setSelected(top);
+                    return true;
+                } catch (e) { return false; }
             }
 
             // The topmost object under a screen point: a note, a chart or timeline, or a table.

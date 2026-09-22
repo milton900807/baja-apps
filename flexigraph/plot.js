@@ -4193,6 +4193,20 @@ function (MGrid) {
                 let md = false;
 
                 let mouseDownListener = async (x, y) => {
+                    // A dialog is open over the canvas: it has the interaction, not this
+                    // object (see plate-track.mouseDown).
+                    try { if (pt.__modalOver && pt.__modalOver()) return; } catch (e) { }
+                    // NOT MINE. Something is drawn over this point, so this press belongs to
+                    // it: the object on top takes the selection (which installs its own
+                    // handling) and this one does nothing with the press. Without this the
+                    // table holding the pointer answered every click on the canvas, including
+                    // clicks on the table drawn over it.
+                    try {
+                        if (pt.__ownsPoint && !pt.__ownsPoint(this, x, y)) {
+                            pt.__handPointerTo(x, y, this);
+                            return;
+                        }
+                    } catch (e) { }
                     if (!isMobile()) {
                         if (this.inButtons(x, y, pt)) {
                             return;
@@ -4347,6 +4361,14 @@ function (MGrid) {
                 };
 
                 let mouseMoveListener = async (x, y) => {
+                    // A dialog is open over the canvas: it has the interaction, not this
+                    // object (see plate-track.mouseDown).
+                    try { if (pt.__modalOver && pt.__modalOver()) return; } catch (e) { }
+                    // A press that is under way is this object's wherever the pointer goes;
+                    // a plain hover over something drawn on top is not.
+                    try {
+                        if (!md && pt.__ownsPoint && !pt.__ownsPoint(this, x, y)) return;
+                    } catch (e) { }
                     this.grid.rescale();
                     let tx = (this.grid.Xwc(x - this.grid.xi * 2))
                     this.__scx_ = x;
@@ -4497,6 +4519,14 @@ function (MGrid) {
 
                 }
                 let mouseUpListener = async (x, y) => {
+                    // A dialog is open over the canvas: it has the interaction, not this
+                    // object (see plate-track.mouseDown).
+                    try { if (pt.__modalOver && pt.__modalOver()) return; } catch (e) { }
+                    // The release only belongs here when the press did (md) or the point is
+                    // this object's; a release over the window on top is that window's.
+                    try {
+                        if (!md && pt.__ownsPoint && !pt.__ownsPoint(this, x, y)) return;
+                    } catch (e) { }
 
                     px = 0;
                     py = 0;
