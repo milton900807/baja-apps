@@ -2690,10 +2690,6 @@ function (MGrid) {
                     highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('maximize') }, color: 'lightcyan'
                 },
                 {
-                    name: "move", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.setMoveListeners(pt, x, y) },
-                    highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('move') }, color: 'lightcyan'
-                },
-                {
                     name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.displayContextSpecificMenuItems(pt) },
                     highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('minimize') }, color: 'lightcyan'
                 },
@@ -4509,10 +4505,8 @@ function (MGrid) {
                     let mmy = pt.grid.Ywc(y);
                     smenu = null;
                     let b = this.buttons;
-                    let init = (this.grid.xi + this.grid.width - (bsize * this.buttons.length));
-                    if (init < 0) {
-                        init = (0)
-                    }
+                    const __g = this.__btnRowGeom();
+                    let init = __g.init;
                     let index = 0;
                     this.deselectPoints();
 
@@ -4520,14 +4514,10 @@ function (MGrid) {
                         return;
                     }
 
-                    for (let button of b) {
+                    for (let button of (this.__buttonRowReady() ? b : [])) {
                         let buttonX = init + index * bsize;
 
-                        let buttonY = (this.grid.yi - (this.margin.top));
-                        let screen_height = (this.getHeight());
-                        if (buttonY < 0 && (buttonY + screen_height) > 0) {
-                            buttonY = 10;
-                        }
+                        let buttonY = __g.y;
                         let bbw = bsize;
                         index++;
                         if (
@@ -4930,33 +4920,25 @@ function (MGrid) {
                     return 'options';
                 }
 
-                if (isInMoveTab) {
-                    highlightTab = 'move'
-                    this.__moving = true;
-                    return 'move';
-                }
+                // NO MOVE TAB. Nothing has drawn it since drawTabs fell out of use, and the
+                // title bar is the handle now -- an invisible strip above the chart that
+                // started a move was a trap, not a feature.
 
                 if (this.mode === '__viewer') {
                     return;
                 }
 
-                this.grid.rescale();
+                if (!this.__buttonRowReady()) return null;
                 let x = px;
                 let y = py;
                 let b = this.buttons;
-                let init = (this.grid.xi + this.grid.width - (bsize * this.buttons.length));
-                if (init < 0) {
-                    init = (0)
-                }
+                const __g = this.__btnRowGeom();
+                let init = __g.init;
                 let index = 0;
                 for (let button of b) {
                     let buttonX = init + index * bsize;
 
-                    let buttonY = (this.grid.yi - (this.margin.top));
-                    let screen_height = (this.getHeight());
-                    if (buttonY < 0 && (buttonY + screen_height) > 0) {
-                        buttonY = 10;
-                    }
+                    let buttonY = __g.y;
 
                     let bbw = bsize;
                     index++;
@@ -11434,27 +11416,17 @@ function (MGrid) {
                 const nameTabX = this.grid.xi - this.margin.left;
                 const optionsTabX = nameTabX + this.tabWidth + this.tabGap;
                 const moveTabX = optionsTabX + this.tabWidth + this.tabGap;
-                const tabY = this.grid.yi - this.tabHeight - 25;
-                const isInMoveTab = px >= nameTabX && px <= (nameTabX + this.tabWidth) &&
-                    py >= tabY && py <= (tabY + this.tabHeight + 25);
-                if (isInMoveTab) {
-                    highlightTab = 'move'
-                    this.__moving = true;
-                    return 'move';
-                }
+                // The move tab is gone -- see isMouseInTab. The bar moves the chart.
                 if ((sy + screenHeight) < 0) return;
+                if (!this.__buttonRowReady()) return null;
                 let index = 0;
-                let init = (this.grid.xi + this.grid.width - this.buttons.length * bsize);
-                if (init < 0) init = 0;
+                const __g = this.__btnRowGeom();
+                let init = __g.init;
 
                 for (let button of this.buttons) {
                     let buttonX = init + index * bsize;
-                    let buttonY = this.grid.yi - this.margin.top;
+                    let buttonY = __g.y;
                     let buttonHeight = button.height;
-
-                    if (buttonY < 0 && (buttonY + screenHeight) > 0) {
-                        buttonY = 10;
-                    }
 
                     if (
                         mouseX >= buttonX && mouseX <= buttonX + bsize &&
@@ -16079,21 +16051,16 @@ function (MGrid) {
                 if ((sy + screen_height) < 0) {
                     return;
                 }
+                this.__markButtonRowShown();
                 let index = 0;
                 let b = this.buttons;
-                let init = (this.grid.xi + this.grid.width - this.buttons.length * bsize);
-                if (init < 0) {
-                    init = (0);
-                }
+                const __g = this.__btnRowGeom();
+                let init = __g.init;
                 ctx.lineWidth = 1;
                 for (let button of b) {
                     let buttonX = init + index * bsize;
-                    let buttonY = (this.grid.yi - (this.margin.top));
+                    let buttonY = __g.y;
                     let buttonHeight = button.height;
-
-                    if (buttonY < 0 && (buttonY + screen_height) > 0) {
-                        buttonY = 10;
-                    }
                     // Window controls: neutral, flat, slate-toned; close tints red on hover.
                     const hovered = (highlightTab === button.name) || (this.highlightbutton === button.name);
                     const circleRadius = Math.min(bsize, buttonHeight) / 2;
@@ -16244,8 +16211,8 @@ function (MGrid) {
                 };
                 const BTN = resolveBsize();
 
-                let init = (this.grid.xi + this.grid.width - this.buttons.length * BTN);
-                if (init < 0) init = 0;
+                const __g = this.__btnRowGeom();          // the row's one geometry (see __btnRowGeom)
+                let init = __g.init;
 
                 const oneWord = (s) => {
                     if (!s) return '';
@@ -16277,12 +16244,8 @@ function (MGrid) {
                 for (const button of b) {
 
                     const buttonX = init + index * BTN;
-                    let buttonY = (this.grid.yi - (this.margin.top));
+                    let buttonY = __g.y;
                     const buttonHeight = button.height;
-
-                    if (buttonY < 0 && (buttonY + screenH) > 0) {
-                        buttonY = 10;
-                    }
 
                     const centerX = buttonX + BTN / 2;
                     const centerY = buttonY + buttonHeight / 2;
@@ -17508,21 +17471,54 @@ function (MGrid) {
                 );
             }
 
+            // ---- ONE geometry for the button row -------------------------------------------
+            // Drawing, the two hit tests, the release that fires a button and the callouts
+            // each worked the row's position out for themselves, from the same two lines.
+            // They ask here now: the row cannot be drawn in one place and clicked in another,
+            // and the title bar moves it in one edit rather than five.
+            __btnRowGeom() {
+                try { this.grid.rescale(); } catch (e) { }
+                const n = Math.max(1, (this.buttons || []).length);
+                let init = (this.grid.xi + this.grid.width - n * bsize);
+                let y = (this.grid.yi - (this.margin.top || 0));
+                const b = this.__barRect;
+                if (this.__barDrawn && b && Number.isFinite(b.y)) {
+                    init = b.x + b.w - n * bsize - 6;          // right-aligned inside the bar
+                    y = b.y + Math.max(0, (b.h - 20) / 2);     // centred on its height
+                } else {
+                    if (init < 0) init = 0;
+                    const sh = this.getHeight();
+                    if (y < 0 && (y + sh) > 0) y = 10;
+                }
+                return { init, y };
+            }
+            // ---- the row waits a second before it takes a click ----------------------------
+            // Same rule the tables follow: the buttons are DRAWN as soon as the chart is, but
+            // a press that lands on one in that first second -- the click that brought the
+            // chart into view, or the release that ended a drag by the bar -- is not what the
+            // pointer was aimed at. The clock starts when the row is on screen and restarts if
+            // it leaves.
+            __markButtonRowShown() {
+                try {
+                    const b = this.__barRect;
+                    if (this.__barDrawn && b && !(b.y + b.h > 0)) { this.__btnShownAt = 0; return; }
+                    if (!this.__btnShownAt) this.__btnShownAt = Date.now();
+                } catch (e) { }
+            }
+            __buttonRowReady() {
+                const t = this.__btnShownAt;
+                return !!(t && (Date.now() - t) >= 1000);
+            }
             inButtons(x, y, pt) {
                 let b = this.buttons;
-                let init = (this.grid.xi + this.grid.width - (bsize * this.buttons.length));
-                if (init < 0) {
-                    init = (0)
-                }
+                if (!this.__buttonRowReady()) return false;
+                const __g = this.__btnRowGeom();
+                let init = __g.init;
                 let index = 0;
                 for (let button of b) {
                     let buttonX = init + index * bsize;
 
-                    let buttonY = (this.grid.yi - (this.margin.top));
-                    let screen_height = (this.getHeight());
-                    if (buttonY < 0 && (buttonY + screen_height) > 0) {
-                        buttonY = 10;
-                    }
+                    let buttonY = __g.y;
 
                     let bbw = bsize;
                     index++;

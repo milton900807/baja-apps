@@ -8465,7 +8465,12 @@ function (progress) {
                         let onButton = false;
                         try { onButton = !!(bar.inButtons && bar.inButtons(x, y, this)); } catch (e) { onButton = false; }
                         if (!onButton) {
+                            // setSelected for a chart or a timeline too: that is exactly what a
+                            // press on its body does (selectIt, then clk_drag, which is what
+                            // dispatches its buttons). setActive as well, so the canvas's own
+                            // idea of the active plot keeps up.
                             try { this.setSelected(bar); } catch (e) { }
+                            try { if (this.__isPlotObj(bar)) this.setActive(bar); } catch (e) { }
                             this.__solidDragStart(bar, x, y);
                             // THE RELEASE BELONGS TO THE BAR TOO. Pressing the bar and letting
                             // go without moving is how a table is picked out -- and the release
@@ -11223,8 +11228,38 @@ function (progress) {
             // enough to be a block. Same idea, same manners: the bar moves the object, the
             // body is left alone for selecting cells, so the two never compete.
             __plateBarH() { return 22; }
+            // A chart or a timeline is not a table -- it keeps its place in world x / y and its
+            // grid in SCREEN pixels -- so its bar is measured off the screen grid directly.
+            // Everything else about it is the table's: the same strip above the object, the
+            // same press-and-drag, and the object's own buttons drawn into it.
+            __isPlotObj(o) {
+                try { return !!o && (this.m_plots || []).indexOf(o) >= 0; } catch (e) { return false; }
+            }
+            __plotBar(p) {
+                try {
+                    if (!p || p.hidden || this.__maximized) return null;
+                    if (p.isMaximized && p.isMaximized()) return null;
+                    if (p.mode === '__viewer' || this.__readOnly) return null;
+                    // From the WORLD place (x / y / w), not from the screen grid the chart
+                    // wrote last frame: the drag moves x and y, and a bar read off last
+                    // frame's grid trails the thing it is dragging by a frame.
+                    const g = this.grid;
+                    let x, w, yTop;
+                    if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.w)) {
+                        x = g.X(p.x); w = Math.abs(g.X(p.x + p.w) - g.X(p.x)); yTop = g.Y(p.y);
+                    } else if (p.grid) {
+                        x = Math.min(p.grid.xi, p.grid.xi + p.grid.width);
+                        w = Math.abs(p.grid.width);
+                        yTop = Math.min(p.grid.yi, p.grid.yi + p.grid.height);
+                    } else return null;
+                    const h = this.__plateBarH();
+                    if (!(w > 40) || !Number.isFinite(x) || !Number.isFinite(yTop)) return null;
+                    return { x, y: yTop - h, w, h };
+                } catch (e) { return null; }
+            }
             __plateBar(o) {
                 try {
+                    if (this.__isPlotObj(o)) return this.__plotBar(o);
                     if (!o || o.hidden || o.__maximizedView) return null;
                     if (this.__maximized) return null;                  // maximized has its own title row
                     if (o.plateType === 'document') return null;        // the card draws its own
@@ -11258,7 +11293,9 @@ function (progress) {
                 if (this.menu || this.__maximized || this.__selectGesture || this.__readOnly) return null;
                 const id = this.wbid;
                 if (id && id !== 'drag-navigate' && !('' + id).startsWith('click_and_drag')) return null;
-                const list = this.root || [];
+                // Plates and plots, topmost first: plots are drawn after the tables, so they
+                // are tested before them.
+                const list = [...(this.root || []), ...(this.m_plots || [])];
                 for (let i = list.length - 1; i >= 0; i--) {      // topmost first
                     const o = list[i];
                     const b = this.__plateBar(o);
@@ -11271,7 +11308,7 @@ function (progress) {
                 const b = this.__plateBar(o);
                 if (!b) return;
                 try {
-                    const on = (this.selectedPlate === o) || (this.__hoverBar === o);
+                    const on = (this.selectedPlate === o) || (this.activePlot === o) || (this.__hoverBar === o);
                     ctx.save();
                     ctx.beginPath();
                     const r = Math.min(8, b.h / 2);
@@ -11561,8 +11598,11 @@ function (progress) {
             __solidDragStart(o, x, y) {
                 // Before the move, for the same reason: a snapshot taken after it holds the
                 // position it was dragged to.
-                try { pushHistory(HM(o)); } catch (e) { }
-                this.__solidDrag = { o, sx: x, sy: y, ox: o.grid.xi, oy: o.grid.yi, moved: false };
+                const plot = this.__isPlotObj(o);
+                try { pushHistory(HM(plot ? this : o)); } catch (e) { }
+                this.__solidDrag = plot
+                    ? { o, plot: true, sx: x, sy: y, ox: o.x, oy: o.y, moved: false }
+                    : { o, sx: x, sy: y, ox: o.grid.xi, oy: o.grid.yi, moved: false };
                 try { this.cancelLayoutAnimation(); } catch (e) { }
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
             }
@@ -11575,6 +11615,11 @@ function (progress) {
                     try { if (this.__collab && this.__collab.holds && !this.__collab.holds(d.o)) this.__collab.acquire(d.o); } catch (e) { }
                 }
                 const g = this.grid;
+                if (d.plot) {                                              // a chart or a timeline
+                    d.o.x = d.ox + g.worldWidth(x - d.sx);
+                    d.o.y = d.oy - g.worldHeight(y - d.sy);
+                    return;
+                }
                 d.o.grid.xi = d.ox + g.worldWidth(x - d.sx);
                 d.o.grid.yi = d.oy - g.worldHeight(y - d.sy);             // screen y runs down, world y up
             }
@@ -25049,6 +25094,12 @@ function (progress) {
                         // timer, so nothing can be held for ever).
                         if (obj && obj.__pendingDraw) return;
                         if (obj.drawPlot) {
+                            // The bar first, then the chart -- its buttons are drawn into the
+                            // strip and have to land ON the bar (see the table below).
+                            let __pbar = null;
+                            try { __pbar = this.__plateBar(obj); } catch (e) { __pbar = null; }
+                            try { obj.__barDrawn = !!__pbar; obj.__barRect = __pbar || null; } catch (e) { }
+                            if (__pbar) { try { this.__drawPlateBar(obj, ctx); } catch (e) { } }
                             obj.drawPlot(this, ctx);
                         } else if (obj.draw) {
                             // Zoomed out so far that a cell is under 10 x 5 px, a table is an
