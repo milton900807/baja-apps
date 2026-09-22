@@ -8459,9 +8459,21 @@ function (progress) {
                 try {
                     const bar = this.__plateBarAt(x, y);
                     if (bar) {
-                        try { this.setSelected(bar); } catch (e) { }
-                        this.__solidDragStart(bar, x, y);
-                        return;
+                        // A BUTTON ON THE BAR IS STILL A BUTTON. The table's own buttons are
+                        // drawn in this strip, so a press on one of them has to reach it
+                        // rather than start a drag of the table underneath.
+                        let onButton = false;
+                        try { onButton = !!(bar.inButtons && bar.inButtons(x, y, this)); } catch (e) { onButton = false; }
+                        if (!onButton) {
+                            try { this.setSelected(bar); } catch (e) { }
+                            this.__solidDragStart(bar, x, y);
+                            // THE RELEASE BELONGS TO THE BAR TOO. Pressing the bar and letting
+                            // go without moving is how a table is picked out -- and the release
+                            // was landing on whatever button happened to be under the pointer,
+                            // so a click meant to select the table fired an action instead.
+                            this.__barPress = { o: bar, x, y };
+                            return;
+                        }
                     }
                 } catch (e) { }
                 try {
@@ -8710,6 +8722,21 @@ function (progress) {
 
             mouseUp(x, y) {
                 this.__msHoldCancel();
+                // A PRESS THAT STARTED ON THE BAR ENDS ON THE BAR. Letting go without moving
+                // is how a table is picked out, and the release was landing on whatever
+                // button sat under the pointer -- the buttons are drawn in that same strip --
+                // so a click meant to select the table fired an action instead.
+                //
+                // Timed, not just flagged: this is called TWICE for one release when a menu
+                // is open (see the tiny-table notes), and a flag cleared by the first call
+                // leaves the second free to reach the button after all.
+                if (this.__barPress) {
+                    this.__barPress = null;
+                    this.__barPressAt = Date.now();
+                    if (this.__solidDrag) { this.__solidDragEnd(); }
+                    return;
+                }
+                if (this.__barPressAt && Date.now() - this.__barPressAt < 400) { this.__barPressAt = 0; return; }
                 if (this.__msDrag) { this.__msDragEnd(); return; }
                 if (this.__tlCanvasDrag) {
                     const d = this.__tlCanvasDrag; this.__tlCanvasDrag = null;
