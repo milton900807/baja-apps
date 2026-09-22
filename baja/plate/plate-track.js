@@ -11208,10 +11208,22 @@ function (progress) {
                     const g = this.grid;
                     const x0 = Math.min(g.X(b.x0), g.X(b.x1)), x1 = Math.max(g.X(b.x0), g.X(b.x1));
                     const yTop = Math.min(g.Y(b.yTop), g.Y(b.yBot));
-                    const w = x1 - x0, h = this.__plateBarH();
+                    const w = x1 - x0;
+                    // THE BAR COVERS THE BUTTON ROW. The table draws its own buttons above
+                    // its top edge (drawButtons: yi + height + margin.top), which is exactly
+                    // where a bar drawn at a fixed height lands -- so the bar hid them. It
+                    // reaches up to take them in instead, and is drawn BEFORE the table, so
+                    // the buttons paint on top of it and sit on the bar rather than behind.
+                    let top = yTop - this.__plateBarH();
+                    try {
+                        const mt = (o.margin && o.margin.top) || 0;
+                        const by = g.Y(o.grid.yi + (o.getHeight ? o.getHeight() : o.grid.height) + g.worldHeight(mt));
+                        if (Number.isFinite(by)) top = Math.min(top, by - 4);
+                    } catch (e) { }
+                    const h = Math.max(this.__plateBarH(), yTop - top);
                     // Too small on screen to carry a bar you could aim at.
-                    if (!(w > 40) || !(h > 0)) return null;
-                    return { x: x0, y: yTop - h, w, h };
+                    if (!(w > 40) || !(h > 0) || !Number.isFinite(top)) return null;
+                    return { x: x0, y: top, w, h };
                 } catch (e) { return null; }
             }
             // The bar under a screen point, when the pointer is the canvas's to give.
@@ -25016,10 +25028,15 @@ function (progress) {
                             // unreadable smear of lines: draw where it IS instead -- its
                             // outline, faintly filled, and its name -- and nothing inside.
                             try { if (this.__drawTinyTable(obj, ctx)) return; } catch (e) { }
+                            // The bar first, then the table: the table's own buttons are drawn
+                            // in that strip and have to land ON the bar, not under it. The flag
+                            // tells the table its name is already on show, so it does not draw
+                            // the faint copy behind its cells as well.
+                            let __bar = null;
+                            try { __bar = this.__plateBar(obj); } catch (e) { __bar = null; }
+                            try { obj.__barDrawn = !!__bar; } catch (e) { }
+                            if (__bar) { try { this.__drawPlateBar(obj, ctx); } catch (e) { } }
                             obj.draw(this, ctx);
-                            // The title bar goes on TOP of the table it belongs to, after it,
-                            // so a tall table cannot paint over its own handle.
-                            try { this.__drawPlateBar(obj, ctx); } catch (e) { }
                             // Cell connection arrows: faint and thin, so they hint without intruding.
                             this.drawFormulaDependencyArrows(obj, ctx, this.grid);
                             this.drawFormulaReverseDependencyArrows(obj, ctx, this.grid)

@@ -15399,6 +15399,14 @@ function () {
             }
             drawBackgroundTableTitles(ctx, name, x, y, w, h) {
                 if (!name) return;
+                // THE NAME IS ON THE BAR NOW. This drew it twice more -- faint above the
+                // table and rotated down its left side -- which was the only place it
+                // appeared before the title bar existed. With the bar carrying it, the pair
+                // are just the same word said three times, and the rotated one sits over
+                // whatever is to the left of the table. Still drawn when MAXIMIZED: there is
+                // no bar there, and the title on the navy backdrop is the heading of the
+                // sheet.
+                if (this.__barDrawn && !this.__maximizedView) return;
 
                 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
