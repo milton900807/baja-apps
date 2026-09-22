@@ -20122,7 +20122,15 @@ function (progress) {
                     if (!p || p.hidden || !(p.w > 0 && p.h > 0)) continue;
                     // A chart's place on the canvas is x / y (top left, world); its grid holds
                     // SCREEN pixels, which the old layout read as the starting point.
-                    boxes.push({ kind: "plot", ref: p, w: p.w, h: p.h, hEff: p.h + plotHeightPad, cur: { xw: isNum(p.x) ? p.x : null, yw: isNum(p.y) ? p.y : null } });
+                    // topPad is room reserved ABOVE the piece inside its own slot: the skyline
+                    // counts it (hEff), and the piece is dropped that far down into the slot,
+                    // so the space ends up over it where its labels stack rather than under it.
+                    const topPad = this.__plotHeadroom(p) || 0;
+                    boxes.push({
+                        kind: "plot", ref: p, w: p.w, h: p.h, topPad,
+                        hEff: p.h + plotHeightPad + topPad,
+                        cur: { xw: isNum(p.x) ? p.x : null, yw: isNum(p.y) ? p.y : null }
+                    });
                 }
                 if (!boxes.length) return resolve(true);
 
@@ -20216,7 +20224,7 @@ function (progress) {
                 const startX = cx - blockW / 2;
                 const startY = cy + blockH / 2;
                 for (const b of boxes) {
-                    b.target = { xw: startX + b.u, yw: startY - b.v };
+                    b.target = { xw: startX + b.u, yw: startY - b.v - (b.topPad || 0) };
                     if (b.cur.xw === null || b.cur.yw === null) b.cur = { xw: b.target.xw, yw: b.target.yw };
                 }
 
@@ -22431,14 +22439,13 @@ function (progress) {
                 // (grid.xi / grid.width are screen for a plot). Its place in the world is
                 // x / y with the TOP at y, so the box is x..x+w and y-h..y.
                 for (let p of this.m_plots) {
-                    if (!p || p.hidden) continue;
-                    const px = Number(p.x), py = Number(p.y), pw = Number(p.w), ph = Number(p.h);
-                    if (![px, py, pw, ph].every(Number.isFinite) || !(pw > 0 && ph > 0)) continue;
+                    const pb = this.__plotWorldBox(p);
+                    if (!pb) continue;
                     if (index === 0) {
-                        xmin = px; xmax = px + pw; ymin = py - ph; ymax = py;
+                        xmin = pb.x0; xmax = pb.x1; ymin = pb.y0; ymax = pb.y1;
                     } else {
-                        xmin = Math.min(xmin, px); xmax = Math.max(xmax, px + pw);
-                        ymin = Math.min(ymin, py - ph); ymax = Math.max(ymax, py);
+                        xmin = Math.min(xmin, pb.x0); xmax = Math.max(xmax, pb.x1);
+                        ymin = Math.min(ymin, pb.y0); ymax = Math.max(ymax, pb.y1);
                     }
                     index++;
                 }
@@ -24380,6 +24387,50 @@ function (progress) {
                 textActive = v;
             }
 
+            // ---- HEADROOM A TIMELINE'S LABELS NEED ------------------------------------------
+            // A timeline's milestone pills are laid out in SCREEN pixels and stack upward from
+            // the axis, and the timeline GROWS to fit them while it draws (plot.js: y += dy,
+            // h += dy, capped at four times the height it started at). That growth happens
+            // after the layout has placed everything around it, so the pack was reserving a
+            // box the timeline then grew out of -- upward, into whatever had been put above
+            // it. Which is why a folder could end up looking like it had landed on the
+            // timeline's labels.
+            //
+            // What it needs is measured, not guessed, whenever the timeline has drawn once:
+            // __tlTopmostPx is where its highest pill actually was on the last frame, which is
+            // the same number the growth code works from. Before the first frame there is
+            // nothing to measure, so a sixth of its height is reserved as a starting guess --
+            // enough for a lane or two, and the measurement replaces it on the next layout.
+            __plotHeadroom(p) {
+                try {
+                    if (!p || !this.__tlIs || !this.__tlIs(p)) return 0;
+                    const h = Math.abs(Number(p.h) || 0);
+                    if (!(h > 0)) return 0;
+                    const top = (p.grid && Number.isFinite(p.grid.yi)) ? p.grid.yi : null;
+                    const pill = Number(p.__tlTopmostPx);
+                    if (top != null && Number.isFinite(pill) && pill < top) {
+                        const world = this.grid.worldHeight((top - pill) + 12);
+                        if (Number.isFinite(world) && world > 0) return Math.min(world, h * 3);
+                    }
+                    const n = ((p.scatterData && p.scatterData.points) || []).length;
+                    return n > 0 ? h / 6 : 0;
+                } catch (e) { return 0; }
+            }
+
+            // ---- A CHART'S OR TIMELINE'S WORLD BOX -----------------------------------------
+            // A PLATE's grid IS the world: grid.xi / yi are world coordinates. A PLOT's grid
+            // is SCREEN SPACE -- grid.xi = graph.X(this.x), rewritten every frame -- and its
+            // place in the world is x / y with the TOP at y. Mixing the two reads pixels as
+            // world units, which is how a fit ended up cropping a timeline and how the bounding
+            // rectangle below came out wrong whenever a chart was on the canvas. Everything
+            // that wants a plot's extent asks here.
+            __plotWorldBox(p) {
+                if (!p || p.hidden) return null;
+                const x = Number(p.x), y = Number(p.y), w = Number(p.w), h = Number(p.h);
+                if (![x, y, w, h].every(Number.isFinite) || !(w > 0 && h > 0)) return null;
+                return { x0: x, x1: x + w, y0: y - h, y1: y };
+            }
+
             findMinXCoordinate() {
                 let minX = Infinity;
 
@@ -24390,10 +24441,8 @@ function (progress) {
                 }
 
                 for (const a of this.m_plots) {
-                    if (a?.grid?.xi !== undefined) {
-                        const worldXi = (a.grid.xi);
-                        minX = Math.min(minX, worldXi);
-                    }
+                    const b = this.__plotWorldBox(a);
+                    if (b) minX = Math.min(minX, b.x0);
                 }
 
                 return minX === Infinity ? null : minX;
@@ -24408,10 +24457,8 @@ function (progress) {
                     }
                 }
                 for (const a of this.m_plots) {
-                    if (a?.grid?.xi !== undefined && a?.grid?.width !== undefined) {
-                        const rightEdge = (a.grid.xi) + this.grid.worldWidth(a.grid.width);
-                        maxX = Math.max(maxX, rightEdge);
-                    }
+                    const b = this.__plotWorldBox(a);
+                    if (b) maxX = Math.max(maxX, b.x1);
                 }
                 return maxX === -Infinity ? null : maxX;
             }
@@ -24425,10 +24472,8 @@ function (progress) {
                 }
 
                 for (const a of this.m_plots) {
-                    if (a?.grid?.yi !== undefined) {
-                        const worldYi = (a.grid.yi);
-                        minY = Math.min(minY, worldYi);
-                    }
+                    const b = this.__plotWorldBox(a);
+                    if (b) minY = Math.min(minY, b.y0);
                 }
 
                 return minY === Infinity ? null : minY;
@@ -24443,10 +24488,8 @@ function (progress) {
                 }
 
                 for (const a of this.m_plots) {
-                    if (a?.grid?.yi !== undefined && a?.grid?.height !== undefined) {
-                        const bottomEdge = a.grid.yi + this.grid.worldHeight(a.grid.height);
-                        maxY = Math.max(maxY, bottomEdge);
-                    }
+                    const b = this.__plotWorldBox(a);
+                    if (b) maxY = Math.max(maxY, b.y1);
                 }
 
                 return maxY === -Infinity ? null : maxY;
