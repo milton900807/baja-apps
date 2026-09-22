@@ -4764,6 +4764,21 @@ function (path, config) {
                                     // between the tables -- because a folder is a fifth the
                                     // width of everything else here.
                                     bands: true,
+                                    // WHERE things go (above) and WHEN they fall (here) are
+                                    // asked separately. The folders land first -- they are the
+                                    // way in to everything that has been put away -- then the
+                                    // timeline, then the chart; two seconds to take that in,
+                                    // and the tables fill in behind it.
+                                    dropRank: (b) => {
+                                        if (b && b.kind === 'plot') {
+                                            let isTl = false;
+                                            try { isTl = !!(pt.__tlIs && pt.__tlIs(b.ref)); } catch (e) { isTl = false; }
+                                            return isTl ? 1 : 2;      // timeline, then the chart
+                                        }
+                                        const pkg = !!(b && b.ref && ('' + (b.ref.plateType || '')).indexOf('package') === 0);
+                                        return pkg ? 0 : 3;           // folders first, tables last
+                                    },
+                                    dropPause: (r) => (r === 2 ? 2000 : 0),
                                     rank: (b) => {
                                         if (b && b.kind === 'plot') {
                                             let isTl = false;
@@ -4778,7 +4793,7 @@ function (path, config) {
                                     }
                                 });
                                 try { __fade = pt.blurIn(1800); } catch (e) { }
-                                try { pt.curtainDown(1200); } catch (e) { }
+                                try { pt.curtainDown(2600); } catch (e) { }   // slower: it has more to reveal
                                 await __laid;
                             } catch (e) { }
                             try { pt.curtainDown(0); } catch (e) { }      // however it ended, no curtain is left

@@ -20284,23 +20284,46 @@ function (progress) {
                 const fitH = Math.max(blockH + 2.5 * margin, (blockW + 2 * margin) / viewAR);
                 const dropH = Math.max(fitH, Math.abs(viewH)) * 1.15;
                 const liftMs = opts.liftMs ?? 420;
-                // WHAT FALLS FIRST. Lowest row first is the game's rule -- a piece then never
-                // passes through one that has already landed -- but it buries the piece the
-                // build is about: a timeline packed across the top row drops LAST, after
-                // every table. opts.rank decides here as well as in the packing, so the
-                // caller that says "timeline, then the chart, then the rest" gets that order
-                // in the drop too, and the row rule settles everything it does not rank.
+                // WHAT FALLS FIRST, AND WHEN. Lowest row first is the game's rule -- a piece
+                // then never passes through one that has already landed -- but it buries the
+                // piece the build is about: a timeline packed across the top row drops LAST,
+                // after every table.
+                //
+                // WHERE a piece goes and WHEN it falls are two different questions, so they
+                // take two ranks. opts.rank decides the packing (and the bands); opts.dropRank
+                // decides the order of the drop, and falls back to rank when it is not given.
+                // A build wants the folders down first, then the timeline and the chart, and
+                // only then the tables -- while still being PACKED with the timeline at the
+                // top and the folders on a shelf at the bottom.
+                //
+                // opts.dropPause(rank) holds the drop for that many milliseconds after a
+                // group has fallen, so the eye can take in what just landed before the rest
+                // of it arrives.
+                const dropRankOf = (b) => {
+                    const fn = (typeof opts.dropRank === 'function') ? opts.dropRank
+                        : ((typeof opts.rank === 'function') ? opts.rank : null);
+                    if (!fn) return 0;
+                    try { return Number(fn(b)) || 0; } catch (e) { return 0; }
+                };
                 const order = boxes.slice().sort((a, c) => {
-                    if (typeof opts.rank === 'function') {
-                        let ra = 0, rc = 0;
-                        try { ra = Number(opts.rank(a)) || 0; } catch (e) { ra = 0; }
-                        try { rc = Number(opts.rank(c)) || 0; } catch (e) { rc = 0; }
-                        if (ra !== rc) return ra - rc;
-                    }
+                    const ra = dropRankOf(a), rc = dropRankOf(c);
+                    if (ra !== rc) return ra - rc;
                     return (c.v + c.hEff) - (a.v + a.hEff) || a.u - c.u;
                 });
                 const stagger = opts.stagger ?? Math.max(25, Math.min(140, 4200 / Math.max(1, order.length)));
-                order.forEach((b, i) => { b.dropAt = i * stagger; });
+                const pauseAfter = (r) => {
+                    if (typeof opts.dropPause !== 'function') return 0;
+                    try { return Math.max(0, Number(opts.dropPause(r)) || 0); } catch (e) { return 0; }
+                };
+                let __at = 0, __lastDropRank = null;
+                for (const b of order) {
+                    const r = dropRankOf(b);
+                    if (__lastDropRank !== null && r !== __lastDropRank) __at += pauseAfter(__lastDropRank);
+                    b.dropAt = __at;
+                    __at += stagger;
+                    __lastDropRank = r;
+                }
+                const lastDropAt = order.length ? order[order.length - 1].dropAt : 0;
                 // Gravity, then a bounce that dies out: 0 -> 1 with one small rebound.
                 const fall = (t) => {
                     const hit = 0.78;
@@ -20322,7 +20345,7 @@ function (progress) {
                 });
                 const drop = () => new Promise((res) => {
                     const t0 = now();
-                    const total = (order.length - 1) * stagger + duration;
+                    const total = lastDropAt + duration;      // the pauses are in lastDropAt
                     const step = () => {
                         if (!token.active) return res(false);
                         const el = now() - t0;
