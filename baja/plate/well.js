@@ -20,6 +20,9 @@ function () {
         // cell being typed into) is lighter still, so the text under the cursor has the most
         // contrast. Tiny cells (the zoomed-out draws) get the tint alone: an edge there is noise.
         const SELECT_EDGE = '#1aa3bd';
+        // Unselected cell outline (the style module's C.rule / RULE_W match it).
+        const CELL_RULE = '#d9d9d9';
+        const CELL_RULE_W = 0.5;
         // The typeface of a plain cell: the one the typed cells are set in (well-display-styles.js
         // FAMILY), so a table mixing the two reads in one face. A cell's own `font` still wins.
         const CELL_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
@@ -837,10 +840,12 @@ function () {
                 if (this.select) {
                     drawCellSelection(ctx, screen_x, screen_y, screen_width, screen_height, !!this.__dirty, screen_height < 10 || screen_width < 10);
                 } else {
-                    ctx.strokeStyle = this.equations ? "rgba(120, 120, 100, 1)" : '#D3D3D3';
-                    ctx.lineWidth = this.equations ? 1 * scaleFactor : 1;
-                    ctx.shadowBlur = this.equations ? 10 * scaleFactor : 0;
-                    ctx.shadowColor = this.equations ? "rgba(40, 0, 0, 0.7)" : "transparent";
+                    // Light gray and hairline thin for every cell, formula or not: the green
+                    // input mark already says which cells are calculated.
+                    ctx.strokeStyle = CELL_RULE;
+                    ctx.lineWidth = CELL_RULE_W;
+                    ctx.shadowBlur = 0;
+                    ctx.shadowColor = "transparent";
                     ctx.strokeRect(screen_x, screen_y, screen_width, screen_height);
                 }
                 ctx.stroke();
@@ -1228,9 +1233,10 @@ function () {
                 if (this.select) {
                     drawCellSelection(ctx, screen_x, screen_y, screen_width, screen_height, !!this.__dirty, false);
                 } else if (this.attr__showBorder) {
-                    ctx.strokeStyle = this.equations ? "rgba(85, 125, 255, 0.7)" : '#D3D3D3';
-                    ctx.lineWidth = this.equations ? scaleFactor : 1;
-                    ctx.shadowColor = this.equations ? "rgba(0, 0, 0, 0.7)" : "transparent";
+                    ctx.strokeStyle = CELL_RULE;
+                    ctx.lineWidth = CELL_RULE_W;
+                    ctx.shadowBlur = 0;
+                    ctx.shadowColor = "transparent";
                     ctx.strokeRect(screen_x, screen_y, screen_width, screen_height);
                 }
 

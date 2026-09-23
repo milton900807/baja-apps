@@ -4113,6 +4113,9 @@ function (progress) {
             }
 
             popFolder() {
+                // A first-visit layout still dropping tables in must not go on writing into
+                // the folder's objects after they have been saved back.
+                try { this.cancelLayoutAnimation(); } catch (e) { }
 
                 let content = this.ptracks.pop();
                 const uid = content.substring(0, content.indexOf(':'))
@@ -4223,7 +4226,19 @@ function (progress) {
                 // view (a drawn folder) or wherever the parent happened to be looking when a
                 // build packed it (Competition), which showed an empty canvas with the
                 // tables thousands of units away. So the first visit frames what is inside.
-                if (!this.folderVisited) { try { this.__frameFolderContents(); } catch (e) { console.warn('[folder] frame', e); } }
+                if (!this.folderVisited) {
+                    try { this.__frameFolderContents(); } catch (e) { console.warn('[folder] frame', e); }
+                    // ...and lays it out: a folder a build packed holds its tables wherever
+                    // the build dropped them, often on top of each other. The first visit
+                    // drops them into place (the toolbar's tetris layout); after that the
+                    // folder keeps whatever arrangement it was left in. Started on the next
+                    // tick so the swapped canvas has been drawn once to drop from.
+                    const depth = this.folderDepth;
+                    setTimeout(() => {
+                        if (this.folderDepth !== depth || this.folderVisited) return;   // already left
+                        try { this.layoutCompactTetris({ style: 'tetris' }); } catch (e) { console.warn('[folder] layout', e); }
+                    }, 0);
+                }
             }
 
             // Put the camera on everything in the canvas, at once (the canvas has just been

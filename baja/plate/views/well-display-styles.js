@@ -35,9 +35,11 @@ function (deps) {
             negative: '#D93A2B', link: '#0f7f93',
             green: '#15803d', greenWash: 'rgba(21,128,61,0.12)',
             amber: '#b45309', amberWash: 'rgba(180,83,9,0.12)',
-            cell: '#ffffff', input: '#f4f8fb', rule: 'rgba(10,37,64,0.12)', ruleStrong: 'rgba(10,37,64,0.22)',
+            cell: '#ffffff', input: '#f4f8fb', rule: '#d9d9d9', ruleStrong: 'rgba(10,37,64,0.22)',
             head: '#0b2545', headInk: '#eaf6f9',
         };
+        // Cell outlines: light gray and hairline thin, so the grid recedes behind the values.
+        const RULE_W = 0.5;
         const FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
         const MONO = 'ui-monospace, Menlo, Consolas, "Courier New", monospace';
         const num = (v, fb = 0) => { const n = (typeof v === 'number') ? v : parseFloat(('' + (v == null ? '' : v)).replace(/[$,%\s]/g, '')); return isFinite(n) ? n : fb; };
@@ -119,7 +121,7 @@ function (deps) {
             ctx.fill();
             if (o.border !== false) {
                 ctx.strokeStyle = o.borderColor || C.rule;
-                ctx.lineWidth = 1;
+                ctx.lineWidth = RULE_W;
                 ctx.stroke();
             }
             if (o.input && b.h > 12) {                       // a field, not a label: a cyan sill
@@ -567,7 +569,7 @@ function (deps) {
             path(ctx, b.x, b.y, b.w, b.h, b.r);
             ctx.fillStyle = well.color || 'rgba(11,37,69,0.06)'; ctx.fill();
             b.bg = over(well.color || 'rgba(11,37,69,0.06)', C.cell);
-            ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.stroke();
+            ctx.strokeStyle = C.rule; ctx.lineWidth = RULE_W; ctx.stroke();
             ctx.restore();
             const t = str(well.getValue ? well.getValue() : well.value).replace(/_/g, ' ');
             if (t) {
