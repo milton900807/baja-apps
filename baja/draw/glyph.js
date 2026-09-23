@@ -126,6 +126,9 @@ function () {
                         label: 'Remove',
                         click: async (x, y) => {
                             try {
+                                // Before it goes, not after: a delete you cannot undo is the
+                                // one mistake on a canvas that costs real work.
+                                if (pt.pushUndoSnapshot) pt.pushUndoSnapshot();
                                 pt.removeGlyphs([this])
                                 pt.wb(null)
                             } catch (err) {

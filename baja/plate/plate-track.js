@@ -14265,7 +14265,7 @@ function (progress) {
                     menuList.push({
                         label: `Delete`,
                         click: async (xwc, ywc) => {
-                            pushHistory(HM(this))
+                            this.pushUndoSnapshot();
                             this.removeGlyphs(selected_glyphs)
                         }
                     });
@@ -19046,6 +19046,15 @@ function (progress) {
                                     ctx.stroke();
 
                                     ctx.restore();
+
+                                    // WHAT THE NEXT CLICK WILL DO, AT THE POINTER. A line
+                                    // tool with nothing on screen but a rubber band leaves
+                                    // you guessing whether you are about to start a line or
+                                    // finish one -- and guessing wrong costs an undo. The
+                                    // label follows the pointer and changes when the first
+                                    // click lands.
+                                    this.__drawCursorHint(ctx, hd.endWx, hd.endWy,
+                                        clickIndex < 1 ? 'Click to start' : 'Click to stop');
                                 },
 
                                 mouseDownListener: async (x, y) => {
@@ -19112,9 +19121,13 @@ function (progress) {
                                 close: () => { hd.isDrawing = false; }
                             };
 
-                            setTimeout(() => {
-                                this.wb(hd);
-                            }, 50);
+                            // NOT UNTIL THE MENU HAS GONE. The tool used to be armed on a
+                            // 50 ms timer, which is shorter than it takes to read the menu
+                            // and let go of it: the click that dismissed the menu became the
+                            // first point of the line, so a line started at the menu rather
+                            // than where it was asked for. It waits for the menu to close
+                            // instead of guessing how long that takes.
+                            this.__afterMenuClosed(() => { this.wb(hd); });
 
                         } catch (err) {
                             console.error('Draw line (from selected center) failed:', err);
@@ -19206,6 +19219,15 @@ function (progress) {
                                     ctx.stroke();
 
                                     ctx.restore();
+
+                                    // WHAT THE NEXT CLICK WILL DO, AT THE POINTER. A line
+                                    // tool with nothing on screen but a rubber band leaves
+                                    // you guessing whether you are about to start a line or
+                                    // finish one -- and guessing wrong costs an undo. The
+                                    // label follows the pointer and changes when the first
+                                    // click lands.
+                                    this.__drawCursorHint(ctx, hd.endWx, hd.endWy,
+                                        clickIndex < 1 ? 'Click to start' : 'Click to stop');
                                 },
 
                                 mouseDownListener: async (x, y) => {
@@ -19273,9 +19295,13 @@ function (progress) {
                                 close: () => { hd.isDrawing = false; }
                             };
 
-                            setTimeout(() => {
-                                this.wb(hd);
-                            }, 50);
+                            // NOT UNTIL THE MENU HAS GONE. The tool used to be armed on a
+                            // 50 ms timer, which is shorter than it takes to read the menu
+                            // and let go of it: the click that dismissed the menu became the
+                            // first point of the line, so a line started at the menu rather
+                            // than where it was asked for. It waits for the menu to close
+                            // instead of guessing how long that takes.
+                            this.__afterMenuClosed(() => { this.wb(hd); });
 
                         } catch (err) {
                             console.error('Line (45°) failed:', err);
@@ -19454,7 +19480,7 @@ function (progress) {
                 menuList.push({
                     label: `Delete`,
                     click: async (xwc, ywc) => {
-                        pushHistory(HM(this))
+                        this.pushUndoSnapshot();
                         this.removeGlyphs(selected_glyphs)
                     }
                 });
@@ -19462,6 +19488,76 @@ function (progress) {
                 this.setOptionsMenu(this.__organiseGlyphMenu(menuList))
                 this.clearActionGlyphs();
 
+            }
+
+            // A LABEL AT THE POINTER saying what the next click does. Drawn in screen pixels
+            // on top of whatever the tool is drawing, offset so the pointer itself is never
+            // covered, and flipped to the other side when it would run off the edge.
+            __drawCursorHint(ctx, wx, wy, text) {
+                const t = ('' + (text == null ? '' : text)).trim();
+                if (!t || !ctx || !ctx.canvas) return;
+                try {
+                    const g = this.grid;
+                    const sx = g.X(wx), sy = g.Y(wy);
+                    if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+                    ctx.save();
+                    ctx.font = '600 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                    const w = Math.ceil(ctx.measureText(t).width) + 20;
+                    const h = 26;
+                    let x = sx + 16, y = sy - h - 12;
+                    if (x + w > ctx.canvas.width - 6) x = sx - w - 16;
+                    if (y < 6) y = sy + 16;
+                    const r = 8;
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y);
+                    ctx.arcTo(x + w, y, x + w, y + h, r);
+                    ctx.arcTo(x + w, y + h, x, y + h, r);
+                    ctx.arcTo(x, y + h, x, y, r);
+                    ctx.arcTo(x, y, x + w, y, r);
+                    ctx.closePath();
+                    ctx.fillStyle = '#0a2540';
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(t, x + 10, y + h / 2 + 0.5);
+                    ctx.restore();
+                } catch (e) { }
+            }
+
+            // ONE PLACE THAT TAKES THE UNDO SNAPSHOT for a destructive change to the canvas.
+            // Every glyph action that removes something calls this BEFORE removing it --
+            // scattered `pushHistory(HM(this))` calls are easy to leave out of the next
+            // delete path somebody adds, and a delete you cannot undo is the one mistake on
+            // a canvas that costs real work.
+            pushUndoSnapshot() {
+                try {
+                    if (typeof pushHistory !== 'function' || typeof HM !== 'function') return false;
+                    pushHistory(HM(this));
+                    return true;
+                } catch (e) { console.warn('[undo snapshot]', e); return false; }
+            }
+
+            // RUN THIS ONCE THE MENU IS OFF THE SCREEN. A menu item that arms a drawing tool
+            // cannot arm it while its own menu is still up: the click that dismisses the
+            // menu would be taken by the tool as the first click of the drawing. The item's
+            // `click` runs from inside the menu's own mouseUp, so the menu is still set at
+            // that moment and is cleared immediately afterwards -- waiting for that is
+            // exact, where a timer is a guess about how fast someone lets go of a mouse.
+            //
+            // The timeout is a backstop: a menu that never closes must not leave the tool
+            // armed for ever, or never armed at all.
+            __afterMenuClosed(fn, maxMs) {
+                if (typeof fn !== 'function') return;
+                const t0 = Date.now();
+                const limit = Number.isFinite(maxMs) ? maxMs : 4000;
+                const tick = () => {
+                    let open = false;
+                    try { open = !!(this.menu || this.menu_vis || this.options_menu); } catch (e) { open = false; }
+                    if (!open || (Date.now() - t0) > limit) { try { fn(); } catch (e) { console.warn('[after menu]', e); } return; }
+                    setTimeout(tick, 40);
+                };
+                setTimeout(tick, 40);
             }
 
             // Break every group the lasso reaches into its pieces, so the selection pass
@@ -19509,7 +19605,7 @@ function (progress) {
                     const parts = leaves(g.shape, []);
                     if (parts.length < 2) continue;
                     if (!parts.some(centreIn)) continue;
-                    if (!broken) { try { pushHistory(HM(this)); } catch (e) { } }
+                    if (!broken) this.pushUndoSnapshot();
                     for (const part of parts) {
                         try { this.glyphs.push(new Glyph(part)); } catch (e) { }
                     }

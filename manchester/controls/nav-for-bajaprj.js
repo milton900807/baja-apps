@@ -250,6 +250,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         label: 'Remove',
                         click: async (x, y) => {
                             try {
+                                if (plate_graph.plateTrack.pushUndoSnapshot) plate_graph.plateTrack.pushUndoSnapshot();
                                 plate_graph.plateTrack.removeGlyphs([selectedPlate])
                                 plate_graph.plateTrack.wb(null)
                             } catch (err) {
@@ -551,6 +552,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     label: 'Remove',
                     click: async (x, y) => {
                         try {
+                            if (pt.pushUndoSnapshot) pt.pushUndoSnapshot();
                             pt.removeGlyphs([selectedPlate])
                             pt.wb(null)
                         } catch (err) {

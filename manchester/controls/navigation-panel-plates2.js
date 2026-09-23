@@ -741,6 +741,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         label: 'Remove',
                         click: async (x, y) => {
                             try {
+                                // The snapshot goes on the stack BEFORE anything is removed.
+                                if (plate_graph.plateTrack.pushUndoSnapshot) plate_graph.plateTrack.pushUndoSnapshot();
 
                                 if (selectedPlate.plateType) {
                                     plate_graph.plateTrack.removePlate(selectedPlate)
@@ -1230,6 +1232,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     label: 'Remove',
                     click: async (x, y) => {
                         try {
+                            if (pt.pushUndoSnapshot) pt.pushUndoSnapshot();
                             pt.removeGlyphs([selectedPlate])
                             pt.wb(null)
                         } catch (err) {
