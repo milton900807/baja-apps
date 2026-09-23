@@ -108,11 +108,36 @@ function (pt, plate, wells, opts) {
         mic.type = 'button';
         mic.title = SR ? 'Speak the value; say "next" for the next cell' : 'Voice entry is not available in this browser';
         mic.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
-        const micLeft = Math.min(window.innerWidth - height - 4, left + width + 6);
-        mic.style.cssText = 'position:fixed;left:' + micLeft + 'px;top:' + top + 'px;width:' + height + 'px;height:' + height + 'px;z-index:2147483000;'
-            + 'border-radius:8px;border:2px solid #1aa3bd;background:' + (SR ? '#0a2540' : '#9aa7b4') + ';color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;'
-            + 'box-shadow:0 8px 24px rgba(10,37,64,0.35);';
-        document.body.appendChild(mic);
+        // IN THE BAR, NOT OVER THE CELL. This used to be placed absolutely at `left + width`
+        // -- coordinates from when the editor sat on top of the cell it was editing. When it
+        // became a docked bar those three were deleted and this line was left reading them,
+        // so it threw a ReferenceError every single time the editor opened. Everything below
+        // it -- commit, close, the Enter key, the tap-outside handler, the focus that raises
+        // the keyboard -- never ran, which is why the bar appeared, could not be committed,
+        // and sat over the nav panel until the page was reloaded.
+        mic.style.cssText = 'flex:0 0 auto;width:' + height + 'px;height:' + height + 'px;'
+            + 'border-radius:10px;border:1px solid ' + (SR ? '#1aa3bd' : '#5f7280') + ';background:' + (SR ? '#0f3457' : '#5f7280') + ';'
+            + 'color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;';
+        bar.appendChild(mic);
+
+        // SUBMIT. Enter on the phone's keyboard commits, and so does tapping away -- but
+        // neither is visible, and "Done" on a phone keyboard is easy to read as "close this
+        // without keeping it". A button that says what it does, sized for a thumb.
+        const okBtn = document.createElement('button');
+        okBtn.id = 'baja-mobile-cell-ok';
+        okBtn.type = 'button';
+        okBtn.title = 'Put this in the cell';
+        okBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>';
+        okBtn.style.cssText = 'flex:0 0 auto;width:' + height + 'px;height:' + height + 'px;'
+            + 'border-radius:10px;border:1px solid #1aa3bd;background:#1aa3bd;color:#ffffff;'
+            + 'display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;';
+        // The press must not reach the canvas, and must not blur the field before the tap
+        // lands -- a blur commits on its own and the click would then arrive with the bar
+        // already gone.
+        okBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+        okBtn.ontouchstart = (e) => { e.stopPropagation(); };
+        okBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); commit(); };
+        bar.appendChild(okBtn);
         let rec = null, listening = false;
         const setMic = (on) => { listening = on; mic.style.background = on ? '#FD5E53' : '#0a2540'; mic.style.borderColor = on ? '#FD5E53' : '#1aa3bd'; };
         const stopVoice = () => { try { if (rec) { rec.onend = null; rec.stop(); } } catch (e) { } rec = null; setMic(false); };
@@ -163,11 +188,36 @@ function (pt, plate, wells, opts) {
             try { document.removeEventListener('mousedown', onDown, true); document.removeEventListener('touchstart', onDown, true); } catch (e) { }
             try { dropNav(); } catch (e) { }
             try { if (vv) { vv.removeEventListener('resize', reDock); vv.removeEventListener('scroll', reDock); } } catch (e) { }
+            try { if (watch) clearInterval(watch); } catch (e) { }
             try { if (bar.parentNode) bar.parentNode.removeChild(bar); } catch (e) { }
             try { if (input.parentNode) input.parentNode.removeChild(input); } catch (e) { }
             try { if (mic.parentNode) mic.parentNode.removeChild(mic); } catch (e) { }
+            try { if (okBtn.parentNode) okBtn.parentNode.removeChild(okBtn); } catch (e) { }
             try { pt.setTextActive(false); } catch (e) { }
         };
+        // NOTHING SELECTED, NOTHING TO EDIT. The bar is docked across the bottom of the
+        // window, over the nav panel's usual place, so a bar left up after the selection has
+        // gone is a bar in the way of the only thing that gets you anywhere. Tapping away
+        // already commits and closes; this is the backstop for every other way a selection
+        // can end -- the table closing, a folder opening, a build replacing the canvas.
+        // It asks about the CELL it is editing, not about the field: the field keeps focus
+        // for as long as the bar is up, so "is it focused" would answer yes for ever. A
+        // well carries `select`; if the cell being edited has been deselected the bar has
+        // nothing to write to. The grace period is for the opening itself -- the press that
+        // selects the cell and the press that opens the keyboard are the same press, and on
+        // some paths the selection is set a frame after the editor is asked for.
+        const openedAt = Date.now();
+        const stillSelected = () => {
+            try {
+                if (Date.now() - openedAt < 900) return true;
+                if (!plate || plate.hidden) return false;
+                if (list.some(w => w && w.select)) return true;
+                if (typeof plate.hasSelectedWells === 'function') return !!plate.hasSelectedWells();
+                return true;
+            } catch (e) { return true; }
+        };
+        // Deselected is not cancelled: what was typed is kept, the same as tapping away.
+        const watch = setInterval(() => { if (!done && !stillSelected()) commit(); }, 400);
         // Commit and step to the next cell (Tab, or the spoken "next"); voice carries over.
         const goNext = (byVoice, backwards) => {
             const wasListening = listening;
@@ -195,7 +245,10 @@ function (pt, plate, wells, opts) {
             else if (e.key === 'Tab') { e.preventDefault(); goNext(false, e.shiftKey); }
         };
         const onBlur = () => { setTimeout(commit, 0); };
-        const onDown = (e) => { if (e.target !== input && e.target !== mic && !mic.contains(e.target)) commit(); };
+        // A tap anywhere outside the bar commits, as it always did -- but the bar is now the
+        // whole control (the cell's name, the field, the microphone and Submit), so a tap on
+        // any part of it belongs to the bar, not to "somewhere else".
+        const onDown = (e) => { try { if (bar.contains(e.target)) return; } catch (x) { } commit(); };
         input.addEventListener('keydown', onKey);
         input.addEventListener('blur', onBlur);
         setTimeout(() => { document.addEventListener('mousedown', onDown, true); document.addEventListener('touchstart', onDown, true); }, 0);
