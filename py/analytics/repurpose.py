@@ -26,8 +26,10 @@ A candidate with one route is a hypothesis. A candidate with three is worth a me
 The tables say which routes each candidate has, so that difference is visible rather
 than buried in prose.
 
-Every figure keeps its source. A claim the search never returned is marked
-"no - verify": the model may be right, but nothing here checked it.
+Every figure keeps its source, and every citation is checked against what the search
+actually returned. That check is NOT a column -- it would read "yes" almost the whole way
+down and cost the width of a real one; the rows that failed it are counted in the notes and
+in the document instead, where a reader will act on them.
 
 The API plumbing (streamed request, server tool loop, paused-turn resume) is the same
 as py/analytics/indication-market.py; it is repeated rather than imported because that
@@ -508,33 +510,39 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
     def rows_of(headers: List[str], dicts: List[Dict[str, Any]]) -> List[List[str]]:
         return [[_s(d.get(h)) for h in headers] for d in dicts]
 
+    # NO "Checked" COLUMN. Whether the search actually returned a cited source is still
+    # computed for every row -- it is what the "N rows cite a source the search did not
+    # return" note is counting -- but it is not a column. A column costs the same width on
+    # every table as the drug name does and reads "yes" almost all the way down; what a
+    # reader needs is to be told, once, that some rows are unverified. Same rule as the
+    # unit column: keep the fact, lose the column.
+    CAND_COLS = ["Drug", "Brand", "Approved or tested for", "Stage", "Target or mechanism",
+                 "Evidence routes", "Routes found", "Confidence", "Why it could work",
+                 "What would kill it", "Source"]
+    EV_COLS = ["Drug", "Route", "Finding", "Kind of data", "Direction", "Year",
+               "Confidence", "Source"]
+    TARG_COLS = ["Target or pathway", "How it connects", "Drugs that hit it", "Evidence", "Source"]
+    SRC_COLS = ["Drug", "Claim", "Title", "URL", "Year"]
+
+    unverified = sum(1 for d in (cand_rows + ev_rows + targ_rows + source_rows)
+                     if _s(d.get("Checked")).startswith("no"))
+
     tables = [
         {"name": f"{prefix}_Repurpose_Candidates", "group": "Candidates",
-         "headers": ["Drug", "Brand", "Approved or tested for", "Stage", "Target or mechanism",
-                     "Evidence routes", "Routes found", "Confidence", "Why it could work",
-                     "What would kill it", "Source", "Checked"],
-         "rows": rows_of(["Drug", "Brand", "Approved or tested for", "Stage", "Target or mechanism",
-                          "Evidence routes", "Routes found", "Confidence", "Why it could work",
-                          "What would kill it", "Source", "Checked"], cand_rows)},
+         "headers": CAND_COLS, "rows": rows_of(CAND_COLS, cand_rows)},
         {"name": f"{prefix}_Repurpose_Evidence", "group": "Evidence",
-         "headers": ["Drug", "Route", "Finding", "Kind of data", "Direction", "Year",
-                     "Confidence", "Source", "Checked"],
-         "rows": rows_of(["Drug", "Route", "Finding", "Kind of data", "Direction", "Year",
-                          "Confidence", "Source", "Checked"], ev_rows)},
+         "headers": EV_COLS, "rows": rows_of(EV_COLS, ev_rows)},
         {"name": f"{prefix}_Repurpose_Targets", "group": "Targets",
-         "headers": ["Target or pathway", "How it connects", "Drugs that hit it", "Evidence",
-                     "Source", "Checked"],
-         "rows": rows_of(["Target or pathway", "How it connects", "Drugs that hit it", "Evidence",
-                          "Source", "Checked"], targ_rows)},
+         "headers": TARG_COLS, "rows": rows_of(TARG_COLS, targ_rows)},
         {"name": f"{prefix}_Repurpose_Sources", "group": "Sources",
-         "headers": ["Drug", "Claim", "Title", "URL", "Year", "Checked"],
-         "rows": rows_of(["Drug", "Claim", "Title", "URL", "Year", "Checked"], source_rows)},
+         "headers": SRC_COLS, "rows": rows_of(SRC_COLS, source_rows)},
         {"name": f"{prefix}_Repurpose_Summary", "group": "Candidates",
          "headers": ["Item", "Value"], "rows": rows_of(["Item", "Value"], summary_rows)},
     ]
     return {"prefix": prefix, "tables": tables, "subject": subject,
             "counts": {"candidates": len(cand_rows), "evidence": len(ev_rows),
-                       "multi_route": multi, "by_route": by_route}}
+                       "multi_route": multi, "by_route": by_route,
+                       "unverified": unverified}}
 
 
 def _document(subject: Dict[str, Any], found: Dict[str, Any], counts: Dict[str, Any],
@@ -556,10 +564,14 @@ def _document(subject: Dict[str, Any], found: Dict[str, Any], counts: Dict[str, 
     if caveats:
         parts.append("<p><b>What this does not cover.</b></p><ul>"
                      + "".join(f"<li>{esc(c)}</li>" for c in caveats) + "</ul>")
+    unver = int(counts.get("unverified") or 0)
     parts.append(
-        "<p><b>Reading the tables.</b> Every row keeps its source, and the Checked column says "
-        "whether the search actually returned that source: <i>no - verify</i> means the claim may "
-        "still be right, but nothing here checked it. Look at it before it goes into a plan.</p>")
+        "<p><b>Reading the tables.</b> Every row keeps its source. Each citation is checked "
+        "against what the search actually returned"
+        + (f", and {unver} of them did not come back — those claims may still be right, but nothing "
+           "here confirmed them, so look at the source before any of it goes into a plan."
+           if unver else ", and all of them came back.")
+        + "</p>")
     if not info.get("searched", True):
         parts.append("<p><b>Web search was unavailable</b>, so this is the model's own knowledge, "
                      "unverified and possibly out of date.</p>")
@@ -598,14 +610,10 @@ def run(prompt: str, opts: Dict[str, Any]) -> Dict[str, Any]:
     notes = []
     if not info.get("searched", True):
         notes.append("Web search was unavailable: everything here is model knowledge and unverified.")
-    unchecked = 0
-    for t in built["tables"]:
-        if "Checked" not in t["headers"]:
-            continue
-        i = t["headers"].index("Checked")
-        unchecked += sum(1 for r in t["rows"] if len(r) > i and _s(r[i]).startswith("no"))
+    unchecked = int(built["counts"].get("unverified") or 0)
     if unchecked:
-        notes.append(f"{unchecked} row(s) cite a source the search did not return — marked \"no - verify\".")
+        notes.append(f"{unchecked} row(s) cite a source the search did not return: treat those citations "
+                     "as unconfirmed.")
     if built["counts"]["candidates"] and not built["counts"]["multi_route"]:
         notes.append("No candidate has more than one route of evidence: treat the whole list as hypotheses.")
 
