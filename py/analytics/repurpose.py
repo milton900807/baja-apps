@@ -721,8 +721,12 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
     # every table as the drug name does and reads "yes" almost all the way down; what a
     # reader needs is to be told, once, that some rows are unverified. Same rule as the
     # unit column: keep the fact, lose the column.
+    # NO "Routes found" COLUMN either: it is the length of the "Evidence routes" list in
+    # the column beside it, so it spends a column saying again what the reader can already
+    # see. It is still computed -- the candidate sort is "most routes first", and the
+    # network picture and the summary both count it.
     CAND_COLS = ["Drug", "Brand", "Approved or tested for", "Stage", "Target or mechanism",
-                 "Evidence routes", "Routes found", "Confidence", "Why it could work",
+                 "Evidence routes", "Confidence", "Why it could work",
                  "What would kill it", "Source"]
     EV_COLS = ["Drug", "Route", "Finding", "Kind of data", "Direction", "Year",
                "Confidence", "Source"]
