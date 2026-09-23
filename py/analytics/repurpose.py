@@ -803,6 +803,128 @@ def _document(subject: Dict[str, Any], found: Dict[str, Any], counts: Dict[str, 
 
 # ---------------- the run ----------------
 
+# ---------------- earlier research ----------------
+#
+# A run is twenty web searches and two to three minutes of Opus, and the answer to "what
+# could be repurposed for cancer cachexia" does not change between Tuesday and Thursday. So
+# every prompt is kept (py/ion-lib/repurpose_store.py) with the research it led to, and a
+# later prompt asking the same question is answered from the store.
+#
+# "The same question" is a judgement, so it is put to the model in one small call that does
+# two things: it structures THIS prompt, and it says whether one of the earlier runs shown
+# to it answers it. The same model as the research -- the call costs a cent or two against a
+# dollar-and-three-minutes run, and the mistake that matters here is a quiet one: handing
+# someone the candidates for a different target, or for the same target in a different
+# disease, without their knowing.
+
+ANALYZE_MODEL = os.environ.get("REPURPOSE_ANALYZE_MODEL") or MODEL
+
+ANALYZE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["structured", "decision", "match_id", "reason"],
+    "properties": {
+        "structured": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["kind", "subject", "aliases", "target", "mechanism", "indication", "wants_fresh"],
+            "properties": {
+                "kind": {"type": "string", "enum": ["indication", "mechanism", "target", "unclear"],
+                         "description": "What the prompt is asking about."},
+                "subject": {"type": "string", "description": "The subject by its standard full name."},
+                "aliases": {"type": "array", "items": {"type": "string"},
+                            "description": "Other names, abbreviations, gene symbols and spellings the subject goes by."},
+                "target": {"type": "string", "description": "The gene or protein named, or an empty string."},
+                "mechanism": {"type": "string", "description": "The mechanism named, or an empty string."},
+                "indication": {"type": "string", "description": "The disease named, or an empty string."},
+                "wants_fresh": {"type": "boolean",
+                                "description": "True when the prompt itself asks for new, latest, updated or re-run research."},
+            },
+        },
+        "decision": {"type": "string", "enum": ["reuse", "new"]},
+        "match_id": {"type": "integer", "description": "The id of the earlier run to reuse, or 0."},
+        "reason": {"type": "string",
+                   "description": "One sentence for the person who typed the prompt. Do not quote the earlier prompt."},
+    },
+}
+
+ANALYZE_SYSTEM = """A therapeutics team types a prompt asking what existing drug could be repurposed: a disease, a mechanism of action, or a target. Researching one takes twenty web searches and a few minutes, and what comes back goes into a pipeline discussion. Earlier research is kept, and your job is to say whether one of the earlier runs shown to you already answers the new prompt, so that it can be loaded instead of researched again.
+
+First put the new prompt in structured form. Give the subject its standard full name and list the other names it goes by in `aliases` -- abbreviations, gene symbols, brand and generic names, spelling variants, the eponym. Those aliases are how a later prompt finds this one.
+
+Then decide. Reuse an earlier run only when someone asking the new prompt would be fully served by it. The wording does not have to match: abbreviations, synonyms, word order, spelling, a target named by its gene symbol or its full protein name are all the same question. What has to match is the substance:
+- the same subject. A target and a disease are different questions even when one is the reason for the other: the candidates for "IRAK4" are not the candidates for "hidradenitis suppurativa", because the second takes in everything that reaches the disease by any route.
+- the same restriction. If either prompt narrows the question -- this target IN this disease, this mechanism IN this population -- the other must narrow it the same way.
+- a question the earlier run actually answered. A run that found nothing does not answer a new prompt any better than no run at all.
+If the new prompt itself asks for new, latest, updated or re-run research, set wants_fresh and decide "new". Age matters here more than in most places: a trial readout turns a hypothesis into a candidate or kills it, so prefer "new" for an older run.
+
+When you are unsure, decide "new". A needless run costs a few minutes; a wrong reuse puts another question's drugs in front of someone as though they were the answer to theirs.
+
+Set match_id to the id of the run to reuse, or 0 with "new". The reason is one plain sentence for the person who typed the prompt; it must not quote the earlier prompt, which may be someone else's."""
+
+
+def analyze_prompt(prompt: str, max_candidates: int,
+                   cands: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Structure the prompt and judge it against earlier runs. Returns (analysis, error)."""
+    if requests is None or not ANTHROPIC_API_KEY:
+        return None, "no API access"
+    shown = [{"id": c["id"], "age_days": c["age_days"], "prompt": c["prompt"],
+              "kind": c.get("kind"), "subject": c.get("subject"),
+              "candidates_found": c.get("candidates"), "structured": c.get("structured") or {}}
+             for c in cands]
+    user = ("New prompt:\n" + json.dumps({"prompt": prompt, "max_candidates": max_candidates},
+                                          ensure_ascii=False)
+            + "\n\nEarlier runs"
+            + (" (none: structure the prompt and decide \"new\")" if not shown else "")
+            + ":\n" + json.dumps(shown, ensure_ascii=False, indent=1))
+    body: Dict[str, Any] = {
+        "model": ANALYZE_MODEL,
+        "max_tokens": 4000,
+        "system": ANALYZE_SYSTEM,
+        "messages": [{"role": "user", "content": user}],
+        "output_config": {"effort": "low", "format": {"type": "json_schema", "schema": ANALYZE_SCHEMA}},
+        "fallbacks": "default",
+    }
+    try:
+        r = requests.post(API_URL, headers=_headers(True), json=body, timeout=90)
+        if r.status_code == 400 and "fallback" in (r.text or "").lower():
+            body.pop("fallbacks", None)
+            r = requests.post(API_URL, headers=_headers(False), json=body, timeout=90)
+        if r.status_code != 200:
+            return None, "analysis HTTP %s" % r.status_code
+        data = r.json()
+        out: Dict[str, Any] = {}
+        for blk in (data.get("content") or []):
+            if blk.get("type") == "text":
+                try:
+                    out = json.loads(blk.get("text") or "{}")
+                    break
+                except Exception:
+                    continue
+        if not isinstance(out, dict) or "decision" not in out:
+            return None, "analysis returned nothing usable"
+        out["_model"] = _s(data.get("model"))
+        return out, ""
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _structured_from_findings(found: Dict[str, Any], prompt: str) -> Dict[str, Any]:
+    """A structured form worked out from the research itself, for the case where the judge
+    could not be reached: without one the run would be stored with no aliases and would
+    never be found again."""
+    subj = found.get("subject") if isinstance(found.get("subject"), dict) else {}
+    return {
+        "kind": _s(subj.get("kind")) or "unclear",
+        "subject": _s(subj.get("name")) or _s(prompt),
+        "aliases": [],
+        "target": "",
+        "mechanism": "",
+        "indication": _s(subj.get("name")) if _s(subj.get("kind")) == "indication" else "",
+        "wants_fresh": False,
+    }
+
+
 def run(prompt: str, opts: Dict[str, Any]) -> Dict[str, Any]:
     prompt = _s(prompt)
     if not prompt:
@@ -815,9 +937,73 @@ def run(prompt: str, opts: Dict[str, Any]) -> Dict[str, Any]:
     max_candidates = int(opts.get("max_candidates") or DEFAULT_MAX_CANDIDATES)
     max_searches = int(opts.get("max_searches") or DEFAULT_MAX_SEARCHES)
 
+    try:
+        import claude_usage as _cu  # type: ignore
+        _cu.bump("repurpose")
+    except Exception:
+        pass
+
+    # EARLIER RESEARCH FIRST (see above). `fresh` skips the lookup, which is what the canvas
+    # offers after a stored run has been loaded.
+    store = None
+    try:
+        import repurpose_store as store  # type: ignore
+        if not store.enabled():
+            store = None
+    except Exception:
+        store = None
+    fresh = bool(opts.get("fresh"))
+    options_log = {"max_candidates": max_candidates, "max_searches": max_searches, "fresh": fresh}
+    structured: Optional[Dict[str, Any]] = None
+    judge_model, judge_ms, reason = "", 0, ""
+
+    if store is not None:
+        works.msg("Checking earlier research…")
+        works.progress(2)
+        cands = [] if fresh else store.candidates(prompt, max_candidates)
+        t0 = time.time()
+        analysis, err = analyze_prompt(prompt, max_candidates, cands)
+        judge_ms = int((time.time() - t0) * 1000)
+        if analysis is not None:
+            structured = analysis.get("structured")
+            judge_model = _s(analysis.get("_model"))
+            reason = _s(analysis.get("reason"))
+            ids = {c["id"] for c in cands}
+            match_id = analysis.get("match_id")
+            wants_fresh = bool((structured or {}).get("wants_fresh"))
+            if (not fresh and not wants_fresh and analysis.get("decision") == "reuse"
+                    and isinstance(match_id, int) and match_id in ids):
+                prior = store.get_run(match_id)
+                if prior and isinstance(prior.get("findings"), dict):
+                    prior_info = prior.get("info") if isinstance(prior.get("info"), dict) else {}
+                    # The tables, the notes and the network picture are all rebuilt from the
+                    # stored research, so a run loaded from the store is drawn by today's
+                    # code rather than the code that made it.
+                    result = _assemble(prior["findings"], prior.get("blocks") or [], prompt, prior_info)
+                    if result.get("status") == "ok":
+                        store.touch_hit(match_id)
+                        store.log_prompt(prompt, options_log, structured, "reused", match_id,
+                                         reason, judge_model, judge_ms)
+                        result["cache"] = {
+                            "hit": True, "run_id": match_id, "created_at": prior.get("created_at"),
+                            "age_days": prior.get("age_days"), "reason": reason,
+                            # someone else's wording is theirs: only your own earlier prompt
+                            # is ever shown back to you
+                            "prompt": prior.get("prompt") if prior.get("same_user") else "",
+                        }
+                        works.progress(95)
+                        return result
+        else:
+            reason = "analysis unavailable: " + err
+
     works.msg("Looking for drugs that could be repurposed…")
     works.progress(5)
-    text, blocks, info = research(prompt, max_candidates, max_searches)
+    try:
+        text, blocks, info = research(prompt, max_candidates, max_searches)
+    except Exception:
+        if store is not None:
+            store.log_prompt(prompt, options_log, structured, "error", None, reason, judge_model, judge_ms)
+        raise
 
     works.msg("Organising the candidates…")
     works.progress(85)
@@ -827,6 +1013,27 @@ def run(prompt: str, opts: Dict[str, Any]) -> Dict[str, Any]:
                 "error": "The research came back without a usable answer. Try again, or narrow the question.",
                 "detail": text[:600]}
 
+    result = _assemble(found, blocks, prompt, info)
+
+    if store is not None:
+        run_id = None
+        if result.get("status") == "ok":
+            if not isinstance(structured, dict):
+                structured = _structured_from_findings(found, prompt)
+            run_id = store.save_run(prompt, max_candidates, max_searches, structured, found, blocks,
+                                    info, result.get("detection"))
+        store.log_prompt(prompt, options_log, structured,
+                         ("forced_new" if fresh else "new") if result.get("status") == "ok" else "error",
+                         run_id, reason, judge_model, judge_ms)
+        if result.get("status") == "ok":
+            result["cache"] = {"hit": False, "run_id": run_id, "reason": reason}
+    return result
+
+
+# The result the canvas draws, built from the research. One function, so a run loaded from
+# the store and a run just researched are assembled by exactly the same code.
+def _assemble(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: str,
+              info: Dict[str, Any]) -> Dict[str, Any]:
     built = build_tables(found, blocks, prompt, info)
     doc = _document(built["subject"], found, built["counts"], info)
 

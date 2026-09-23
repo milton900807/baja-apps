@@ -5192,6 +5192,23 @@ function (path, config) {
                                 pt.setMessage('Evidence — ' + Object.keys(routes).map(k => k + ': ' + routes[k]).join(', '), 2);
                             }
                             for (const n of (result.notes || [])) pt.setMessage(n, 3);
+                            // ANSWERED FROM EARLIER RESEARCH (py/ion-lib/repurpose_store.py):
+                            // every prompt is kept in a structured form with the research it
+                            // led to, and the model judged an earlier run to ask the same
+                            // question. Say so, with its date and the reason -- a repurposing
+                            // list goes into a pipeline discussion, so how old it is matters.
+                            // It is not a question, though: the message says where it came
+                            // from, and researching again is a tick box on the panel that
+                            // started the run, not an interruption at the end of it.
+                            try {
+                                const c = result.cache;
+                                if (c && c.hit) {
+                                    let when = '';
+                                    try { when = new Date(c.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch (e) { when = ''; }
+                                    const age = Number.isFinite(c.age_days) ? (c.age_days === 0 ? 'today' : c.age_days === 1 ? 'yesterday' : c.age_days + ' days ago') : '';
+                                    pt.setMessage('Loaded from earlier research' + (when ? ' (' + when + (age ? ', ' + age : '') + ')' : '') + '. ' + (c.reason || ''), 3);
+                                }
+                            } catch (e) { console.warn('[repurpose] earlier research notice', e); }
                             try { const g = CurrentLayout.getStashed('graph'); if (g) g.touchMe(); } catch (e) { }
                         };
 
@@ -5265,6 +5282,22 @@ function (path, config) {
                                                                 return;
                                                             }
                                                             await run(prompt);
+                                                        })
+                                                    },
+                                                    {
+                                                        // Find candidates takes earlier research when it answers the
+                                                        // same question. This is how you say no to that, and it is
+                                                        // here -- beside the prompt -- rather than in a menu after
+                                                        // the tables have already been built.
+                                                        label: 'Research again', ionFunction: createIonFunction(async () => {
+                                                            const prompt = (initalText ? txt : sequenceTextEditor.getContent() || '').trim();
+                                                            hideAllModal();
+                                                            CurrentLayout.reset('mainPanel');
+                                                            if (prompt.length < 2) {
+                                                                pt.setMessage('Name an indication, a mechanism or a target.', 1.1);
+                                                                return;
+                                                            }
+                                                            await run(prompt, { fresh: true });
                                                         })
                                                     }
                                                 ]
