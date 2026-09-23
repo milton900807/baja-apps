@@ -8472,8 +8472,15 @@ function (progress) {
                         // A BUTTON ON THE BAR IS STILL A BUTTON. The table's own buttons are
                         // drawn in this strip, so a press on one of them has to reach it
                         // rather than start a drag of the table underneath.
+                        // barButtonAt, not inButtons: inButtons refuses everything until a
+                        // CELL is selected (its first guard), so a press on a button of a
+                        // freshly picked object was read as a press on the bar and started a
+                        // drag instead of reaching the button.
                         let onButton = false;
-                        try { onButton = !!(bar.inButtons && bar.inButtons(x, y, this)); } catch (e) { onButton = false; }
+                        try {
+                            onButton = bar.barButtonAt ? !!bar.barButtonAt(x, y, this)
+                                : !!(bar.inButtons && bar.inButtons(x, y, this));
+                        } catch (e) { onButton = false; }
                         if (!onButton) {
                             // setSelected for a chart or a timeline too: that is exactly what a
                             // press on its body does (selectIt, then clk_drag, which is what
@@ -8498,7 +8505,10 @@ function (progress) {
                     const pkg = this.__packageAt(x, y);
                     if (pkg) {
                         let onButton = false;
-                        try { onButton = !!(pkg.inButtons && pkg.inButtons(x, y, this)); } catch (e) { onButton = false; }
+                        try {
+                            onButton = pkg.barButtonAt ? !!pkg.barButtonAt(x, y, this)
+                                : !!(pkg.inButtons && pkg.inButtons(x, y, this));
+                        } catch (e) { onButton = false; }
                         if (!onButton) {
                             try { this.setSelected(pkg); } catch (e) { }
                             this.__solidDragStart(pkg, x, y);

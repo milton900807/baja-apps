@@ -3598,11 +3598,14 @@ function () {
                     init = graph.Xwc(0);
                 }
 
+                const __onCard = this.__buttonsOnCard() ? this.__cardButtonRow(graph) : null;
+                if (__onCard) init = __onCard.init;
                 for (let button of b) {
                     let buttonX = init + index * bsize;
-                    let buttonY = graph.Y(this.grid.yi + this.getHeight() + graph.worldHeight(this.margin.top));
+                    let buttonY = __onCard ? __onCard.y
+                        : graph.Y(this.grid.yi + this.getHeight() + graph.worldHeight(this.margin.top));
                     let buttonHeight = button.height;
-                    if (buttonY < 0 && (buttonY + screen_height) > 0) {
+                    if (!__onCard && buttonY < 0 && (buttonY + screen_height) > 0) {
                         buttonY = 10;
                     }
                     const r = Math.min(bsize, buttonHeight) / 2;
@@ -8918,6 +8921,26 @@ function () {
                 return false;
             }
 
+            // ---- BUTTONS THAT SIT ON THE CARD ----------------------------------------------
+            // A folder and an annotation get no title bar, so their buttons used to be drawn
+            // in the strip a bar would have occupied -- floating above the card with nothing
+            // under them. They sit ON the card now, inset from its top right corner, which is
+            // where a window's controls belong and, more to the point, is somewhere you can
+            // see what you are aiming at. One geometry, shared by the drawing and the hit
+            // test, so the two cannot disagree.
+            __buttonsOnCard() {
+                const t = '' + (this.plateType || '');
+                return t.indexOf('package') === 0 || t === 'annotation';
+            }
+            __cardButtonRow(graph) {
+                const b = this.button_set || [];
+                const n = Math.max(1, b.length);
+                const right = graph.X(this.grid.xi + this.grid.width);
+                const top = graph.Y(this.grid.yi + this.getHeight());
+                const inset = 6;
+                return { init: right - n * bsize - inset, y: top + inset };
+            }
+
             // The bar button under a screen point, or null. Same geometry, same gates as
             // inButtons -- which now asks here, so the press that FIRES a button and the
             // test that says one is there can never disagree.
@@ -8928,10 +8951,12 @@ function () {
                     if (!this.__buttonsVisible(pt.grid)) return null;
                     const grid = pt.grid;
                     const b = this.button_set || [];
+                    const onCard = this.__buttonsOnCard() ? this.__cardButtonRow(grid) : null;
                     const tw = grid.worldWidth(30 * b.length);
-                    let init = grid.X(this.grid.xi + this.grid.width - tw);
-                    if (init < 0) init = grid.Xwc(0);
-                    const by = this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
+                    let init = onCard ? onCard.init : grid.X(this.grid.xi + this.grid.width - tw);
+                    if (!onCard && init < 0) init = grid.Xwc(0);
+                    const by = onCard ? onCard.y
+                        : this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
                     for (let i = 0; i < b.length; i++) {
                         const bx = init + i * bsize;
                         if (x >= bx && x <= bx + bsize && y >= by && y <= by + b[i].height) {
@@ -9025,8 +9050,16 @@ function () {
                 // __barDrawn is undefined, and refusing every click until then would make a
                 // newly placed table dead to the pointer. Maximized has no bar and its own
                 // title row, so the rule does not apply there.
+                // ...BUT ONLY WHERE THERE IS A BAR TO BE ON. plate-track's __layoutIsTable
+                // refuses a bar to a FOLDER ('package') and to an annotation, so for those
+                // two __barDrawn is false and __barRect is null for ever -- and this rule,
+                // written for tables, was then switching their buttons off completely. A
+                // folder's menu and delete buttons are drawn above its card and are the only
+                // buttons it has; they answer wherever they are drawn.
+                const __noBarByDesign = (('' + (this.plateType || '')).indexOf('package') === 0)
+                    || this.plateType === 'annotation';
                 try {
-                    if (this.__barDrawn !== undefined && !this.__maximizedView) {
+                    if (!__noBarByDesign && this.__barDrawn !== undefined && !this.__maximizedView) {
                         const b = this.__barRect;
                         if (!b) return false;
                         const mt = (this.margin && this.margin.top) || 0;
@@ -14696,19 +14729,23 @@ function () {
                         const textY = ysc + tabH + (h - tabH) / 2;
                         const text = String(name);
 
-                        const fits = (px) => {
-                            ctx.font = `${px}px sans-serif`;
-                            const m = ctx.measureText(text);
-                            const wFit = m.width <= innerW;
-                            const hFit = (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) <= innerH;
-                            return wFit && hFit;
-                        };
+                        // ONE SIZE ON EVERY FOLDER. The size used to be shrunk until the NAME
+                        // fitted, so "Sources" came out large and "Competition_Companies" small
+                        // -- a row of folders read as a row of different things. The size now
+                        // comes from the CARD, which every folder shares, so they all match;
+                        // a name too long for it is cut with an ellipsis rather than shrunk,
+                        // and the whole label stays centred.
+                        const size = Math.max(9, Math.min(innerH * 0.62, w * 0.11, 26));
+                        ctx.font = `${size}px sans-serif`;
+                        let text2 = text;
+                        if (ctx.measureText(text2).width > innerW) {
+                            while (text2.length > 1 && ctx.measureText(text2 + '…').width > innerW) {
+                                text2 = text2.slice(0, -1);
+                            }
+                            text2 += '…';
+                        }
 
-                        let size = Math.min(innerH, 60);
-                        while (size > 4 && !fits(size)) size--;
-                        ctx.font = `${Math.max(size, 6)}px sans-serif`;
-
-                        ctx.fillText(text, textX, textY);
+                        ctx.fillText(text2, textX, textY);
                         ctx.restore();
                     }
                     this.drawSimpleButtons(ctx, graph, screen_width)
