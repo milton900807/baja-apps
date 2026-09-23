@@ -674,6 +674,14 @@ function () {
                         highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
                     },
                     {
+                        // EVERY TABLE DOWNLOADS. A table's rows are the thing people take away
+                        // to a spreadsheet, and asking for them used to mean finding the menu.
+                        // baja/plate/table-xlsx.js does the work; /export-table builds the file.
+                        name: "download", x: 0 + bsize, y: 10, width: 20, height: 20,
+                        action: async (bx, by, x, y, pt) => { return await exec('baja/plate/table-xlsx.js', this, pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('download', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'd'
+                    },
+                    {
                         name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null('minimize', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'M'
                     },
@@ -734,6 +742,11 @@ function () {
                         name: "maximize", x: 0, y: 10, width: 20, height: 20,
                         action: async (bx, by, x, y, pt) => { if (pt && pt.maximizeObject) pt.maximizeObject(this); },
                         highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
+                    },
+                    {
+                        name: "download", x: 0 + bsize, y: 10, width: 20, height: 20,
+                        action: async (bx, by, x, y, pt) => { return await exec('baja/plate/table-xlsx.js', this, pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('download', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'd'
                     },
                     {
                         name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
@@ -3199,6 +3212,15 @@ function () {
                     ctx.stroke();
                 } else if (name === 'minimize') {
                     for (const dy of [-g * 0.9, 0, g * 0.9]) { ctx.moveTo(cx - g, cy + dy); ctx.lineTo(cx + g, cy + dy); }
+                    ctx.stroke();
+                } else if (name === 'download') {
+                    // An arrow coming down onto a tray: the one glyph everybody reads as
+                    // "save this to my machine".
+                    const h = r * 0.24;
+                    const tray = cy + g * 0.95;
+                    ctx.moveTo(cx, cy - g); ctx.lineTo(cx, cy + g * 0.35);
+                    ctx.moveTo(cx - h, cy + g * 0.35 - h); ctx.lineTo(cx, cy + g * 0.35); ctx.lineTo(cx + h, cy + g * 0.35 - h);
+                    ctx.moveTo(cx - g, tray - h); ctx.lineTo(cx - g, tray); ctx.lineTo(cx + g, tray); ctx.lineTo(cx + g, tray - h);
                     ctx.stroke();
                 } else if (name === '+') {
                     ctx.moveTo(cx - g, cy); ctx.lineTo(cx + g, cy);

@@ -11369,7 +11369,17 @@ function (progress) {
                         ctx.textAlign = 'left';
                         ctx.textBaseline = 'middle';
                         let t = name;
-                        const room = b.w - 20;
+                        // ROOM FOR THE BUTTONS. The row sits at the right-hand end of this
+                        // bar, and a long name used to run straight under it -- readable
+                        // right up to the point where it mattered. The row's width is its
+                        // button count times the 20px stride both the drawing and the hit
+                        // test use, plus the gap the row is inset by.
+                        let __btnRoom = 0;
+                        try {
+                            const n = (o.button_set || o.buttons || []).length;
+                            if (n) __btnRoom = n * 20 + 12;
+                        } catch (e) { __btnRoom = 0; }
+                        const room = Math.max(24, b.w - 20 - __btnRoom);
                         if (ctx.measureText(t).width > room) {
                             while (t.length > 1 && ctx.measureText(t + '…').width > room) t = t.slice(0, -1);
                             t += '…';
