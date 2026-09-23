@@ -14660,6 +14660,34 @@ function () {
                 }
             }
 
+            // THE FOLDER'S TAB, in screen pixels. One geometry, shared by the drawing below
+            // and by the press that opens the folder (plate-track's mouseDown): the card is
+            // the handle you drag it by, and the tab is the part that looks like something
+            // to open -- which it could not be while only the drawing knew where it was.
+            __folderTabGeom(graph, pt) {
+                try {
+                    if (('' + (this.plateType || '')).indexOf('package') !== 0) return null;
+                    const w = graph.screenWidth(this.grid.screenWidth(1)) - 2;
+                    const h = graph.screenHeight(this.grid.screenHeight(1));
+                    if (!(w > 0) || !(h > 0)) return null;
+                    const r = Math.max(6, Math.min(14, Math.min(w, h) * 0.06));
+                    return {
+                        w, h, r,
+                        tabW: Math.min(w * 0.35, 120),
+                        tabH: Math.min(h * 0.22, 28),
+                        tabLeft: Math.max(r, w * 0.06),
+                        xsc: graph.X(this.grid.xi),
+                        ysc: graph.Y(this.grid.yi + this.getHeight(pt))
+                    };
+                } catch (e) { return null; }
+            }
+            __onFolderTab(x, y, graph, pt) {
+                const g = this.__folderTabGeom(graph, pt);
+                if (!g) return false;
+                const x0 = g.xsc + g.tabLeft, y0 = g.ysc;
+                return x >= x0 && x <= x0 + g.tabW && y >= y0 && y <= y0 + g.tabH;
+            }
+
             drawAnnotationTable(pt, ctx, graph, xsc, ysc, screen_width, yscreen_height, cell_width, cell_height, max_x, max_y, min_x, min_y) {
                 if (this.__resizing) {
                     ctx.shadowBlur = 15;
@@ -14687,15 +14715,16 @@ function () {
                     ctx.shadowOffsetY = 3;
                     ctx.shadowColor = "rgba(0,0,0,0.3)";
 
-                    const scrwidth = graph.screenWidth(this.grid.screenWidth(1)) - 2;
-                    const scrheight = graph.screenHeight(this.grid.screenHeight(1));
-
-                    const w = scrwidth;
-                    const h = scrheight;
-                    const r = Math.max(6, Math.min(14, Math.min(w, h) * 0.06));
-                    const tabW = Math.min(w * 0.35, 120);
-                    const tabH = Math.min(h * 0.22, 28);
-                    const tabLeft = Math.max(r, w * 0.06);
+                    // The card and its tab, from the one place that knows where they are --
+                    // so the press that opens the folder lands on the tab that is drawn.
+                    const __g = this.__folderTabGeom(graph, pt)
+                        || { w: graph.screenWidth(this.grid.screenWidth(1)) - 2, h: graph.screenHeight(this.grid.screenHeight(1)), r: 6, tabW: 0, tabH: 0, tabLeft: 0 };
+                    const w = __g.w;
+                    const h = __g.h;
+                    const r = __g.r;
+                    const tabW = __g.tabW;
+                    const tabH = __g.tabH;
+                    const tabLeft = __g.tabLeft;
 
                     const bodyFill = "#a7c7ff";
                     const tabFill = "#8fb6ff";

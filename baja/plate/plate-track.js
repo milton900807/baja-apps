@@ -8510,6 +8510,21 @@ function (progress) {
                                 : !!(pkg.inButtons && pkg.inButtons(x, y, this));
                         } catch (e) { onButton = false; }
                         if (!onButton) {
+                            // THE TAB OPENS IT. A folder is drawn as a card with a tab at its
+                            // top-left, and the tab is the part of it that looks like a handle
+                            // for opening rather than for dragging. Pressing it goes straight
+                            // in -- the same thing the desktop menu's "Open.." and a phone's
+                            // press-and-hold do -- and the body is still what you drag the card
+                            // around by. __barPress makes the release belong to this press, so
+                            // the click that opened the folder cannot also set something off on
+                            // the canvas it just opened.
+                            try {
+                                if (pkg.__onFolderTab && pkg.__onFolderTab(x, y, this.grid, this)) {
+                                    this.__barPress = { o: pkg, x, y };
+                                    this.openFolderPlate(pkg);
+                                    return;
+                                }
+                            } catch (e) { console.warn('folder tab', e); }
                             try { this.setSelected(pkg); } catch (e) { }
                             this.__solidDragStart(pkg, x, y);
                             this.__barPress = { o: pkg, x, y };
@@ -8762,6 +8777,15 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                // THE STRIP OWNS ITS BUTTONS ON THE RELEASE TOO, not only on the press.
+                // "Next ▶" sits in the top-right corner -- which is exactly where the
+                // maximized view draws its own close ✕, so __maxHit answers 'exit' for the
+                // very same point. The press cycled to the next window and the release then
+                // shut it again, and a tap on Next looked like it did nothing at all. (A
+                // press held long enough moved the finger a pixel or engaged a drag, which is
+                // why holding it seemed to work.) The press has already done the work; the
+                // release has nothing left to do but stay out of the way.
+                try { if (this.__badgeModeActive && this.mobileBarAt(x, y)) return; } catch (e) { }
                 try { if (this.mobileRelease()) return; } catch (e) { }      // a hold that did not finish
                 // The release belongs to the open window too (see mouseDown).
                 if (this.__modalOver()) { this.__msHoldCancel(); return; }
@@ -26215,6 +26239,38 @@ function (progress) {
                     return { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h, name, kind: this.__badgeKind(o), ref: o };
                 } catch (e) { return null; }
             }
+            // NO TWO BADGES ON TOP OF EACH OTHER. A badge is a fixed-size pill drawn at the
+            // CENTRE of its object, and the objects were placed by a layout that knows their
+            // real sizes -- so a row of folders packed close together (which is what the
+            // layout is asked to do) puts five 130px pills within 60px of each other, and
+            // the board reads as one unreadable smear. The layout is right; the badges just
+            // cannot be drawn where it put them.
+            //
+            // So they are pushed apart here, in screen pixels, where the collision actually
+            // is. Topmost-leftmost first, each badge dropping below whatever it lands on --
+            // a folder row becomes a short column, everything else stays where it was. It is
+            // a pure function of the boxes, so the same view gives the same board every
+            // frame and nothing jitters under a pan.
+            __badgeDeoverlap(list) {
+                const GAP = 6;
+                const hits = (a, b) => a.x < b.x + b.w + 2 && b.x < a.x + a.w + 2
+                    && a.y < b.y + b.h + GAP && b.y < a.y + a.h + GAP;
+                const order = list.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x));
+                const placed = [];
+                for (const b of order) {
+                    // Drop until it clears everything already down. Bounded: with n badges it
+                    // can only be pushed past n-1 of them.
+                    for (let guard = 0; guard < order.length + 1; guard++) {
+                        let moved = false;
+                        for (const p of placed) {
+                            if (hits(b, p)) { b.y = p.y + p.h + GAP; moved = true; }
+                        }
+                        if (!moved) break;
+                    }
+                    placed.push(b);
+                }
+                return list;
+            }
             __badgeList(ctx) {
                 const out = [];
                 for (const o of [...(this.root || []), ...(this.m_plots || [])]) {
@@ -26222,7 +26278,7 @@ function (progress) {
                     const b = this.__badgeBox(o, ctx);
                     if (b) out.push(b);
                 }
-                return out;
+                return this.__badgeDeoverlap(out);
             }
             __badgeAt(x, y) {
                 const list = this.__badgeBoxes || [];
@@ -26371,7 +26427,7 @@ function (progress) {
                     this.pushFolder(p.uid, state);
                     this.deselectAll();
                     try { this.wb(null); } catch (e) { }
-                    try { this.setMessage((p.name || 'Folder') + ' — Up goes back', 2); } catch (e) { }
+                    try { this.setMessage((p.name || 'Folder') + (isMobile() ? ' — Up goes back' : ' — Back goes back'), 2); } catch (e) { }
                     return true;
                 } catch (e) { console.warn('[mobile] open folder', e); return false; }
             }
