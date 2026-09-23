@@ -114,6 +114,16 @@ For each candidate, gather evidence along FOUR ROUTES, and be explicit about whi
 A candidate with one route is a hypothesis; say so. Do not inflate confidence: "low" is a
 useful answer and a wrong "high" costs someone a year.
 
+For each candidate, TRACE HOW IT WOULD ACT ON THE DISEASE, not just what it binds: one
+to four steps in "pathophysiology", each running from the node the drug acts on, through what
+that changes downstream, to the DISEASE PROCESS it reaches and what changing that process
+would do to the disease. Name real processes -- "hepatic stellate cell activation",
+"IL-17-driven keratinocyte hyperproliferation", "mitochondrial ROS in cardiomyocytes" -- never
+"disease progression" or "inflammation" on its own. Where nothing you found shows a step,
+say "hypothesised" in its effect rather than leaving it out. Then say it as a story in
+"disease_mechanism": two or three sentences on which part of the disease's
+pathophysiology the drug interrupts or restores, and what that would change for a patient.
+
 Say what would KILL each candidate -- the exposure it cannot reach at a tolerated dose, the
 tissue it does not enter, the trial that already failed. A repurposing list without the risks
 is a list of things someone else already tried.
@@ -121,7 +131,8 @@ is a list of things someone else already tried.
 Return ONLY this JSON, in a ```json fence, after the prose:
 
 {
-  "subject": {"kind": "indication|mechanism|target", "name": "...", "restated": "one line"},
+  "subject": {"kind": "indication|mechanism|target", "name": "...", "restated": "one line",
+              "pathophysiology": "one sentence: the processes that drive the disease (or, for a target, the disease processes it feeds)"},
   "summary": "three or four sentences: what the strongest candidates are and why",
   "candidates": [
     {"drug": "generic name", "brand": "", "approved_for": "what it is approved/tested for",
@@ -131,6 +142,15 @@ Return ONLY this JSON, in a ```json fence, after the prose:
      "confidence": "high|medium|low",
      "rationale": "why it could work here, in one or two sentences",
      "risks": "what would kill it",
+     "disease_mechanism": "two or three sentences: which part of the disease's pathophysiology it interrupts or restores, and what that would change",
+     "pathophysiology": [
+       {"target": "the gene, protein or pathway it acts on",
+        "action": "one or two words: inhibits, activates, degrades, blocks...",
+        "effect": "what that changes downstream, under twelve words",
+        "process": "the disease process it reaches, under six words",
+        "consequence": "what changing that process does to the disease, under twelve words",
+        "route": "molecular|systems|phenotypic|clinical -- the kind of evidence behind this step"}
+     ],
      "source": {"title": "...", "url": "...", "year": 2024}}
   ],
   "evidence": [
@@ -593,6 +613,162 @@ def _network_svg(top: Dict[str, Any], evid: List[Dict[str, Any]], targs: List[Di
     out.append('</svg>')
     return "".join(out)
 
+
+def _pathophysiology_svg(top: Dict[str, Any], evid: List[Dict[str, Any]],
+                         subject: Dict[str, Any]) -> str:
+    """The top candidate traced into the disease: drug -> what it acts on -> the disease
+    PROCESS that reaches -> the indication, one row per step of the chain the research
+    returned, with a card per process saying what changes and what that does to the disease.
+
+    The plain network (_network_svg) says what the drug hits. This says why hitting it would
+    matter in THIS disease, which is the question a pipeline meeting actually asks. Each step
+    is coloured by the route of evidence the research put behind it -- and grey when no
+    evidence row for this drug has that route, so an asserted step reads as asserted.
+
+    Same rules as the network: one type scale, one margin, data-box="none" text, flat
+    shapes, and only the geometry the canvas importer understands. Returns "" when there is
+    no chain, and the caller falls back to the network.
+    """
+    drug = _s(top.get("Drug"))
+    chain = [st for st in (top.get("_chain") or []) if isinstance(st, dict)
+             and (_s(st.get("process")) or _s(st.get("effect")))]
+    if not drug or not chain:
+        return ""
+    chain = chain[:4]
+    disease = _s(subject.get("name")) or "the indication"
+    patho = _s(subject.get("pathophysiology"))
+    story = _s(top.get("_mechanism"))
+
+    mine = [e for e in evid if _s(e.get("drug")).lower() == drug.lower()]
+    backed = {_s(e.get("route")).lower() for e in mine
+              if _s(e.get("route")).lower() in ROUTES and _s(e.get("direction")).lower() != "against"}
+    counts = {r: sum(1 for e in mine if _s(e.get("route")).lower() == r) for r in ROUTES}
+
+    NAVY, INK, MUTED, RULE, GREY = "#0a2540", "#0a2540", "#5b7180", "#dde6ec", "#7d8d99"
+    T = 'data-box="none"'
+    F = 'data-flat="1"'
+
+    # ---- the grid ---------------------------------------------------------------------
+    M, W, ROW = 44, 1240, 150
+    patho_lines = _wrap(patho, 150, 2) if patho else []
+    rule_y = 92 + 22 * len(patho_lines) + (8 if patho_lines else 0)
+    HEAD = rule_y + 58
+    story_lines = _wrap(story, 150, 4) if story else []
+    STORY = (40 + 20 * len(story_lines)) if story_lines else 0
+    FOOT = STORY + 108
+    H = HEAD + len(chain) * ROW + FOOT
+
+    DRUG_HW, NODE_R, DIS_HW = 118, 46, 112
+    CARD_W, CARD_H = 330, 126
+    x_drug = M + DRUG_HW
+    x_node = 420
+    x_card = 560                             # the card's left edge
+    x_dis = W - M - DIS_HW
+    mid = HEAD + (len(chain) * ROW) / 2
+
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
+    out.append(f'<rect x="1" y="1" width="{W - 2}" height="{H - 2}" fill="#ffffff" stroke="{RULE}" stroke-width="2" {F}/>')
+
+    def text(x, y, s, size, colour, anchor="start", weight=None):
+        w = f' font-weight="{weight}"' if weight else ""
+        out.append(f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" fill="{colour}" '
+                   f'text-anchor="{anchor}"{w} {T}>{_xml(s)}</text>')
+
+    def arrow(x1, y1, x2, y2, colour, width):
+        dx, dy = x2 - x1, y2 - y1
+        d = (dx * dx + dy * dy) ** 0.5 or 1.0
+        ux, uy = dx / d, dy / d
+        hx, hy = x2 - ux * 14, y2 - uy * 14
+        px, py = -uy, ux
+        out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{hx:.1f}" y2="{hy:.1f}" '
+                   f'stroke="{colour}" stroke-width="{width}" fill="none" {F}/>')
+        out.append(f'<polygon points="{x2:.1f},{y2:.1f} {hx + px * 6.5:.1f},{hy + py * 6.5:.1f} '
+                   f'{hx - px * 6.5:.1f},{hy - py * 6.5:.1f}" fill="{colour}" stroke="{colour}" '
+                   f'stroke-width="1" {F}/>')
+
+    # ---- header -----------------------------------------------------------------------
+    text(M, 50, f"{_fit(drug, 42)} — how it would act on {_fit(disease, 56)}", 25, NAVY, weight=700)
+    conf = _s(top.get("Confidence"))
+    found_routes = [r for r in ROUTES if r in backed]
+    text(M, 76, (", ".join(ROUTE_LABEL[r] for r in found_routes) or "no evidence rows")
+         + (f"  ·  {conf} confidence" if conf else ""), 15, MUTED)
+    for i, ln in enumerate(patho_lines):
+        text(M, 102 + i * 22, ("Disease: " if i == 0 else "") + ln, 14, INK)
+    out.append(f'<line x1="{M}" y1="{rule_y}" x2="{W - M}" y2="{rule_y}" stroke="{RULE}" stroke-width="1.5" {F}/>')
+    for cx, cap in ((x_drug, "DRUG"), (x_node, "ACTS ON"),
+                    (x_card + CARD_W / 2, "DISEASE PROCESS  ·  WHAT CHANGES"), (x_dis, "INDICATION")):
+        text(cx, rule_y + 32, cap, 13, GREY, anchor="middle", weight=700)
+
+    # ---- drug and indication ----------------------------------------------------------
+    out.append(f'<rect x="{x_drug - DRUG_HW}" y="{mid - 38}" width="{2 * DRUG_HW}" height="76" '
+               f'fill="{NAVY}" stroke="{NAVY}" stroke-width="2" {F}/>')
+    text(x_drug, mid - 4, _fit(drug, 20), 19, "#ffffff", anchor="middle", weight=700)
+    text(x_drug, mid + 20, _fit(_s(top.get("Stage")) or "in humans", 24), 13, "#9fc4d4", anchor="middle")
+    out.append(f'<rect x="{x_dis - DIS_HW}" y="{mid - 38}" width="{2 * DIS_HW}" height="76" '
+               f'fill="#fff6f5" stroke="#FD5E53" stroke-width="2.5" {F}/>')
+    dl = _wrap(disease, 22, 2) or [disease]
+    for i, ln in enumerate(dl):
+        text(x_dis, mid + (2 if len(dl) < 2 else -8) + i * 20, ln, 16, INK, anchor="middle", weight=600)
+
+    # ---- one row per step -------------------------------------------------------------
+    for i, st in enumerate(chain):
+        cy = HEAD + i * ROW + ROW / 2
+        route = _s(st.get("route")).lower()
+        col = ROUTE_COLOUR.get(route, GREY) if route in backed else GREY
+        w = 2.4 if col != GREY else 1.3
+        # drug -> what it acts on
+        arrow(x_drug + DRUG_HW, mid, x_node - NODE_R - 3, cy, col, w)
+        out.append(f'<circle cx="{x_node}" cy="{cy}" r="{NODE_R}" fill="#f2fafc" '
+                   f'stroke="{col}" stroke-width="2.5" {F}/>')
+        text(x_node, cy + 5, _fit(_s(st.get("target")) or "?", 12), 15, INK, anchor="middle", weight=600)
+        # the action, under the node: every inbound edge starts at the same point on the drug
+        # card, so a label on the edge would sit on top of the next row's
+        if _s(st.get("action")):
+            text(x_node, cy + NODE_R + 18, _fit(st.get("action"), 18), 13, col, anchor="middle", weight=700)
+        # what it acts on -> the process it reaches
+        arrow(x_node + NODE_R + 3, cy, x_card - 3, cy, col, w)
+        top_y = cy - CARD_H / 2
+        out.append(f'<rect x="{x_card}" y="{top_y:.1f}" width="{CARD_W}" height="{CARD_H}" '
+                   f'fill="#fbfcfd" stroke="{col if col != GREY else RULE}" stroke-width="1.5" {F}/>')
+        out.append(f'<rect x="{x_card}" y="{top_y:.1f}" width="5" height="{CARD_H}" '
+                   f'fill="{col}" stroke="{col}" stroke-width="1" {F}/>')
+        tx = x_card + 18
+        text(tx, top_y + 26, _fit(_s(st.get("process")) or "(process not named)", 34), 15, INK, weight=700)
+        eff = _wrap(st.get("effect"), 44, 2)
+        for j, ln in enumerate(eff):
+            text(tx, top_y + 50 + j * 18, ln, 13, MUTED)
+        # bold type runs wider than the caption above it, so it wraps shorter
+        cy2 = top_y + 50 + max(1, len(eff)) * 18 + 6
+        for j, ln in enumerate(_wrap(st.get("consequence"), 36, 2)):
+            text(tx, cy2 + j * 18, ("→ " if j == 0 else "   ") + ln, 13, col if col != GREY else INK, weight=600)
+        # the process -> the indication
+        arrow(x_card + CARD_W + 3, cy, x_dis - DIS_HW - 3, mid, col, w)
+
+    # ---- the hypothesis, in words ------------------------------------------------------
+    y = HEAD + len(chain) * ROW
+    if story_lines:
+        out.append(f'<line x1="{M}" y1="{y + 6}" x2="{W - M}" y2="{y + 6}" stroke="{RULE}" stroke-width="1.5" {F}/>')
+        text(M, y + 30, "HOW IT WOULD WORK", 13, GREY, weight=700)
+        for i, ln in enumerate(story_lines):
+            text(M, y + 52 + i * 20, ln, 14, INK)
+
+    # ---- legend -----------------------------------------------------------------------
+    ly = H - 108 + 44
+    out.append(f'<line x1="{M}" y1="{ly - 30}" x2="{W - M}" y2="{ly - 30}" stroke="{RULE}" stroke-width="1.5" {F}/>')
+    text(M, ly, "EVIDENCE ROWS", 13, GREY, weight=700)
+    x = M + 150
+    for r in ROUTES:
+        n = counts[r]
+        c = ROUTE_COLOUR[r] if n else "#cdd8de"
+        out.append(f'<rect x="{x}" y="{ly - 11}" width="12" height="12" fill="{c}" stroke="{c}" stroke-width="1" {F}/>')
+        text(x + 20, ly, f"{ROUTE_LABEL[r]}  {n}", 14, INK if n else GREY, weight=600 if n else None)
+        x += 178
+    text(M, H - 26, "A grey step is asserted by the model, with no evidence row of that route behind it. "
+         "The chain is a hypothesis to test, not a finding.", 13, GREY)
+    out.append('</svg>')
+    return "".join(out)
+
+
 def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: str,
                  info: Dict[str, Any]) -> Dict[str, Any]:
     subject = found.get("subject") if isinstance(found.get("subject"), dict) else {}
@@ -633,6 +809,9 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
             "What would kill it": _s(c.get("risks")),
             "Source": _s(src.get("title")),
             "Checked": _verified(_s(src.get("url")), seen),
+            # for the picture only -- never a column
+            "_chain": [st for st in (c.get("pathophysiology") or []) if isinstance(st, dict)],
+            "_mechanism": _s(c.get("disease_mechanism")),
         })
         if src:
             source_rows.append({
@@ -754,7 +933,10 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
     svgs = []
     if cand_rows:
         try:
-            svg = _network_svg(cand_rows[0], evid, targs, subject)
+            # The pathophysiology picture when the research traced one; runs stored before
+            # the chain was asked for still get the drug -> target -> indication network.
+            svg = _pathophysiology_svg(cand_rows[0], evid, subject) or \
+                _network_svg(cand_rows[0], evid, targs, subject)
             if svg:
                 svgs.append({"name": f"{prefix}_Repurpose_Network",
                              "title": f"{_s(cand_rows[0].get('Drug'))} — mechanism",
