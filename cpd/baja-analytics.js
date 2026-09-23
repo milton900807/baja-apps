@@ -4436,7 +4436,9 @@ function (path, config) {
                             // A PROGRESS BAR THAT LEARNS. The research runs for minutes and the
                             // tool's own percentage is coarse and jumpy (2, 5, 10, 16 … 85, 95),
                             // so the bar is driven by which PHASE the run is in against how long
-                            // that phase has taken in earlier runs on this machine. The first run
+                            // that phase has taken in every earlier run of THIS menu item, by
+                            // anyone -- the history is kept on the server, not in the browser,
+                            // and all of it counts, not the last handful. The first run
                             // uses the written-in priors below; from the second on, the bar and
                             // the time remaining come from measurement. A cached answer and a
                             // fresh search keep separate histories -- one takes seconds, the

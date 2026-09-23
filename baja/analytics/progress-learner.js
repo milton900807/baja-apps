@@ -9,7 +9,7 @@ function () {
     // guess at a percentage; it is driven by WHEN each phase started, measured against
     // how long that phase has taken before.
     //
-    // What is learned, per task and per variant, in localStorage:
+    // What is learned, per task and per variant:
     //   totals[]            how long finished runs took, in seconds
     //   marks[phase][]      the FRACTION of the run at which each phase started
     //   counts[phase][]     how many times a repeating phase fired (searches per run)
@@ -23,20 +23,41 @@ function () {
     //     search phase started at 40 s when it usually starts at 20 s is going to be long)
     //   * "about 2 minutes left" that is worth reading, with the sample count behind it
     //
-    // Nothing here blocks: if localStorage is unavailable (private window, cleared site
-    // data) the written-in prior is used and nothing is stored. The bar never reaches
-    // 100% until the task actually finishes, and never goes backwards.
+    // THE HISTORY IS GLOBAL, AND IT IS ALL OF IT.
+    //
+    // Two things this used to get wrong. It kept what it learned in localStorage, which
+    // made the history per-person and per-browser: every new visitor, and every cleared
+    // browser, started the bar back at the written-in prior, and one person's twenty runs
+    // taught nobody else anything. And it estimated from the last dozen runs only. Both
+    // are fixed here: the history lives on the server (GET/POST /progress-stats), one
+    // history per MENU ITEM -- the task key, 'indication-market' or 'repurpose' -- shared
+    // by everyone, and every stored run counts towards the medians, not just the recent
+    // ones. Within a task, a cached answer and a fresh search still keep separate
+    // histories (the variant), because they are not the same length of work.
+    //
+    // Nothing here blocks or waits. The bar starts from the last global snapshot this
+    // browser saw (localStorage, now a cache rather than the record); the live global
+    // history is fetched in the background and swapped in the moment it lands, mid-run if
+    // that is when it arrives. If the server cannot be reached the cache carries the run
+    // and the finished run is simply not contributed. The bar never reaches 100% until
+    // the task actually finishes, and never goes backwards.
 
-    const KEY = 'baja.progress.v1';
-    const MAX_SAMPLES = 24;      // kept per key
-    const RECENT = 12;           // what the estimate looks at
+    const KEY = 'baja.progress.v2';
+    const MAX_SAMPLES = 500;     // kept per key, locally and on the server
     const PRIOR_WEIGHT = 2;      // the written-in guess counts for two runs
     const CEILING = 0.985;       // the bar stops here until finish() says otherwise
+
+    const apiHost = () => {
+        try { return window['env']['apiUrl']; } catch (e) { return ''; }
+    };
 
     const nowMs = () => Date.now();
     const isNum = (v) => typeof v === 'number' && isFinite(v);
     const clamp = (v, a, b) => (v < a ? a : (v > b ? b : v));
 
+    // localStorage is no longer the record -- it is a CACHE of the last global snapshot
+    // this browser saw, so the first frames of a run are drawn from measurement instead of
+    // the written-in prior while the real history is on its way.
     function load() {
         try {
             const s = localStorage.getItem(KEY);
@@ -47,6 +68,63 @@ function () {
 
     function save(db) {
         try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { }
+    }
+
+    // ---- the global history ----------------------------------------------------------
+
+    // The server's answer wins outright for the keys it returns: it has every run anyone
+    // has finished, and this browser's cache is a strictly older view of the same thing.
+    function adopt(db, stats) {
+        if (!stats || typeof stats !== 'object') return false;
+        let any = false;
+        Object.keys(stats).forEach((k) => {
+            const s = stats[k];
+            if (!s || typeof s !== 'object') return;
+            db[k] = {
+                totals: Array.isArray(s.totals) ? s.totals.filter(isNum) : [],
+                marks: (s.marks && typeof s.marks === 'object') ? s.marks : {},
+                counts: (s.counts && typeof s.counts === 'object') ? s.counts : {}
+            };
+            any = true;
+        });
+        return any;
+    }
+
+    // One request per task even when several bars start at once, and re-asked after a few
+    // seconds so a second run in the same sitting sees what the first one just contributed.
+    const pending = {};
+    const PULL_TTL = 15000;
+
+    function pull(task, db) {
+        const host = apiHost();
+        if (!host || typeof GETJSON !== 'function') return Promise.resolve(false);
+        const p = pending[task];
+        if (!p || (nowMs() - p.at) > PULL_TTL) {
+            pending[task] = {
+                at: nowMs(),
+                promise: Promise.resolve()
+                    .then(() => GETJSON(host + '/progress-stats?task=' + encodeURIComponent(task)))
+                    .then((r) => (r && r.ok && r.stats) ? r.stats : null)
+                    .catch(() => null)
+            };
+        }
+        return pending[task].promise.then((stats) => {
+            if (!stats) return false;
+            const got = adopt(db, stats);
+            if (got) { const cache = load(); adopt(cache, stats); save(cache); }
+            return got;
+        }).catch(() => false);
+    }
+
+    // A finished run, handed to everyone else. Fire and forget: a bar that waited on this
+    // would be a bar that makes the task look slower than it is.
+    function contribute(task, variant, total, marks, counts) {
+        const host = apiHost();
+        if (!host || typeof POSTJSON !== 'function') return;
+        try {
+            const r = POSTJSON({ task, variant, total, marks, counts }, host + '/progress-stats');
+            if (r && typeof r.catch === 'function') r.catch(() => { });
+        } catch (e) { }
     }
 
     function bucket(db, key) {
@@ -64,6 +142,13 @@ function () {
         while (arr.length > MAX_SAMPLES) arr.shift();
         return arr;
     }
+
+    // EVERY run that was ever recorded, not a recent window. The bar is asked to be right
+    // about a task, and a task's length is a property of the task; a person who happens to
+    // be the thirteenth caller should not have the first twelve runs thrown away for them.
+    // The median is what makes this safe to do -- see below -- and forget() is how a real
+    // change in how long the work takes gets cleared out deliberately.
+    const hist = (a) => (a || []).filter(isNum);
 
     // The median, not the mean: one run that hit a slow search or a retry should not drag
     // every later estimate with it, and with a handful of samples the mean is exactly what
@@ -92,7 +177,7 @@ function () {
     // a cached answer comes back in six seconds against a prior written for three minutes,
     // and holding on to the prior there would be a bar that is wrong on purpose.
     function blend(samples, prior, priorWeight) {
-        const recent = (samples || []).filter(isNum).slice(-RECENT);
+        const recent = hist(samples);
         const m = median(recent);
         if (m == null) return prior;
         if (recent.length >= 3 && spread(recent) < 0.4) return m;
@@ -132,7 +217,12 @@ function () {
             const m = s.priorSeconds || {};
             return isNum(m[v]) ? m[v] : (isNum(m.default) ? m.default : 90);
         };
+        // The cache first so there is something to draw from immediately, then the global
+        // history over the top of it as soon as it arrives. state() reads the buckets on
+        // every tick, so a history that lands three seconds into a run simply takes over
+        // from there -- no restart, no jump backwards (the bar cannot go backwards).
         const db = load();
+        pull('' + (task || 'task'), db);
 
         const run = {
             task: '' + (task || 'task'),
@@ -166,7 +256,7 @@ function () {
 
         const phaseAt = (id) => {
             const p = phases.find(q => q.id === id);
-            const learned = median((cur().marks[id] || []).slice(-RECENT));
+            const learned = median(hist(cur().marks[id]));
             if (learned != null) return clamp(learned, 0, 0.98);
             return p && isNum(p.at) ? clamp(p.at, 0, 0.98) : null;
         };
@@ -262,7 +352,7 @@ function () {
                     // A repeating phase knows more than the clock does: eight of the usual
                     // twelve searches done is eight twelfths of the phase, whatever the time.
                     if (p && p.repeat) {
-                        const expect = median((b.counts[id] || []).slice(-RECENT)) || (isNum(p.expect) ? p.expect : null);
+                        const expect = median(hist(b.counts[id])) || (isNum(p.expect) ? p.expect : null);
                         const seen = run.counts[id] || 0;
                         if (expect && expect > 0) inside = Math.max(inside, clamp(seen / expect, 0, 0.98));
                     }
@@ -335,12 +425,14 @@ function () {
                     try { const v = s.variantFrom(run.marks, run.order); if (v) run.variant = '' + v; } catch (e) { }
                 }
                 const b = bucket(db, keyFor(run.variant));
+                const marks = {}, counts = {};
                 push(b.totals, total);
                 Object.keys(run.marks).forEach((id) => {
                     const f = run.marks[id] / total;
                     if (f >= 0 && f <= 1) {
                         if (!Array.isArray(b.marks[id])) b.marks[id] = [];
                         push(b.marks[id], f);
+                        marks[id] = f;
                     }
                 });
                 Object.keys(run.counts).forEach((id) => {
@@ -348,8 +440,13 @@ function () {
                     if (!p || !p.repeat) return;
                     if (!Array.isArray(b.counts[id])) b.counts[id] = [];
                     push(b.counts[id], run.counts[id]);
+                    counts[id] = run.counts[id];
                 });
                 save(db);
+                // And to the history everyone else reads. The local copy above is only so
+                // that a second run in this browser does not have to wait for the round
+                // trip to know what the first one cost.
+                contribute(run.task, run.variant, total, marks, counts);
                 return api;
             },
 
@@ -357,7 +454,7 @@ function () {
             summary() {
                 const total = (nowMs() - run.t0) / 1000;
                 const b = cur();
-                const was = median((b.totals || []).slice(0, -1).slice(-RECENT));
+                const was = median(hist(b.totals).slice(0, -1));
                 return { seconds: total, variant: run.variant, previousTypical: was };
             }
         };
@@ -365,31 +462,42 @@ function () {
         return api;
     }
 
-    // What has been learned so far, for a settings panel or a check by hand.
-    function stats(task) {
-        const db = load();
+    function digest(db, task) {
         const out = {};
         Object.keys(db).forEach((k) => {
             if (task && k.indexOf(task + '|') !== 0) return;
             const b = db[k];
             out[k] = {
                 runs: (b.totals || []).length,
-                typicalSeconds: median((b.totals || []).slice(-RECENT)),
+                typicalSeconds: median(hist(b.totals)),
                 phases: Object.keys(b.marks || {}).map(id => ({ id, at: median(b.marks[id]) }))
             };
         });
         return out;
     }
 
-    // Start again for one task (or everything), if the estimates have gone stale -- the
-    // tool changed, the machine changed, the network changed.
+    // What this browser last saw, without asking the server -- for a check by hand.
+    function stats(task) {
+        return digest(load(), task);
+    }
+
+    // What everyone's runs say, live. This is the real answer; stats() is the cached one.
+    function globalStats(task) {
+        const db = {};
+        return pull('' + (task || ''), db).then(() => digest(db, task));
+    }
+
+    // Drop the local cache. The global history is NOT cleared by this -- it is everyone's,
+    // and one person deciding the estimates have gone stale is not grounds for throwing
+    // away every run anyone has done. The server file is the place to do that deliberately.
     function forget(task) {
         const db = load();
         Object.keys(db).forEach((k) => {
             if (!task || k.indexOf(task + '|') === 0) delete db[k];
         });
         save(db);
+        Object.keys(pending).forEach((k) => { if (!task || k === task) delete pending[k]; });
     }
 
-    return { begin, stats, forget, _median: median, _blend: blend, _etaText: etaText };
+    return { begin, stats, globalStats, forget, _median: median, _blend: blend, _etaText: etaText };
 }
