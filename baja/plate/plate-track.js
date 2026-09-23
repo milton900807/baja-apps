@@ -6427,6 +6427,16 @@ function (progress) {
                 this.glyphs.push(glyph)
                 this.selectGlyph__(glyph)
             }
+            // ADDED, NOT PICKED UP. addGlyph selects what it adds and arms the move tool over
+            // it, which is right when a person has just dropped an SVG on the canvas and is
+            // about to put it somewhere -- and wrong when a BUILD puts a picture down on its
+            // own: the canvas then opens with every shape in the drawing outlined in cyan and
+            // a menu up for something nobody asked for.
+            addGlyphQuietly(glyph) {
+                if (!glyph) return glyph;
+                this.glyphs.push(glyph);
+                return glyph;
+            }
             // The outline of a STICKY NOTE, drawn with the note's own transform. A note
             // (flexigraph/shapes/postit.js, type 'Note') keeps its CENTRE in x / y and is
             // drawn rotated about it by rotationDeg. The selection outlines boxed it as a
@@ -22577,6 +22587,28 @@ function (progress) {
                         ymin = Math.min(ymin, pb.y0); ymax = Math.max(ymax, pb.y1);
                     }
                     index++;
+                }
+                // AND A DRAWING COUNTS TOO. A glyph -- an imported SVG, a sticky note, an
+                // arrow -- is on the canvas and is part of what "fit everything" means. It
+                // was left out, so a build that puts a diagram in the space beside its
+                // tables had the diagram half off the screen the moment the view was
+                // fitted, which reads as the diagram having been put in the wrong place.
+                for (const g of (this.glyphs || [])) {
+                    try {
+                        const s = (g && (g.shape || (typeof g.getShape === 'function' ? g.getShape() : null))) || null;
+                        if (!s || typeof s.getX !== 'function') continue;
+                        const a = Number(s.getX()), b = Number(s.getXf());
+                        const c = Number(s.getY()), d = Number(s.getYf());
+                        if (![a, b, c, d].every(Number.isFinite)) continue;
+                        const gx0 = Math.min(a, b), gx1 = Math.max(a, b);
+                        const gy0 = Math.min(c, d), gy1 = Math.max(c, d);
+                        if (index === 0) { xmin = gx0; xmax = gx1; ymin = gy0; ymax = gy1; }
+                        else {
+                            xmin = Math.min(xmin, gx0); xmax = Math.max(xmax, gx1);
+                            ymin = Math.min(ymin, gy0); ymax = Math.max(ymax, gy1);
+                        }
+                        index++;
+                    } catch (e) { }
                 }
 
                 if (isNaN(xmin) || isNaN(xmax) || isNaN(ymin) || isNaN(ymax) ||

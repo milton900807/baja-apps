@@ -388,6 +388,167 @@ def _prefix(subject: Dict[str, Any], prompt: str) -> str:
     return (base[:40] or "Repurpose")
 
 
+# ---------------- the network picture ----------------
+
+ROUTE_COLOUR = {
+    "molecular": "#1aa3bd",
+    "systems": "#7c3aed",
+    "phenotypic": "#16a34a",
+    "clinical": "#FD5E53",
+}
+
+
+def _xml(t: Any) -> str:
+    return (_s(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+
+def _fit(t: Any, n: int) -> str:
+    s = _s(t)
+    return s if len(s) <= n else (s[: max(1, n - 1)].rstrip() + "…")
+
+
+def _network_svg(top: Dict[str, Any], evid: List[Dict[str, Any]], targs: List[Dict[str, Any]],
+                 subject: Dict[str, Any]) -> str:
+    """The top candidate as a systems-biology network: the drug, what it hits, what that
+    does, and the disease -- with each edge coloured by the ROUTE of evidence behind it.
+
+    The tables say the same things in words. A network says the one thing a table cannot:
+    whether the argument is a chain (drug hits a target, that target drives the disease)
+    or a pile of separate observations. An edge with no evidence row behind it is drawn
+    grey and dashed-thin, so the gaps in the chain are as visible as the links.
+
+    Only geometry that flexigraph's SVG importer understands: rect, line, circle, ellipse,
+    polygon, text. No <path>, no markers -- arrowheads are little polygons.
+    """
+    drug = _s(top.get("Drug"))
+    if not drug:
+        return ""
+    disease = _fit(_s(subject.get("name")) or "the disease", 34)
+
+    mine = [e for e in evid if _s(e.get("drug")).lower() == drug.lower()]
+    routes_with_evidence = {}
+    for e in mine:
+        r = _s(e.get("route")).lower()
+        if r in ROUTES:
+            routes_with_evidence.setdefault(r, []).append(e)
+
+    # What the drug hits: the targets table first (it says how each one connects to the
+    # disease, which is the middle of the chain), then the candidate's own mechanism if the
+    # table did not name it.
+    nodes = []
+    for t in targs:
+        name = _s(t.get("target"))
+        if not name:
+            continue
+        drugs = _s(t.get("drugs")).lower()
+        if drug.lower() not in drugs:
+            continue
+        nodes.append({"name": name, "link": _s(t.get("link")), "evidence": _s(t.get("evidence"))})
+    if not nodes:
+        mech = _s(top.get("Target or mechanism"))
+        if mech:
+            nodes.append({"name": mech, "link": "", "evidence": ""})
+    if not nodes:
+        return ""
+    nodes = nodes[:5]
+
+    # ---- geometry, in plain SVG pixels; the canvas scales the whole drawing ----
+    W = 880
+    ROW = 120
+    top_pad, bottom_pad = 108, 92
+    H = top_pad + max(1, len(nodes)) * ROW + bottom_pad
+    # EVERY COLUMN IS DERIVED FROM W. They were written as constants for one width and then
+    # the width was changed, which put the disease box 48px outside its own frame -- and a
+    # frame is exactly what the canvas measures the drawing by, so the part hanging out was
+    # the part that got cut off.
+    DRUG_HW, NODE_R, DIS_HW = 92, 44, 86
+    x_drug = 36 + DRUG_HW
+    x_dis = W - 32 - DIS_HW
+    x_node = (x_drug + x_dis) / 2
+    mid = top_pad + (len(nodes) * ROW) / 2 - ROW / 2 + 34
+
+    NAVY, INK, MUTED = "#0a2540", "#0a2540", "#6b7f8c"
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
+    out.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="#ffffff" stroke="#c7d6de" stroke-width="2"/>')
+
+    # Title. EVERY LABEL IS CENTRED ON WHERE IT BELONGS, never anchored to a left edge:
+    # the canvas's SVG renderer draws a text shape about its own point and does not always
+    # honour text-anchor, and a left-anchored title then hangs off the left of the frame
+    # and lands on whatever the layout put beside it.
+    out.append(f'<text x="{W / 2}" y="40" font-size="27" fill="{NAVY}" text-anchor="middle">'
+               f'{_xml(_fit(drug, 40))} — how it could act on {_xml(disease)}</text>')
+    conf = _s(top.get("Confidence"))
+    found_routes = [r for r in ROUTES if r in routes_with_evidence]
+    sub = (", ".join(ROUTE_LABEL[r] for r in found_routes) or "no evidence rows") \
+        + (f" · {conf} confidence" if conf else "")
+    out.append(f'<text x="{W / 2}" y="66" font-size="16" fill="{MUTED}" text-anchor="middle">{_xml(sub)}</text>')
+
+    def arrow(x1, y1, x2, y2, colour, width, label):
+        dx, dy = x2 - x1, y2 - y1
+        d = (dx * dx + dy * dy) ** 0.5 or 1.0
+        ux, uy = dx / d, dy / d
+        hx, hy = x2 - ux * 13, y2 - uy * 13          # base of the head
+        px, py = -uy, ux                              # perpendicular
+        out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{hx:.1f}" y2="{hy:.1f}" '
+                   f'stroke="{colour}" stroke-width="{width}" fill="none"/>')
+        out.append('<polygon points="{:.1f},{:.1f} {:.1f},{:.1f} {:.1f},{:.1f}" fill="{}" stroke="{}" '
+                   'stroke-width="1"/>'.format(x2, y2, hx + px * 6, hy + py * 6, hx - px * 6, hy - py * 6,
+                                               colour, colour))
+        if label:
+            out.append(f'<text x="{(x1 + x2) / 2:.1f}" y="{(y1 + y2) / 2 - 8:.1f}" font-size="15" '
+                       f'fill="{colour}" text-anchor="middle">{_xml(_fit(label, 26))}</text>')
+
+    # The drug, on the left.
+    out.append(f'<rect x="{x_drug - DRUG_HW}" y="{mid - 30}" width="{2 * DRUG_HW}" height="60" fill="{NAVY}" '
+               f'stroke="{NAVY}" stroke-width="2"/>')
+    out.append(f'<text x="{x_drug}" y="{mid - 4}" font-size="19" fill="#ffffff" text-anchor="middle">'
+               f'{_xml(_fit(drug, 22))}</text>')
+    out.append(f'<text x="{x_drug}" y="{mid + 16}" font-size="14" fill="#9fc4d4" text-anchor="middle">'
+               f'{_xml(_fit(_s(top.get("Stage")) or "drug", 24))}</text>')
+
+    # The disease, on the right.
+    out.append(f'<rect x="{x_dis - DIS_HW}" y="{mid - 30}" width="{2 * DIS_HW}" height="60" fill="#ffffff" '
+               f'stroke="#FD5E53" stroke-width="2.5"/>')
+    out.append(f'<text x="{x_dis}" y="{mid + 5}" font-size="18" fill="{INK}" text-anchor="middle">'
+               f'{_xml(_fit(disease, 20))}</text>')
+
+    # What it hits, down the middle, each with the route that backs it.
+    for i, nd in enumerate(nodes):
+        cy = top_pad + i * ROW + 34
+        # The route this node's edge is drawn in: molecular if there is molecular evidence,
+        # else the strongest route that exists for the drug, else grey for "asserted".
+        r = "molecular" if "molecular" in routes_with_evidence else (found_routes[0] if found_routes else "")
+        colour = ROUTE_COLOUR.get(r, "#9aa7b4")
+        wide = 2.5 if r else 1.2
+        arrow(x_drug + DRUG_HW, mid, x_node - NODE_R - 2, cy, colour, wide, ROUTE_LABEL.get(r, "asserted"))
+        out.append(f'<circle cx="{x_node}" cy="{cy}" r="{NODE_R}" fill="#eaf6f9" stroke="{colour}" stroke-width="2.5"/>')
+        out.append(f'<text x="{x_node}" y="{cy + 4}" font-size="17" fill="{INK}" text-anchor="middle">'
+                   f'{_xml(_fit(nd["name"], 14))}</text>')
+        # ...and how that reaches the disease.
+        r2 = "clinical" if "clinical" in routes_with_evidence else (
+            "phenotypic" if "phenotypic" in routes_with_evidence else "")
+        c2 = ROUTE_COLOUR.get(r2, "#9aa7b4")
+        arrow(x_node + NODE_R + 2, cy, x_dis - DIS_HW, mid, c2, 2.5 if r2 else 1.2,
+              _fit(nd["link"], 26) or ROUTE_LABEL.get(r2, "asserted"))
+
+    # The legend: which routes actually have evidence behind this drug, and how much.
+    ly = H - 46
+    out.append(f'<line x1="40" y1="{ly - 30}" x2="{W - 40}" y2="{ly - 30}" stroke="#dbe6ec" stroke-width="1"/>')
+    step = (W - 120) / len(ROUTES)
+    for i, r in enumerate(ROUTES):
+        n = len(routes_with_evidence.get(r, []))
+        col = ROUTE_COLOUR[r] if n else "#c7d6de"
+        cx = 60 + step * (i + 0.5)
+        out.append(f'<circle cx="{cx - 46:.1f}" cy="{ly - 5}" r="6" fill="{col}" stroke="{col}" stroke-width="1"/>')
+        out.append(f'<text x="{cx + 6:.1f}" y="{ly}" font-size="15" fill="{INK if n else "#9aa7b4"}" '
+                   f'text-anchor="middle">{ROUTE_LABEL[r]} {n}</text>')
+    out.append(f'<text x="{W / 2}" y="{H - 16}" font-size="13" fill="#9aa7b4" text-anchor="middle">'
+               'Evidence rows behind this drug. A grey edge is asserted, with none behind it.</text>')
+    out.append('</svg>')
+    return "".join(out)
+
+
 def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: str,
                  info: Dict[str, Any]) -> Dict[str, Any]:
     subject = found.get("subject") if isinstance(found.get("subject"), dict) else {}
@@ -539,7 +700,21 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
         {"name": f"{prefix}_Repurpose_Summary", "group": "Candidates",
          "headers": ["Item", "Value"], "rows": rows_of(["Item", "Value"], summary_rows)},
     ]
-    return {"prefix": prefix, "tables": tables, "subject": subject,
+    # The strongest candidate, drawn. cand_rows is already sorted by routes then
+    # confidence, so [0] IS the top one; no candidate means no picture, and so does a
+    # candidate nothing is known to hit.
+    svgs = []
+    if cand_rows:
+        try:
+            svg = _network_svg(cand_rows[0], evid, targs, subject)
+            if svg:
+                svgs.append({"name": f"{prefix}_Repurpose_Network",
+                             "title": f"{_s(cand_rows[0].get('Drug'))} — mechanism",
+                             "svg": svg})
+        except Exception as exc:                      # a picture is never worth the run
+            print(f"[repurpose] network svg: {exc}", flush=True)
+
+    return {"prefix": prefix, "tables": tables, "subject": subject, "svgs": svgs,
             "counts": {"candidates": len(cand_rows), "evidence": len(ev_rows),
                        "multi_route": multi, "by_route": by_route,
                        "unverified": unverified}}
@@ -630,6 +805,7 @@ def run(prompt: str, opts: Dict[str, Any]) -> Dict[str, Any]:
             "seconds": info.get("seconds"),
         },
         "tables": built["tables"],
+        "svgs": built.get("svgs") or [],
         "documents": [doc],
         "notes": notes,
         "diagnostics": "NO_ISSUES_DETECTED",

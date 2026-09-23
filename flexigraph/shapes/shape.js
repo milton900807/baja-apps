@@ -1052,6 +1052,53 @@ function () {
                 }
             }
 
+            // SCALE AN IMPORTED SVG. fromSvgString brings a drawing in at the numbers it
+            // was written with, and those numbers become WORLD units -- so a diagram
+            // authored 760 across is 760 world units across, whatever the canvas around it
+            // happens to be. There was a translate and no scale, which left the size of an
+            // imported drawing to whoever wrote the file. This scales about a fixed point,
+            // so a drawing can be resized without also being moved, and it takes the
+            // thicknesses with it: a line at stroke-width 2 and a label at font-size 13 are
+            // part of the drawing's proportions, and scaling only the coordinates leaves a
+            // small diagram drawn with fat lines and giant text.
+            static svgScaleAbout(shape, sx, sy, ax, ay) {
+                const fx = Shape._n(sx), fy = Shape._n(sy);
+                if (!Number.isFinite(fx) || !Number.isFinite(fy) || (fx === 1 && fy === 1)) return shape;
+                const cx = Number.isFinite(Shape._n(ax)) ? Shape._n(ax) : 0;
+                const cy = Number.isFinite(Shape._n(ay)) ? Shape._n(ay) : 0;
+                const mean = (Math.abs(fx) + Math.abs(fy)) / 2;
+                const walk = (s) => {
+                    if (!s) return;
+                    const n = Shape._n;
+                    const X = (v) => cx + (n(v) - cx) * fx;
+                    const Y = (v) => cy + (n(v) - cy) * fy;
+                    if ('x' in s) s.x = X(s.x);
+                    if ('y' in s) s.y = Y(s.y);
+                    if ('xf' in s) s.xf = X(s.xf);
+                    if ('yf' in s) s.yf = Y(s.yf);
+                    if ('x1' in s) s.x1 = X(s.x1);
+                    if ('y1' in s) s.y1 = Y(s.y1);
+                    if ('x2' in s) s.x2 = X(s.x2);
+                    if ('y2' in s) s.y2 = Y(s.y2);
+                    if ('cx' in s) s.cx = X(s.cx);
+                    if ('cy' in s) s.cy = Y(s.cy);
+                    if ('w' in s) s.w = n(s.w) * fx;
+                    if ('h' in s) s.h = n(s.h) * fy;
+                    if ('r' in s) s.r = n(s.r) * mean;
+                    if ('rx' in s) s.rx = n(s.rx) * Math.abs(fx);
+                    if ('ry' in s) s.ry = n(s.ry) * Math.abs(fy);
+                    if ('fontSize' in s) s.fontSize = n(s.fontSize) * mean;
+                    if (s.style && 'strokeWidth' in s.style) s.style.strokeWidth = n(s.style.strokeWidth) * mean;
+                    if (Array.isArray(s.pts)) {
+                        for (const p of s.pts) { if (!p) continue; p.x = X(p.x); p.y = Y(p.y); }
+                    }
+                    if (Array.isArray(s.shapes)) for (const child of s.shapes) walk(child);
+                };
+                walk(shape);
+                try { Shape._attachBBoxMethods(shape); } catch (e) { }
+                return shape;
+            }
+
             static _attachSvgTranslate(shape) {
                 if (!shape || shape._svgTranslateAttached) return shape;
                 shape._svgTranslateAttached = true;

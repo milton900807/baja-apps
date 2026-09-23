@@ -5168,6 +5168,20 @@ function (path, config) {
                             } catch (e) { }
                             try { pt.curtainDown(0); } catch (e) { }
                             try { await __fade; } catch (e) { }
+
+                            // THE TOP CANDIDATE, DRAWN, IN WHATEVER SPACE THE LAYOUT LEFT.
+                            // It goes in AFTER the packing, on purpose: it is not one of the
+                            // objects the arrangement is made of, so it should neither push the
+                            // tables around nor land on top of them. place-svg.js looks for a
+                            // hole inside what is already there and only widens the canvas when
+                            // there is no hole big enough. No candidate means no picture --
+                            // repurpose.py sends no svg at all in that case.
+                            try {
+                                for (const s of (result.svgs || [])) {
+                                    if (s && s.svg) await exec('baja/analytics/place-svg.js', pt, s.svg, { name: s.title || s.name, widthFrac: 0.45 });
+                                }
+                            } catch (e) { console.warn('[repurpose] network', e); }
+
                             try { await pt.zoomtfit(); } catch (e) { }
 
                             const d = result.detection || {};
