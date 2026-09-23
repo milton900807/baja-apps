@@ -6459,7 +6459,16 @@ function (progress) {
                 return true;
             }
 
-            selectGlyph__(glyph) {
+            // opts.menu:  false to select WITHOUT opening the menu (a press that is about
+            //              to become a drag must not put a menu under the pointer).
+            // opts.press:  {x, y} of the press that is selecting it -- the drag is armed
+            //              from that point straight away, so the SAME press that picks the
+            //              drawing up also moves it, the way a folder card does. Without
+            //              this the move workbench went in 100 ms later and the press that
+            //              selected the drawing was long over: you had to press a second
+            //              time to move anything.
+            selectGlyph__(glyph, opts) {
+                const __o = opts || {};
                 if (this.__collab && glyph) {
                     if (this.__collab.isLockedByOther(glyph.uid)) {
                         const h = this.__collab.lockHolder(glyph.uid);
@@ -6494,17 +6503,14 @@ function (progress) {
                             const phase = Math.sin((now / periodMs) * 2 * Math.PI);
                             const pulse = (phase + 1) / 2;
 
-                            const baseAlpha = 0.10;
-                            const extraAlpha = 0.25;
-                            const alpha = baseAlpha + extraAlpha * pulse;
-
-                            const baseLineWidth = 2;
-                            const extraLineWidth = 3;
-                            const lineWidth = baseLineWidth + extraLineWidth * pulse;
-
-                            const basePad = 4;
-                            const extraPad = 10;
-                            const pad = basePad + extraPad * pulse;
+                            // STEADY. These used to breathe with `pulse` -- alpha 0.10 to
+                            // 0.35, the line 2 px to 5 px, the padding 4 px to 14 px -- which
+                            // is a lot of movement to say "this one is selected", and it made
+                            // the outline land in a different place from one frame to the
+                            // next. Fixed values; the box is the statement, not the animation.
+                            const alpha = 0.9;
+                            const lineWidth = 1.5;
+                            const pad = 6;
 
                             const local = t => String(t || '').toLowerCase();
 
@@ -6591,8 +6597,10 @@ function (progress) {
                                 const t = local(shape.type);
 
                                 if (t === 'svg_group' || t === 'group' || (Array.isArray(shape.shapes) && shape.shapes.length)) {
-                                    const kids = Array.isArray(shape.shapes) ? shape.shapes : [];
-                                    for (const ch of kids) outlineOne(ch);
+                                    // ONE BOX ROUND THE GROUP, not one round each of its
+                                    // parts: that is what a click selects and what a drag
+                                    // will move.
+                                    this.__outlineShapeBox(ctx, grid, shape, pad);
                                     return;
                                 }
 
@@ -6768,8 +6776,13 @@ function (progress) {
                                     return;
                                 }
                             }
+                            // A press on a DIFFERENT drawing moves the selection to it; a
+                            // press on the one already held is the start of a drag and must
+                            // fall through. Re-selecting the same glyph here restarted the
+                            // whole selection -- which reinstalled this workbench and opened
+                            // the menu -- every time the press was handed to it.
                             let newGlyph = this.getGlyph(wx, wy)
-                            if (newGlyph) {
+                            if (newGlyph && !(hd.selected_glyphs || []).includes(newGlyph)) {
                                 this.selectGlyph__(newGlyph)
                                 return;
                             }
@@ -6794,8 +6807,10 @@ function (progress) {
                             hd.startY = y;
                             hd.currentX = x;
                             hd.currentY = y;
+                            hd.pressX = x;
+                            hd.pressY = y;
                             hd.isDragging = true;
-                            pushHistory(HM(this))
+                            this.pushUndoSnapshot();
 
                             if (hd.selected_glyphs) {
                                 for (let gshape of hd.selected_glyphs) {
@@ -6835,8 +6850,12 @@ function (progress) {
                         },
 
                         mouseUpListener: async (x, y) => {
-
+                            const moved = !(Number.isFinite(hd.pressX) && Number.isFinite(hd.pressY)
+                                && (Math.abs(x - hd.pressX) + Math.abs(y - hd.pressY)) < 5);
+                            hd.pressX = hd.pressY = null;
                             hd.isDragging = false;
+                            // A click, not a drag: the drawing was asked about, not moved.
+                            if (!moved) { try { this.showMenuOptionsForGlyph(); } catch (e) { } }
                         },
 
                         close: () => {
@@ -6844,15 +6863,38 @@ function (progress) {
                         }
                     };
 
-                    setTimeout(() => {
+                    const __install = () => {
                         hd.selected_glyphs = selected_glyphs;
                         this.wb(hd);
-                        this.showMenuOptionsForGlyph();
+                        if (__o.menu !== false) this.showMenuOptionsForGlyph();
                         hd.startX = null;
                         hd.startY = null;
                         hd.currentX = null;
                         hd.currentY = null;
-                    }, 100);
+                        // Take hold of the drawing on THIS press, rather than waiting for
+                        // the next one. The drag state is set here directly: going back
+                        // through the workbench's own mouseDownListener would re-select the
+                        // glyph and start the whole thing again.
+                        if (__o.press && Number.isFinite(__o.press.x) && Number.isFinite(__o.press.y)) {
+                            try {
+                                const px = __o.press.x, py = __o.press.y;
+                                const wx = this.grid.Xwc(px), wy = this.grid.Ywc(py);
+                                hd.startX = px; hd.startY = py;
+                                hd.currentX = px; hd.currentY = py;
+                                hd.pressX = px; hd.pressY = py;
+                                hd.isDragging = true;
+                                this.pushUndoSnapshot();          // one undo puts it back where it was
+                                for (const g of (hd.selected_glyphs || [])) {
+                                    if (!g || !g.shape) continue;
+                                    const sh = g.shape;
+                                    if (sh.getX && sh.getY) { g._dragOffsetX = sh.getX() - wx; g._dragOffsetY = sh.getY() - wy; }
+                                    else { g._dragOffsetX = 0; g._dragOffsetY = 0; }
+                                }
+                            } catch (e) { console.warn('[glyph press]', e); }
+                        }
+                    };
+                    if (__o.press) __install();          // no delay: the press is happening now
+                    else setTimeout(__install, 100);
 
                 } catch (err) {
                     console.error('Failed to read from clipboard: ', err);
@@ -7107,10 +7149,13 @@ function (progress) {
                                 const phase = Math.sin((now / periodMs) * 2 * Math.PI);
                                 const pulse = (phase + 1) / 2;
 
-                                alpha = 0.10 + 0.25 * pulse;
-                                lineWidth = 2 + 3 * pulse;
-                                pad = 4 + 10 * pulse;
-                                shadowBlur = 10 + 12 * pulse;
+                                // Steady, like the single-object highlight: a selection that
+                                // breathes between 2 and 5 px of neon, its padding growing by
+                                // 10 px as it goes, is movement in aid of nothing.
+                                alpha = 0.9;
+                                lineWidth = 1.5;
+                                pad = 6;
+                                shadowBlur = 6;
                             }
 
                             const strokeSegment = (x1w, y1w, x2w, y2w) => {
@@ -7195,8 +7240,7 @@ function (progress) {
                                 const t = local(shape.type);
 
                                 if (t === 'svg_group' || t === 'group' || (Array.isArray(shape.shapes) && shape.shapes.length)) {
-                                    const kids = Array.isArray(shape.shapes) ? shape.shapes : [];
-                                    for (const ch of kids) outlineOne(ch, parentGlyphType);
+                                    this.__outlineShapeBox(ctx, grid, shape, pad);
                                     return;
                                 }
 
@@ -8672,10 +8716,15 @@ function (progress) {
                     if (this.wbid === null || !this.wbid.startsWith('glyph')) {
                         let gfs = this.getGlyph(x, y)
                         if (gfs) {
-                            this.selectGlyph__(gfs);
-                            // setTimeout(() => {
-                            //     this.appendNucleotideToAllGlyphs(gfs, createNucleotide);
-                            // }, 2000)
+                            // PRESS AND DRAG, LIKE A FOLDER CARD. Selecting a drawing used
+                            // to put a menu under the pointer and arm the move 100 ms later,
+                            // so the press that picked it up was over before anything could
+                            // move and you had to press again. The press now selects it and
+                            // takes hold of it; a press that turns out to be a CLICK -- let
+                            // go without moving -- opens the menu instead, on the release.
+                            this.__glyphPress = { o: gfs, x, y, t: Date.now() };
+                            this.selectGlyph__(gfs, { menu: false, press: { x, y } });
+                            return;
                         }
                     }
 
@@ -8776,6 +8825,17 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                // The release of a press that took hold of a drawing. Moved: it was a drag,
+                // and the drag has already done its work. Did not move: it was a click, and
+                // a click on a drawing is how its menu is asked for.
+                if (this.__glyphPress) {
+                    const p = this.__glyphPress;
+                    this.__glyphPress = null;
+                    const still = (Math.abs(x - p.x) + Math.abs(y - p.y)) < 5;
+                    try { if (this.wb && this.wbid && ('' + this.wbid).startsWith('glyph')) { /* keep the move workbench */ } } catch (e) { }
+                    if (still) { try { this.showMenuOptionsForGlyph(); } catch (e) { } }
+                    return;
+                }
                 // THE STRIP OWNS ITS BUTTONS ON THE RELEASE TOO, not only on the press.
                 // "Next ▶" sits in the top-right corner -- which is exactly where the
                 // maximized view draws its own close ✕, so __maxHit answers 'exit' for the
@@ -19488,6 +19548,70 @@ function (progress) {
                 this.setOptionsMenu(this.__organiseGlyphMenu(menuList))
                 this.clearActionGlyphs();
 
+            }
+
+            // THE SELECTION BOX FOR A DRAWING. One box round the whole thing, the way every
+            // drawing tool does it, not an outline round each of the forty-six shapes inside
+            // an imported figure -- a group outlined shape by shape is a thicket, and it
+            // says the wrong thing as well: what a click selects, and what a drag will move,
+            // is the GROUP.
+            //
+            // Steady, not pulsing. The old highlight breathed between 2 and 5 px of neon
+            // with the padding growing by 10 px as it went, which is a lot of movement to
+            // say "this one is selected". A hairline in the app's teal, a soft halo, and
+            // four small corner handles: still unmistakable, and it stays still.
+            __drawSelectionBox(ctx, x, y, w, h) {
+                if (!ctx || ![x, y, w, h].every(v => typeof v === 'number' && isFinite(v))) return;
+                const TEAL = '#1aa3bd';
+                const r = Math.max(2, Math.min(10, Math.min(Math.abs(w), Math.abs(h)) * 0.06));
+                const box = () => {
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y);
+                    ctx.arcTo(x + w, y, x + w, y + h, r);
+                    ctx.arcTo(x + w, y + h, x, y + h, r);
+                    ctx.arcTo(x, y + h, x, y, r);
+                    ctx.arcTo(x, y, x + w, y, r);
+                    ctx.closePath();
+                };
+                ctx.save();
+                ctx.globalAlpha = 1;
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+                // A soft halo first, so the line reads against a dark drawing as well as a
+                // light one, then the hairline itself.
+                ctx.strokeStyle = 'rgba(26,163,189,0.22)';
+                ctx.lineWidth = 5;
+                box(); ctx.stroke();
+                ctx.strokeStyle = TEAL;
+                ctx.lineWidth = 1.5;
+                box(); ctx.stroke();
+                // Corner handles: square, white, teal edge -- the shape of a thing you can
+                // take hold of, and small enough not to crowd a small drawing.
+                const s = 7;
+                for (const [hx, hy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) {
+                    ctx.beginPath();
+                    ctx.rect(hx - s / 2, hy - s / 2, s, s);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
+                    ctx.strokeStyle = TEAL;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+            // The same box, from a shape's world bounds.
+            __outlineShapeBox(ctx, grid, shape, padPx) {
+                try {
+                    if (!shape || typeof shape.getX !== 'function') Shape._attachBBoxMethods(shape);
+                    const a = shape.getX(), b = shape.getXf(), c = shape.getY(), d = shape.getYf();
+                    if (![a, b, c, d].every(v => typeof v === 'number' && isFinite(v))) return false;
+                    const x0 = grid.X(Math.min(a, b)), x1 = grid.X(Math.max(a, b));
+                    const y0 = grid.Y(Math.max(c, d)), y1 = grid.Y(Math.min(c, d));
+                    const p = Number.isFinite(padPx) ? padPx : 6;
+                    this.__drawSelectionBox(ctx, Math.min(x0, x1) - p, Math.min(y0, y1) - p,
+                        Math.abs(x1 - x0) + 2 * p, Math.abs(y1 - y0) + 2 * p);
+                    return true;
+                } catch (e) { return false; }
             }
 
             // A LABEL AT THE POINTER saying what the next click does. Drawn in screen pixels
