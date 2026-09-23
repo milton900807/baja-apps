@@ -245,6 +245,18 @@ function () {
         const cur = () => {
             const own = bucket(db, keyFor(run.variant));
             if (own.totals.length) return own;
+            // UNDECIDED MEANS ASSUME THE LONG ONE. A run does not know for the first second
+            // or two whether it is going out to the web or coming back from the store, and
+            // this used to fall back on whichever history had the most runs behind it. Once
+            // a prompt store is working that is the CACHED history -- most prompts are
+            // repeats -- so every real run started out estimated at eight seconds: the bar
+            // reached its ceiling almost at once and then sat there for three minutes, which
+            // reads as broken rather than slow.
+            //
+            // A bar that starts pessimistic and speeds up is the better way round: it can
+            // only ever move forward, and being early is not a lie the way being stuck is.
+            const slow = db[keyFor(s.slowVariant || 'fresh')];
+            if (slow && (slow.totals || []).length) return bucket(db, keyFor(s.slowVariant || 'fresh'));
             let best = own;
             Object.keys(db).forEach((k) => {
                 if (k.indexOf(run.task + '|') !== 0) return;

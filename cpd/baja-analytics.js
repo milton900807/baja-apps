@@ -5028,11 +5028,36 @@ function (path, config) {
                             const Learner = await exec('baja/analytics/progress-learner.js');
                             const track = Learner.begin('repurpose', {
                                 label: 'Repurpose',
-                                priorSeconds: { fresh: 180, default: 180 },
+                                variant: 'auto',
+                                // A RUN ANSWERED FROM THE DATABASE IS NOT A RUN. It comes back in
+                                // seconds, where one that goes out to the web takes minutes, and
+                                // the two kept one history between them: every cache hit dragged
+                                // the estimate down until a real run looked broken -- the bar at
+                                // 98% in the first ten seconds and then nothing for three minutes.
+                                // They keep separate histories, decided by whether the research
+                                // phases ever fired. The store only answers from the store, so a
+                                // reused run never reaches them.
+                                // DECIDED ON EVIDENCE, NOT ON A GUESS. Both kinds of run open
+                                // with "Checking earlier research", so that phase says nothing
+                                // about which this is; deciding "cached" from it made a real
+                                // run announce "a few seconds left" for its first second or
+                                // two. It stays undecided until the tool says which path it
+                                // took -- and while undecided the learner assumes the long one.
+                                variantFrom: (marks) => (marks.search != null || marks.start != null) ? 'fresh'
+                                    : (marks.reuse != null ? 'cached' : ''),
+                                priorSeconds: { fresh: 180, cached: 8, auto: 150, default: 150 },
                                 phases: [
-                                    { id: 'start', label: 'Looking for candidates', match: /Looking for drugs/i, at: 0.03 },
-                                    { id: 'search', label: 'Searching the literature', match: /^Searching:/i, at: 0.10, repeat: true, expect: 12 },
-                                    { id: 'organise', label: 'Organising the candidates', match: /Organising/i, at: 0.85 }
+                                    { id: 'check', label: 'Checking earlier research', match: /^Checking earlier/i, at: 0.02 },
+                                    { id: 'start', label: 'Looking for candidates', match: /Looking for drugs/i, at: 0.06 },
+                                    { id: 'search', label: 'Searching the literature', match: /^Searching:/i, at: 0.12, repeat: true, expect: 12 },
+                                    { id: 'organise', label: 'Organising the candidates', match: /Organising/i, at: 0.85 },
+                                    // LAST IN THE LIST ON PURPOSE. Phases only go forward, and
+                                    // the gap the bar interpolates across is to the NEXT phase
+                                    // in this array -- so a reuse phase placed early would have
+                                    // a researched run creeping towards 0.55 while it was still
+                                    // opening. A reused run reaches this straight after 'check';
+                                    // a researched run never reaches it at all.
+                                    { id: 'reuse', label: 'Found earlier research', match: /^Found earlier research/i, at: 0.55 }
                                 ]
                             });
                             const paint = () => {

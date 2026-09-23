@@ -979,6 +979,16 @@ def run(prompt: str, opts: Dict[str, Any]) -> Dict[str, Any]:
                     # The tables, the notes and the network picture are all rebuilt from the
                     # stored research, so a run loaded from the store is drawn by today's
                     # code rather than the code that made it.
+                    # SAY THAT IT CAME FROM THE STORE, before rebuilding. Two reasons: the
+                    # person watching learns what happened, and the progress bar learns which
+                    # KIND of run this is. A reused run takes seconds and a researched one
+                    # takes minutes, and the bar keeps their histories apart -- but it can
+                    # only do that on evidence. Without this message the only thing that had
+                    # happened by now was "Checking earlier research…", which both kinds of
+                    # run do, so the bar had to guess, and guessing "seconds" on a run that
+                    # turns out to take three minutes is the worst way to be wrong.
+                    works.msg("Found earlier research: rebuilding the tables…")
+                    works.progress(60)
                     result = _assemble(prior["findings"], prior.get("blocks") or [], prompt, prior_info)
                     if result.get("status") == "ok":
                         store.touch_hit(match_id)
