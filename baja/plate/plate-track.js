@@ -6776,6 +6776,28 @@ function (progress) {
                                     return;
                                 }
                             }
+                            // A CORNER HANDLE RESIZES. The box around a selected drawing has
+                            // handles at its corners, which is what a handle looks like it is
+                            // for; grabbing one scales the drawing about the opposite corner,
+                            // so the corner you are not holding stays where it is. Uniform in
+                            // both axes -- a figure stretched on one axis is a figure with the
+                            // wrong proportions, and the point of the handles is size.
+                            try {
+                                const held = (hd.selected_glyphs || [])[0];
+                                const hsh = held && held.shape;
+                                const grab = hsh ? this.__selectionHandleAt(hsh, x, y, 6) : null;
+                                if (grab && grab.w > 0) {
+                                    this.pushUndoSnapshot();
+                                    hd.scaling = {
+                                        shape: hsh, ax: grab.ax, ay: grab.ay,
+                                        startW: grab.w,
+                                        startDx: Math.abs(this.grid.Xwc(x) - grab.ax) || 1e-9
+                                    };
+                                    hd.isDragging = false;
+                                    hd.pressX = x; hd.pressY = y;
+                                    return;
+                                }
+                            } catch (e) { }
                             // A press on a DIFFERENT drawing moves the selection to it; a
                             // press on the one already held is the start of a drag and must
                             // fall through. Re-selecting the same glyph here restarted the
@@ -6829,6 +6851,21 @@ function (progress) {
                         },
 
                         mouseMoveListener: (x, y) => {
+                            if (hd.scaling) {
+                                const sc = hd.scaling;
+                                const dx = Math.abs(this.grid.Xwc(x) - sc.ax);
+                                let f = dx / sc.startDx;
+                                if (!isFinite(f) || f <= 0) return;
+                                // Somewhere between a tenth and ten times, measured against
+                                // the size it started at, so one flick cannot lose it.
+                                const wNow = Math.abs(sc.shape.getXf() - sc.shape.getX());
+                                const target = Math.min(Math.max(sc.startW * 0.1, wNow * f), sc.startW * 10);
+                                const k = target / (wNow || 1e-9);
+                                if (!isFinite(k) || k <= 0 || Math.abs(k - 1) < 0.001) return;
+                                try { Shape.svgScaleAbout(sc.shape, k, k, sc.ax, sc.ay); } catch (e) { }
+                                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.touchMe) gg.touchMe(); } catch (e) { }
+                                return;
+                            }
                             if (!hd.selected_glyphs) return;
                             if (!hd.isDragging) return;
 
@@ -6850,6 +6887,12 @@ function (progress) {
                         },
 
                         mouseUpListener: async (x, y) => {
+                            if (hd.scaling) {
+                                hd.scaling = null;
+                                hd.pressX = hd.pressY = null;
+                                hd.isDragging = false;
+                                return;                       // a resize is not a click
+                            }
                             const moved = !(Number.isFinite(hd.pressX) && Number.isFinite(hd.pressY)
                                 && (Math.abs(x - hd.pressX) + Math.abs(y - hd.pressY)) < 5);
                             hd.pressX = hd.pressY = null;
@@ -8406,6 +8449,23 @@ function (progress) {
             mouseDown(x, y) {
                 // The phone's board of badges: the strip's buttons, and press-and-hold to open.
                 try { if (this.mobilePress(x, y)) return; } catch (e) { }
+                // A CORNER HANDLE RESIZES THE SELECTED DRAWING. The handles sit in the PADDING
+                // around the selection box -- outside the drawing's own shapes -- so nothing
+                // that asks "what is under the pointer" will find them, and every branch below
+                // that answers a press first would swallow it. First, then.
+                try {
+                    const held = (selected_glyphs || [])[0];
+                    const hsh = held && held.shape;
+                    const grab = hsh ? this.__selectionHandleAt(hsh, x, y, 6) : null;
+                    if (grab && grab.w > 0) {
+                        this.pushUndoSnapshot();
+                        this.__glyphScale = {
+                            shape: hsh, ax: grab.ax, ay: grab.ay, startW: grab.w,
+                            startDx: Math.abs(this.grid.Xwc(x) - grab.ax) || 1e-9
+                        };
+                        return;
+                    }
+                } catch (e) { }
                 // A WINDOW IS OPEN OVER THE CANVAS. A dialog -- the cell text window, a
                 // confirm, the milestone comment, anything the layout opens -- takes the
                 // interaction, and nothing underneath it should answer as well. The move
@@ -8825,6 +8885,7 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                if (this.__glyphScale) { this.__glyphScale = null; this.__glyphPress = null; return; }
                 // The release of a press that took hold of a drawing. Moved: it was a drag,
                 // and the drag has already done its work. Did not move: it was a click, and
                 // a click on a drawing is how its menu is asked for.
@@ -9589,7 +9650,29 @@ function (progress) {
                 } catch (e) { return false; }
             }
 
+            // Scaling from a corner handle: uniform in both axes -- a figure stretched on one
+            // axis is a figure with the wrong proportions, and the handles are for size. The
+            // opposite corner is the anchor, so the corner you are not holding stays put.
+            __glyphScaleTo(x) {
+                const sc = this.__glyphScale;
+                if (!sc || !sc.shape) return false;
+                try {
+                    const dx = Math.abs(this.grid.Xwc(x) - sc.ax);
+                    const f = dx / sc.startDx;
+                    if (!isFinite(f) || f <= 0) return true;
+                    const wNow = Math.abs(sc.shape.getXf() - sc.shape.getX()) || 1e-9;
+                    // A tenth to ten times the size it started at: one flick cannot lose it.
+                    const target = Math.min(Math.max(sc.startW * 0.1, sc.startW * f), sc.startW * 10);
+                    const k = target / wNow;
+                    if (!isFinite(k) || k <= 0 || Math.abs(k - 1) < 0.001) return true;
+                    Shape.svgScaleAbout(sc.shape, k, k, sc.ax, sc.ay);
+                    try { const g = CurrentLayout.getStashed('graph'); if (g && g.touchMe) g.touchMe(); } catch (e) { }
+                } catch (e) { }
+                return true;
+            }
+
             mouseMove(x, y) {
+                if (this.__glyphScale) { this.__glyphScaleTo(x); return; }
                 try { this.mobileDrag(x, y); } catch (e) { }                 // moving = panning, not holding
                 // Where the pointer last was, so the hover can be worked out again after the
                 // CANVAS has moved under it (see __rehover). Kept on every move, cheap.
@@ -19550,6 +19633,44 @@ function (progress) {
 
             }
 
+            // KEEP AN IMPORTED DRAWING IN PROPORTION, whatever the camera does.
+            //
+            // The canvas's world units are not square -- one unit across and one down are
+            // different numbers of pixels -- so a drawing is placed with its vertical
+            // geometry pre-stretched by that ratio. The catch is that the ratio is not
+            // fixed: zoomtfit fits width and height INDEPENDENTLY, so framing the drawing
+            // changed the ratio from 1.71 to 1.19 (measured), and with it the size of the
+            // text relative to everything else -- the labels grew 44% wider against the
+            // layout and ran into each other. A plain zoom keeps the ratio and was fine,
+            // which is why this only showed up after a fit.
+            //
+            // So the drawing carries the ratio it was last stretched for (svgAnis -- a plain
+            // name, because a key starting with __ does not survive a save), and the
+            // correction is the CHANGE in that ratio. It is deliberately not worked out from
+            // the drawing's bounding box: a group's bounds include its labels' estimated
+            // extents, so scaling the type changes the bounds, and a correction derived from
+            // them feeds itself and runs away (it did -- the text reached 36,000 px).
+            // Runs once per frame per drawing and does nothing while the ratio holds.
+            __keepGlyphProportions(shape) {
+                const was = Number(shape && shape.svgAnis);
+                if (!(was > 0)) return false;
+                try {
+                    const g = this.grid;
+                    const kx = Math.abs(g.screenWidth(1)), ky = Math.abs(g.screenHeight(1));
+                    if (!(kx > 0) || !(ky > 0)) return false;
+                    const now = kx / ky;
+                    if (!isFinite(now) || now <= 0) return false;
+                    const f = now / was;
+                    if (!isFinite(f) || f <= 0 || Math.abs(f - 1) < 0.01) return false;
+                    if (typeof shape.getY !== 'function') Shape._attachBBoxMethods(shape);
+                    const top = Math.max(shape.getY(), shape.getYf());
+                    if (!Number.isFinite(top)) return false;
+                    Shape.svgScaleAbout(shape, 1, f, 0, top);     // the top edge stays put
+                    shape.svgAnis = now;
+                    return true;
+                } catch (e) { return false; }
+            }
+
             // THE SELECTION BOX FOR A DRAWING. One box round the whole thing, the way every
             // drawing tool does it, not an outline round each of the forty-six shapes inside
             // an imported figure -- a group outlined shape by shape is a thicket, and it
@@ -19599,6 +19720,38 @@ function (progress) {
                 }
                 ctx.restore();
             }
+            // WHICH HANDLE IS UNDER THE POINTER, from the same box the selection draws --
+            // one geometry, so a handle can never be somewhere other than where it is grabbed.
+            // Returns {corner, ax, ay} where ax/ay is the OPPOSITE corner in world units: the
+            // point a resize is anchored to, so the corner you are not holding stays put.
+            __selectionHandleAt(shape, x, y, padPx) {
+                try {
+                    if (!shape) return null;
+                    if (typeof shape.getX !== 'function') Shape._attachBBoxMethods(shape);
+                    const a = shape.getX(), b = shape.getXf(), c = shape.getY(), d = shape.getYf();
+                    if (![a, b, c, d].every(Number.isFinite)) return null;
+                    const wx0 = Math.min(a, b), wx1 = Math.max(a, b);
+                    const wy0 = Math.min(c, d), wy1 = Math.max(c, d);
+                    const g = this.grid;
+                    const p = Number.isFinite(padPx) ? padPx : 6;
+                    const sx0 = Math.min(g.X(wx0), g.X(wx1)) - p, sx1 = Math.max(g.X(wx0), g.X(wx1)) + p;
+                    const sy0 = Math.min(g.Y(wy0), g.Y(wy1)) - p, sy1 = Math.max(g.Y(wy0), g.Y(wy1)) + p;
+                    const R = 11;                       // a thumb's worth around a 7px handle
+                    const corners = [
+                        { c: 'tl', sx: sx0, sy: sy0, ax: wx1, ay: wy0 },
+                        { c: 'tr', sx: sx1, sy: sy0, ax: wx0, ay: wy0 },
+                        { c: 'bl', sx: sx0, sy: sy1, ax: wx1, ay: wy1 },
+                        { c: 'br', sx: sx1, sy: sy1, ax: wx0, ay: wy1 }
+                    ];
+                    for (const k of corners) {
+                        if (Math.abs(x - k.sx) <= R && Math.abs(y - k.sy) <= R) {
+                            return { corner: k.c, ax: k.ax, ay: k.ay, w: wx1 - wx0, h: wy1 - wy0 };
+                        }
+                    }
+                    return null;
+                } catch (e) { return null; }
+            }
+
             // The same box, from a shape's world bounds.
             __outlineShapeBox(ctx, grid, shape, padPx) {
                 try {
@@ -20599,6 +20752,26 @@ function (progress) {
                         cur: { xw: isNum(p.x) ? p.x : null, yw: isNum(p.y) ? p.y : null }
                     });
                 }
+                // A DRAWING IS PART OF THE ARRANGEMENT TOO. An imported SVG sat out of the
+                // packing -- it was placed in a hole once and then ignored, so pressing the
+                // layout button rearranged everything around it and left it where it was,
+                // usually on top of something. It is one more box: its world bounds, moved
+                // the same way as the rest.
+                for (const g of (this.glyphs || [])) {
+                    try {
+                        const sh = g && g.shape;
+                        if (!sh || g.hidden) continue;
+                        if (typeof sh.getX !== 'function') Shape._attachBBoxMethods(sh);
+                        const a = sh.getX(), b2 = sh.getXf(), c = sh.getY(), d = sh.getYf();
+                        if (![a, b2, c, d].every(isNum)) continue;
+                        const w = Math.abs(b2 - a), h = Math.abs(d - c);
+                        if (!(w > 0 && h > 0)) continue;
+                        boxes.push({
+                            kind: "glyph", ref: g, w, h, hEff: h,
+                            cur: { xw: Math.min(a, b2), yw: Math.max(c, d) }
+                        });
+                    } catch (e) { }
+                }
                 if (!boxes.length) return resolve(true);
 
                 // A GAP YOU CAN SEE, WHATEVER THE CELLS ARE. Both gutters were measured from
@@ -20722,6 +20895,18 @@ function (progress) {
 
                 const writePose = (box, xw, yw) => {
                     if (box.kind === "plot") { box.ref.x = xw; box.ref.y = yw; }
+                    else if (box.kind === "glyph") {
+                        // A drawing has no grid: it is moved by moving everything in it, from
+                        // wherever its top-left is now to where the packer wants it.
+                        try {
+                            const sh = box.ref && box.ref.shape;
+                            if (!sh) return;
+                            const x0 = Math.min(sh.getX(), sh.getXf());
+                            const yTop = Math.max(sh.getY(), sh.getYf());
+                            if (!Number.isFinite(x0) || !Number.isFinite(yTop)) return;
+                            this.__translateShapeBy(sh, xw - x0, yw - yTop);
+                        } catch (e) { }
+                    }
                     else { box.ref.grid.xi = xw; box.ref.grid.yi = yw - box.h; }
                 };
                 const touch = () => {
@@ -25988,6 +26173,9 @@ function (progress) {
                         ...this.m_plots
                     ].filter(obj => obj);
                     const glyphObjects = this.glyphs.filter(obj => obj);
+                    // An imported drawing keeps the proportions it was drawn with, whatever
+                    // the camera has done to the axes since it was placed.
+                    for (const __g of glyphObjects) { try { this.__keepGlyphProportions(__g && __g.shape); } catch (e) { } }
                     for (let fromtable of [...nonGlyphObjects, ...glyphObjects]) {
                         if (fromtable.input_to && fromtable.input_to.length > 0) {
                             for (let uid of fromtable.input_to) {

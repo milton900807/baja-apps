@@ -97,6 +97,11 @@ function (pt, svgText, opts) {
             if (kx > 0 && ky > 0 && isFinite(kx / ky)) anis = kx / ky;
         } catch (e) { anis = 1; }
         try { Shape.svgScaleAbout(shape, scale, scale * anis, 0, 0); } catch (e) { console.warn('[place-svg] scale', e); }
+        // The ratio this drawing is currently stretched for. The camera changes it (zoomtfit
+        // fits the two axes independently), and plate-track's __keepGlyphProportions puts the
+        // difference back. A plain name: keys starting with __ are stripped when a document
+        // is saved, and a drawing that forgot this would be re-stretched from scratch.
+        try { shape.svgAnis = anis; } catch (e) { }
 
         // What it will actually cover, measured after the scaling rather than assumed: a
         // label that overhangs the frame still has to be kept off the tables.

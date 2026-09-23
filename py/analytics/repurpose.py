@@ -538,7 +538,7 @@ def _network_svg(top: Dict[str, Any], evid: List[Dict[str, Any]], targs: List[Di
             # length fits one edge and runs into the far node on a shorter one; the room is
             # what is left between where the label starts and where the arrowhead lands.
             room = abs(x2 - lx) - 18
-            text(lx, y1 + dy * t - 9, _fit(label, max(6, int(room / 7.4))), 13, colour,
+            text(lx, y1 + dy * t - 9, _fit(label, max(6, int(room / 8.4))), 13, colour,
                  anchor="start", weight=600)
 
     # ---- the drug ---------------------------------------------------------------------
