@@ -408,6 +408,29 @@ def _fit(t: Any, n: int) -> str:
     return s if len(s) <= n else (s[: max(1, n - 1)].rstrip() + "…")
 
 
+def _wrap(text: str, per_line: int, lines: int) -> List[str]:
+    """Break a caption on spaces, and say so with an ellipsis if it will not fit."""
+    words = _s(text).split()
+    out, cur = [], ""
+    for w in words:
+        trial = (cur + " " + w).strip()
+        if len(trial) <= per_line:
+            cur = trial
+        else:
+            if cur:
+                out.append(cur)
+            cur = w
+            if len(out) == lines:
+                break
+    if cur and len(out) < lines:
+        out.append(cur)
+    if not out:
+        return []
+    if len(out) == lines and len(" ".join(words)) > sum(len(o) for o in out) + len(out) - 1:
+        out[-1] = out[-1][: max(1, per_line - 1)].rstrip() + "…"
+    return out
+
+
 def _network_svg(top: Dict[str, Any], evid: List[Dict[str, Any]], targs: List[Dict[str, Any]],
                  subject: Dict[str, Any]) -> str:
     """The top candidate as a systems-biology network: the drug, what it hits, what that
@@ -416,138 +439,159 @@ def _network_svg(top: Dict[str, Any], evid: List[Dict[str, Any]], targs: List[Di
     The tables say the same things in words. A network says the one thing a table cannot:
     whether the argument is a chain (drug hits a target, that target drives the disease)
     or a pile of separate observations. An edge with no evidence row behind it is drawn
-    grey and dashed-thin, so the gaps in the chain are as visible as the links.
+    grey, so the gaps in the chain are as visible as the links.
 
-    Only geometry that flexigraph's SVG importer understands: rect, line, circle, ellipse,
-    polygon, text. No <path>, no markers -- arrowheads are little polygons.
+    DRAWN LIKE A FIGURE, NOT A SKETCH. Three labelled columns, one type scale (title,
+    column caption, node, caption), one 40px margin, and the app's own palette. Labels
+    carry data-box="none": the canvas draws a white chip with a drop shadow behind text by
+    default, which is right for a label floating over a picture and turns a diagram into a
+    pile of stickers.
+
+    Only geometry the importer understands: rect, line, circle, ellipse, polygon, text.
+    No <path>, no markers -- arrowheads are little polygons.
     """
     drug = _s(top.get("Drug"))
     if not drug:
         return ""
-    disease = _fit(_s(subject.get("name")) or "the disease", 34)
+    disease = _s(subject.get("name")) or "the indication"
 
     mine = [e for e in evid if _s(e.get("drug")).lower() == drug.lower()]
-    routes_with_evidence = {}
+    routes_with_evidence: Dict[str, List[Dict[str, Any]]] = {}
     for e in mine:
         r = _s(e.get("route")).lower()
         if r in ROUTES:
             routes_with_evidence.setdefault(r, []).append(e)
+    found_routes = [r for r in ROUTES if r in routes_with_evidence]
 
-    # What the drug hits: the targets table first (it says how each one connects to the
-    # disease, which is the middle of the chain), then the candidate's own mechanism if the
-    # table did not name it.
     nodes = []
     for t in targs:
         name = _s(t.get("target"))
-        if not name:
+        if not name or drug.lower() not in _s(t.get("drugs")).lower():
             continue
-        drugs = _s(t.get("drugs")).lower()
-        if drug.lower() not in drugs:
-            continue
-        nodes.append({"name": name, "link": _s(t.get("link")), "evidence": _s(t.get("evidence"))})
+        nodes.append({"name": name, "link": _s(t.get("link"))})
     if not nodes:
         mech = _s(top.get("Target or mechanism"))
         if mech:
-            nodes.append({"name": mech, "link": "", "evidence": ""})
+            nodes.append({"name": mech, "link": ""})
     if not nodes:
         return ""
     nodes = nodes[:5]
 
-    # ---- geometry, in plain SVG pixels; the canvas scales the whole drawing ----
-    W = 880
-    ROW = 120
-    top_pad, bottom_pad = 108, 92
-    H = top_pad + max(1, len(nodes)) * ROW + bottom_pad
-    # EVERY COLUMN IS DERIVED FROM W. They were written as constants for one width and then
-    # the width was changed, which put the disease box 48px outside its own frame -- and a
-    # frame is exactly what the canvas measures the drawing by, so the part hanging out was
-    # the part that got cut off.
-    DRUG_HW, NODE_R, DIS_HW = 92, 44, 86
-    x_drug = 36 + DRUG_HW
-    x_dis = W - 32 - DIS_HW
+    # ---- the grid the figure is built on ----------------------------------------------
+    M = 44                                   # one margin, everywhere
+    W = 1000
+    ROW = 148
+    HEAD = 146                               # title, subtitle, rule, column captions
+    FOOT = 108                               # rule, legend, footnote
+    H = HEAD + len(nodes) * ROW + FOOT
+
+    DRUG_HW, NODE_R, DIS_HW = 132, 48, 116
+    x_drug = M + DRUG_HW
+    x_dis = W - M - DIS_HW
     x_node = (x_drug + x_dis) / 2
-    mid = top_pad + (len(nodes) * ROW) / 2 - ROW / 2 + 34
+    mid = HEAD + (len(nodes) * ROW) / 2
 
-    NAVY, INK, MUTED = "#0a2540", "#0a2540", "#6b7f8c"
+    NAVY, INK, MUTED, RULE, GREY = "#0a2540", "#0a2540", "#5b7180", "#dde6ec", "#7d8d99"
+    T = 'data-box="none"'                    # a diagram's text is text, not a sticker
+    F = 'data-flat="1"'                      # ...and its shapes are shapes, not 3D bubbles
+
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
-    out.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="#ffffff" stroke="#c7d6de" stroke-width="2"/>')
+    out.append(f'<rect x="1" y="1" width="{W - 2}" height="{H - 2}" fill="#ffffff" stroke="{RULE}" stroke-width="2" {F}/>')
 
-    # Title. EVERY LABEL IS CENTRED ON WHERE IT BELONGS, never anchored to a left edge:
-    # the canvas's SVG renderer draws a text shape about its own point and does not always
-    # honour text-anchor, and a left-anchored title then hangs off the left of the frame
-    # and lands on whatever the layout put beside it.
-    out.append(f'<text x="{W / 2}" y="40" font-size="27" fill="{NAVY}" text-anchor="middle">'
-               f'{_xml(_fit(drug, 40))} — how it could act on {_xml(disease)}</text>')
+    def text(x, y, s, size, colour, anchor="start", weight=None):
+        w = f' font-weight="{weight}"' if weight else ""
+        out.append(f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" fill="{colour}" '
+                   f'text-anchor="{anchor}"{w} {T}>{_xml(s)}</text>')
+
+    # ---- header -----------------------------------------------------------------------
+    text(M, 50, f"{_fit(drug, 42)} — proposed mechanism in {_fit(disease, 44)}", 25, NAVY, weight=700)
     conf = _s(top.get("Confidence"))
-    found_routes = [r for r in ROUTES if r in routes_with_evidence]
     sub = (", ".join(ROUTE_LABEL[r] for r in found_routes) or "no evidence rows") \
-        + (f" · {conf} confidence" if conf else "")
-    out.append(f'<text x="{W / 2}" y="66" font-size="16" fill="{MUTED}" text-anchor="middle">{_xml(sub)}</text>')
+        + (f"  ·  {conf} confidence" if conf else "")
+    text(M, 76, sub, 15, MUTED)
+    out.append(f'<line x1="{M}" y1="92" x2="{W - M}" y2="92" stroke="{RULE}" stroke-width="1.5" {F}/>')
 
-    def arrow(x1, y1, x2, y2, colour, width, label):
+    for cx, cap in ((x_drug, "DRUG"), (x_node, "TARGET / PATHWAY"), (x_dis, "INDICATION")):
+        text(cx, 124, cap, 13, GREY, anchor="middle", weight=700)
+
+    def arrow(x1, y1, x2, y2, colour, width, label, inset=54):
+        """An edge, with its label set just clear of the node it leaves.
+
+        The label used to be centred at the edge's midpoint, which is where the edges of a
+        fan are closest together and, for a short edge, is still on top of the circle it
+        came from. Left-anchored a fixed distance along instead: it starts in clear space
+        and every row's label starts at the same x, which is what makes a fan readable."""
         dx, dy = x2 - x1, y2 - y1
         d = (dx * dx + dy * dy) ** 0.5 or 1.0
         ux, uy = dx / d, dy / d
-        hx, hy = x2 - ux * 13, y2 - uy * 13          # base of the head
-        px, py = -uy, ux                              # perpendicular
+        hx, hy = x2 - ux * 14, y2 - uy * 14
+        px, py = -uy, ux
         out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{hx:.1f}" y2="{hy:.1f}" '
-                   f'stroke="{colour}" stroke-width="{width}" fill="none"/>')
-        out.append('<polygon points="{:.1f},{:.1f} {:.1f},{:.1f} {:.1f},{:.1f}" fill="{}" stroke="{}" '
-                   'stroke-width="1"/>'.format(x2, y2, hx + px * 6, hy + py * 6, hx - px * 6, hy - py * 6,
-                                               colour, colour))
+                   f'stroke="{colour}" stroke-width="{width}" fill="none" {F}/>')
+        out.append(f'<polygon points="{x2:.1f},{y2:.1f} {hx + px * 6.5:.1f},{hy + py * 6.5:.1f} '
+                   f'{hx - px * 6.5:.1f},{hy - py * 6.5:.1f}" fill="{colour}" stroke="{colour}" '
+                   f'stroke-width="1" {F}/>')
         if label:
-            out.append(f'<text x="{(x1 + x2) / 2:.1f}" y="{(y1 + y2) / 2 - 8:.1f}" font-size="15" '
-                       f'fill="{colour}" text-anchor="middle">{_xml(_fit(label, 26))}</text>')
+            t = min(0.8, inset / d)
+            lx = x1 + dx * t
+            # AS MANY CHARACTERS AS THE EDGE HAS ROOM FOR. A label truncated to a fixed
+            # length fits one edge and runs into the far node on a shorter one; the room is
+            # what is left between where the label starts and where the arrowhead lands.
+            room = abs(x2 - lx) - 18
+            text(lx, y1 + dy * t - 9, _fit(label, max(6, int(room / 7.4))), 13, colour,
+                 anchor="start", weight=600)
 
-    # The drug, on the left.
-    out.append(f'<rect x="{x_drug - DRUG_HW}" y="{mid - 30}" width="{2 * DRUG_HW}" height="60" fill="{NAVY}" '
-               f'stroke="{NAVY}" stroke-width="2"/>')
-    out.append(f'<text x="{x_drug}" y="{mid - 4}" font-size="19" fill="#ffffff" text-anchor="middle">'
-               f'{_xml(_fit(drug, 22))}</text>')
-    out.append(f'<text x="{x_drug}" y="{mid + 16}" font-size="14" fill="#9fc4d4" text-anchor="middle">'
-               f'{_xml(_fit(_s(top.get("Stage")) or "drug", 24))}</text>')
+    # ---- the drug ---------------------------------------------------------------------
+    out.append(f'<rect x="{x_drug - DRUG_HW}" y="{mid - 38}" width="{2 * DRUG_HW}" height="76" '
+               f'fill="{NAVY}" stroke="{NAVY}" stroke-width="2" {F}/>')
+    text(x_drug, mid - 4, _fit(drug, 20), 19, "#ffffff", anchor="middle", weight=700)
+    text(x_drug, mid + 20, _fit(_s(top.get("Stage")) or "in humans", 24), 13, "#9fc4d4", anchor="middle")
 
-    # The disease, on the right.
-    out.append(f'<rect x="{x_dis - DIS_HW}" y="{mid - 30}" width="{2 * DIS_HW}" height="60" fill="#ffffff" '
-               f'stroke="#FD5E53" stroke-width="2.5"/>')
-    out.append(f'<text x="{x_dis}" y="{mid + 5}" font-size="18" fill="{INK}" text-anchor="middle">'
-               f'{_xml(_fit(disease, 20))}</text>')
+    # ---- the indication ---------------------------------------------------------------
+    out.append(f'<rect x="{x_dis - DIS_HW}" y="{mid - 38}" width="{2 * DIS_HW}" height="76" '
+               f'fill="#fff6f5" stroke="#FD5E53" stroke-width="2.5" {F}/>')
+    for i, ln in enumerate(_wrap(disease, 22, 2) or [disease]):
+        text(x_dis, mid + (2 if len(_wrap(disease, 22, 2)) < 2 else -8) + i * 20, ln, 16, INK,
+             anchor="middle", weight=600)
 
-    # What it hits, down the middle, each with the route that backs it.
+    # ---- what it hits, and how that reaches the indication ----------------------------
+    r_in = "molecular" if "molecular" in routes_with_evidence else (found_routes[0] if found_routes else "")
+    r_out = "clinical" if "clinical" in routes_with_evidence else (
+        "phenotypic" if "phenotypic" in routes_with_evidence else "")
+    c_in = ROUTE_COLOUR.get(r_in, GREY)
+    c_out = ROUTE_COLOUR.get(r_out, GREY)
+
     for i, nd in enumerate(nodes):
-        cy = top_pad + i * ROW + 34
-        # The route this node's edge is drawn in: molecular if there is molecular evidence,
-        # else the strongest route that exists for the drug, else grey for "asserted".
-        r = "molecular" if "molecular" in routes_with_evidence else (found_routes[0] if found_routes else "")
-        colour = ROUTE_COLOUR.get(r, "#9aa7b4")
-        wide = 2.5 if r else 1.2
-        arrow(x_drug + DRUG_HW, mid, x_node - NODE_R - 2, cy, colour, wide, ROUTE_LABEL.get(r, "asserted"))
-        out.append(f'<circle cx="{x_node}" cy="{cy}" r="{NODE_R}" fill="#eaf6f9" stroke="{colour}" stroke-width="2.5"/>')
-        out.append(f'<text x="{x_node}" y="{cy + 4}" font-size="17" fill="{INK}" text-anchor="middle">'
-                   f'{_xml(_fit(nd["name"], 14))}</text>')
-        # ...and how that reaches the disease.
-        r2 = "clinical" if "clinical" in routes_with_evidence else (
-            "phenotypic" if "phenotypic" in routes_with_evidence else "")
-        c2 = ROUTE_COLOUR.get(r2, "#9aa7b4")
-        arrow(x_node + NODE_R + 2, cy, x_dis - DIS_HW, mid, c2, 2.5 if r2 else 1.2,
-              _fit(nd["link"], 26) or ROUTE_LABEL.get(r2, "asserted"))
+        cy = HEAD + i * ROW + ROW / 2
+        # IN: the route of evidence that the drug hits this node. LABELLED ONCE, not once
+        # per edge -- every inbound edge leaves the same point on the drug card and carries
+        # the same route, so a label per edge put three copies of the same word on top of
+        # each other. The fan is one statement; it gets one label, on the middle edge.
+        arrow(x_drug + DRUG_HW, mid, x_node - NODE_R - 3, cy, c_in, 2.4 if r_in else 1.3,
+              ROUTE_LABEL.get(r_in, "asserted") if i == len(nodes) // 2 else "", inset=30)
+        # OUT: HOW that node reaches the indication -- which is what the edge means, so it
+        # is the edge's label. It used to sit under the node, where it collided with the
+        # next node's inbound arrow and read as a caption belonging to nothing.
+        arrow(x_node + NODE_R + 3, cy, x_dis - DIS_HW - 3, mid, c_out, 2.4 if r_out else 1.3,
+              nd["link"] or ROUTE_LABEL.get(r_out, "asserted"), inset=22)
+        out.append(f'<circle cx="{x_node}" cy="{cy}" r="{NODE_R}" fill="#f2fafc" '
+                   f'stroke="{c_in}" stroke-width="2.5" {F}/>')
+        text(x_node, cy + 5, _fit(nd["name"], 12), 15, INK, anchor="middle", weight=600)
 
-    # The legend: which routes actually have evidence behind this drug, and how much.
-    ly = H - 46
-    out.append(f'<line x1="40" y1="{ly - 30}" x2="{W - 40}" y2="{ly - 30}" stroke="#dbe6ec" stroke-width="1"/>')
-    step = (W - 120) / len(ROUTES)
-    for i, r in enumerate(ROUTES):
+    # ---- legend -----------------------------------------------------------------------
+    ly = H - FOOT + 44
+    out.append(f'<line x1="{M}" y1="{ly - 30}" x2="{W - M}" y2="{ly - 30}" stroke="{RULE}" stroke-width="1.5" {F}/>')
+    text(M, ly, "EVIDENCE ROWS", 13, GREY, weight=700)
+    x = M + 150
+    for r in ROUTES:
         n = len(routes_with_evidence.get(r, []))
-        col = ROUTE_COLOUR[r] if n else "#c7d6de"
-        cx = 60 + step * (i + 0.5)
-        out.append(f'<circle cx="{cx - 46:.1f}" cy="{ly - 5}" r="6" fill="{col}" stroke="{col}" stroke-width="1"/>')
-        out.append(f'<text x="{cx + 6:.1f}" y="{ly}" font-size="15" fill="{INK if n else "#9aa7b4"}" '
-                   f'text-anchor="middle">{ROUTE_LABEL[r]} {n}</text>')
-    out.append(f'<text x="{W / 2}" y="{H - 16}" font-size="13" fill="#9aa7b4" text-anchor="middle">'
-               'Evidence rows behind this drug. A grey edge is asserted, with none behind it.</text>')
+        col = ROUTE_COLOUR[r] if n else "#cdd8de"
+        out.append(f'<rect x="{x}" y="{ly - 11}" width="12" height="12" fill="{col}" stroke="{col}" stroke-width="1" {F}/>')
+        text(x + 20, ly, f"{ROUTE_LABEL[r]}  {n}", 14, INK if n else GREY, weight=600 if n else None)
+        x += 178
+    text(M, H - 26, "A grey edge is asserted by the model, with no evidence row behind it.", 13, GREY)
     out.append('</svg>')
     return "".join(out)
-
 
 def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: str,
                  info: Dict[str, Any]) -> Dict[str, Any]:

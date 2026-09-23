@@ -1084,10 +1084,16 @@ function () {
                     if ('cy' in s) s.cy = Y(s.cy);
                     if ('w' in s) s.w = n(s.w) * fx;
                     if ('h' in s) s.h = n(s.h) * fy;
-                    if ('r' in s) s.r = n(s.r) * mean;
+                    // A CIRCLE IS DRAWN FROM THE HORIZONTAL SCALE and TEXT FROM THE
+                    // VERTICAL ONE -- grid.screenWidth(r) for the radius, grid.screenHeight(1)
+                    // * fontSize for the type. So when sx and sy differ (which is how a
+                    // caller compensates for a canvas whose world units are not square),
+                    // each has to follow the axis it is actually drawn from. With a uniform
+                    // scale both of these are the same number as before.
+                    if ('r' in s) s.r = n(s.r) * Math.abs(fx);
                     if ('rx' in s) s.rx = n(s.rx) * Math.abs(fx);
                     if ('ry' in s) s.ry = n(s.ry) * Math.abs(fy);
-                    if ('fontSize' in s) s.fontSize = n(s.fontSize) * mean;
+                    if ('fontSize' in s) s.fontSize = n(s.fontSize) * Math.abs(fy);
                     if (s.style && 'strokeWidth' in s.style) s.style.strokeWidth = n(s.style.strokeWidth) * mean;
                     if (Array.isArray(s.pts)) {
                         for (const p of s.pts) { if (!p) continue; p.x = X(p.x); p.y = Y(p.y); }
@@ -2464,11 +2470,29 @@ function () {
                 const strokeAttr = el.getAttribute('stroke');
                 const swAttr = el.getAttribute('stroke-width');
 
-                return {
+                const style = {
                     fill: fillAttr != null ? fillAttr : 'none',
                     stroke: strokeAttr != null ? strokeAttr : 'black',
                     strokeWidth: swAttr != null ? parseFloat(swAttr) || 1 : 1
                 };
+
+                // FLAT, WHEN THE DRAWING ASKS FOR IT. Every shape is drawn with a drop
+                // shadow and its fill turned into a diagonal gradient. That is the house
+                // style for an object sitting ON the canvas -- a card, a note, a plate --
+                // and it is wrong inside a FIGURE, where it makes nodes look like 3D
+                // bubbles and a background panel look like a gradient swatch.
+                //
+                // data-flat="1" says "draw me as I am". Two things make that true, and
+                // both are done here so no drawing code has to change: the shadow is
+                // turned off through style.shadow, which every draw path already reads,
+                // and a hex fill is rewritten as rgb() -- _getShadedFill only gradients a
+                // colour it can parse as hex and hands anything else straight back.
+                if (el.getAttribute('data-flat') != null) {
+                    style.shadow = { color: 'transparent', blur: 0, offsetX: 0, offsetY: 0 };
+                    const rgb = Shape._parseHexColor(style.fill);
+                    if (rgb) style.fill = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+                }
+                return style;
             }
             static _translateShapeInternal = function (s, dx, dy) {
                 if (!s || (!dx && !dy)) return;
@@ -3760,6 +3784,12 @@ function () {
 
                 const rotationDeg = Shape._readRotationDeg?.(style, 0) ?? Shape._readRotationDeg?.(el, 0) ?? 0;
 
+                // A drawing that IS a diagram says data-box="none" and gets plain text; a
+                // label floating over a picture leaves it alone and keeps the chip. The
+                // weight comes from font-weight, so a title can be a title.
+                const boxAttr = ('' + (el.getAttribute('data-box') || '')).toLowerCase();
+                const weightAttr = el.getAttribute('font-weight');
+
                 const shape = {
                     domain: 'svg',
                     type: 'text',
@@ -3767,6 +3797,9 @@ function () {
                     text,
                     style,
                     fontSize,
+                    fontWeight: weightAttr ? ('' + weightAttr) : null,
+                    boxFill: boxAttr === 'none' ? 'none' : undefined,
+                    boxStroke: boxAttr === 'none' ? 'none' : undefined,
                     textAnchor,
                     rotationDeg,
                     gfx,
@@ -3785,13 +3818,19 @@ function () {
                         const text = String(this.text ?? '');
 
                         ctx.save();
-                        ctx.font = px + 'px sans-serif';
+                        ctx.font = (this.fontWeight ? (this.fontWeight + ' ') : '') + px
+                            + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
+                        // text-anchor, ACTUALLY APPLIED. This used to compute the alignment
+                        // and throw the value away -- the ternary below was a statement, not
+                        // an assignment -- so ctx.textAlign was left at 'left' and the box
+                        // maths below then centred everything regardless of what the SVG
+                        // asked for. A left-anchored label came out centred on its point,
+                        // which is half its own width to the left of where it belongs.
                         const a = String(this.textAnchor || 'start').toLowerCase();
-                        ctx.textAlign = 'left';
-                        (a === 'middle' || a === 'center') ? 'center' :
-                            (a === 'end' || a === 'right') ? 'right' :
-                                'left';
+                        ctx.textAlign = (a === 'middle' || a === 'center') ? 'center'
+                            : (a === 'end' || a === 'right') ? 'right'
+                                : 'left';
 
                         ctx.textBaseline = 'alphabetic';
 
@@ -3809,7 +3848,7 @@ function () {
                         const padY = Math.max(3, px * 0.25);
                         const r = Math.max(3, px * 0.35);
 
-                        let boxX = sx - textW / 2;
+                        let boxX = sx;
                         if (ctx.textAlign === 'center') boxX = sx - textW / 2;
                         else if (ctx.textAlign === 'right') boxX = sx - textW;
 
@@ -3820,9 +3859,18 @@ function () {
                         const rw = textW + padX * 2;
                         const rh = textH + padY * 2;
 
-                        Shape._applyShadow(ctx, {
-                            shadow: { color: 'rgba(0,0,0,0.45)', blur: 4, offsetX: 2, offsetY: 2 }
-                        });
+                        // THE CHIP BEHIND A LABEL IS NOT ALWAYS WANTED. A white rounded box
+                        // with a hard drop shadow behind every piece of text is right for a
+                        // label floating over a picture and wrong for a label that is PART
+                        // of a drawing -- a diagram then reads as a pile of stickers rather
+                        // than a diagram. It is still the default, so nothing that relies on
+                        // it changes; a drawing turns it off with data-box="none".
+                        const __chip = this.boxFill !== 'none' && this.boxStroke !== 'none';
+                        if (__chip) {
+                            Shape._applyShadow(ctx, {
+                                shadow: { color: 'rgba(0,0,0,0.45)', blur: 4, offsetX: 2, offsetY: 2 }
+                            });
+                        }
 
                         const roundRect = (ctx, x, y, w, h, r) => {
                             const rr = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -3835,17 +3883,25 @@ function () {
                             ctx.closePath();
                         };
 
-                        roundRect(ctx, rx, ry, rw, rh, r);
+                        if (__chip) {
+                            roundRect(ctx, rx, ry, rw, rh, r);
 
-                        ctx.fillStyle = this.boxFill ?? 'rgba(255,255,255,0.90)';
-                        ctx.fill();
+                            ctx.fillStyle = this.boxFill ?? 'rgba(255,255,255,0.90)';
+                            ctx.fill();
 
-                        ctx.lineWidth = this.boxLineWidth ?? Math.max(1, px * 0.06);
-                        ctx.strokeStyle = this.boxStroke ?? 'rgba(0,0,0,0.25)';
-                        ctx.stroke();
+                            ctx.lineWidth = this.boxLineWidth ?? Math.max(1, px * 0.06);
+                            ctx.strokeStyle = this.boxStroke ?? 'rgba(0,0,0,0.25)';
+                            ctx.stroke();
+                        }
+                        Shape._clearShadow(ctx);
 
                         ctx.fillStyle = this.textFill ?? baseColor;
-                        ctx.fillText(text, boxX, sy);
+                        // boxX is the LEFT EDGE of the chip, which is what the chip needs
+                        // and NOT what fillText wants: ctx.textAlign now does the aligning,
+                        // so the text is drawn at its own anchor point. Passing boxX with
+                        // textAlign 'center' applied the centring twice and put the label
+                        // half its own width to the left of where it belonged.
+                        ctx.fillText(text, sx, sy);
 
                         Shape._clearShadow(ctx);
                         ctx.restore();

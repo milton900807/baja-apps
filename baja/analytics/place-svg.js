@@ -80,8 +80,23 @@ function (pt, svgText, opts) {
             wantW = srcW;
         }
 
+        // THE CANVAS'S WORLD UNITS ARE NOT SQUARE. One world unit across and one world unit
+        // down are different numbers of pixels, and a drawing scaled by the same factor on
+        // both axes therefore arrives squashed: measured on the analytics canvas, a figure
+        // authored 1000 x 698 came out at roughly 0.57 of its proper height. Worse, a
+        // circle is drawn from the HORIZONTAL scale alone (grid.screenWidth(r)), so the
+        // nodes kept their size while the space between them shrank until they touched.
+        //
+        // So the vertical scale carries the ratio. After this the figure has the
+        // proportions it was drawn with, whatever the camera is doing.
         const scale = wantW / srcW;
-        try { Shape.svgScaleAbout(shape, scale, scale, 0, 0); } catch (e) { console.warn('[place-svg] scale', e); }
+        let anis = 1;
+        try {
+            const g = pt.grid; g.rescale();
+            const kx = Math.abs(g.screenWidth(1)), ky = Math.abs(g.screenHeight(1));
+            if (kx > 0 && ky > 0 && isFinite(kx / ky)) anis = kx / ky;
+        } catch (e) { anis = 1; }
+        try { Shape.svgScaleAbout(shape, scale, scale * anis, 0, 0); } catch (e) { console.warn('[place-svg] scale', e); }
 
         // What it will actually cover, measured after the scaling rather than assumed: a
         // label that overhangs the frame still has to be kept off the tables.
