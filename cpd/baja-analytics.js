@@ -1435,6 +1435,10 @@ function (path, config) {
                 // an object is maximized, taps inside it work as on the desktop.
                 if (isMobile() && pm.plateTrack) {
                     __touchPx = null; __touchPy = null; __touchSy = scy; __touchSx = scx;
+                    // THE BOARD OF BADGES gets the press first: the strip's buttons (Up, Next,
+                    // close) and press-and-hold on a badge to open it. Anything it does not
+                    // want falls through to the old handling.
+                    try { if (pm.plateTrack.mobilePress && pm.plateTrack.mobilePress(scx, scy)) return; } catch (e) { }
                     if (pm.plateTrack.mobileTap && pm.plateTrack.mobileTap(scx, scy)) return;
                     if (!pm.plateTrack.__maximized) return;
                 }
@@ -1512,6 +1516,7 @@ function (path, config) {
                 if (graph && typeof graph.menuVisible === 'function' && graph.menuVisible()) { __touchPx = null; __touchPy = null; __touchSy = null; return; }
                 // Mobile, nothing maximized and no menu open: the release ends a pan, nothing more.
                 __touchPx = null; __touchPy = null; __touchSy = null;
+                try { if (pm.plateTrack && pm.plateTrack.mobileRelease) pm.plateTrack.mobileRelease(); } catch (e) { }
                 if (isMobile() && pm.plateTrack && !pm.plateTrack.menu && !pm.plateTrack.__maximized) return;
                 if (!smenu && pm.plateTrack) {
                     pm.plateTrack.mouseUp(scx, scy)
@@ -1614,6 +1619,7 @@ function (path, config) {
                         // hold if the finger has travelled; the pan then continues below.
                         if (pt.__msDrag) { try { pt.mouseMove(scx, scy); } catch (e) { } __touchSy = scy; __touchSx = scx; return null; }
                         if (pt.__msHold) { try { pt.mouseMove(scx, scy); } catch (e) { } }
+                        try { if (pt.mobileDrag) pt.mobileDrag(scx, scy); } catch (e) { }   // moved = panning, not holding
                         if (pt.__maximized) {
                             if (pt.__maxDrag) { try { pt.mouseMove(scx, scy); } catch (e) { } }   // the chart/timeline itself is being moved
                             else if (__touchSy != null) {
@@ -4697,7 +4703,14 @@ function (path, config) {
                                     // undo it is the sort of thing that makes a build feel
                                     // like it is fighting you.
                                     let prevH = null;
-                                    try { if (old) prevH = (old.getHeight ? old.getHeight() : old.h) || null; } catch (e) { prevH = null; }
+                                    // ITS WORLD HEIGHT, NOT getHeight(). For a chart getHeight()
+                                    // returns grid.height -- SCREEN PIXELS, and 1 until it has
+                                    // drawn a frame -- so carrying it over as a world height
+                                    // resized the chart by whatever the zoom happened to be on
+                                    // the last run, every rebuild, and could hand the layout a
+                                    // box of 1. worldSizeOf answers in world units for a plate
+                                    // and a plot alike.
+                                    try { if (old) prevH = ((pt.worldSizeOf && pt.worldSizeOf(old)) || {}).h || null; } catch (e) { prevH = null; }
                                     if (old && pt.removePlot) { try { pt.removePlot(old); } catch (e) { } }
                                     const points = pops.map((p) => ({
                                         name: (p.type === 'Expansion' ? p.name + ' (expansion)' : p.name),

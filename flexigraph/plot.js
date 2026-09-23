@@ -4040,6 +4040,11 @@ function (MGrid) {
                     plot.grid.ymin = data.grid.ymin;
                     plot.grid.ymax = data.grid.ymax;
                     plot.maximize = data.maximize;
+                    // The timeline's own switches, restored only when they were saved -- an
+                    // older file has neither, and both of those defaults are "as before".
+                    if (data.fillScreenWhenZoomed !== undefined) plot.fillScreenWhenZoomed = !!data.fillScreenWhenZoomed;
+                    if (data.showBudget !== undefined) plot.showBudget = data.showBudget !== false;
+                    if (data.showNowBar !== undefined) plot.showNowBar = data.showNowBar !== false;
                     plot.isBackground = data.isBackground;
                     plot.x = data.x;
                     plot.y = data.y;
@@ -5456,6 +5461,28 @@ function (MGrid) {
                         try { pt.setMessage((body.filename || base) + ' downloaded.', 4); } catch (e) { }
                     } catch (e) { try { pt.setMessage('Download failed: ' + (e && e.message || e), 8); } catch (e2) { } }
                 };
+                menuList.push(
+                    {
+                        // Whether this timeline takes the whole viewport once the canvas is
+                        // zoomed in far enough that its frame runs off the bottom. Off unless
+                        // asked for: it used to happen to every timeline, on every zoom.
+                        label: this.fillScreenWhenZoomed === true
+                            ? `Don't fill the screen when zoomed in` : `Fill the screen when zoomed in`,
+                        __date: '',
+                        click: async () => {
+                            try { pushHistory(HM(this)); } catch (e) { }
+                            this.fillScreenWhenZoomed = (this.fillScreenWhenZoomed !== true);
+                            if (!this.fillScreenWhenZoomed) this.showTopMenuBar = true;   // it had been hidden by the clamp
+                            try {
+                                pt.setMessage(this.fillScreenWhenZoomed
+                                    ? 'This timeline will fill the screen when the canvas is zoomed in.'
+                                    : 'This timeline stays its own size however far the canvas is zoomed.', 3);
+                            } catch (e) { }
+                            try { pt.wb(null); } catch (e) { }
+                        },
+                        move: () => { }
+                    }
+                );
                 menuList.push(
                     {
                         // The budget under each milestone's name: useful while planning, in
@@ -9544,6 +9571,10 @@ function (MGrid) {
                     [/^(show|hide) \[now\] mark$/, this.showNowBar ? 'Hide the now marker' : 'Show the now marker'],
                     [/^(show|hide) budget on milestones$/, this.showBudget === false ? 'Show the budget on milestones' : 'Hide the budget on milestones'],
                     [/^(lock to|unlock from) background$/, this.isBackground ? 'Unlock from background' : 'Lock to background'],
+                    // Whether this timeline takes the viewport over once the canvas is zoomed
+                    // in past it. Off unless asked for -- it used to be every timeline, always.
+                    [/^(don't )?fill the screen when zoomed in$/i,
+                        this.fillScreenWhenZoomed === true ? 'Keep its own size when zoomed in' : 'Fill the screen when zoomed in'],
                     [/^(maximize|default \(un-maximize\) size)$/, this.maximize ? 'Restore size' : 'Maximize']
                 );
                 const __download = __pick(
@@ -13051,6 +13082,10 @@ function (MGrid) {
                     endDate: this.endDate,
                     isBackground: this.isBackground,
                     maximize: this.maximize,
+                    // Saved with the timeline, or the choice is made again every time it opens.
+                    fillScreenWhenZoomed: this.fillScreenWhenZoomed === true,
+                    showBudget: this.showBudget !== false,
+                    showNowBar: this.showNowBar !== false,
                     theme: this.theme,
                     backgroundColor: this.backgroundColor,
                     scaleType: this.scaleType,
@@ -14337,7 +14372,15 @@ function (MGrid) {
 
                         this.normalizeTimePoints(graph);
 
-                        if (this.maximize || cymin > ctx.canvas.height && this.grid.yi < (ctx.canvas.height / 2)) {
+                        // FILLING THE SCREEN IS NOW A CHOICE, NOT A REFLEX. A timeline whose
+                        // frame ran past the bottom of the canvas used to take the whole
+                        // viewport over -- top pinned at -10, height the canvas, its own menu
+                        // bar hidden -- which is what made it clamp to the bottom of the screen
+                        // as soon as you zoomed in on the canvas. It is kept for the timelines
+                        // that want it (the menu's "Fill the screen when zoomed in"), and an
+                        // explicit Maximize still fills the screen as it always did.
+                        if (this.maximize || (this.fillScreenWhenZoomed === true
+                            && cymin > ctx.canvas.height && this.grid.yi < (ctx.canvas.height / 2))) {
                             this.grid.height = ctx.canvas.height + 100;
                             this.grid.yi = -10;
                             this.showTopMenuBar = false;

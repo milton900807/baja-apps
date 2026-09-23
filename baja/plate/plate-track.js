@@ -8361,6 +8361,8 @@ function (progress) {
             }
 
             mouseDown(x, y) {
+                // The phone's board of badges: the strip's buttons, and press-and-hold to open.
+                try { if (this.mobilePress(x, y)) return; } catch (e) { }
                 // A WINDOW IS OPEN OVER THE CANVAS. A dialog -- the cell text window, a
                 // confirm, the milestone comment, anything the layout opens -- takes the
                 // interaction, and nothing underneath it should answer as well. The move
@@ -8485,6 +8487,22 @@ function (progress) {
                             // was landing on whatever button happened to be under the pointer,
                             // so a click meant to select the table fired an action instead.
                             this.__barPress = { o: bar, x, y };
+                            return;
+                        }
+                    }
+                } catch (e) { }
+                // A FOLDER: press the card and drag it. Its own buttons (menu, delete) are let
+                // through -- they fire on the press -- and the release belongs to this press so
+                // a click that only picks the folder up cannot also set something off.
+                try {
+                    const pkg = this.__packageAt(x, y);
+                    if (pkg) {
+                        let onButton = false;
+                        try { onButton = !!(pkg.inButtons && pkg.inButtons(x, y, this)); } catch (e) { onButton = false; }
+                        if (!onButton) {
+                            try { this.setSelected(pkg); } catch (e) { }
+                            this.__solidDragStart(pkg, x, y);
+                            this.__barPress = { o: pkg, x, y };
                             return;
                         }
                     }
@@ -8734,6 +8752,7 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                try { if (this.mobileRelease()) return; } catch (e) { }      // a hold that did not finish
                 // The release belongs to the open window too (see mouseDown).
                 if (this.__modalOver()) { this.__msHoldCancel(); return; }
                 this.__msHoldCancel();
@@ -9478,6 +9497,7 @@ function (progress) {
             }
 
             mouseMove(x, y) {
+                try { this.mobileDrag(x, y); } catch (e) { }                 // moving = panning, not holding
                 // Where the pointer last was, so the hover can be worked out again after the
                 // CANVAS has moved under it (see __rehover). Kept on every move, cheap.
                 this.__ptrX = x; this.__ptrY = y;
@@ -11645,6 +11665,36 @@ function (progress) {
                 if (d && d.moved) { try { this.setMessage((d.o.name || 'Table') + ' moved (Ctrl+Z undoes).', 2); } catch (e) { } }
             }
 
+            // ---- A FOLDER CARD IS A HANDLE --------------------------------------------------
+            // A folder has no title bar -- __layoutIsTable refuses one to a 'package' plate --
+            // so the card itself is what you take hold of: press anywhere on it that is not
+            // one of its buttons and drag. The menu that used to open from the card is now the
+            // button on it, because a card that opened a menu on every press could not be
+            // moved without the menu getting in the way.
+            __packageAt(x, y) {
+                try {
+                    if (this.menu || this.__maximized || this.__selectGesture || this.__readOnly) return null;
+                    if (this.__badgeMode && this.__badgeMode()) return null;      // the phone has its own way in
+                    const id = this.wbid;
+                    if (id && id !== 'drag-navigate' && !('' + id).startsWith('click_and_drag')) return null;
+                    const list = (this.root || []);
+                    for (let i = list.length - 1; i >= 0; i--) {                  // topmost first
+                        const p = list[i];
+                        if (!p || p.hidden) continue;
+                        if (('' + (p.plateType || '')).indexOf('package') !== 0) continue;
+                        const b = this.worldBoxOf(p);
+                        if (!b) continue;
+                        const g = this.grid;
+                        const x0 = Math.min(g.X(b.x0), g.X(b.x1)), x1 = Math.max(g.X(b.x0), g.X(b.x1));
+                        const y0 = Math.min(g.Y(b.y0), g.Y(b.y1)), y1 = Math.max(g.Y(b.y0), g.Y(b.y1));
+                        if (x >= x0 && x <= x1 && y >= y0 && y <= y1) {
+                            return this.__ownsPoint(p, x, y) ? p : null;
+                        }
+                    }
+                } catch (e) { }
+                return null;
+            }
+
             // ---- WHO OWNS THIS POINT ---------------------------------------------------
             // Objects overlap, and only ONE workbench is installed at a time: selecting a
             // table replaces the canvas's own mouse handling with that table's, and from
@@ -11742,6 +11792,10 @@ function (progress) {
             // object is already maximized the tap goes through the normal handling (cells,
             // the Menu pill, Exit, the backdrop).
             mobileTap(x, y) {
+                // THE BOARD FIRST. Every app calls mobileTap on a press (baja-analytics,
+                // viewer, main...), so the phone's board hangs off this rather than off any
+                // one app's wiring: the strip's buttons, and press-and-hold to open a badge.
+                try { if (this.__badgeMode() && this.mobilePress(x, y)) return true; } catch (e) { }
                 if (this.__maximized || this.menu) return false;
                 const t = this.objectAt(x, y);
                 if (!t) return false;
@@ -20215,6 +20269,31 @@ function (progress) {
                     next.sort((a, c) => a.x - c.x);
                     sky = next;
                 }
+                // FOLDERS SIT IN A LINE, CLOSE TOGETHER. The skyline treats a folder card like
+                // any other piece and it is a fifth the width of everything else, so they get
+                // tucked into whatever holes are going -- one here, two there. They are a
+                // SHELF: the way in to everything that has been put away, and they read as one
+                // only if they are in a row. Laid along the bottom of the block, centred, with
+                // a gap a fraction of the usual gutter so they sit as a set rather than as
+                // five separate things. opts.folderRow: false leaves them to the packer.
+                if (opts.folderRow !== false) {
+                    const isPkg = (b) => b && b.kind === 'plate' && b.ref
+                        && ('' + (b.ref.plateType || '')).indexOf('package') === 0;
+                    const folders = boxes.filter(isPkg);
+                    const others = boxes.filter(b => !isPkg(b));
+                    if (folders.length > 1) {
+                        const baseV = others.length ? Math.max(...others.map(b => b.v + b.hEff)) : 0;
+                        const gap = Math.max(1e-9, gutterX * 0.22);
+                        const totalW = folders.reduce((acc, f) => acc + f.w, 0) + gap * (folders.length - 1);
+                        const spanW = others.length ? Math.max(...others.map(b => b.u + b.w)) : totalW;
+                        let x = Math.max(0, (spanW - totalW) / 2);
+                        for (const f of folders) {
+                            f.u = x;
+                            f.v = baseV + gutterY * 0.5;
+                            x += f.w + gap;
+                        }
+                    }
+                }
                 const blockW = Math.max(...boxes.map(b => b.u + b.w));
                 const blockH = Math.max(...boxes.map(b => b.v + b.hEff));
 
@@ -25516,9 +25595,26 @@ function (progress) {
                         } catch (e) { __off = null; }
                     }
                     const __target = __off || ctx;
-                    for (let obj of allObjects) {
-                        if (!this.__maximized) this.drawPackageExportParentLine(obj, __target);
-                        drawObj(obj, __target);
+                    // ON A PHONE the objects are not drawn at all: the board of badges takes
+                    // their place (see __drawBadges). A maximized object still draws itself --
+                    // that is the whole point of opening one.
+                    this.__badgeModeActive = this.__badgeMode();
+                    // THE BOARD OPENS WITH EVERYTHING IN VIEW. Landing on a corner of it and
+                    // having to pan to find out what is there is a poor first second; after
+                    // this the view is the user's to move about as they like. Once only, and
+                    // not while a build is still putting objects down.
+                    if (this.__badgeModeActive && !this.__maximized && !this.__badgeFitDone
+                        && !this.__curtain && (this.root || []).length + (this.m_plots || []).length > 1) {
+                        this.__badgeFitDone = true;
+                        try { setTimeout(() => { try { this.zoomtfit(); } catch (e) { } }, 60); } catch (e) { }
+                    }
+                    if (this.__badgeModeActive && !this.__maximized) {
+                        try { this.__drawBadges(__target); } catch (e) { console.warn('[mobile] badges', e); }
+                    } else {
+                        for (let obj of allObjects) {
+                            if (!this.__maximized) this.drawPackageExportParentLine(obj, __target);
+                            drawObj(obj, __target);
+                        }
                     }
                     // The curtain, over everything that has just been drawn and under all the
                     // chrome that follows.
@@ -25543,6 +25639,7 @@ function (progress) {
                         try { ctx.filter = 'none'; } catch (e) { }
                         ctx.restore();
                     }
+                    if (this.__badgeModeActive) { try { this.__drawMobileBar(ctx); } catch (e) { } }
                     if (this.__lassoFind && !this.__maximized) { try { this.__drawLassoSelection(ctx); } catch (e) { } }
                     // The active plot (a timeline or chart being edited) is redrawn on top of
                     // the other canvas items, and the lock badges over it. Both belong HERE,
@@ -25998,6 +26095,303 @@ function (progress) {
 
                     })
                 }
+            }
+
+            // ================= MOBILE: A BOARD OF BADGES =====================================
+            // A phone cannot show a workbench. A table at phone width is a smear of lines, and
+            // a canvas of them is a smear of smears -- so on a phone the canvas is a BOARD OF
+            // BADGES: one rounded label per object, with its name and what kind of thing it is,
+            // laid out where the object actually sits so panning still means something.
+            //
+            //   pan            drag, as always -- the badges move with the canvas
+            //   press and hold a badge     opens it full window (a FOLDER opens as a folder)
+            //   the top strip  Up (out of a folder), the name of what is open, and Next,
+            //                  which walks through the objects one full window at a time
+            //
+            // A TAP DOES NOTHING. It was making a thumb that brushed an object while scrolling
+            // take over the whole screen; holding is deliberate in a way a tap is not.
+            __badgeMode() {
+                try {
+                    if (this.__forceBadges === false) return false;
+                    if (this.__forceBadges === true) return true;
+                    return (typeof isMobile === 'function') ? !!isMobile() : false;
+                } catch (e) { return false; }
+            }
+            __badgeKind(o) {
+                try {
+                    if (!o) return 'thing';
+                    const t = ('' + (o.plateType || '')).toLowerCase();
+                    if (t.indexOf('package') === 0) return 'folder';
+                    if (t === 'document') return 'note';
+                    if (typeof o.drawPlot === 'function') return (this.__tlIs && this.__tlIs(o)) ? 'timeline' : 'chart';
+                    return 'table';
+                } catch (e) { return 'thing'; }
+            }
+            // One badge geometry, used by the drawing and by the hit test, so a badge can never
+            // be somewhere other than where it is pressed. Centred on the object's own box.
+            __badgeBox(o, ctx) {
+                try {
+                    const b = this.worldBoxOf(o);
+                    if (!b) return null;
+                    const g = this.grid;
+                    const x0 = g.X(b.x0), x1 = g.X(b.x1), y0 = g.Y(b.y1), y1 = g.Y(b.y0);
+                    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+                    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+                    const name = ('' + (o.name || this.__badgeKind(o))).trim() || 'Untitled';
+                    let w = 190, h = 44;
+                    if (ctx) {
+                        ctx.save();
+                        ctx.font = '600 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                        w = Math.min(280, Math.max(120, Math.ceil(ctx.measureText(name).width) + 62));
+                        ctx.restore();
+                    }
+                    return { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h, name, kind: this.__badgeKind(o), ref: o };
+                } catch (e) { return null; }
+            }
+            __badgeList(ctx) {
+                const out = [];
+                for (const o of [...(this.root || []), ...(this.m_plots || [])]) {
+                    if (!o || o.hidden) continue;
+                    const b = this.__badgeBox(o, ctx);
+                    if (b) out.push(b);
+                }
+                return out;
+            }
+            __badgeAt(x, y) {
+                const list = this.__badgeBoxes || [];
+                for (let i = list.length - 1; i >= 0; i--) {          // topmost first
+                    const b = list[i];
+                    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
+                }
+                return null;
+            }
+            __drawBadges(ctx) {
+                const NAVY = '#0a2540', CYAN = '#1aa3bd';
+                const list = this.__badgeList(ctx);
+                this.__badgeBoxes = list;                              // what the press tests against
+                const rr = (x, y, w, h, r) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+                };
+                ctx.save();
+                ctx.textBaseline = 'middle';
+                for (const b of list) {
+                    if (b.x + b.w < -40 || b.x > ctx.canvas.width + 40) continue;     // off screen
+                    if (b.y + b.h < -40 || b.y > ctx.canvas.height + 40) continue;
+                    const held = this.__lpress && this.__lpress.o === b.ref;
+                    const folder = b.kind === 'folder';
+                    ctx.shadowColor = 'rgba(10,37,64,0.18)'; ctx.shadowBlur = held ? 16 : 8; ctx.shadowOffsetY = held ? 4 : 2;
+                    ctx.fillStyle = folder ? '#dbe9f7' : (held ? NAVY : 'rgba(255,255,255,0.98)');
+                    rr(b.x, b.y, b.w, b.h, 12); ctx.fill();
+                    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                    ctx.strokeStyle = held ? NAVY : 'rgba(10,37,64,0.18)'; ctx.lineWidth = 1;
+                    rr(b.x, b.y, b.w, b.h, 12); ctx.stroke();
+                    // A dot that says what kind of thing it is: folder, table, chart, timeline, note.
+                    const dot = { folder: '#5b8db8', table: NAVY, chart: CYAN, timeline: '#16a34a', note: '#9aa5ad', thing: '#9aa5ad' }[b.kind] || NAVY;
+                    ctx.fillStyle = dot;
+                    ctx.beginPath(); ctx.arc(b.x + 20, b.y + b.h / 2, 6, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = held ? '#ffffff' : NAVY;
+                    ctx.font = '600 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                    ctx.textAlign = 'left';
+                    let t = b.name;
+                    const room = b.w - 44;
+                    while (t.length > 2 && ctx.measureText(t).width > room) t = t.slice(0, -2) + '…';
+                    ctx.fillText(t, b.x + 34, b.y + b.h / 2 + 0.5);
+                }
+                ctx.restore();
+                // The ring that fills while a badge is held, so the wait is visible.
+                if (this.__lpress && this.__lpress.box) {
+                    const p = Math.min(1, (Date.now() - this.__lpress.t) / this.__lpressMs());
+                    const b = this.__lpress.box;
+                    ctx.save();
+                    ctx.strokeStyle = CYAN; ctx.lineWidth = 3; ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.arc(b.x + b.w - 18, b.y + b.h / 2, 9, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+            __lpressMs() { return 420; }
+            // ---- the strip along the top -----------------------------------------------------
+            __mobileBarH() { return 46; }
+            __mobileBarButtons(ctx) {
+                const H = this.__mobileBarH(), pad = 8, w = ctx ? ctx.canvas.width : 0;
+                const out = [];
+                if ((this.ptracks || []).length > 0) out.push({ id: 'up', label: '↰ Up', x: pad, y: pad, w: 78, h: H - 2 * pad });
+                out.push({ id: 'next', label: 'Next ▶', x: w - pad - 96, y: pad, w: 96, h: H - 2 * pad });
+                if (this.__maximized) out.push({ id: 'exit', label: '✕', x: w - pad - 96 - 8 - 44, y: pad, w: 44, h: H - 2 * pad });
+                return out;
+            }
+            mobileBarAt(x, y) {
+                if (!this.__badgeModeActive) return null;
+                for (const b of (this.__mobileBarRects || [])) {
+                    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+                }
+                return null;
+            }
+            __drawMobileBar(ctx) {
+                const H = this.__mobileBarH(), NAVY = '#0a2540';
+                const rects = this.__mobileBarButtons(ctx);
+                this.__mobileBarRects = rects;
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.fillStyle = NAVY;
+                ctx.fillRect(0, 0, ctx.canvas.width, H);
+                // What is open, or where you are.
+                let title = '';
+                const nameOf = (v) => {
+                    const t = ('' + (v == null ? '' : v)).trim();
+                    return (!t || t === 'undefined' || t === 'null') ? '' : t;
+                };
+                try {
+                    title = this.__maximized ? nameOf(this.__maximized.name) :
+                        ((this.ptracks || []).length ? nameOf(this.getCurrentPTrackLocationName()) : nameOf(this.name));
+                } catch (e) { title = ''; }
+                if (!title) title = (this.mobileObjects().length || 0) + ' objects';
+                ctx.fillStyle = 'rgba(255,255,255,0.92)';
+                ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                let t = title;
+                while (t.length > 2 && ctx.measureText(t).width > ctx.canvas.width - 260) t = t.slice(0, -2) + '…';
+                ctx.fillText(t, ctx.canvas.width / 2, H / 2);
+                for (const b of rects) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+                    ctx.beginPath();
+                    const r = 8;
+                    ctx.moveTo(b.x + r, b.y); ctx.lineTo(b.x + b.w - r, b.y); ctx.quadraticCurveTo(b.x + b.w, b.y, b.x + b.w, b.y + r);
+                    ctx.lineTo(b.x + b.w, b.y + b.h - r); ctx.quadraticCurveTo(b.x + b.w, b.y + b.h, b.x + b.w - r, b.y + b.h);
+                    ctx.lineTo(b.x + r, b.y + b.h); ctx.quadraticCurveTo(b.x, b.y + b.h, b.x, b.y + b.h - r);
+                    ctx.lineTo(b.x, b.y + r); ctx.quadraticCurveTo(b.x, b.y, b.x + r, b.y); ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 0.5);
+                }
+                ctx.restore();
+            }
+            // ---- what the strip's buttons do --------------------------------------------------
+            // Next walks the objects in the order they were made, one full window at a time, and
+            // comes round again at the end. From the board it opens the first one.
+            mobileObjects() {
+                return [...(this.root || []), ...(this.m_plots || [])].filter(o => o && !o.hidden);
+            }
+            cycleMaximized(step) {
+                try {
+                    const list = this.mobileObjects();
+                    if (!list.length) return false;
+                    const cur = list.indexOf(this.__maximized);
+                    const next = list[((cur < 0 ? -1 : cur) + (step || 1) + list.length * 2) % list.length];
+                    if (!next) return false;
+                    this.maximizeObject(next);
+                    try { this.setMessage(next.name || '', 2); } catch (e) { }
+                    return true;
+                } catch (e) { return false; }
+            }
+            // A FOLDER OPENS AS A FOLDER, not as a window showing one cell. This is what the
+            // desktop's "Open.." does (baja/plate/ops/package.js), minus the menu.
+            async openFolderPlate(p) {
+                try {
+                    if (!p || ('' + (p.plateType || '')).indexOf('package') !== 0) return false;
+                    const payload = p.wells && p.wells[0] && p.wells[0][0] && p.wells[0][0].properties
+                        ? p.wells[0][0].properties['package'] : null;
+                    if (!payload) return false;
+                    const state = this.capturestate();
+                    this.copyFromJSON(__decompress(payload));
+                    this.pushFolder(p.uid, state);
+                    this.deselectAll();
+                    try { this.wb(null); } catch (e) { }
+                    try { this.setMessage((p.name || 'Folder') + ' — Up goes back', 2); } catch (e) { }
+                    return true;
+                } catch (e) { console.warn('[mobile] open folder', e); return false; }
+            }
+            // ---- press and hold ---------------------------------------------------------------
+            __lpressStart(box, x, y) {
+                this.__lpressCancel();
+                this.__lpress = { o: box.ref, box, x, y, t: Date.now() };
+                const tick = setInterval(() => { try { const g = CurrentLayout.getStashed('graph'); if (g && g.touchMe) g.touchMe(); } catch (e) { } }, 40);
+                this.__lpress.timer = setTimeout(async () => {
+                    clearInterval(tick);
+                    const lp = this.__lpress;
+                    this.__lpressCancel();                      // takes its listeners with it
+                    if (!lp) return;
+                    try {
+                        if (this.__badgeKind(lp.o) === 'folder') await this.openFolderPlate(lp.o);
+                        else this.maximizeObject(lp.o);
+                    } catch (e) { console.warn('[mobile] hold', e); }
+                    try { const g = CurrentLayout.getStashed('graph'); if (g && g.touchMe) g.touchMe(); } catch (e) { }
+                }, this.__lpressMs());
+                this.__lpress.tick = tick;
+                // THE HOLD WATCHES THE POINTER ITSELF. A release or a travelling finger has to
+                // call it off, and not every app routes those to the track -- so the window's
+                // own events do it, and go away with the hold.
+                try {
+                    const off = () => this.__lpressCancel();
+                    const moved = (ev) => {
+                        try {
+                            const t = (ev.touches && ev.touches[0]) || ev;
+                            if (!t || !this.__lpress) return;
+                            const dx = Math.abs(t.clientX - (this.__lpress.px || t.clientX));
+                            const dy = Math.abs(t.clientY - (this.__lpress.py || t.clientY));
+                            if (dx + dy > 12) this.__lpressCancel();
+                        } catch (e) { }
+                    };
+                    this.__lpress.px = (window.event && window.event.clientX) || null;
+                    this.__lpress.py = (window.event && window.event.clientY) || null;
+                    this.__lpress.off = off; this.__lpress.moved = moved;
+                    window.addEventListener('touchend', off, true);
+                    window.addEventListener('touchcancel', off, true);
+                    window.addEventListener('mouseup', off, true);
+                    window.addEventListener('touchmove', moved, true);
+                    window.addEventListener('mousemove', moved, true);
+                } catch (e) { }
+            }
+            __lpressCancel() {
+                const lp = this.__lpress;
+                if (!lp) return;
+                try { clearTimeout(lp.timer); } catch (e) { }
+                try { clearInterval(lp.tick); } catch (e) { }
+                try {
+                    if (lp.off) {
+                        window.removeEventListener('touchend', lp.off, true);
+                        window.removeEventListener('touchcancel', lp.off, true);
+                        window.removeEventListener('mouseup', lp.off, true);
+                    }
+                    if (lp.moved) {
+                        window.removeEventListener('touchmove', lp.moved, true);
+                        window.removeEventListener('mousemove', lp.moved, true);
+                    }
+                } catch (e) { }
+                this.__lpress = null;
+            }
+            // The press, the drag and the release, for the board. Returns true when the board
+            // has taken the event and nothing else should look at it.
+            mobilePress(x, y) {
+                if (!this.__badgeMode()) return false;
+                const bar = this.mobileBarAt(x, y);
+                if (bar) {
+                    if (bar === 'up') { try { this.popFolder(); } catch (e) { } }
+                    else if (bar === 'next') this.cycleMaximized(1);
+                    else if (bar === 'exit') { try { this.exitMaximize(); } catch (e) { } }
+                    return true;
+                }
+                if (this.__maximized) return false;              // inside a window: its own handling
+                const b = this.__badgeAt(x, y);
+                if (b) { this.__lpressStart(b, x, y); return true; }
+                return false;
+            }
+            mobileDrag(x, y) {
+                if (!this.__lpress) return false;
+                if (Math.abs(x - this.__lpress.x) + Math.abs(y - this.__lpress.y) > 12) this.__lpressCancel();
+                return false;                                     // a drag is a pan, always
+            }
+            mobileRelease() {
+                const had = !!this.__lpress;
+                this.__lpressCancel();
+                return had;
             }
 
             // ---- A WHITE CURTAIN -----------------------------------------------------------

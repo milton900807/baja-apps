@@ -1671,6 +1671,31 @@ def _load_json_param(v: Any) -> Any:
     return None
 
 
+def _friendly_error(msg: str) -> str:
+    """What went wrong, in a sentence the person running it can act on.
+
+    The API's own words go through as `detail`; this is what the canvas puts on screen.
+    A raw "anthropic 400: {json}" in a message that clears itself after ten seconds is how
+    a billing problem gets read as "the tool is broken".
+    """
+    m = (msg or "").lower()
+    if "credit balance is too low" in m:
+        return ("The Anthropic account this server's API key belongs to has no credit left, so the "
+                "research could not run. Add credits in the Console, and check that the key's "
+                "WORKSPACE has a spend limit above zero -- credits in the organisation do not reach a "
+                "workspace capped at $0.")
+    if "invalid x-api-key" in m or "authentication_error" in m or "anthropic 401" in m:
+        return ("The Anthropic API key on the server was rejected -- revoked, replaced, or from another "
+                "organisation. Set ANTHROPIC_API_KEY in /opt/baja-server/.env and restart the service.")
+    if "permission_error" in m or "anthropic 403" in m:
+        return "The Anthropic API key is not allowed to use this model or feature for this organisation."
+    if "rate_limit" in m or "anthropic 429" in m:
+        return "Anthropic rate limit reached. Give it a minute and run it again."
+    if "overloaded" in m or "anthropic 529" in m:
+        return "Anthropic is overloaded right now. Run it again shortly."
+    return msg
+
+
 def _main_ion() -> int:
     prompt = works.param(1) or ""
     opts = _load_json_param(works.param(2)) or {}
@@ -1679,7 +1704,7 @@ def _main_ion() -> int:
     try:
         result = run(prompt, opts)
     except ApiError as e:
-        result = {"status": "error", "error": str(e)}
+        result = {"status": "error", "error": _friendly_error(str(e)), "detail": str(e)}
     except Exception as e:  # pragma: no cover - surfaced to the UI
         result = {"status": "error", "error": f"{type(e).__name__}: {e}"}
     works.progress(100)

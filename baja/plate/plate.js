@@ -710,12 +710,14 @@ function () {
                 this.package_buttons = [
 
                     {
-                        // A FOLDER AND AN ICON KEEP THEIRS. The title bar is what replaced
-                        // the move button, and plate-track's __layoutIsTable refuses a bar to
-                        // 'package' and 'annotation' plates -- so for these two the button is
-                        // still the only way to pick the object up.
-                        name: `move`, x: 0, y: 10, width: 30, height: 20, action: async (bx, by, x, y, pt) => { return await this.setMoveListeners(bx, by, x, y, pt) },
-                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null("move", pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'm'
+                        // THE FOLDER'S MENU. It used to be a move button, from before the card
+                        // could be dragged; now the card itself is the handle (plate-track's
+                        // __packageAt -> __solidDragStart) and this opens what the folder can
+                        // do -- Open, Export, Link, Copy, Publish. Drawn as the menu glyph
+                        // (three lines), which is what the name 'minimize' paints.
+                        name: "minimize", x: 0, y: 10, width: 20, height: 20,
+                        action: async (bx, by, x, y, pt) => { return await this.simpleMenu(pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('minimize', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'M'
                     },
                     {
                         name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.test_menu(bx, by, x, y, pt) },
@@ -9590,7 +9592,10 @@ function () {
 
                     if (current_well) {
                         if (this.plateType === 'package') {
-                            await this.simpleMenu(pt);
+                            // THE CARD IS THE HANDLE, NOT A MENU BUTTON. A press on a folder
+                            // picks it up (plate-track __packageAt); the menu is the button on
+                            // it. Opening the menu from the body as well meant every attempt to
+                            // move a folder ended with a menu in the way.
                             return;
                         }
                     }
