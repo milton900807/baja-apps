@@ -20324,6 +20324,11 @@ function (progress) {
 
                 const settle = () => {
                     for (const b of boxes) writePose(b, b.target.xw, b.target.yw);
+                    // Anything that grew, or was measured before it knew its size, is moved
+                    // clear here -- after the pieces are in place and before the audit reports.
+                    if (opts.noOverlap) {
+                        try { this.separateOverlaps({ gutter: gutterY * 0.6 }); } catch (e) { }
+                    }
                     touch();
                     if (opts.audit) { try { this.layoutAudit(opts.audit === true ? 'layout' : opts.audit); } catch (e) { } }
                     token.done(true);
@@ -24541,6 +24546,48 @@ function (progress) {
                     if (!Number.isFinite(x0) || !Number.isFinite(y0)) return null;
                     return { x0, x1: x0 + s.w, y0, y1: y0 + s.h };
                 } catch (e) { return null; }
+            }
+            // ---- MOVE APART WHATEVER ENDED UP ON TOP ---------------------------------------
+            // The packing cannot produce overlapping boxes, but the boxes are only as good as
+            // the sizes they were given: a timeline GROWS after it is placed, to fit labels it
+            // lays out in screen pixels, and an object measured before its first frame can
+            // report a size it does not keep. So after a layout the result is checked against
+            // what the objects actually occupy NOW, and anything sitting on something else is
+            // moved straight down until it is clear.
+            //
+            // Down, not sideways: a layout reads in rows, and a piece that drops below the
+            // thing it was covering still reads in the order it was placed. The first object
+            // of a pair stays put -- something has to -- and that is the one placed earlier.
+            separateOverlaps(opts = {}) {
+                const gutter = Number(opts.gutter) || 0;
+                const passes = Math.max(1, opts.passes == null ? 4 : opts.passes);
+                const moveDown = (o, by) => {
+                    try {
+                        if (this.__isPlotObj(o)) { o.y -= by; return true; }       // a plot's y is its TOP
+                        if (o.grid && Number.isFinite(o.grid.yi)) { o.grid.yi -= by; return true; }
+                    } catch (e) { }
+                    return false;
+                };
+                let moved = 0;
+                for (let pass = 0; pass < passes; pass++) {
+                    const list = [...(this.root || []), ...(this.m_plots || [])].filter(o => o && !o.hidden);
+                    let any = false;
+                    for (let i = 0; i < list.length; i++) {
+                        for (let j = i + 1; j < list.length; j++) {
+                            const a = this.worldBoxOf(list[i]), b = this.worldBoxOf(list[j]);
+                            if (!a || !b) continue;
+                            const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+                            const oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+                            if (!(ox > 1e-6 && oy > 1e-6)) continue;
+                            // the later one goes below the earlier one
+                            const drop = (b.y1 - a.y0) + gutter;
+                            if (drop > 0 && moveDown(list[j], drop)) { moved++; any = true; }
+                        }
+                    }
+                    if (!any) break;
+                }
+                if (moved) { try { this.generateTables?.(); } catch (e) { } }
+                return moved;
             }
             // WHAT ACTUALLY ENDED UP ON TOP OF WHAT. Run after a layout when opts.audit is
             // set: the packing cannot produce overlapping boxes, so an overlap here means an

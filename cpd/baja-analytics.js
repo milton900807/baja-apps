@@ -2580,7 +2580,13 @@ function (path, config) {
             // are fixed objects whose item arrays are filled IN PLACE (never replaced): the
             // menubar's references stay live, and refreshBuildLibrary() can run again after
             // every push without anything going stale or empty.
-            const buildLibraryLive = BUILD_GROUPS.map(([title]) => ({ label: title, items: [] })).concat([{ label: 'Market', items: [] }]);
+            // Market is the CATCH-ALL: anything not named in BUILD_GROUPS lands there. The
+            // groups after it are named explicitly (TAIL_GROUPS) so a new builder does not
+            // silently fall into Market instead.
+            const TAIL_GROUPS = [['Therapeutics', ['Repurpose']]];
+            const buildLibraryLive = BUILD_GROUPS.map(([title]) => ({ label: title, items: [] }))
+                .concat([{ label: 'Market', items: [] }])
+                .concat(TAIL_GROUPS.map(([title]) => ({ label: title, items: [] })));
             // The top-level list the menubar holds: ONE array, refilled in place with the
             // groups that have items (a filtered copy would leave the menubar holding the
             // first, empty, copy for ever -- which is what made Build show nothing).
@@ -2596,7 +2602,16 @@ function (path, config) {
                         if (it) { buildLibraryLive[gi].items.push(it); used.add(it); }
                     }
                 });
-                const more = buildLibraryLive[buildLibraryLive.length - 1];
+                // The named tail groups take their own items first...
+                TAIL_GROUPS.forEach(([title, labels], ti) => {
+                    const g = buildLibraryLive[BUILD_GROUPS.length + 1 + ti];
+                    for (const l of labels) {
+                        const it = src.find(x => labelOf(x) === l && !used.has(x));
+                        if (it) { g.items.push(it); used.add(it); }
+                    }
+                });
+                // ...and Market takes whatever is left.
+                const more = buildLibraryLive[BUILD_GROUPS.length];
                 for (const x of src) if (!used.has(x)) more.items.push(x);
                 buildTop.length = 0;
                 for (const g of buildLibraryLive) if (g.items.length) buildTop.push(g);
@@ -4620,6 +4635,14 @@ function (path, config) {
                             // them behind a card would be hiding the summary of the work.
                             try {
                                 const byGroup = new Map();
+                                // THE MODEL'S TABLES GO INTO A FOLDER TOO. They are four wide
+                                // tables of formulas -- inputs, market size, cost to market and
+                                // the headline numbers -- and loose on the canvas they are most
+                                // of what is on it. All four go into ONE folder, which is what
+                                // keeps their formulas working: a formula reaches tables on the
+                                // same canvas, and inside the folder that is each other.
+                                const modelNames = ((result.model && result.model.names) || []).filter(Boolean);
+                                if (modelNames.length) byGroup.set('Model', new Set(modelNames));
                                 for (const t of (result.tables || [])) {
                                     if (!t || !t.name || !t.group) continue;
                                     if (!byGroup.has(t.group)) byGroup.set(t.group, new Set());
@@ -4771,6 +4794,12 @@ function (path, config) {
                                     // Dropped in, not slid in: nothing has been visible until
                                     // now, so the pieces should arrive as pieces.
                                     style: 'tetris',
+                                    // NOTHING ON TOP OF ANYTHING. The packing cannot overlap the
+                                    // boxes it is given, but an object can grow after it is
+                                    // placed (a timeline does, to fit its labels) or be measured
+                                    // before it knows its own size. This checks the result and
+                                    // moves anything that ended up over something else.
+                                    noOverlap: true,
                                     // PLACED EXACTLY AS THE TOOLBAR BUTTON PLACES THEM. The
                                     // button runs the plain packing -- objects in the order they
                                     // were made, no ranks, no bands -- and that is the
@@ -4948,6 +4977,290 @@ function (path, config) {
 
 
 
+
+                ai_create_file_items.push({
+                    // Therapeutics ▸ Repurpose. Give it an indication, a mechanism of action or
+                    // a target, and it looks for drugs that are ALREADY IN PEOPLE and could work
+                    // here -- along four separate routes of evidence (molecular, systems,
+                    // phenotypic, clinical), because a candidate with one route is a hypothesis
+                    // and a candidate with three is worth a meeting. py/analytics/repurpose.py
+                    // researches with Claude + live web search and returns finished tables:
+                    // <X>_Repurpose_Candidates / _Evidence / _Targets / _Sources / _Summary.
+                    'label': 'Repurpose', 'ionfunction': createIonFunction(async () => {
+                        const pt = pm.plateTrack;
+                        let sequenceTextEditor;
+                        let descHook = createIonFunction((p) => { sequenceTextEditor = p; });
+                        // One of each kind, so the panel shows what it will take: a disease, a
+                        // mechanism, a target.
+                        const examples = [
+                            'Chronic hepatitis B — drugs already in people that could give a functional cure',
+                            'Degrade or silence mutant huntingtin in the striatum',
+                            'IRAK4',
+                            'Idiopathic pulmonary fibrosis',
+                            'Block CGRP signalling without a biologic',
+                            'SCN9A',
+                            'Restore CFTR trafficking in class II mutations',
+                            'Cachexia in advanced cancer'
+                        ];
+                        let txt = examples[Math.floor(Math.random() * examples.length)];
+                        if (txt === window.__bajaRepurposeLast && examples.length > 1) {
+                            txt = examples[(examples.indexOf(txt) + 1) % examples.length];
+                        }
+                        window.__bajaRepurposeLast = txt;
+                        let initalText = true;
+                        setTimeout(() => {
+                            let i = 0, currentText = '';
+                            const interval = setInterval(() => {
+                                currentText += txt[i];
+                                if (!initalText) { sequenceTextEditor?.setContent(''); clearInterval(interval); return; }
+                                sequenceTextEditor?.setContent(currentText);
+                                i++;
+                                if (i >= txt.length) clearInterval(interval);
+                            }, 10);
+                        }, 150);
+
+                        const run = async (prompt, opts) => {
+                            pt.setMessage('Looking for drugs that could be repurposed… this takes a few minutes', 5);
+                            // The same learning progress bar the market build uses, with its own
+                            // history: a repurposing run is a different length from a market one.
+                            const Learner = await exec('baja/analytics/progress-learner.js');
+                            const track = Learner.begin('repurpose', {
+                                label: 'Repurpose',
+                                priorSeconds: { fresh: 180, default: 180 },
+                                phases: [
+                                    { id: 'start', label: 'Looking for candidates', match: /Looking for drugs/i, at: 0.03 },
+                                    { id: 'search', label: 'Searching the literature', match: /^Searching:/i, at: 0.10, repeat: true, expect: 12 },
+                                    { id: 'organise', label: 'Organising the candidates', match: /Organising/i, at: 0.85 }
+                                ]
+                            });
+                            const paint = () => {
+                                try {
+                                    const st = track.state();
+                                    pt.setTaskProgress({ label: st.label, detail: st.detail, fraction: st.fraction, eta: st.eta, basis: st.basis });
+                                } catch (e) { }
+                            };
+                            paint();
+                            const ticker = setInterval(paint, 250);
+                            const stop = (ok) => {
+                                clearInterval(ticker);
+                                try { track.finish(ok); } catch (e) { }
+                                try { pt.clearTaskProgress(); } catch (e) { }
+                            };
+                            const em = new EngineMonitor((msg) => { track.message(msg); paint(); pt.updateSprite(msg); });
+                            try { em.addProgressListener((p) => { track.progress(p); paint(); }); } catch (e) { }
+
+                            let result;
+                            try {
+                                result = await exec('py/analytics/repurpose.py', em, prompt, opts || {});
+                            } catch (e) {
+                                stop(false); pt.killSprite();
+                                pt.setMessage('Repurpose failed: ' + (e && e.message ? e.message : e), 1.1);
+                                return;
+                            }
+                            stop(!!(result && result.status === 'ok'));
+                            pt.killSprite();
+                            if (!result || result.status !== 'ok') {
+                                pt.setMessage((result && result.error) || 'Repurpose failed', 1.1);
+                                if (result && result.detail) console.warn('[repurpose]', result.detail);
+                                return;
+                            }
+
+                            // The canvas fills behind a curtain with the camera off it, exactly
+                            // as the market build does, and the layout drops it into view.
+                            try { pt.curtainUp(); } catch (e) { }
+                            const camera = (() => {
+                                let saved = null, timer = 0;
+                                return {
+                                    away() {
+                                        try {
+                                            if (saved) return;
+                                            const g = pt.grid; g.rescale();
+                                            saved = { x0: g.getxmin(), x1: g.getxmax(), y0: g.getymin(), y1: g.getymax() };
+                                            const dx = Math.abs(saved.x1 - saved.x0) * 60 || 1e5;
+                                            g.zoom(saved.x0 + dx, saved.x1 + dx, saved.y0, saved.y1);
+                                            timer = setTimeout(() => { try { camera.back(); } catch (e) { } }, 120000);
+                                        } catch (e) { }
+                                    },
+                                    back() {
+                                        try {
+                                            clearTimeout(timer);
+                                            if (!saved) return;
+                                            pt.grid.zoom(saved.x0, saved.x1, saved.y0, saved.y1);
+                                            saved = null; pt.grid.rescale();
+                                        } catch (e) { }
+                                    }
+                                };
+                            })();
+                            camera.away();
+
+                            const drawn = [];
+                            for (const spec of (result.tables || [])) drawn.push(await drawValueTable(pt, spec));
+                            try { if (drawn.filter(Boolean).length > 1) pt.normalizeTableCellSizes(drawn.filter(Boolean)); } catch (e) { }
+                            try {
+                                for (const d of (result.documents || [])) {
+                                    if (d && d.html) await pt.addDocument(d.name || 'Notes', d.html, { width: 560, height: 560 });
+                                }
+                            } catch (e) { console.warn('[repurpose] document', e); }
+
+                            // EVERY TABLE INTO A FOLDER OF ITS OWN GROUP -- Candidates, Evidence,
+                            // Targets, Sources. The notes stay out: they are the summary of the
+                            // work and putting them behind a card would be hiding it.
+                            try {
+                                const byGroup = new Map();
+                                for (const t of (result.tables || [])) {
+                                    if (!t || !t.name || !t.group) continue;
+                                    if (!byGroup.has(t.group)) byGroup.set(t.group, new Set());
+                                    byGroup.get(t.group).add(t.name);
+                                }
+                                if (byGroup.size) {
+                                    const HM = await exec('baja/history/HM');
+                                    const Plate = await exec('baja/plate/plate.js');
+                                    for (const [name, names] of byGroup) {
+                                        try {
+                                            const inside = (pt.root || []).filter(p => p && names.has(p.name));
+                                            if (!inside.length) continue;
+                                            const keep = { root: pt.root, plots: pt.m_plots, glyphs: pt.glyphs };
+                                            let payload = null;
+                                            try {
+                                                pt.root = inside; pt.m_plots = []; pt.glyphs = [];
+                                                payload = compressbinaryData(compressString(HM(pt)));
+                                            } finally { pt.root = keep.root; pt.m_plots = keep.plots; pt.glyphs = keep.glyphs; }
+                                            if (!payload) continue;
+                                            for (const c of inside) { try { pt.removePlate(c); } catch (e) { } }
+                                            const prev = (pt.root || []).find(p => p && p.name === name && p.plateType === 'package');
+                                            if (prev) { try { pt.removePlate(prev); } catch (e) { } }
+                                            const pack = new Plate(name, 1, 1);
+                                            pack.plateType = 'package';
+                                            pack.completeNullValues();
+                                            pack.setWellValue(0, 0, name);
+                                            pack.wells[0][0].properties['package'] = payload;
+                                            pack.setWellType(0, 0, 'PACKAGE');
+                                            pack.grid.width = pt.grid.worldWidth(200);
+                                            pack.grid.height = pt.grid.worldHeight(100);
+                                            try { pt.addNextAvailableX(pack); } catch (e) { pt.root.push(pack); }
+                                            if ((pt.root || []).indexOf(pack) < 0) pt.root.push(pack);
+                                        } catch (e) { console.warn('[repurpose] folder ' + name, e); }
+                                    }
+                                }
+                            } catch (e) { console.warn('[repurpose] folders', e); }
+
+                            await new Promise((r) => setTimeout(r, 0));
+                            camera.back();
+                            try { await pt.cameraSettled(); } catch (e) { }
+                            let __fade = Promise.resolve();
+                            try {
+                                const __laid = pt.layoutCompactTetris({
+                                    style: 'tetris',
+                                    audit: 'repurpose build',
+                                    noOverlap: true,
+                                    // The folders land first -- they are the way in to what was
+                                    // put away -- then everything else.
+                                    dropRank: (b) => {
+                                        const pkg = !!(b && b.ref && ('' + (b.ref.plateType || '')).indexOf('package') === 0);
+                                        return pkg ? 0 : 1;
+                                    }
+                                });
+                                try { __fade = pt.blurIn(1800); } catch (e) { }
+                                try { pt.curtainDown(2600); } catch (e) { }
+                                await __laid;
+                            } catch (e) { }
+                            try { pt.curtainDown(0); } catch (e) { }
+                            try { await __fade; } catch (e) { }
+                            try { await pt.zoomtfit(); } catch (e) { }
+
+                            const d = result.detection || {};
+                            const routes = d.by_route || {};
+                            pt.setMessage(`${d.subject || prompt}: ${d.candidates || 0} candidate${d.candidates === 1 ? '' : 's'}`
+                                + (d.multi_route ? `, ${d.multi_route} with two or more routes of evidence` : ', none with more than one route'), 1.1);
+                            if (Object.keys(routes).length) {
+                                pt.setMessage('Evidence — ' + Object.keys(routes).map(k => k + ': ' + routes[k]).join(', '), 2);
+                            }
+                            for (const n of (result.notes || [])) pt.setMessage(n, 3);
+                            try { const g = CurrentLayout.getStashed('graph'); if (g) g.touchMe(); } catch (e) { }
+                        };
+
+                        let sequence_input = {
+                            wid: 'card',
+                            "height": "300px",
+                            data: {
+                                "style.padding-top": '1px',
+                                "style.border": '1px',
+                                "style.height": "200px",
+                                cards: [[
+                                    {
+                                        'width': '100%',
+                                        'component': {
+                                            wid: 'html',
+                                            data: `
+                                                <H4>
+                                                      <font color="navy">
+                                                An indication, a mechanism of action, or a target. It looks for drugs already in people that could work here — molecular, systems, phenotypic and clinical evidence:
+                                                </font> </h4>
+                                                `
+                                        }
+                                    },
+                                    {
+                                        'width': '100%',
+                                        'component': {
+                                            wid: 'text-editor',
+                                            refCallback: descHook,
+                                            data: {
+                                                height: "300px",
+                                                showButton: false,
+                                                editorOptions: {
+                                                    value: '',
+                                                    language: 'text', automaticLayout: true, fontSize: 24, lineNumbers: "off",
+                                                    suggestOnTriggerCharacters: false,
+                                                    quickSuggestions: false,
+                                                    parameterHints: { enabled: false },
+                                                    minimap: { enabled: false },
+                                                    fontFamily: "Courier New, monospace",
+                                                    placeholder: "",
+                                                    cursorStyle: "block"
+                                                },
+                                                onDidFocusEditorWidget: createIon(() => {
+                                                    if (initalText) sequenceTextEditor?.setContent("");
+                                                    initalText = false;
+                                                }),
+                                                keybinding: {
+                                                    'Ctrl+Enter': createIonFunction((content, lineNumber, col) => { })
+                                                }
+                                            }
+                                        }
+                                    },
+                                    { 'width': '100%', 'component': { wid: 'html', data: '<hr>' } },
+                                    {
+                                        'component': {
+                                            wid: 'mt-button', data: {
+                                                buttons: [
+                                                    {
+                                                        label: 'Cancel', ionFunction: createIonFunction(async () => {
+                                                            hideAllModal();
+                                                            CurrentLayout.reset('mainPanel');
+                                                        })
+                                                    },
+                                                    {
+                                                        label: 'Find candidates', ionFunction: createIonFunction(async () => {
+                                                            const prompt = (initalText ? txt : sequenceTextEditor.getContent() || '').trim();
+                                                            hideAllModal();
+                                                            CurrentLayout.reset('mainPanel');
+                                                            if (prompt.length < 2) {
+                                                                pt.setMessage('Name an indication, a mechanism or a target.', 1.1);
+                                                                return;
+                                                            }
+                                                            await run(prompt);
+                                                        })
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                ]]
+                            }
+                        };
+                        CurrentLayout.setComponent('mainPanel', sequence_input);
+                    })
+                });
 
                 ai_create_file_items.push({
                     'label': 'Build Analytics', 'ionfunction': createIonFunction(async () => {
