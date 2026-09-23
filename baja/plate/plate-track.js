@@ -6830,13 +6830,7 @@ function (progress) {
                                 const targetX = wx + offX;
                                 const targetY = wy + offY;
 
-                                if (shape.setX) shape.setX(targetX);
-                                else if ('x' in shape) shape.x = targetX;
-                                else if ('cx' in shape) shape.cx = targetX;
-
-                                if (shape.setY) shape.setY(targetY);
-                                else if ('y' in shape) shape.y = targetY;
-                                else if ('cy' in shape) shape.cy = targetY;
+                                this.__moveGlyphShapeTo(shape, targetX, targetY);
                             }
                         },
 
@@ -7438,13 +7432,7 @@ function (progress) {
                                     const targetX = wx + offX;
                                     const targetY = wy + offY;
 
-                                    if (shape.setX) shape.setX(targetX);
-                                    else if ('x' in shape) shape.x = targetX;
-                                    else if ('cx' in shape) shape.cx = targetX;
-
-                                    if (shape.setY) shape.setY(targetY);
-                                    else if ('y' in shape) shape.y = targetY;
-                                    else if ('cy' in shape) shape.cy = targetY;
+                                    this.__moveGlyphShapeTo(shape, targetX, targetY);
                                 }
                             });
                         },
@@ -7476,12 +7464,13 @@ function (progress) {
                         hd.selected_glyphs = selected_glyphs;
                         this.wb(hd);
 
-                        this.addActionGlyph(this, "Click here for options...", async () => {
-                            setTimeout(() => {
-                                this.clearActionGlyphs();
-                                this.showMenuOptionsForGlyph();
-                            }, 100);
-                        });
+                        // NO STICKY NOTE. A yellow post-it reading "Click here for
+                        // options..." used to be dropped on the canvas to reach this menu --
+                        // an object in the drawing that is not part of the drawing, that the
+                        // layout knows nothing about and that has to be cleared up
+                        // afterwards. The selection opens the menu itself, the same way a
+                        // click on a single drawing already did.
+                        this.showMenuOptionsForGlyph();
 
                         hd.startX = null;
                         hd.startY = null;
@@ -13124,6 +13113,12 @@ function (progress) {
                 let selectedPlots = [];
                 selectedPlots = findPlotsInLasso(selectedPlots, this.m_plots, lassoPolygon);
 
+                // A LASSO ASKS FOR PARTS. Dragging a drawing moves it whole -- that is what
+                // a group is for -- so the lasso is the other half of the pair: it is how
+                // you get at what is inside one. Any group the lasso reaches into is broken
+                // into its pieces first, and the pass below then selects the pieces that are
+                // actually in it. One undo puts the group back.
+                try { this.__lassoUngroupGlyphs(lassoPolygon); } catch (e) { console.warn('[lasso ungroup]', e); }
                 selected_glyphs = findGlyphsInLasso(selected_glyphs, this.glyphs, lassoPolygon);
 
                 // A teal outline around every kind of object this drag found -- tables,
@@ -13789,13 +13784,7 @@ function (progress) {
                                             const targetX = wx + offX;
                                             const targetY = wy + offY;
 
-                                            if (typeof shape.setX === 'function') shape.setX(targetX);
-                                            else if ('x' in shape) shape.x = targetX;
-                                            else if ('cx' in shape) shape.cx = targetX;
-
-                                            if (typeof shape.setY === 'function') shape.setY(targetY);
-                                            else if ('y' in shape) shape.y = targetY;
-                                            else if ('cy' in shape) shape.cy = targetY;
+                                            this.__moveGlyphShapeTo(shape, targetX, targetY);
                                         }
                                     },
 
@@ -14625,13 +14614,7 @@ function (progress) {
                                         const targetX = wx + offX;
                                         const targetY = wy + offY;
 
-                                        if (typeof shape.setX === 'function') shape.setX(targetX);
-                                        else if ('x' in shape) shape.x = targetX;
-                                        else if ('cx' in shape) shape.cx = targetX;
-
-                                        if (typeof shape.setY === 'function') shape.setY(targetY);
-                                        else if ('y' in shape) shape.y = targetY;
-                                        else if ('cy' in shape) shape.cy = targetY;
+                                        this.__moveGlyphShapeTo(shape, targetX, targetY);
                                     }
                                 },
 
@@ -15164,13 +15147,7 @@ function (progress) {
                                         const targetX = wx + offX;
                                         const targetY = wy + offY;
 
-                                        if (typeof shape.setX === 'function') shape.setX(targetX);
-                                        else if ('x' in shape) shape.x = targetX;
-                                        else if ('cx' in shape) shape.cx = targetX;
-
-                                        if (typeof shape.setY === 'function') shape.setY(targetY);
-                                        else if ('y' in shape) shape.y = targetY;
-                                        else if ('cy' in shape) shape.cy = targetY;
+                                        this.__moveGlyphShapeTo(shape, targetX, targetY);
                                     }
                                 },
 
@@ -19482,9 +19459,171 @@ function (progress) {
                     }
                 });
 
-                this.setOptionsMenu(menuList)
+                this.setOptionsMenu(this.__organiseGlyphMenu(menuList))
                 this.clearActionGlyphs();
 
+            }
+
+            // Break every group the lasso reaches into its pieces, so the selection pass
+            // that follows can pick out the ones inside. Returns how many were broken.
+            //
+            // "Reaches into" means one of its pieces has its centre in the lasso -- the same
+            // test the selection itself uses, so a group is never broken up to then select
+            // nothing out of it. A group the lasso misses entirely is left alone.
+            __lassoUngroupGlyphs(poly) {
+                if (!Array.isArray(poly) || poly.length < 3 || !Array.isArray(this.glyphs)) return 0;
+                const grid = this.grid;
+                const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+                const inPoly = (px, py) => {
+                    let inside = false;
+                    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                        const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+                        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+                    }
+                    return inside;
+                };
+                const leaves = (s, out) => {
+                    if (!s) return out;
+                    if (('' + (s.type || '')).toLowerCase() === 'svg_group' && Array.isArray(s.shapes)) {
+                        for (const c of s.shapes) leaves(c, out);
+                    } else out.push(s);
+                    return out;
+                };
+                const centreIn = (s) => {
+                    try {
+                        if (typeof s.getX !== 'function') Shape._attachBBoxMethods(s);
+                        const a = s.getX(), b = s.getXf(), c = s.getY(), d = s.getYf();
+                        if (![a, b, c, d].every(isNum)) return false;
+                        const sx = grid.X((a + b) / 2), sy = grid.Y((c + d) / 2);
+                        return isNum(sx) && isNum(sy) && inPoly(sx, sy);
+                    } catch (e) { return false; }
+                };
+
+                const groups = this.glyphs.filter(g => g && g.shape
+                    && ('' + (g.shape.type || '')).toLowerCase() === 'svg_group'
+                    && Array.isArray(g.shape.shapes));
+                if (!groups.length) return 0;
+
+                let broken = 0;
+                for (const g of groups) {
+                    const parts = leaves(g.shape, []);
+                    if (parts.length < 2) continue;
+                    if (!parts.some(centreIn)) continue;
+                    if (!broken) { try { pushHistory(HM(this)); } catch (e) { } }
+                    for (const part of parts) {
+                        try { this.glyphs.push(new Glyph(part)); } catch (e) { }
+                    }
+                    try { this.removeGlyphs([g]); } catch (e) { this.glyphs = this.glyphs.filter(x => x !== g); }
+                    broken++;
+                }
+                if (broken) { try { this.setMessage('Ungrouped ' + broken + ' drawing' + (broken === 1 ? '' : 's') + ' — one undo puts it back', 2); } catch (e) { } }
+                return broken;
+            }
+
+            // MOVE A DRAWING, GROUP AND ALL. Every glyph drag sets the shape's x (or cx) to
+            // where the pointer has got to -- and an imported SVG is an `svg_group`, which
+            // has NEITHER. It carries its children and a bounding box and nothing else, so
+            // the whole chain fell through and the drawing simply did not move: a group was
+            // the one kind of object on the canvas you could not pick up.
+            //
+            // A group moves by moving everything in it. The target is where the box's
+            // top-left should end up (which is what the drag offset was measured against),
+            // so the delta is that minus where it is now, applied to every leaf.
+            __translateShapeBy(s, dx, dy) {
+                if (!s || (!dx && !dy)) return;
+                const n = (v) => (typeof v === 'number' && isFinite(v)) ? v : 0;
+                for (const k of ['x', 'xf', 'x1', 'x2', 'cx']) if (k in s) s[k] = n(s[k]) + dx;
+                for (const k of ['y', 'yf', 'y1', 'y2', 'cy']) if (k in s) s[k] = n(s[k]) + dy;
+                if (Array.isArray(s.pts)) for (const p of s.pts) { if (p) { p.x = n(p.x) + dx; p.y = n(p.y) + dy; } }
+                if (Array.isArray(s.shapes)) for (const c of s.shapes) this.__translateShapeBy(c, dx, dy);
+            }
+            __moveGlyphShapeTo(shape, targetX, targetY) {
+                if (!shape) return;
+                const movable = (typeof shape.setX === 'function') || ('x' in shape) || ('cx' in shape);
+                if (movable) {
+                    if (typeof shape.setX === 'function') shape.setX(targetX);
+                    else if ('x' in shape) shape.x = targetX;
+                    else if ('cx' in shape) shape.cx = targetX;
+
+                    if (typeof shape.setY === 'function') shape.setY(targetY);
+                    else if ('y' in shape) shape.y = targetY;
+                    else if ('cy' in shape) shape.cy = targetY;
+                    return;
+                }
+                try {
+                    const x0 = shape.getX && shape.getX(), y0 = shape.getY && shape.getY();
+                    if (!Number.isFinite(x0) || !Number.isFinite(y0)) return;
+                    this.__translateShapeBy(shape, targetX - x0, targetY - y0);
+                } catch (e) { }
+            }
+
+            // THE MENU FOR A DRAWING, IN AN ORDER SOMEONE CAN READ. It is built by pushing
+            // items on as the feature that needed them was written, which left one flat list
+            // of sixteen where "Delete" sits under "(45°) line" and the two things anybody
+            // wants -- move it, delete it -- are at opposite ends. The items themselves are
+            // unchanged: this groups them under headings, in the order they are reached for,
+            // renames the ones whose labels were working titles, and drops the one that says
+            // "(experimental)" on it.
+            //
+            // Headings are the menu's own `type: 'text'` rows and the rules are
+            // `type: 'separator'` (flexigraph/menu.js); neither is clickable. An item the
+            // caller did not build is simply absent -- nothing here invents a row.
+            __organiseGlyphMenu(list) {
+                try {
+                    const items = (list || []).filter(Boolean);
+                    if (items.length < 3) return items;
+
+                    const norm = (s) => ('' + (s == null ? '' : s)).replace(/\s+/g, ' ').trim().toLowerCase();
+                    const pool = items.slice();
+                    const take = (label) => {
+                        const i = pool.findIndex(m => norm(m.label) === norm(label));
+                        return i < 0 ? null : pool.splice(i, 1)[0];
+                    };
+                    const rename = (m, label) => { if (m) m.label = label; return m; };
+
+                    const SECTIONS = [
+                        ['ARRANGE', [['Move', null], ['Rotate', null], ['Resize', null],
+                            ['Bring to front', null], ['Send to back', null]]],
+                        ['GROUP', [['Group All', 'Group'], ['Ungroup', null]]],
+                        ['EDIT', [['Copy', null], ['Paste', null], ['Duplicate', null]]],
+                        ['SHAPE TOOLS', [['Draw line', null], ['(45°) line', 'Line at 45°'],
+                            ['Tighten', null], ['Elastic Move', 'Elastic move'],
+                            ['Tethered Node Move', 'Tethered node move'],
+                            ['Make Hairpin', 'Make hairpin'], ['Theme', null]]]
+                    ];
+
+                    const out = [];
+                    for (const [heading, wanted] of SECTIONS) {
+                        const found = [];
+                        for (const [label, as] of wanted) {
+                            const m = take(label);
+                            if (m) found.push(rename(m, as || m.label));
+                        }
+                        if (!found.length) continue;
+                        if (out.length) out.push({ type: 'separator' });
+                        out.push({ type: 'text', label: heading });
+                        for (const m of found) out.push(m);
+                    }
+
+                    // Anything this does not know about keeps its place at the end rather
+                    // than disappearing -- a menu that silently loses an item is worse than
+                    // an untidy one. '(experimental)' is the exception: it is not an action.
+                    const rest = pool.filter(m => norm(m.label) !== '(experimental)' && norm(m.label) !== 'delete');
+                    if (rest.length) {
+                        if (out.length) out.push({ type: 'separator' });
+                        out.push({ type: 'text', label: 'MORE' });
+                        for (const m of rest) out.push(m);
+                    }
+
+                    // Delete last, and marked as what it is.
+                    const del = items.find(m => norm(m.label) === 'delete');
+                    if (del) {
+                        if (out.length) out.push({ type: 'separator' });
+                        del.emphasis = 'danger';
+                        out.push(del);
+                    }
+                    return out.length ? out : items;
+                } catch (e) { console.warn('[glyph menu]', e); return list; }
             }
 
             showMenu(menu) {
