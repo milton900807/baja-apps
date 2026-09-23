@@ -14767,6 +14767,25 @@ function () {
                     ctx.fillStyle = tabFill;
                     ctx.fillRect(xsc + tabLeft + 1, ysc + 1, tabW - 2, tabH - 2);
 
+                    // "OPEN" ON THE TAB. Pressing the tab opens the folder (plate-track's
+                    // __packageAt branch) while pressing the card drags it -- two different
+                    // things in two parts of one shape, and nothing said so. The tab is the
+                    // part that looks like a handle for opening, so it says what it does.
+                    // Skipped when the tab is too small to hold the word legibly: a folder
+                    // zoomed down to a thumbnail is better with a clean tab than a smear.
+                    try {
+                        const tabPx = Math.min(tabH * 0.56, tabW * 0.26, 13);
+                        if (tabPx >= 8) {
+                            ctx.save();
+                            ctx.font = `600 ${tabPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillStyle = '#123a6b';
+                            ctx.fillText('Open', xsc + tabLeft + tabW / 2, ysc + tabH / 2 + 0.5);
+                            ctx.restore();
+                        }
+                    } catch (e) { }
+
                     if (name) {
                         ctx.save();
                         ctx.textAlign = "center";
