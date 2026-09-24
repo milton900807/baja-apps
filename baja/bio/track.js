@@ -7434,6 +7434,15 @@ return new Promise(async (resolve, reject) => {
               // (gene-draw.js 'PastedText') anchor above this so the numbers and letters, which are
               // drawn after the layers, do not paint over them.
               this.tgraph.__pepIndexTopPx = graph.Y(_pepIdxY) - 5 - 6;
+              // The two above are ABSOLUTE screen y for THIS frame's view, so they are wrong the
+              // moment the view pans or zooms, and this block only runs while letters are drawn
+              // (screencell > 5) and AFTER the layers were drawn in the same frame -- a layer that
+              // read them drew where the track used to be. These are the same rows as offsets ABOVE
+              // THE TRACK'S BASELINE in px, which do not move with the view (they change only with
+              // the letter size), so a layer can add them to its own baseline for the current frame.
+              const _bp = graph.Y(this.tgraph.Y(0));
+              this.tgraph.__pepMidUpPx = _bp - graph.Y(_pepRowY);
+              this.tgraph.__pepIndexTopUpPx = _bp - (graph.Y(_pepIdxY) - 5 - 6);
             } catch (e) { }
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
@@ -8451,9 +8460,13 @@ return new Promise(async (resolve, reject) => {
               const _wD = _detail ? _c.measureText(_detail).width : 0;
               const _w = _wN + (_wN && _wD ? _gap : 0) + _wD + _padX * 2;
 
-              // Follow the visible left edge, but never run past the track's own right end.
-              let _x = Math.max(4, _lo);
-              _x = Math.min(_x, Math.max(4, _hi - _w));
+              // LEFT EDGE ALIGNED with the track's: the tab starts where the track starts, or at the
+              // visible left edge once the track is panned past it. It used to be pushed LEFT until
+              // its right edge met the track's right end -- and that clamp only ever fired for a
+              // track narrower than its own label, so the tab hung out over empty canvas on the
+              // left, off the track it names. A track too small to hold its label lets the label
+              // overhang on the right instead.
+              const _x = Math.max(4, _lo);
               const _yTop = _yBottom - _h;
 
               const _sel = !!this.showResizeBar;
@@ -8581,6 +8594,19 @@ return new Promise(async (resolve, reject) => {
                       _c.fillRect(_x - 2, _ry, _rowW + 4, ROWH - 2);
                       _c.globalAlpha = 1;
                     }
+                    // THE ROW UNDER THE POINTER says it can be pressed: a cyan wash, and (below) an
+                    // underline and a chevron. Pressing it opens that layer's floating menu
+                    // (track-layer-popup.js); gene.js turns the cursor into a pointer over it.
+                    // graph.__moveScreen is the pointer in the same canvas pixels these rows are drawn in.
+                    const _ms = graph.__moveScreen;
+                    const _hov = !!(_ms && Number.isFinite(_ms.x) && Number.isFinite(_ms.y)
+                      && _ms.x >= _x - 2 && _ms.x <= _x + _rowW + 2 && _ms.y >= _ry && _ms.y <= _ry + ROWH - 2);
+                    if (_hov) {
+                      _c.globalAlpha = 0.24;
+                      _c.fillStyle = '#1aa3bd';
+                      _c.fillRect(_x - 2, _ry, _rowW + 4, ROWH - 2);
+                      _c.globalAlpha = 1;
+                    }
                     // The dot carries the layer's own colour, so a row is matched to the
                     // curve it controls without reading the name.
                     // Hidden layers are dimmed, but they still have to be READ — at 0.35
@@ -8601,6 +8627,16 @@ return new Promise(async (resolve, reject) => {
                     if (_lab !== _nameOf(_l, i)) _lab += '…';
                     _c.fillText(_lab, _x + 16, _ry + (ROWH - 2) / 2);
                     _c.globalAlpha = 1;
+                    if (_hov) {
+                      const _lw = _c.measureText(_lab).width;
+                      _c.strokeStyle = _ink; _c.lineWidth = 1; _c.globalAlpha = 0.7;
+                      _c.beginPath(); _c.moveTo(_x + 16, _ry + ROWH - 4.5); _c.lineTo(_x + 16 + _lw, _ry + ROWH - 4.5); _c.stroke();
+                      _c.globalAlpha = 1;
+                      _c.textAlign = 'right';
+                      _c.fillStyle = _ink;
+                      _c.fillText('\u25be', _x + _rowW - 5, _ry + (ROWH - 2) / 2);   // chevron: there is a menu here
+                      _c.textAlign = 'left';
+                    }
                     this.__layerTabs.push({ x: _x, y: _ry, w: _rowW, h: ROWH - 2, layer: _l, track: this });
                   }
                   if (_layers.length > _fit) {

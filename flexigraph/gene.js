@@ -4947,8 +4947,14 @@ function (progress, options) {
                     if (this.prev.yi - this.prev.yf < 0) {
                         distanceY *= (-1)
                     }
-                    this.graph.setymin(this.graph.getymin() - distanceY);
-                    this.graph.setymax(this.graph.getymax() + distanceY);   // was getymax() — y-zoom never applied
+                    let nYmin = this.graph.getymin() - distanceY;
+                    let nYmax = this.graph.getymax() + distanceY;   // was getymax() — y-zoom never applied
+                    // Pinching OUT widens y. Wheel and the zoom-out button hold stacked tracks
+                    // MIN_TRACK_GAP_PX apart (clampYRangeForTracks); the pinch went round it and could
+                    // squeeze them together without limit.
+                    if (distanceY > 0) { [nYmin, nYmax] = this.clampYRangeForTracks(nYmin, nYmax); }
+                    this.graph.setymin(nYmin);
+                    this.graph.setymax(nYmax);
                     this.graph.setxmin(this.graph.getxmin() - xfactor)
                     this.graph.setxmax(this.graph.getxmax() + xfactor)
                     this.prev = evt;
@@ -5001,7 +5007,10 @@ function (progress, options) {
                 // still arrive as a single dark band with their cards on top of each other.
                 // 14px keeps each track's own body visible while still allowing a wide
                 // overview -- two dozen stacked tracks are nowhere near it on a full window.
-                this.MIN_TRACK_GAP_PX = 14;
+                // 15px now: at 14 the drawn tracks still read as touching. The cap is on the
+                // VERTICAL spacing only -- x keeps zooming out, because the gap that shrinks
+                // when the view widens is the one between tracks stacked one above another.
+                this.MIN_TRACK_GAP_PX = 15;
 
                 // Smallest spacing between stacked tracks, in data units (center to
                 // center, which stays meaningful when track heights differ or
@@ -5018,6 +5027,44 @@ function (progress, options) {
                     for (let i = 1; i < ys.length; i++) {
                         const d = ys[i] - ys[i - 1];
                         if (d > 1e-9 && d < pitch) pitch = d;
+                    }
+                    return pitch;
+                };
+
+                // The spacing that actually limits a zoom-out: the smallest y distance between two
+                // tracks that are STACKED (one above the other, so their x extents overlap) and
+                // that would be ON SCREEN in the range being asked for. minTrackPitchWorld counts
+                // every track pair whatever it is doing:
+                //   - a track dragged off to one side, on almost the same row as another far away
+                //     in x, is not "above" it, but its tiny y difference capped the whole view;
+                //   - two tracks far outside the frame being asked for capped a view that never
+                //     contains them.
+                // Neither is a reason to hold back a zoom-out. Infinity when fewer than two
+                // qualify, meaning there is nothing to keep apart.
+                this.stackedTrackPitchWorld = (ymin, ymax) => {
+                    const lo = Math.min(ymin, ymax), hi = Math.max(ymin, ymax);
+                    const items = [];
+                    for (const t of (this.track || [])) {
+                        const g = t && (t.tgraph || t.grid);   // track.js vs track-flexi
+                        if (!g || typeof g.yi !== 'number' || !isFinite(g.yi)) continue;
+                        if (g.yi < lo || g.yi > hi) continue;   // not on screen at this zoom
+                        const x0 = isFinite(g.xi) ? g.xi : 0;
+                        const w = isFinite(g.width) ? Math.abs(g.width) : Infinity;
+                        items.push({ y: g.yi, x0: x0, x1: x0 + w });
+                    }
+                    if (items.length < 2) return Infinity;
+                    items.sort((a, b) => a.y - b.y);
+                    let pitch = Infinity;
+                    for (let i = 0; i < items.length; i++) {
+                        for (let j = i + 1; j < items.length; j++) {
+                            const d = items[j].y - items[i].y;
+                            if (d <= 1e-9) continue;   // same row: side by side, not stacked
+                            if (d >= pitch) break;     // sorted by y: nothing further along is closer
+                            if (Math.min(items[i].x1, items[j].x1) - Math.max(items[i].x0, items[j].x0) > 0) {
+                                pitch = d;             // the nearest track above this one
+                                break;
+                            }
+                        }
                     }
                     return pitch;
                 };
@@ -5041,7 +5088,7 @@ function (progress, options) {
                 };
 
                 this.clampYRangeForTracks = (ymin, ymax) => {
-                    const pitch = this.minTrackPitchWorld();
+                    const pitch = this.stackedTrackPitchWorld(ymin, ymax);
                     if (!isFinite(pitch) || pitch <= 0) return [ymin, ymax];
                     // The canvas size is on graph.GRID; graph itself has no height, so this
                     // read undefined, made `usable` 0 and returned the range untouched every
@@ -13041,8 +13088,27 @@ pattern, GGGG | Required`
                                 }
                             } catch (e) { }
                         }
+                        // A label row under a track's name (baja/bio/track.js keeps their rectangles on
+                        // each track, in the canvas pixels the pointer is tracked in) opens that layer's
+                        // menu when pressed, so the pointer says so -- as long as nothing is being dragged.
+                        let __overLayer = false;
+                        if (!__overMark) {
+                            try {
+                                const __ms2 = this.graph.__moveScreen;
+                                if (__ms2 && Number.isFinite(__ms2.x) && Number.isFinite(__ms2.y)) {
+                                    for (const __t of (this.track || [])) {
+                                        for (const __r of ((__t && __t.__layerTabs) || [])) {
+                                            if (__ms2.x >= __r.x && __ms2.x <= __r.x + __r.w && __ms2.y >= __r.y && __ms2.y <= __r.y + __r.h) { __overLayer = true; break; }
+                                        }
+                                        if (__overLayer) break;
+                                    }
+                                }
+                            } catch (e) { }
+                        }
                         if (__overMark) {
                             style.cursor = 'col-resize';
+                        } else if (__overLayer) {
+                            style.cursor = 'pointer';
                         } else if (mode === 'navigate') {
                             style.cursor = 'grab';
                         } else if (mode === 'select') {

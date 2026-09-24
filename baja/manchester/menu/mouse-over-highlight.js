@@ -5074,7 +5074,7 @@ function (graph, genegraph_panel_layout) {
                 }
             } catch (e) { }
 
-            // Click on a LAYER ROW under a track name → edit that layer. Same rectangles
+            // Press on a LAYER ROW under a track name → its floating menu. Same rectangles
             // the track draws, kept on the track each frame. Handled here, like the
             // off-target badge above, and flagged so the matching mouse-up does not also
             // open the track context menu over the top of the side menu.
@@ -5085,8 +5085,22 @@ function (graph, genegraph_panel_layout) {
                         for (const r of (t2.__layerTabs || [])) {
                             if (ds2.x >= r.x && ds2.x <= r.x + r.w && ds2.y >= r.y && ds2.y <= r.y + r.h) {
                                 graph.__downMenuHandled = true;
-                                await exec('baja/manchester/menu/track-layers-side-menu.js',
-                                    t2, genegraph_panel_layout, graph, r.layer || null);
+                                // A row for ONE layer opens a small floating menu right where it was
+                                // pressed (draw order, hide/show, rename, delete). The "+N more…" row
+                                // has no layer of its own and lists them all in the side menu, which is
+                                // also where the popup's "More options…" goes.
+                                let __opened = false;
+                                if (r.layer) {
+                                    try {
+                                        await exec('baja/manchester/menu/track-layer-popup.js',
+                                            t2, r.layer, graph, genegraph_panel_layout, ds2.x, ds2.y);
+                                        __opened = true;
+                                    } catch (e) { console.warn('[layer popup]', e); }
+                                }
+                                if (!__opened) {
+                                    await exec('baja/manchester/menu/track-layers-side-menu.js',
+                                        t2, genegraph_panel_layout, graph, r.layer || null);
+                                }
                                 return;
                             }
                         }

@@ -335,22 +335,33 @@ function () {
         const gene = '' + (an.gene || '');
         const isAso = an.kind === 'aso';
 
+        // Bases in view are drawn as letters only from 5px a base up (Track.draw), and it is only
+        // then that the peptide row exists and its position is published.
+        let cellPx = 0;
+        try { cellPx = Math.abs(graph.screenWidth(tgraph.screenWidth(1))); } catch (e) { cellPx = 0; }
+
         // ---- the marker on the track: a band over the residue, a pin standing off it ---------
         //
-        // WHERE the residue is drawn: baja/bio/track.js publishes the screen y of the codon-number
-        // row (__pepIndexTopPx) and of the amino-acid letters (__pepMidPx) on the track's grid, a
-        // frame ahead of this one. The band spans from the top of the number to the bottom of the
-        // letter, so it reads as a highlighter over "122 / Y" -- and the letters and numbers,
-        // which the track draws AFTER its layers, sit on top of it rather than painting over
-        // something of ours. The pin and the card stand above that. Until the track has drawn once
-        // (or on a track with no peptide row) the band is a strip on the baseline as before.
+        // WHERE the residue is drawn: baja/bio/track.js publishes how far above the track's
+        // baseline the codon-number row (__pepIndexTopUpPx) and the amino-acid letters
+        // (__pepMidUpPx) sit. OFFSETS, added here to THIS frame's baseline (sy): a screen y saved
+        // from an earlier frame is wrong as soon as the view pans or zooms, and the layers are
+        // drawn before the track's own peptide pass, so an absolute value is always at least a
+        // frame old -- the markers were left floating where the track used to be. The band spans
+        // from the top of the number to the bottom of the letter, so it reads as a highlighter
+        // over "122 / Y", and the letters and numbers, which the track draws AFTER its layers,
+        // sit on top of it rather than painting over something of ours. The pin and the card
+        // stand above that. Zoomed out (no letters) or before the track has drawn them, the band
+        // is a strip on the baseline.
         const bandW = Math.max(9, Math.abs(sx1 - sx0));
         let bandTop = sy - 7.5, bandBot = sy + 7.5;
         try {
-            const idxTop = +tgraph.__pepIndexTopPx, pepMid = +tgraph.__pepMidPx;
-            if (isFinite(idxTop) && isFinite(pepMid) && idxTop < pepMid && (pepMid - idxTop) < 120) {
-                bandTop = idxTop - 3;
-                bandBot = pepMid + 5;
+            if (cellPx > 5) {
+                const upIdx = +tgraph.__pepIndexTopUpPx, upMid = +tgraph.__pepMidUpPx;
+                if (isFinite(upIdx) && isFinite(upMid) && upIdx > upMid && upIdx < 240) {
+                    bandTop = sy - upIdx - 3;
+                    bandBot = sy - upMid + 5;
+                }
             }
         } catch (e) { }
         const bandH = bandBot - bandTop;
@@ -376,8 +387,6 @@ function () {
         ctx.restore();
 
         // ---- how much to show --------------------------------------------------------------
-        let cellPx = 0;
-        try { cellPx = Math.abs(graph.screenWidth(tgraph.screenWidth(1))); } catch (e) { cellPx = 0; }
         const near = cellPx >= 2.5 || an.highlighted;
         const label11 = '700 11px ' + __PT_FONT;
 
