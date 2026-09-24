@@ -7547,6 +7547,58 @@ pattern, GGGG | Required`
 
             // A side menu that stays a side menu even in library mode -- for a tour's step
             // control. See the note inside showSideMenu.
+            // ---- FLOATING MENUS ---------------------------------------------------------------------
+            //
+            // A menu drawn at the pointer, in the style of the layer menu, instead of in the side panel
+            // (baja/manchester/menu/floating-menu.js). Used for what is clicked ON the canvas -- a variant,
+            // an oligo -- where a menu that appears beside the thing you touched reads as the answer to
+            // the click.
+            //
+            // It is a SESSION, not a one-off list, because those menus cascade: an item opens the next
+            // level with showSideMenu(sub), which is what every menu script here does. While a session is
+            // open showSideMenu hands each list to the floating menu (same spot, replacing the last), and
+            // showSideMenu(null) closes it, so no menu script needs to know any of this. A session ends when
+            // the menu is dismissed, when an item finishes without opening another menu, at the next press
+            // on the canvas, or after 30 s untouched (an armed session whose menu never came).
+            //   openFloatingMenu(list, sx, sy, title)  show a list you already have
+            //   armFloatingMenu(sx, sy, title)         the menu will come from a script that calls showSideMenu
+            // sx, sy are canvas pixels. Not on mobile, which has its own menu presentation.
+            openFloatingMenu(list, sx, sy, title) {
+                if (isMobile() || !Array.isArray(list) || !list.length) return false;
+                this.__floatAt = { sx: +sx || 0, sy: +sy || 0, title: title || '', at: Date.now() };
+                this.__floatRender(list, title);
+                return true;
+            }
+            armFloatingMenu(sx, sy, title) {
+                if (isMobile()) return false;
+                this.__floatAt = { sx: +sx || 0, sy: +sy || 0, title: title || '', at: Date.now() };
+                return true;
+            }
+            __floatRender(list, label) {
+                const F = this.__floatAt;
+                if (!F) return;
+                F.at = Date.now();
+                this.side_menu = null;   // the side panel is not in use while this is up
+                let p = null;
+                try {
+                    p = exec('baja/manchester/menu/floating-menu.js', list, F.sx, F.sy, this, {
+                        title: label || F.title,
+                        onDismiss: () => { if (this.__floatAt === F) this.__floatAt = null; },
+                        onDone: () => { if (this.__floatAt === F) this.__floatAt = null; }
+                    });
+                } catch (e) { p = Promise.reject(e); }
+                Promise.resolve(p).catch((e) => {
+                    // Never leave the user without the menu: fall back to the side panel.
+                    console.warn('[floating menu] fell back to the side menu', e);
+                    if (this.__floatAt === F) this.__floatAt = null;
+                    try { this.showSideMenu(list, null, label); } catch (e2) { }
+                });
+            }
+            __closeFloating() {
+                this.__floatAt = null;
+                try { if (window.__bajaFloatingMenu && window.__bajaFloatingMenu.destroy) window.__bajaFloatingMenu.destroy('closed'); } catch (e) { }
+            }
+
             showTourMenu(list, anchor, label) {
                 try { if (Array.isArray(list)) list.__plainSide = true; } catch (e) { }
                 return this.showSideMenu(list, anchor, label);
@@ -7559,6 +7611,17 @@ pattern, GGGG | Required`
                 try { list = this.__orderMenu(list); } catch (e) { }
                 try { if (__plainSide && Array.isArray(list)) list.__plainSide = true; } catch (e) { }
                 if (this.wake) this.wake();
+
+                // A FLOATING SESSION IS OPEN (see openFloatingMenu): this list, and any submenu it leads to,
+                // is drawn at the pointer instead. Before library mode, which would otherwise take it.
+                if (this.__floatAt && !isMobile()) {
+                    if (Date.now() - this.__floatAt.at < 30000) {
+                        if (!list) { this.__closeFloating(); this.side_menu = null; return; }
+                        this.__floatRender(list, label);
+                        return;
+                    }
+                    this.__floatAt = null;   // stale: an armed session whose menu never arrived
+                }
 
                 // LIBRARY MODE. Opened from the menubar's Selection button, every level of the
                 // navigation is drawn as a library instead of a side menu -- including the

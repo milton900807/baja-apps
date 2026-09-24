@@ -181,27 +181,27 @@ function () {
         if (up > maxUp) up = maxUp;
         const gy = anchorY - up;
         const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
-        if (!ctx) {
-            try { graph.drawScreenLine(cx, cyTrack, cx, gy, st.color, 1, 'butt'); } catch (e) { }
-            return;
-        }
+        // if (!ctx) {
+        //     try { graph.drawScreenLine(cx, cyTrack, cx, gy, st.color, 1, 'butt'); } catch (e) { }
+        //     return;
+        // }
         // Transparent, category-colored box capturing the NUCLEOTIDE span [xs, xf] this annotation
         // covers — drawn first (behind the glyph/letters), no border, so it just tints the region.
-        try {
-            const __bx0 = Math.min(graph.X(xs), graph.X(xf));
-            const __bx1 = Math.max(graph.X(xs), graph.X(xf));
-            let __byT = graph.Y(tgraph.Y(tgraph.getymax()));
-            let __byB = graph.Y(tgraph.Y(tgraph.getymin()));
-            if (isFinite(__byT) && isFinite(__byB)) {
-                const __ry = Math.min(__byT, __byB), __rh = Math.abs(__byB - __byT);
-                const __rw = Math.max(1, __bx1 - __bx0);
-                ctx.save();
-                ctx.globalAlpha = 0.12;
-                ctx.fillStyle = st.color;
-                ctx.fillRect(__bx0, __ry, __rw, __rh);
-                ctx.restore();
-            }
-        } catch (e) { }
+        // try {
+        //     const __bx0 = Math.min(graph.X(xs), graph.X(xf));
+        //     const __bx1 = Math.max(graph.X(xs), graph.X(xf));
+        //     let __byT = graph.Y(tgraph.Y(tgraph.getymax()));
+        //     let __byB = graph.Y(tgraph.Y(tgraph.getymin()));
+        //     if (isFinite(__byT) && isFinite(__byB)) {
+        //         const __ry = Math.min(__byT, __byB), __rh = Math.abs(__byB - __byT);
+        //         const __rw = Math.max(1, __bx1 - __bx0);
+        //         ctx.save();
+        //         ctx.globalAlpha = 0.12;
+        //         ctx.fillStyle = st.color;
+        //         ctx.fillRect(__bx0, __ry, __rw, __rh);
+        //         ctx.restore();
+        //     }
+        // } catch (e) { }
         ctx.save();
         // Dashed, very thin, faint light-gray leader from the glyph DOWN to the amino-acid letter
         // it refers to (the peptide row, published by track.js) — not all the way to the track

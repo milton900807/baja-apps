@@ -1696,6 +1696,19 @@ function (graph, genegraph_panel_layout) {
                 return;
             }
 
+            // A VARIANT WAS PRESSED (mouse-down selected it and built its menu). That menu used to be folded
+            // into the track's context menu as one item to open -- one level down from the thing that was
+            // clicked. It now opens where the click was, in the same floating style as the layer menu, and
+            // the track's own menu is not opened over it. If the floating menu cannot open (mobile, an
+            // empty list) the old route below is untouched.
+            if (graph.__pendingSnp && graph.openFloatingMenu) {
+                const pend = graph.__pendingSnp;
+                const ds = graph.__downScreen || { x: graph.X(x), y: graph.Y(y) };
+                let floated = false;
+                try { floated = graph.openFloatingMenu(pend.snpMenu, ds.x, ds.y, pend.label); } catch (e) { floated = false; }
+                if (floated) { graph.__pendingSnp = null; return; }
+            }
+
             await showContextMenu(x, y);
             if (!graph.menuVisible()) {
                 let t = graph.getTrack(x, y);
@@ -1801,6 +1814,18 @@ function (graph, genegraph_panel_layout) {
                                     try {
                                         const otrack = (graph.track || []).find(t => t.oligos && t.oligos.indexOf(o) >= 0);
                                         if (graph.addOligoToSelection) graph.addOligoToSelection(o, otrack);
+                                    } catch (e) { }
+                                    // ...and ITS menu (the per-oligo / amplicon one, still reachable from the selection
+                                    // window) opens where the click was, floating. The script builds its list and
+                                    // calls showSideMenu, which an armed floating session (gene.js) turns into this
+                                    // menu -- so the script needs no change, and neither do its submenus. Not awaited:
+                                    // it does a server check before it has a menu to show.
+                                    try {
+                                        const __ds = graph.__downScreen;
+                                        if (__ds && graph.armFloatingMenu && graph.armFloatingMenu(__ds.x, __ds.y, '' + (o.name || o.id || (o.type === 'amplicon' ? 'Amplicon' : 'Oligo')))) {
+                                            Promise.resolve(exec('baja/manchester/menu/menu-for-single-aso.js', graph, o, genegraph_panel_layout))
+                                                .catch((e) => { try { graph.__floatAt = null; } catch (e2) { } console.warn('[oligo menu]', e); });
+                                        }
                                     } catch (e) { }
                                     md = false;
                                     return;
@@ -5056,6 +5081,9 @@ function (graph, genegraph_panel_layout) {
             md = true;
             graph.__downMenuHandled = false;
             graph.__pendingSnp = null;
+            // A floating menu session (see gene.js openFloatingMenu) that is armed but has no menu on screen
+            // is over: this press is a new gesture, and a side menu opened by it must be a side menu.
+            try { if (graph.__floatAt && !window.__bajaFloatingMenu) graph.__floatAt = null; } catch (e) { }
 
             // A menu is open — the click is landing on the menu. Record it so the
             // matching mouse-up also skips (the engine may clear side_menu before
