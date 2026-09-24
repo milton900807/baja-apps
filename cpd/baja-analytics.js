@@ -4992,9 +4992,14 @@ function (path, config) {
                         const pt = pm.plateTrack;
                         let sequenceTextEditor;
                         let descHook = createIonFunction((p) => { sequenceTextEditor = p; });
-                        // One of each kind, so the panel shows what it will take: a disease, a
-                        // mechanism, a target.
-                        const examples = [
+                        // A different worked example each time the panel opens, drawn from
+                        // baja/analytics/repurpose-examples.js (1000 entries: indications,
+                        // mechanisms of action and bare targets -- the same three kinds
+                        // py/analytics/repurpose.py itself decides between), never the same
+                        // one twice in a row. Same pattern as the Indication market panel's
+                        // indication-examples.js pool below. A small fallback list covers
+                        // the case where the pool fails to load.
+                        let examples = [
                             'Chronic hepatitis B — drugs already in people that could give a functional cure',
                             'Degrade or silence mutant huntingtin in the striatum',
                             'IRAK4',
@@ -5004,11 +5009,14 @@ function (path, config) {
                             'Restore CFTR trafficking in class II mutations',
                             'Cachexia in advanced cancer'
                         ];
-                        let txt = examples[Math.floor(Math.random() * examples.length)];
-                        if (txt === window.__bajaRepurposeLast && examples.length > 1) {
-                            txt = examples[(examples.indexOf(txt) + 1) % examples.length];
-                        }
-                        window.__bajaRepurposeLast = txt;
+                        try {
+                            const pool = await exec('baja/analytics/repurpose-examples.js');
+                            if (Array.isArray(pool) && pool.length) examples = pool;
+                        } catch (e) { }
+                        let k = Math.floor(Math.random() * examples.length);
+                        if (examples.length > 1 && k === window.__bajaRepurposeLast) k = (k + 1) % examples.length;
+                        window.__bajaRepurposeLast = k;
+                        let txt = examples[k];
                         let initalText = true;
                         setTimeout(() => {
                             let i = 0, currentText = '';
