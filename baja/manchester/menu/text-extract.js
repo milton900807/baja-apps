@@ -197,7 +197,12 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             const genes = (ex && ex.genes) || [];
             const muts = (ex && ex.mutations) || [];
             const asos = (ex && ex.asos) || [];
-            if (!genes.length && !muts.length && !asos.length) {
+            // A bare residue mention — "Tyr122 in SPTLC2" — names no destination amino acid, so
+            // it is not a mutation, but the text is still calling that residue out for something
+            // (a binding contact, an active-site role...) worth marking. See the residue pass
+            // below, after the mutation passes.
+            const residues = (ex && ex.residues) || [];
+            if (!genes.length && !muts.length && !asos.length && !residues.length) {
                 graph.setMessage(' No genes, mutations, or ASOs found' + (ex && ex.error ? ' (' + ex.error + ')' : '') + '. ');
                 resolve(null); return;
             }
@@ -214,6 +219,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             for (const g of genes) if (g && g.symbol) toLoad[g.symbol.toLowerCase()] = { symbol: g.symbol, species: g.species || 'human' };
             for (const m of muts) if (m && m.gene && !toLoad[m.gene.toLowerCase()]) toLoad[m.gene.toLowerCase()] = { symbol: m.gene, species: m.species || 'human' };
             for (const a of asos) if (a && a.target_gene && !toLoad[a.target_gene.toLowerCase()]) toLoad[a.target_gene.toLowerCase()] = { symbol: a.target_gene, species: a.species || 'human' };
+            for (const r of residues) if (r && r.gene && !toLoad[r.gene.toLowerCase()]) toLoad[r.gene.toLowerCase()] = { symbol: r.gene, species: r.species || 'human' };
 
             const gkeys = Object.keys(toLoad);
             let li = 0;
@@ -302,6 +308,16 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 THR: 'T', TRP: 'W', TYR: 'Y', VAL: 'V', TER: '*', STOP: '*'
             };
             const translateCodon = (c) => _CODON2AA[('' + (c || '')).toUpperCase().replace(/U/g, 'T')] || '';
+            // Candidate tracks in search order: the entity's OWN gene first (if it named one
+            // that's loaded), then everything else — shared by the protein-sequence mutation
+            // pass below and the residue-of-interest pass further down.
+            const orderedTracks = (geneHint) => {
+                const g = ('' + (geneHint || '')).toLowerCase().trim();
+                const list = [];
+                if (g && loaded[g]) list.push(loaded[g]);
+                for (const k of gkeys) { const t = loaded[k]; if (t && list.indexOf(t) < 0) list.push(t); }
+                return list;
+            };
             // The reference (wildtype) amino acid — the FIRST residue in the nomenclature.
             const peptideRefAA = (m) => {
                 const s = ('' + (m.protein || m.hgvs || m.label || '')).replace(/^p\.?/i, '').replace(/[()]/g, '').trim();
@@ -388,14 +404,6 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             // only when nothing mapped), so peptide mutations are created whenever there is no rsID.
             if (unresolved.length && Object.keys(loaded).length) {
                 graph.setMessage(' Locating variants by protein sequence… ');
-                // Search order: the mutation's own gene first (if it names one loaded), then the rest.
-                const orderedTracks = (geneHint) => {
-                    const g = ('' + (geneHint || '')).toLowerCase().trim();
-                    const list = [];
-                    if (g && loaded[g]) list.push(loaded[g]);
-                    for (const k of gkeys) { const t = loaded[k]; if (t && list.indexOf(t) < 0) list.push(t); }
-                    return list;
-                };
                 for (const m of unresolved) {
                     try {
                         // Delegate to the reusable protein-mutation -> track PROCESS: it parses the
@@ -413,6 +421,66 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                     } catch (e) { }
                 }
                 if (mMapped > 0) { for (const k of gkeys) { const tr = loaded[k]; try { if (tr && tr.fitYAxis) tr.fitYAxis(); } catch (e) { } } }
+            }
+
+            // RESIDUE-OF-INTEREST PASS — a bare protein-residue mention ("Tyr122 in SPTLC2")
+            // with no destination amino acid: not a mutation, so it never went through either
+            // pass above, but the text is still calling that residue out for something (a
+            // binding contact, an active-site role...) worth marking. Placed as a
+            // PointOfInterest annotation (gold, not the mutation red) with the sentence it was
+            // mentioned in as its comment — the same placePoint() ASOs use below.
+            let rMapped = 0, rUnmapped = 0;
+            if (residues.length) {
+                graph.setMessage(' Marking residues of interest… ');
+                // A residue already covered by an explicit mutation AT THE SAME (gene, position)
+                // gets its marker from the mutation instead — Tyr122 mentioned bare and Y122A
+                // mentioned later in the same paper are the same residue, and the mutation's red
+                // marker with its own comment is the more informative of the two; a second gold
+                // marker on the same codon would just be clutter.
+                const mutPositions = new Set();
+                for (const m of muts) {
+                    if (!(m && m.gene)) continue;
+                    const s = ('' + (m.protein || m.hgvs || m.label || '')).replace(/^p\.?/i, '');
+                    const mm = s.match(/([A-Za-z]{3}|[A-Za-z])(\d{1,6})/);
+                    if (mm) mutPositions.add(('' + m.gene).toLowerCase() + '|' + mm[2]);
+                }
+                const seenRes = new Set();   // dedupe the same residue mentioned twice in the paste
+                for (const rz of residues) {
+                    const rs = ('' + ((rz && rz.residue) || '')).trim();
+                    const mm = rs.match(/^([A-Za-z]{3}|[A-Za-z])\s*(\d{1,6})$/);
+                    if (!mm) { rUnmapped++; continue; }
+                    const ref = (mm[1].length === 3 ? _AA3to1[mm[1].toUpperCase()] : mm[1].toUpperCase()) || '';
+                    const pos = +mm[2];
+                    if (!ref || !(pos >= 1)) { rUnmapped++; continue; }
+                    const gkey = ('' + ((rz && rz.gene) || '')).toLowerCase().trim();
+                    const dedupeKey = gkey + '|' + pos;
+                    if (mutPositions.has(dedupeKey) || seenRes.has(dedupeKey)) continue;
+                    seenRes.add(dedupeKey);
+                    let placedR = false;
+                    for (const t of orderedTracks(rz.gene)) {
+                        const cds = getTrackCds(t);
+                        if (!cds || pos > ('' + cds.protein).length) continue;
+                        // CORRECTNESS: unlike a mutation (which is still placed when the codon
+                        // can't be confirmed), a bare residue has no alt to make it meaningful on
+                        // its own — only place it when the loaded transcript's OWN translated
+                        // sequence actually has the stated residue at that position. Protein
+                        // numbering can differ by isoform; an unconfirmed match is skipped rather
+                        // than guessed at.
+                        const wt = ('' + cds.protein).charAt(pos - 1).toUpperCase();
+                        if (wt !== ref) continue;
+                        let cbases = [];
+                        try { for (const e of (cds.cdsi || [])) { if (e && e.codon_index === (pos - 1)) cbases.push(e); } } catch (e) { }
+                        const lo = (cbases.length === 3) ? Math.min(cbases[0].index, cbases[1].index, cbases[2].index)
+                            : (cds.codonPos ? cds.codonPos[pos - 1] : null);
+                        if (lo == null || !isFinite(lo)) continue;
+                        const label = (mm[1].length === 3) ? (mm[1][0].toUpperCase() + mm[1].slice(1).toLowerCase() + pos) : (ref + pos);
+                        placePoint(t, lo, lo + 3, label, rz.comment || '', 'rgba(180,130,20,0.9)');
+                        placedR = true;
+                        break;
+                    }
+                    if (placedR) rMapped++; else rUnmapped++;
+                }
+                for (const k of gkeys) { const tr = loaded[k]; try { if (tr && tr.fitYAxis) tr.fitYAxis(); } catch (e) { } }
             }
 
             // Map ASOs onto their target gene track by sequence search.
@@ -457,18 +525,21 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             if (nLoaded === 0 && gkeys.length > 0) {
                 graph.setError && graph.setError(' Could not load ' + (gkeys.length === 1 ? 'the gene' : 'any gene')
                     + ' (' + failedGenes.join(', ') + ') — no Ensembl transcript was found for it. ');
-            } else if (mMapped > 0) {
+            } else if (mMapped > 0 || rMapped > 0) {
                 // A clear, professional summary of what was actually added to the workbench.
                 _showResult(' Added ' + mMapped + ' mutation' + (mMapped === 1 ? '' : 's')
                     + (perGeneStr ? ' (' + perGeneStr + ')' : '')
                     + ' across ' + nLoaded + ' gene' + (nLoaded === 1 ? '' : 's')
                     + (aMapped ? ' and ' + aMapped + ' ASO' + (aMapped === 1 ? '' : 's') : '')
+                    + (rMapped ? ' and highlighted ' + rMapped + ' residue' + (rMapped === 1 ? '' : 's') + ' of interest' : '')
                     + (mUnres ? '; ' + mUnres + ' variant' + (mUnres === 1 ? '' : 's') + ' could not be mapped' : '')
+                    + (rUnmapped ? '; ' + rUnmapped + ' residue' + (rUnmapped === 1 ? '' : 's') + ' could not be placed' : '')
                     + (failedGenes.length ? '; could not load: ' + failedGenes.join(', ') : '') + '. ');
             } else {
                 _showResult(' Loaded ' + nLoaded + ' gene' + (nLoaded === 1 ? '' : 's')
                     + (mUnres ? '; ' + mUnres + ' variant' + (mUnres === 1 ? '' : 's') + ' could not be mapped' : '')
                     + (aMapped ? '; ' + aMapped + ' ASO' + (aMapped === 1 ? '' : 's') + ' mapped' : '')
+                    + (rUnmapped ? '; ' + rUnmapped + ' residue' + (rUnmapped === 1 ? '' : 's') + ' could not be placed' : '')
                     + (failedGenes.length ? '; could not load: ' + failedGenes.join(', ') : '') + '. ');
             }
 
@@ -670,7 +741,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 })();
             }, 900);
 
-            resolve({ genes: gkeys.length, mutations: mMapped, asos: aMapped });
+            resolve({ genes: gkeys.length, mutations: mMapped, asos: aMapped, residues: rMapped });
         };
 
         const run = async (rawText) => {
@@ -713,7 +784,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 height: '100%', card_padding: '28px', padding: '10px',
                 cards: [[
                     {
-                        'title': 'Paste text — genes, mutations (rsIDs) and ASOs will be extracted and mapped',
+                        'title': 'Paste text — genes, mutations (rsIDs), ASOs and residues of interest will be extracted and mapped',
                         'width': '100%',
                         'component': {
                             wid: 'text-editor',

@@ -6,13 +6,21 @@ Reads a block of pasted text, asks  to extract:
   - genes           : {symbol, species}
   - mutations       : {gene, species, id (rsID preferred), hgvs, protein, label, comment}
   - asos            : {name, sequence, target_gene, species, comment}
+  - residues        : {gene, species, residue, comment} -- a BARE residue mention (e.g. "Tyr122
+                      in SPTLC2", "the side chain of Asn13") that names no destination amino
+                      acid, so it is not itself a mutation, but is still worth marking where the
+                      text calls that residue out for something structural or functional (a
+                      binding contact, an active-site residue, a hydrogen bond partner...).
 Then resolves every dbSNP rsID (and genomic-HGVS where given) through the Ensembl REST
 API to authoritative coordinates so the client can map mutations onto the loaded tracks.
+Residues carry no coordinate of their own — the client locates each one on the loaded
+transcript's own translated sequence and only places it when that sequence actually has the
+stated residue at that position.
 
 Invoked by the server:  python3 extract-entities.py jfile:<argsfile>
 Ionworks params:
     param(1) : the pasted text
-Emits IONWORKS:RESOLUTION with { genes, mutations, asos, error }.
+Emits IONWORKS:RESOLUTION with { genes, mutations, asos, residues, error }.
 """
 import json
 import os
@@ -66,6 +74,10 @@ def ask_claude(text):
         '  "asos":      [{"name":"name/id if given else empty","sequence":"the oligo bases '
         '5\'->3\' using only A/C/G/T/U (strip chemistry/modifications)","target_gene":"...",'
         '"species":"human|mouse|rat","comment":"one sentence of context"}],\n'
+        '  "residues":  [{"gene":"the gene/protein this residue belongs to, from context — '
+        'never empty","species":"human|mouse|rat","residue":"three-letter or one-letter code '
+        'plus position, exactly as it names the residue, e.g. Tyr122 or Y122 or Asn13",'
+        '"comment":"the full sentence this residue is mentioned in, verbatim or near-verbatim"}],\n'
         '  "title":     "the article/manuscript title if this text is a paper, else empty"\n'
         "}\n"
         "MUTATION RULES (important): Find them ALL — substitutions (c.529A>G, p.Asn177Asp), "
@@ -78,7 +90,19 @@ def ask_claude(text):
         "change (its c. change still goes in hgvs). Put the gene symbol on every mutation; add the dbSNP rsID if "
         "you know it. An ASO (antisense oligonucleotide / gapmer / siRNA guide) is a short "
         "(~15-25 nt) nucleotide drug/probe — extract its base sequence only. Default species to "
-        "human. Deduplicate identical entries. Return an empty array for any empty category."
+        "human. Deduplicate identical entries. Return an empty array for any empty category.\n"
+        "RESIDUE RULES (important): a residue is EVERY mention of a specific amino acid position "
+        "that names no destination residue — 'Asn13', 'the side chain of His85', 'Tyr122', 'Gly93' "
+        "— written as prose rather than mutation notation (X###Y). Extract it even when the SAME "
+        "residue is ALSO mutated elsewhere in the text (that mutation still gets its own entry in "
+        "mutations; the bare mention still gets its own entry in residues — do not merge them, the "
+        "client reconciles duplicates itself). Do not extract a residue from INSIDE a mutation's own "
+        "notation (skip the '13' in 'N13A' — that is only a mutation, not also a bare residue). "
+        "Attribute each residue to whichever gene/protein the surrounding sentence names for it, "
+        "even if that gene was named earlier in the sentence or paragraph and only implied at the "
+        "residue's own mention (\"...Asn13 and His85 in ORMDL3\" is ORMDL3 for BOTH residues). The "
+        "comment is the sentence verbatim (or trimmed only for length) — it becomes the annotation "
+        "shown for that residue, so it must stand on its own without the rest of the paragraph."
     )
     try:
         try:
@@ -234,7 +258,7 @@ def resolve_transcript(species, symbol):
     return tid
 
 
-def resolve_gene_transcripts(genes, mutations, asos):
+def resolve_gene_transcripts(genes, mutations, asos, residues=None):
     """Step 2: every distinct (gene, species) -> its real Ensembl transcript id, so the
     client can load the tracks directly instead of relying on model-guessed ids."""
     want = {}
@@ -248,6 +272,8 @@ def resolve_gene_transcripts(genes, mutations, asos):
         add(m.get("gene"), m.get("species"))
     for a in asos:
         add(a.get("target_gene"), a.get("species"))
+    for r in (residues or []):
+        add(r.get("gene"), r.get("species"))
     vals = list(want.values())
     out = []
     if vals:
@@ -458,16 +484,17 @@ obj, err = ask_claude(text)
 works.progress(40)
 if obj is None:
     works.progress(100)
-    works.resolve({"genes": [], "mutations": [], "asos": [], "title": "", "error": err})
+    works.resolve({"genes": [], "mutations": [], "asos": [], "residues": [], "title": "", "error": err})
 else:
     genes = obj.get("genes", []) or []
     mutations = obj.get("mutations", []) or []
     asos = obj.get("asos", []) or []
+    residues = obj.get("residues", []) or []
     title = ("" + (obj.get("title") or "")).strip()
 
     # Resolve transcripts EARLY so a coding HGVS (c.###) can be mapped through the gene's
     # transcript. Build gene(lower) -> transcript id.
-    gene_transcripts = resolve_gene_transcripts(genes, mutations, asos)
+    gene_transcripts = resolve_gene_transcripts(genes, mutations, asos, residues)
     tid_by_gene = {("" + g["gene"]).lower(): g["id"] for g in gene_transcripts}
     works.progress(50)
 
@@ -509,8 +536,8 @@ else:
     works.progress(95)
 
     # Recompute transcripts to include any gene backfilled from a locus (cached, so cheap).
-    gene_transcripts = resolve_gene_transcripts(genes, mutations, asos)
+    gene_transcripts = resolve_gene_transcripts(genes, mutations, asos, residues)
 
     works.progress(100)
-    works.resolve({"genes": genes, "mutations": mutations, "asos": asos,
+    works.resolve({"genes": genes, "mutations": mutations, "asos": asos, "residues": residues,
                    "geneTranscripts": gene_transcripts, "title": title, "error": err})
