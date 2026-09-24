@@ -94,7 +94,28 @@ function (graph, genegraph_panel_layout, mutationSpec, options) {
             if (cdsCache.has(t)) return cdsCache.get(t);
             let cds = null;
             try { t.generateORF(); cds = t.getCDS(); } catch (e) { }
-            if (!(cds && cds.protein && ('' + cds.protein).length >= 3 && Array.isArray(cds.codonPos) && cds.codonPos.length)) cds = null;
+            const usable = (o) => !!(o && o.protein && ('' + o.protein).length >= 3 && Array.isArray(o.codonPos) && o.codonPos.length);
+            // The editor's Track.getCDS() does not return a protein: baja/bio/track.js defines it
+            // twice inside class Track and the later, older definition ({ sequence, annotation,
+            // junctions }) replaces the newer one, so `.protein` is undefined on every real track and
+            // this returned null -- "No loaded track has X at residue N" for a residue that is there.
+            // Fall back to the ORF's own per-codon list (t.orf.cdsi, filled by generateORF just
+            // above), the way protein-domains.js does.
+            if (!usable(cds)) {
+                cds = null;
+                try {
+                    const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
+                    const prot = [], cpos = [];
+                    for (const e of cdsi) {
+                        if (!e || !(e.ci === 0 || e.ci === '0')) continue;
+                        const a = '' + (e.aa || 'X');
+                        prot.push(a.length === 1 ? a : 'X');
+                        cpos.push(e.index);
+                    }
+                    if (prot.length >= 3) cds = { protein: prot.join(''), codonPos: cpos, cdsi: cdsi };
+                } catch (e) { cds = null; }
+            }
+            if (!usable(cds)) cds = null;
             cdsCache.set(t, cds);
             return cds;
         };

@@ -332,7 +332,32 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 if (cdsCache.has(t)) return cdsCache.get(t);
                 let cds = null;
                 try { t.generateORF(); cds = t.getCDS(); } catch (e) { }
-                if (!(cds && cds.protein && Array.isArray(cds.codonPos) && cds.codonPos.length)) cds = null;
+                const usable = (o) => !!(o && o.protein && ('' + o.protein).length >= 3 && Array.isArray(o.codonPos) && o.codonPos.length);
+                // THE EDITOR'S TRACK DOES NOT RETURN A PROTEIN FROM getCDS(). baja/bio/track.js
+                // defines getCDS() twice inside class Track; the later, older definition (returns
+                // { sequence, annotation, junctions }) silently replaces the newer one that returns
+                // { protein, codonPos, cdsi }, so `.protein` is undefined on every real track and
+                // this used to yield null -- which stopped every peptide-based placement (the
+                // protein-sequence pass for mutations without a genomic coordinate, and the residue
+                // pass) without a message. protein-domains.js, which does work on these tracks,
+                // falls back to the ORF's own per-codon list, and so does this: generateORF() has
+                // just filled t.orf.cdsi, exon-aware and complemented for the minus strand, one
+                // entry per CDS base ({ index (genomic), ci, codon_index, aa, codon }).
+                if (!usable(cds)) {
+                    cds = null;
+                    try {
+                        const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
+                        const prot = [], cpos = [];
+                        for (const e of cdsi) {
+                            if (!e || !(e.ci === 0 || e.ci === '0')) continue;
+                            const a = '' + (e.aa || 'X');
+                            prot.push(a.length === 1 ? a : 'X');   // keeps residue numbering aligned
+                            cpos.push(e.index);
+                        }
+                        if (prot.length >= 3) cds = { protein: prot.join(''), codonPos: cpos, cdsi: cdsi };
+                    } catch (e) { cds = null; }
+                }
+                if (!usable(cds)) cds = null;
                 cdsCache.set(t, cds);
                 return cds;
             };
@@ -504,18 +529,13 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             let rMapped = 0, rUnmapped = 0;
             if (residues.length) {
                 graph.setMessage(' Marking residues of interest… ');
-                // A residue already covered by an explicit mutation AT THE SAME (gene, position)
-                // gets its marker from the mutation instead — Tyr122 mentioned bare and Y122A
-                // mentioned later in the same paper are the same residue, and the mutation's red
-                // marker with its own comment is the more informative of the two; a second gold
-                // marker on the same codon would just be clutter.
-                const mutPositions = new Set();
-                for (const m of muts) {
-                    if (!(m && m.gene)) continue;
-                    const s = ('' + (m.protein || m.hgvs || m.label || '')).replace(/^p\.?/i, '');
-                    const mm = s.match(/([A-Za-z]{3}|[A-Za-z])(\d{1,6})/);
-                    if (mm) mutPositions.add(('' + m.gene).toLowerCase() + '|' + mm[2]);
-                }
+                // A residue named in the prose goes on the pasted_text layer WHETHER OR NOT the same
+                // position is also given as a mutation elsewhere in the text (Tyr122 in one sentence,
+                // SPTLC2-Y122A in another): the mutation is a red marker on the gene, the residue is
+                // the sentence about it on the layer, and a paper that names its residues and then
+                // mutates them is the common case, not the exception. This used to skip a residue
+                // whenever a mutation covered it, which left the layer -- and so the whole feature --
+                // empty for exactly that kind of paragraph.
                 const seenRes = new Set();   // dedupe the same residue mentioned twice in the paste
                 for (const rz of residues) {
                     const rs = ('' + ((rz && rz.residue) || '')).trim();
@@ -526,7 +546,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                     if (!ref || !(pos >= 1)) { rUnmapped++; continue; }
                     const gkey = ('' + ((rz && rz.gene) || '')).toLowerCase().trim();
                     const dedupeKey = gkey + '|' + pos;
-                    if (mutPositions.has(dedupeKey) || seenRes.has(dedupeKey)) continue;
+                    if (seenRes.has(dedupeKey)) continue;   // the same residue named twice in the paste
                     seenRes.add(dedupeKey);
                     let placedR = false;
                     for (const t of orderedTracks(rz.gene)) {
