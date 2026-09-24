@@ -141,15 +141,26 @@ function (graph, genegraph_panel_layout) {
             }
         };
 
-        // If a SNP was selected on mouse-down, fold its menu into the context menu
-        // that mouse-up is about to show, as a leading item that opens the snp-menu.
+        // If a SNP was selected on mouse-down, fold its menu into the context menu that
+        // mouse-up is about to show -- ITS ITEMS, not a row that opens them. What was
+        // clicked was the variant, so "More information", "Zoom into snp" and the rest are
+        // what the menu is for; putting them one level down behind the variant's name made
+        // every one of them cost an extra click to reach.
+        //
+        // The two halves are ordered SEPARATELY and then joined, so the variant's actions
+        // stay together at the top and the track's stay together below the rule. Ordering
+        // the joined list instead would interleave them -- orderMenu groups by kind across
+        // whatever it is given, and a separator has no label to group by.
         const mergePendingSnp = (items) => {
             if (graph.__pendingSnp && Array.isArray(items)) {
                 const pend = graph.__pendingSnp;
+                const snpItems = (Array.isArray(pend.snpMenu) ? pend.snpMenu : []).filter(Boolean);
+                if (!snpItems.length) return items;
                 items = [
-                    { label: pend.label, click: () => graph.showSideMenu(pend.snpMenu, null, (pend.label || 'Variant') + ' ▸') },
+                    { label: pend.label || 'Variant', header: true },
+                    ...orderMenu(snpItems),
                     { type: 'separator' },
-                    ...items
+                    ...orderMenu(items)
                 ];
             }
             return items;
@@ -1760,18 +1771,25 @@ function (graph, genegraph_panel_layout) {
                             snp.select();
                             // The selection window hears about it, like every other route.
                             try { if (graph.addSnpToSelection) graph.addSnpToSelection(snp, track); } catch (e) { }
+                            // THE VARIANT'S OWN ITEMS, AT THE TOP LEVEL. This used to add one
+                            // row carrying the variant's name that opened the snp menu, so
+                            // everything about the thing that was actually clicked sat one
+                            // level down.
                             const m = await exec('baja/manchester/menu/snp-menu', graph, track, snp);
-                            let m_ = {
-                                label: '' + snp.name, click: () => {
-                                    showSideMenuDelayed(m)
-                                }
+                            const snpItems = (Array.isArray(m) ? m : []).filter(Boolean);
+                            if (snpItems.length) {
+                                mergedMenu.items = [
+                                    { label: '' + (snp.name || 'Variant'), header: true },
+                                    ...orderMenu(snpItems),
+                                    ...(mergedMenu.items.length ? [{ type: 'separator' }] : []),
+                                    ...orderMenu(mergedMenu.items)
+                                ];
                             }
-                            mergedMenu.items.push(m_)
                         }
 
 
                         if (mergedMenu && mergedMenu.items && mergedMenu.items.length) {
-                            graph.showSideMenu(orderMenu(mergedMenu.items), x, y, ((snp && snp.name) ? ('' + snp.name) : 'Variant') + ' ▸');
+                            graph.showSideMenu(mergedMenu.items, x, y, ((snp && snp.name) ? ('' + snp.name) : 'Variant') + ' ▸');
                         }
                     }
                 }
@@ -2590,7 +2608,7 @@ function (graph, genegraph_panel_layout) {
 
                             // Annotation options moved to the selection window as their
                             // own object type (selection box → Annotations).
-                            graph.showSideMenu(orderMenu(mergePendingSnp(ml)), x, y, ((selectedTrack && selectedTrack.name) || 'Track') + ' ▸')
+                            graph.showSideMenu(mergePendingSnp(ml), x, y, ((selectedTrack && selectedTrack.name) || 'Track') + ' ▸')
                             return;
                         }
                     } else {
@@ -5062,7 +5080,7 @@ function (graph, genegraph_panel_layout) {
                 const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };
                 track_list = track_list.filter(__isTrackItem).sort((a, b) => __ti(a) - __ti(b))
                     .concat(track_list.filter((m) => !__isTrackItem(m)));
-                const __trackMenu = orderMenu(mergePendingSnp(track_list));
+                const __trackMenu = mergePendingSnp(track_list);
                 // Render with narrow columns + the track name as a chip outside the menu.
                 try { __trackMenu.__compactCols = true; __trackMenu.__menuTitle = (selectedTrack && selectedTrack.name) || 'Track'; } catch (e) { }
                 // The track menu is no longer popped up on click. Instead the track is
