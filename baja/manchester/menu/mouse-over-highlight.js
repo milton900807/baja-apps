@@ -7,6 +7,11 @@ function (graph, genegraph_panel_layout) {
             try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         };
     } catch (e) { }
+    // A press on a layer's label row under a track name opens that layer's menu. Caught on the
+    // canvas element itself (capture phase), so it works whatever menu or mode the graph is in --
+    // this file's own mouse-down listener, further down, only sees the press when nothing has
+    // swallowed it first. Installs once per canvas; calling it again just refreshes the graph.
+    try { Promise.resolve(exec('baja/manchester/menu/layer-row-press.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
 
     // Paste-an-image → tracks is now an EXPLICIT action ("Parse mutations from image" in the
     // paste panel, manchester/controls/paste-panel.js) rather than an automatic global paste

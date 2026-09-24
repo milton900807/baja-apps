@@ -89,8 +89,12 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
 
         // ---- placement: at the pointer, kept inside the window ------------------------------------
         const place = () => {
+            // The graph handed in may be the wrapper (which has no canvas of its own) or the drawing
+            // graph under it: look in both.
             let cv = null;
-            try { cv = graph.canvas.getCTX().canvas; } catch (e) { cv = null; }
+            try { const fg = graph.graph || graph; cv = fg.canvas.canvas.nativeElement; } catch (e) { cv = null; }
+            if (!cv) { try { cv = graph.canvas.getCTX().canvas; } catch (e) { cv = null; } }
+            if (!cv) { try { cv = (graph.graph || graph).canvas.getCTX().canvas; } catch (e) { cv = null; } }
             const r = cv ? cv.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
             const kx = (cv && cv.width) ? r.width / cv.width : 1, ky = (cv && cv.height) ? r.height / cv.height : 1;
             const w = el.offsetWidth, h = el.offsetHeight;
