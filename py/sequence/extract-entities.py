@@ -164,9 +164,16 @@ def resolve_rsid(species, rsid):
         return None
 
 
-def _ensembl_get(url, timeout=30, tries=4):
-    """GET with retry/backoff — Ensembl 429/503-rate-limits bursts, and we make several
-    calls per mutation (rsID, then gene overlap), so the second call must survive a throttle."""
+def _ensembl_get(url, timeout=30, tries=6):
+    """GET with retry/backoff. Was retried only on 429/503 (a rate-limit throttle); Ensembl
+    is also seen going flat-out UNREACHABLE for several seconds at a stretch and returning
+    plain 500s under its own load (observed directly from this server 2026-09-24: ~40-50%
+    of requests to rest.ensembl.org failed outright over five tries a second apart, with no
+    pattern distinguishing a timeout from a 500) — a single request landing in one of those
+    windows used to fail resolve_transcript() outright, which empties `geneTranscripts` and
+    silently stops every gene in the paste from loading. Now retries connection failures,
+    429/503 AND 500/502/504 alike, with more tries (6, was 4) — an outage that lasts the
+    whole retry budget is still a real failure, but a multi-second blip no longer is one."""
     if requests is None:
         return None
     for i in range(tries):
@@ -177,7 +184,7 @@ def _ensembl_get(url, timeout=30, tries=4):
             continue
         if r.status_code == 200:
             return r
-        if r.status_code in (429, 503):
+        if r.status_code in (429, 500, 502, 503, 504):
             wait = 1.0
             try:
                 wait = float(r.headers.get("Retry-After", "1")) or 1.0
