@@ -140,12 +140,26 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             while (occupied[lane]) lane++;
             ann.labelY = lane * STEP;
         };
+        // Never throws: this runs inside a loop over every residue/ASO the paste found, with
+        // no try/catch around the loop or its caller (`await process(ex)` in `run()`, below,
+        // is unguarded too) — one bad layer would silently kill the whole extraction, with
+        // nothing on screen and no error, which reads as "the tool did nothing" rather than
+        // "the tool broke". The marker matters more than the layer it would have lived on, so
+        // anything going wrong with the layer still leaves a plain annotation placed.
         const placePoint = (track, gi, gf, label, note, color) => {
-            const an = new Annotation('PointOfInterest', label, gi, gf, track.strand);
-            an.color = color; an.description = note; an.comment = note;
-            const layer = pastedLayerFor(track);
-            if (layer) { layerLabelLane(track, layer, an); layer.addAnnotation(an); }
-            else { an.labelY = 0.45 + Math.random() * 0.5; track.add(an); }   // no TrackLayer support -- fall back
+            let an = null;
+            try {
+                an = new Annotation('PointOfInterest', label, gi, gf, track.strand);
+                an.color = color; an.description = note; an.comment = note;
+                const layer = pastedLayerFor(track);
+                if (layer) { layerLabelLane(track, layer, an); layer.addAnnotation(an); return; }
+            } catch (e) { console.warn('[text-extract] pasted_text layer failed, falling back', e); }
+            try {
+                if (!an) an = new Annotation('PointOfInterest', label, gi, gf, track.strand);
+                an.color = color; an.description = note; an.comment = note;
+                an.labelY = 0.45 + Math.random() * 0.5;
+                track.add(an);
+            } catch (e) { console.warn('[text-extract] placePoint failed entirely', e); }
         };
 
         // Find where an ASO hybridises on the target track's (pre-mRNA) sequence. An antisense
