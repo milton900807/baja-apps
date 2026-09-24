@@ -4880,6 +4880,26 @@ function (path, config) {
                 CurrentLayout.stash('graph-canvas', graph.graph.canvas)
                 CurrentLayout.stash('plate-track', pm)
                 CurrentLayout.stash('graph', graph)
+                // ARM THE CLICKS ON A TRACK'S OWN FEATURES. A press on a SNP, an oligo or a
+                // layer label opens its menu through listeners that
+                // baja/manchester/menu/mouse-over-highlight.js registers -- and nothing
+                // registered them when the screen opened, so on a fresh load none of those
+                // menus answered. Every menu action re-arms them when it closes, and so does
+                // setMouseMode('navigate'), which is what the zoom buttons call
+                // (manchester/controls/navigation-panel-tt.js) -- that is why pressing zoom
+                // appeared to switch the menus on: it was installing the handler the screen
+                // should have had from the start.
+                //
+                // EXACTLY WHAT THE ZOOM BUTTON DOES, and no more. clearMouseListeners with
+                // no argument empties the arrays; setMouseMode('navigate') then clears again
+                // and execs the module to install its listeners. Passing the module path to
+                // the first call as well installs it TWICE -- the module is async, so the
+                // second clear lands before the first one's listeners are added and both
+                // then arrive (measured: two of each listener instead of one).
+                try {
+                    graph.clearMouseListeners();
+                    graph.setMouseMode('navigate');
+                } catch (e) { console.warn('arm feature menus', e); }
                 // THE WAY BACK OUT OF A FOLDER. Opening one swaps the whole canvas for the
                 // one inside it and pushes what was left onto pt.ptracks. Analytics has had
                 // this button since folders arrived; here there was nothing, so a folder
