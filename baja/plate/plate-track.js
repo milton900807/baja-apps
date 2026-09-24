@@ -20733,6 +20733,24 @@ function (progress) {
                 // Asked for by hand (the toolbar button): one undo puts every table back.
                 if (opts.undoable) { try { pushHistory(HM(this)); } catch (e) { } }
                 if (opts.normalize !== false) { try { this.normalizeTableCellSizes(this.root); } catch (e) { } }
+                // ...AND EACH TABLE'S COLUMNS SHARED OUT BY WHAT IS IN THEM. The normalise
+                // above gives every table the same cell size, which is what makes them sit
+                // level -- but it says nothing about how a table divides its own width, and
+                // evenly is wrong: a column of sentences and a column of two-digit numbers
+                // get the same room, and the sentences are what gets cut.
+                //
+                // columnsOnly, so the outer box is untouched: the packing below measures
+                // that box, so this cannot move anything. It runs on every layout rather
+                // than only the toolbar button, because the normalise may have just changed
+                // the width a table has to share out. Pass fitColumns: false to skip it.
+                if (opts.fitColumns !== false) {
+                    for (const p of (this.root || [])) {
+                        try {
+                            if (!p || p.hidden || !this.__layoutIsTable(p)) continue;
+                            this.__fitColumnsNow(p);
+                        } catch (e) { }
+                    }
+                }
 
                 const grid = this.grid;
                 grid.rescale();
@@ -21857,7 +21875,13 @@ function (progress) {
                 if (!ctx || !plate || !Array.isArray(plate.wells) || !plate.wells.length) return null;
                 const FAM = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
                 const fontPx = Math.max(7, Math.round(cellHpx * 0.55));
-                const MIN = Number.isFinite(o.min) ? o.min : 46;
+                // The floor for a column is a decision about the LAYOUT, and it is made
+                // where the width is shared out. Applying it here flattened the measurement
+                // itself: on a narrow table at a small font, all three columns measured
+                // under 46px, all three were clamped to 46, and they came out exactly even
+                // -- the one thing this is meant to prevent. This returns what the text
+                // actually needs; 12 is just "not zero".
+                const MIN = Number.isFinite(o.min) ? o.min : 12;
                 const MAX = Number.isFinite(o.max) ? o.max : 460;
                 const WRAP_CHARS = 26;
                 const out = [];
@@ -21957,11 +21981,35 @@ function (progress) {
                         const slack = usableW - naturalTotal;
                         widths = natural.map(v => v + slack * (v / naturalTotal));
                     } else {
-                        const floorTotal = MIN_COL * cols;
-                        const excess = natural.map(v => Math.max(0, v - MIN_COL));
-                        const excessTotal = excess.reduce((a, c) => a + c, 0) || 1;
-                        const room = Math.max(0, usableW - floorTotal);
-                        widths = natural.map((v, i) => MIN_COL + excess[i] * (room / excessTotal));
+                        // TOO LITTLE ROOM: IN PROPORTION, WITH A FLOOR -- and the floor must
+                        // not become the answer. Giving every column its minimum first and
+                        // sharing only what was left over made the widths nearly even
+                        // whenever the room was tight (measured: 0.97 / 1.08 / 0.95 for a
+                        // sentence between two short columns), which is the thing this is
+                        // here to stop. So: proportional first, then any column under the
+                        // minimum is pinned to it and the rest re-share what remains, until
+                        // nothing moves. The narrow columns are held up, the wide ones keep
+                        // their proportions to each other, and the cutting lands where the
+                        // text is long -- which is where it belongs.
+                        const pinned = new Array(cols).fill(false);
+                        widths = new Array(cols).fill(0);
+                        for (let pass = 0; pass < cols + 1; pass++) {
+                            let room = usableW, freeTotal = 0;
+                            for (let i = 0; i < cols; i++) {
+                                if (pinned[i]) room -= MIN_COL; else freeTotal += natural[i];
+                            }
+                            if (freeTotal <= 0 || room <= 0) {
+                                for (let i = 0; i < cols; i++) widths[i] = usableW / cols;   // nothing fits: even
+                                break;
+                            }
+                            let changed = false;
+                            for (let i = 0; i < cols; i++) {
+                                if (pinned[i]) { widths[i] = MIN_COL; continue; }
+                                widths[i] = natural[i] * (room / freeTotal);
+                                if (widths[i] < MIN_COL) { pinned[i] = true; changed = true; }
+                            }
+                            if (!changed) break;
+                        }
                     }
 
                     const totalW = widths.reduce((a, c) => a + c, 0);
