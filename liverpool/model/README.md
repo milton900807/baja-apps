@@ -1,4 +1,4 @@
-# Trained MHC class I presentation model
+# Trained MHC presentation models (class I and class II)
 
 The neoantigen module scores peptide–HLA pairs. Until now that came from
 `liverpool/lib/hla.js`, a hand-built position-specific matrix over published anchor
@@ -17,8 +17,33 @@ and much harder question, and nothing here answers it. Do not relabel the output
 | `presentation-alleles.json` | allele → `{g: 34-residue groove pseudosequence, t: 1 if trained on}` |
 | `presentation-bg.json` | per allele and length, score quantiles of a natural-peptide background, which turn a raw score into the %rank the module already speaks |
 | `presentation-fixture.json` | reference scores from the Python model; the browser scorer is checked against these |
+| `classii-model.json` | the class II trees and its own feature spec (983 features, not 864) |
+| `classii-alleles.json` | class II allele → `{g, t}`, same shape |
+| `classii-bg.json` | class II background quantiles, **binned by peptide length** |
+| `classii-fixture.json` | class II reference scores **and chosen registers** |
 
 The scorer is `liverpool/lib/presentation-model.js`. Nothing else reads these files.
+
+## Class II is a different problem
+
+The class II groove is open at both ends, so a 13–25 residue peptide hangs out of it and
+only a 9-residue core actually binds. Which nine is recorded nowhere in the data.
+
+- **At inference** every 9-mer register is scored and the best wins. The winning `core`
+  and `offset` come back on each row, so a user can see which nine residues the number
+  is about.
+- **In training**, two passes. The first labels every register with the peptide's label,
+  noisy for positives but guaranteeing the true core is present. The second keeps only
+  the register the first pass chose and retrains on it. That refinement is worth about
+  +0.009 AUROC, and it is why the exporter runs twice.
+- **Flanks are features.** Three residues either side of the core, plus how much peptide
+  overhangs each end. Class II binding is measurably affected by what sits outside.
+- **Backgrounds are binned by length.** A longer peptide offers more registers to take a
+  maximum over, so its scores drift up. One pooled background would flatter long
+  peptides in the %rank.
+
+Class II loads independently: if its files are missing or unusable, class I still works
+and class II peptides go to the motif screen, exactly as before.
 
 ## How it is wired in
 
@@ -36,9 +61,11 @@ is never blocked on this model being available. Every row carries `source` and
 
 | `source` | `confidence` | Meaning |
 |---|---|---|
-| `presentation-model` | `trained` | the model was fitted on eluted ligands for this allele |
-| `presentation-model` | `pan-allele` | scored from groove similarity; no ligand data for this allele |
-| `motif` | `good` / `fair` / `weak` | the model did not load or does not cover this allele |
+| `presentation-model` | `trained` | class I, fitted on eluted ligands for this allele |
+| `presentation-model` | `pan-allele` | class I, scored from groove similarity |
+| `presentation-model-II` | `trained` | class II, fitted on eluted ligands for this allele |
+| `presentation-model-II` | `pan-allele` | class II, scored from groove similarity |
+| `motif` | `good` / `fair` / `weak` | no model covers this case, or none loaded |
 
 ## Why it runs in the browser
 
@@ -56,8 +83,9 @@ already carry an extension alone.
 From `/home/jmilton/epitope-ml`:
 
 ```bash
-.venv/bin/python src/export_presentation_model.py --outdir export
-cp export/presentation-*.json /home/jmilton/baja-apps/liverpool/model/
+.venv/bin/python src/export_presentation_model.py --outdir export    # class I
+.venv/bin/python src/export_class2_model.py      --outdir export    # class II
+cp export/presentation-*.json export/classii-*.json /home/jmilton/baja-apps/liverpool/model/
 node src/verify_browser_scorer.js        # must print PASS before deploying
 ```
 
@@ -65,7 +93,9 @@ The verification step is not optional. A tree ensemble re-implemented in a secon
 language is exactly the kind of thing that looks right and is quietly wrong: an
 off-by-one in the feature order, a `<=` that should be `<`, a transposed BLOSUM row.
 `verify_browser_scorer.js` runs the browser code over the fixture peptides and fails on
-any disagreement beyond float noise.
+any disagreement beyond float noise. For class II it also checks the **chosen register**:
+the two languages can agree on every feature and still pick different cores from an
+off-by-one in the offset loop, which would change only some scores.
 
 ## Two things that will bite you
 
@@ -79,7 +109,7 @@ fields beside it survive. Not relevant to these files, but it is the trap next d
 
 ## Feature layout
 
-The scorer must build exactly 864 features in this order:
+### Class I — 864 features
 
 1. **9 × 20** — BLOSUM62 rows for a 9-slot groove frame
 2. **4** — length one-hot for 8, 9, 10, 11
@@ -91,3 +121,13 @@ last four keep their slots and whatever lies between is a bulge. Slot 5 takes th
 of the bulge, and an 8-mer has none, so slot 5 is a gap scoring zero. Using the module's
 own assumption rather than a new one keeps the trained path and the motif fallback
 talking about the same geometry.
+
+### Class II — 983 features, per register
+
+1. **9 × 20** — BLOSUM62 for the core
+2. **3 × 20** — N-flank, nearest residue first, zero-padded at the peptide edge
+3. **3 × 20** — C-flank, same
+4. **3** — N-overhang, C-overhang and peptide length, each scaled
+5. **34 × 20** — BLOSUM62 for the groove pseudosequence
+
+One row per register; the peptide's score is the maximum over rows.
