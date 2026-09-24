@@ -140,7 +140,7 @@ function () {
                 // by lane (track.js) so neighbours don't overlap, and kept within the track height.
                 // Shapes that render their own label are skipped so the name isn't drawn twice.
                 const __ty = '' + (this.type || '');
-                const __SELF = { 'PointOfInterest': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1, 'AA': 1, 'Exon': 1 };
+                const __SELF = { 'PointOfInterest': 1, 'PastedText': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1, 'AA': 1, 'Exon': 1 };
                 if (this.name && !__SELF[__ty] && __ty.indexOf('cdd-') !== 0) {
                     try {
                         const gctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;

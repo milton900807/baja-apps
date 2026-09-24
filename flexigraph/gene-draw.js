@@ -254,6 +254,268 @@ function () {
     // aliases, all routed through drawCddSite.
     const cddShape = (catKey) => createIon((graph, tgraph, xs, xf, y, color, annotation) => drawCddSite(graph, tgraph, xs, xf, y, annotation, catKey));
 
+    // ---- PASTED-TEXT ITEMS: the marker and card for the "pasted_text" track layer ----------------
+    //
+    // An ASO target or a residue the pasted text calls out. NOT a mutation, so it must not read
+    // as one: a SNP is a round lollipop "button" on a black stem with a red/white face, and
+    // its callout is a white panel with a red/green/amber rail. This is an INDIGO (residue) or
+    // TEAL (ASO) highlight band laid over the codon, a diamond pin standing off it, and a card
+    // whose header is the residue itself.
+    //
+    // Two levels of detail, because the same item has to work zoomed out over a whole gene and
+    // zoomed in on a codon:
+    //   far    the band, the pin and a small label pill ("Tyr122")
+    //   near   the whole card: heading, what the residue is, what the text says it does, the
+    //          sentence itself (in full) with the residue's own name picked out in it, and where
+    //          it came from.
+    // Everything is drawn in SCREEN pixels so the text is the same size at any zoom, and the card
+    // registers its box in graph.__annoBoxes -- the per-frame list the SNP callouts already
+    // avoid -- so the two kinds never sit on top of each other.
+    const __PT_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+    const __PT_AA = {
+        A: 'Alanine', R: 'Arginine', N: 'Asparagine', D: 'Aspartic acid', C: 'Cysteine', Q: 'Glutamine',
+        E: 'Glutamic acid', G: 'Glycine', H: 'Histidine', I: 'Isoleucine', L: 'Leucine', K: 'Lysine',
+        M: 'Methionine', F: 'Phenylalanine', P: 'Proline', S: 'Serine', T: 'Threonine', W: 'Tryptophan',
+        Y: 'Tyrosine', V: 'Valine'
+    };
+    const __ptRound = (ctx, x, y, w, h, r) => {
+        const rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+    };
+    // Word-wrap a sentence into lines of {t, hit} words. `hits` are lowercase spellings of the
+    // residue's own name ("tyr122", "y122") -- those words are set bold, in the accent color.
+    const __ptWrap = (ctx, text, hits, fontN, fontB, maxW, maxLines) => {
+        const words = ('' + (text || '')).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+        if (!words.length) return [];
+        ctx.font = fontN;
+        const spaceW = ctx.measureText(' ').width;
+        const lines = [];
+        let cur = [], curW = 0;
+        const push = () => { if (cur.length) lines.push(cur); cur = []; curW = 0; };
+        for (const w of words) {
+            const core = w.replace(/^[("'\[]+|[)\]"'.,;:]+$/g, '').toLowerCase();
+            const hit = hits.indexOf(core) >= 0;
+            ctx.font = hit ? fontB : fontN;
+            const ww = ctx.measureText(w).width;
+            if (cur.length && curW + spaceW + ww > maxW) push();
+            cur.push({ t: w, hit, w: ww });
+            curW += (cur.length > 1 ? spaceW : 0) + ww;
+        }
+        push();
+        if (lines.length > maxLines) {
+            lines.length = maxLines;
+            const last = lines[maxLines - 1];
+            // Lose whole words from the end until the ellipsis fits on the line.
+            ctx.font = fontN;
+            const ellW = ctx.measureText('…').width;
+            let tot = 0; for (const x of last) tot += x.w + spaceW;
+            while (last.length > 1 && tot + ellW > maxW) { const x = last.pop(); tot -= x.w + spaceW; }
+            last[last.length - 1] = { t: last[last.length - 1].t.replace(/[.,;:]+$/, '') + '…', hit: last[last.length - 1].hit, w: last[last.length - 1].w + ellW };
+        }
+        return lines;
+    };
+
+    const __pastedTextGlyph = (graph, tgraph, xs, xf, y, color, an) => {
+        const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+        if (!ctx || !an) return;
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const sx0 = graph.X(xs), sx1 = graph.X(xf), sy = graph.Y(y);
+        if (!isFinite(sx0) || !isFinite(sx1) || !isFinite(sy)) return;
+        const mid = (sx0 + sx1) / 2;
+        if (mid < -330 || mid > cw + 330 || sy < -60 || sy > ch + 60) return;   // a card hangs ~300px to one side
+
+        const accent = an.color || '#4f46e5';
+        const label = '' + (an.name || '');
+        const gene = '' + (an.gene || '');
+        const isAso = an.kind === 'aso';
+
+        // ---- the marker on the track: a band over the codon, a pin standing off it ----------
+        const bandW = Math.max(9, Math.abs(sx1 - sx0));
+        const bandH = 15;
+        const pinY = sy - 24;                         // centre of the diamond
+        ctx.save();
+        ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+        try { ctx.setLineDash([]); } catch (e) { }
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        // band
+        ctx.globalAlpha = 0.2; ctx.fillStyle = accent;
+        __ptRound(ctx, mid - bandW / 2, sy - bandH / 2, bandW, bandH, 3); ctx.fill();
+        ctx.globalAlpha = 1; ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
+        __ptRound(ctx, mid - bandW / 2 + 0.75, sy - bandH / 2 + 0.75, bandW - 1.5, bandH - 1.5, 3); ctx.stroke();
+        // stem, then the diamond
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(mid, sy - bandH / 2); ctx.lineTo(mid, pinY + 6); ctx.stroke();
+        const dia = (r) => { ctx.beginPath(); ctx.moveTo(mid, pinY - r); ctx.lineTo(mid + r, pinY); ctx.lineTo(mid, pinY + r); ctx.lineTo(mid - r, pinY); ctx.closePath(); };
+        ctx.shadowColor = 'rgba(15,23,42,0.28)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+        dia(7); ctx.fillStyle = '#ffffff'; ctx.fill();
+        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+        dia(7); ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.stroke();
+        dia(3.2); ctx.fillStyle = accent; ctx.fill();
+        ctx.restore();
+
+        // ---- how much to show --------------------------------------------------------------
+        let cellPx = 0;
+        try { cellPx = Math.abs(graph.screenWidth(tgraph.screenWidth(1))); } catch (e) { cellPx = 0; }
+        const near = cellPx >= 2.5 || an.highlighted;
+        const label11 = '700 11px ' + __PT_FONT;
+
+        if (!near) {
+            // far: the name on a small pill beside the pin, nothing more.
+            ctx.save();
+            ctx.font = label11; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+            const tw = ctx.measureText(label).width;
+            const pw = tw + 14, ph = 17;
+            const px = (mid < cw * 0.7) ? mid + 12 : mid - 12 - pw;
+            ctx.fillStyle = accent; __ptRound(ctx, px, pinY - ph / 2, pw, ph, ph / 2); ctx.fill();
+            ctx.fillStyle = '#ffffff'; ctx.fillText(label, px + 7, pinY + 0.5);
+            ctx.restore();
+            return;
+        }
+
+        // ---- near: the card ------------------------------------------------------------------
+        const FN = '11.5px ' + __PT_FONT, FB = '700 11.5px ' + __PT_FONT, FR = '600 11.5px ' + __PT_FONT;
+        const FG = '600 13px ' + __PT_FONT, FM = '10.5px ' + __PT_FONT, FF = '600 8.5px ' + __PT_FONT;
+        const maxW = 300, padX = 13, padY = 11, rail = 4, radius = 8;
+
+        // The layout is expensive (measuring every word) and never changes for one item, so it
+        // is kept on the item. A leading underscore keeps it out of a saved document.
+        const key = [label, gene, an.role, an.comment, an.description, an.meta].join('␟');
+        let L = an.__ptLayout;
+        if (!L || L.key !== key) {
+            const hits = [];
+            const m = label.match(/^([A-Za-z]{3})(\d+)$/);
+            if (m) {
+                hits.push(label.toLowerCase());
+                const one = an.aa1 || '';
+                if (one) hits.push((one + m[2]).toLowerCase());
+            }
+            let role = ('' + (an.role || '')).trim();
+            role = role.charAt(0).toUpperCase() + role.slice(1);   // the model returns it in lower case
+            const bodyText = ('' + (an.comment || an.description || '')).trim();
+            L = {
+                key,
+                role: role ? __ptWrap(ctx, role, hits, FR, FR, maxW, 2) : [],
+                body: bodyText ? __ptWrap(ctx, bodyText, hits, FN, FB, maxW, 8) : [],
+                meta: ('' + (an.meta || (an.aa1 && an.pos ? ((__PT_AA[an.aa1] || an.aa1) + ' (' + an.aa1 + ') \u00b7 residue ' + an.pos) : ''))).trim()
+            };
+            an.__ptLayout = L;
+        }
+        ctx.save();
+        ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+        try { ctx.setLineDash([]); } catch (e) { }
+        ctx.font = label11;
+        const pillW = ctx.measureText(label).width + 16, pillH = 19;
+        ctx.font = FG;
+        const geneW = gene ? ctx.measureText(gene).width : 0;
+        ctx.font = FM;
+        const metaW = L.meta ? ctx.measureText(L.meta).width : 0;
+        let contentW = Math.max(pillW + (gene ? 9 + geneW : 0), metaW);
+        for (const ln of L.role.concat(L.body)) { let w = 0; for (const x of ln) w += x.w; w += (ln.length - 1) * 3.2; contentW = Math.max(contentW, w); }
+        contentW = Math.min(maxW, Math.max(contentW, 150));
+        const bw = Math.ceil(contentW) + padX * 2 + rail;
+        const LH = 16.5, RH = 15.5;
+        let bh = padY * 2 + pillH + (L.meta ? 16 : 0);
+        if (L.role.length || L.body.length) bh += 9;                       // rule + gap
+        bh += L.role.length * RH + (L.role.length && L.body.length ? 4 : 0) + L.body.length * LH;
+        bh += 14;                                                            // footer
+
+        const side = (mid < cw * 0.62) ? 1 : -1;
+        let bx = side > 0 ? mid + 18 : mid - 18 - bw;
+        bx = Math.max(6, Math.min(bx, cw - bw - 6));
+        const used = (graph.__annoBoxes = graph.__annoBoxes || []);
+        const clash = (yy0) => used.some((r) => !(bx + bw < r.x - 5 || bx > r.x + r.w + 5 || yy0 + bh < r.y - 5 || yy0 > r.y + r.h + 5));
+        // Above the pin first, stacking upward past whatever is already there (SNP callouts and
+        // other cards share this list). If that runs out of canvas, take the space BELOW the
+        // track instead, stacking downward -- rather than clamping to the top edge and landing
+        // on top of the cards already there.
+        let by = pinY - 16 - bh, guard = 0;
+        while (guard++ < 40 && clash(by)) by -= (bh + 8);
+        if (by < 6) {
+            let below = sy + 34; guard = 0;
+            while (guard++ < 40 && clash(below)) below += (bh + 8);
+            if (below + bh <= ch - 6) by = below;
+        }
+        by = Math.max(6, Math.min(by, ch - bh - 6));
+        used.push({ x: bx, y: by, w: bw, h: bh });
+        const cardAbove = (by + bh) <= sy;
+
+        // leader: from the pin to the card -- an elbow rather than a diagonal across a busy track
+        const anchorX = Math.max(bx + 16, Math.min(mid, bx + bw - 16));
+        ctx.strokeStyle = accent; ctx.globalAlpha = 0.6; ctx.lineWidth = 1.25; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        if (cardAbove) {
+            const foot = by + bh;
+            const elbowY = Math.min(pinY - 9, foot + 10);
+            ctx.moveTo(mid, pinY - 7);
+            if (elbowY < pinY - 7) { ctx.lineTo(mid, elbowY); ctx.lineTo(anchorX, foot); } else ctx.lineTo(anchorX, foot);
+        } else {
+            // the card is under the track: leave from the band's foot instead of the pin
+            const top = by, startY = sy + bandH / 2;
+            const elbowY = Math.max(startY + 8, top - 10);
+            ctx.moveTo(mid, startY);
+            if (elbowY > startY + 8) { ctx.lineTo(mid, elbowY); ctx.lineTo(anchorX, top); } else ctx.lineTo(anchorX, top);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // panel
+        ctx.shadowColor = 'rgba(15,23,42,0.24)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3;
+        ctx.fillStyle = 'rgba(255,255,255,0.985)';
+        __ptRound(ctx, bx, by, bw, bh, radius); ctx.fill();
+        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+        ctx.globalAlpha = 0.38; ctx.strokeStyle = accent; ctx.lineWidth = 1;
+        __ptRound(ctx, bx + 0.5, by + 0.5, bw - 1, bh - 1, radius); ctx.stroke();
+        ctx.globalAlpha = 1;
+        // accent rail, clipped to the corner radius
+        ctx.save(); __ptRound(ctx, bx, by, bw, bh, radius); ctx.clip();
+        ctx.fillStyle = accent; ctx.fillRect(bx, by, rail, bh);
+        ctx.restore();
+
+        const x = bx + rail + padX;
+        let yy = by + padY;
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        // header: the residue on a pill, the gene beside it
+        ctx.fillStyle = accent; __ptRound(ctx, x, yy, pillW, pillH, pillH / 2); ctx.fill();
+        ctx.font = label11; ctx.fillStyle = '#ffffff'; ctx.fillText(label, x + 8, yy + pillH / 2 + 0.5);
+        if (gene) { ctx.font = FG; ctx.fillStyle = '#0f172a'; ctx.fillText(gene, x + pillW + 9, yy + pillH / 2 + 0.5); }
+        yy += pillH;
+        if (L.meta) { yy += 3; ctx.font = FM; ctx.fillStyle = '#64748b'; ctx.fillText(L.meta, x, yy + 6.5); yy += 13; }
+        if (L.role.length || L.body.length) {
+            yy += 4;
+            ctx.globalAlpha = 0.5; ctx.fillStyle = '#cbd5e1'; ctx.fillRect(x, yy, bw - rail - padX * 2, 1); ctx.globalAlpha = 1;
+            yy += 5;
+        }
+        const drawLines = (lines, fontN, fontB, fillN, fillB, lh) => {
+            for (const ln of lines) {
+                let cx = x;
+                for (const wd of ln) {
+                    ctx.font = wd.hit ? fontB : fontN;
+                    ctx.fillStyle = wd.hit ? fillB : fillN;
+                    ctx.fillText(wd.t, cx, yy + lh / 2);
+                    ctx.font = fontN;
+                    cx += wd.w + ctx.measureText(' ').width;
+                }
+                yy += lh;
+            }
+        };
+        drawLines(L.role, FR, FR, '#0f172a', '#0f172a', RH);
+        if (L.role.length && L.body.length) yy += 4;
+        drawLines(L.body, FN, FB, '#475569', accent, LH);
+        // where it came from
+        yy += 3;
+        ctx.font = FF; ctx.fillStyle = '#94a3b8';
+        try { ctx.letterSpacing = '0.8px'; } catch (e) { }
+        ctx.fillText(isAso ? 'ASO TARGET · FROM PASTED TEXT' : 'FROM PASTED TEXT', x, yy + 5);
+        try { ctx.letterSpacing = '0px'; } catch (e) { }
+        ctx.restore();
+    };
+
     return {
         'cdd-site': cddShape(null),
         'cdd-active': cddShape('active'),
@@ -294,6 +556,12 @@ function () {
             if (screencell > 2 && annotation.description) {
                 graph.drawString(('' + annotation.description).slice(0, 90), mid, ly + 0.14, '#365a63', '9px system-ui, -apple-system, Roboto, Arial, sans-serif');
             }
+        }),
+
+        // A marker from pasted text (an ASO target, a residue the text calls out) on the
+        // "pasted_text" track layer -- see __pastedTextGlyph. Never throws into the track's draw.
+        'PastedText': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
+            try { __pastedTextGlyph(graph, tgraph, xs, xf, y, color, annotation); } catch (e) { }
         }),
 
         'Acceptor-Splice-Site': createIon((graph, tgraph, xss, xff, __y, color, annotation) => {

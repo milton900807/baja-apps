@@ -105,59 +105,42 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             const lo = Math.min(tg.xmin, tg.xmax), hi = Math.max(tg.xmin, tg.xmax);
             layer = new TrackLayer(PASTED_LAYER_NAME, lo, 0, hi, 1);
             layer.data_type = PASTED_LAYER_NAME;
-            layer.color = 'rgba(180,130,20,0.9)';
-            layer.fillstyle = 'rgba(180,130,20,0.9)';
+            layer.color = 'rgba(79,70,229,0.9)';
+            layer.fillstyle = 'rgba(79,70,229,0.9)';
             track.addLayer(layer);
             return layer;
         };
-        // The track's own `_assignAnnotationLabelLane` only reads `track.annotations`, so it
-        // never sees — and never avoids colliding with — a sibling on this layer. Same
-        // footprint/lane logic, scoped to what could actually overlap a layer annotation: the
-        // track's own labelled annotations, plus whatever else is already on this layer.
-        const layerLabelLane = (track, layer, ann) => {
-            const STEP = 0.5;
-            const footprint = (a) => {
-                const lo0 = Math.min(+a.xi, +a.xf), hi0 = Math.max(+a.xi, +a.xf);
-                if (!isFinite(lo0) || !isFinite(hi0)) return null;
-                const nameLen = ('' + (a.name || '')).length;
-                const c = (lo0 + hi0) / 2;
-                const half = Math.max((hi0 - lo0) / 2, nameLen / 2, 1);
-                return { lo: c - half, hi: c + half };
-            };
-            const mine = footprint(ann);
-            if (!mine) { ann.labelY = 0.45; return; }
-            const occupied = {};
-            for (const other of [].concat(track.annotations || [], layer.annotations || [])) {
-                if (!other || other === ann) continue;
-                const f = footprint(other);
-                if (!f) continue;
-                if (f.lo <= mine.hi && f.hi >= mine.lo) {
-                    const lane = Math.max(0, Math.round((+other.labelY || 0) / STEP));
-                    occupied[lane] = true;
-                }
-            }
-            let lane = 0;
-            while (occupied[lane]) lane++;
-            ann.labelY = lane * STEP;
-        };
+        // What a pasted-text marker looks like, and why it is not the SNP look. A residue is
+        // indigo and an ASO target is teal; a SNP is a red/white round lollipop. The shape
+        // ('PastedText', flexigraph/gene-draw.js) is a band over the codon, a diamond pin, and --
+        // zoomed in -- a card: the residue on a pill with its gene, what it is, what the text
+        // says it does, the sentence in full, and where it came from. It places itself in screen
+        // space and keeps clear of SNP callouts, so nothing here has to lay out labels.
+        const PASTED_RESIDUE_COLOR = '#4f46e5';
+        const PASTED_ASO_COLOR = '#0e7490';
         // Never throws: this runs inside a loop over every residue/ASO the paste found, with
         // no try/catch around the loop or its caller (`await process(ex)` in `run()`, below,
         // is unguarded too) — one bad layer would silently kill the whole extraction, with
         // nothing on screen and no error, which reads as "the tool did nothing" rather than
         // "the tool broke". The marker matters more than the layer it would have lived on, so
         // anything going wrong with the layer still leaves a plain annotation placed.
-        const placePoint = (track, gi, gf, label, note, color) => {
+        //   extra: { kind:'residue'|'aso', gene, aa1, pos, role, meta, comment } -- the fields the
+        //   card is built from; `comment` overrides `note` as the card's sentence.
+        const placePoint = (track, gi, gf, label, note, color, extra) => {
+            const build = () => {
+                const an = new Annotation('PastedText', label, gi, gf, track.strand);
+                an.color = color; an.description = note; an.comment = note;
+                if (extra) Object.assign(an, extra);
+                return an;
+            };
             let an = null;
             try {
-                an = new Annotation('PointOfInterest', label, gi, gf, track.strand);
-                an.color = color; an.description = note; an.comment = note;
+                an = build();
                 const layer = pastedLayerFor(track);
-                if (layer) { layerLabelLane(track, layer, an); layer.addAnnotation(an); return; }
+                if (layer) { layer.addAnnotation(an); return; }
             } catch (e) { console.warn('[text-extract] pasted_text layer failed, falling back', e); }
             try {
-                if (!an) an = new Annotation('PointOfInterest', label, gi, gf, track.strand);
-                an.color = color; an.description = note; an.comment = note;
-                an.labelY = 0.45 + Math.random() * 0.5;
+                if (!an) an = build();
                 track.add(an);
             } catch (e) { console.warn('[text-extract] placePoint failed entirely', e); }
         };
@@ -566,7 +549,8 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                             : (cds.codonPos ? cds.codonPos[pos - 1] : null);
                         if (lo == null || !isFinite(lo)) continue;
                         const label = (mm[1].length === 3) ? (mm[1][0].toUpperCase() + mm[1].slice(1).toLowerCase() + pos) : (ref + pos);
-                        placePoint(t, lo, lo + 3, label, rz.comment || '', 'rgba(180,130,20,0.9)');
+                        placePoint(t, lo, lo + 3, label, rz.comment || '', PASTED_RESIDUE_COLOR,
+                            { kind: 'residue', gene: ('' + (rz.gene || '')).trim(), aa1: ref, pos: pos, role: ('' + (rz.role || '')).trim() });
                         placedR = true;
                         break;
                     }
@@ -585,7 +569,9 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 if (hit) {
                     const label = 'ASO' + (a.name ? ' ' + a.name : '');
                     const note = 'ASO (' + hit.orient + ') target' + (a.comment ? ' — ' + a.comment : '');
-                    placePoint(track, hit.gi, hit.gf, label, note, 'rgba(10,120,200,0.9)');
+                    placePoint(track, hit.gi, hit.gf, label, note, PASTED_ASO_COLOR,
+                        { kind: 'aso', gene: ('' + (a.target_gene || '')).trim(), comment: ('' + (a.comment || '')).trim(),
+                          meta: hit.orient === 'sense' ? 'Sense-strand match' : 'Antisense oligonucleotide target' });
                     aMapped++;
                     continue;
                 }
@@ -598,7 +584,9 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                         pi++;
                         const label = 'ASO' + (a.name ? ' ' + a.name : '') + (parts > 1 ? ' (junction ' + pi + '/' + parts + ')' : '');
                         const note = 'ASO (' + sh.orient + ', spliced junction) target' + (a.comment ? ' — ' + a.comment : '');
-                        placePoint(track, iv[0], iv[1], label, note, 'rgba(120,80,200,0.9)');
+                        placePoint(track, iv[0], iv[1], label, note, PASTED_ASO_COLOR,
+                            { kind: 'aso', gene: ('' + (a.target_gene || '')).trim(), comment: ('' + (a.comment || '')).trim(),
+                              meta: 'Antisense oligonucleotide target \u00b7 spans an exon junction' + (parts > 1 ? ' (' + pi + '/' + parts + ')' : '') });
                     }
                     aMapped++;
                 } else { aUnmapped++; }

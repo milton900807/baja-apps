@@ -6,7 +6,7 @@ Reads a block of pasted text, asks  to extract:
   - genes           : {symbol, species}
   - mutations       : {gene, species, id (rsID preferred), hgvs, protein, label, comment}
   - asos            : {name, sequence, target_gene, species, comment}
-  - residues        : {gene, species, residue, comment} -- a BARE residue mention (e.g. "Tyr122
+  - residues        : {gene, species, residue, role, comment} -- a BARE residue mention (e.g. "Tyr122
                       in SPTLC2", "the side chain of Asn13") that names no destination amino
                       acid, so it is not itself a mutation, but is still worth marking where the
                       text calls that residue out for something structural or functional (a
@@ -77,7 +77,10 @@ def ask_claude(text):
         '  "residues":  [{"gene":"the gene/protein this residue belongs to, from context — '
         'never empty","species":"human|mouse|rat","residue":"three-letter or one-letter code '
         'plus position, exactly as it names the residue, e.g. Tyr122 or Y122 or Asn13",'
-        '"comment":"the full sentence this residue is mentioned in, verbatim or near-verbatim"}],\n'
+        '"role":"what the text says this residue DOES or is FOR, as a short phrase of 3-9 words in '
+        'the text\'s own terms, e.g. hydrogen bond to the ceramide head group; empty string if the '
+        'text does not say",'
+        '"comment":"the COMPLETE sentence this residue is mentioned in, copied exactly as written"}],\n'
         '  "title":     "the article/manuscript title if this text is a paper, else empty"\n'
         "}\n"
         "MUTATION RULES (important): Find them ALL — substitutions (c.529A>G, p.Asn177Asp), "
@@ -101,8 +104,11 @@ def ask_claude(text):
         "Attribute each residue to whichever gene/protein the surrounding sentence names for it, "
         "even if that gene was named earlier in the sentence or paragraph and only implied at the "
         "residue's own mention (\"...Asn13 and His85 in ORMDL3\" is ORMDL3 for BOTH residues). The "
-        "comment is the sentence verbatim (or trimmed only for length) — it becomes the annotation "
-        "shown for that residue, so it must stand on its own without the rest of the paragraph."
+        "comment is the WHOLE sentence, character for character as written: never shortened, never "
+        "with an ellipsis (...) or a bracketed cut, never paraphrased -- it is shown in full as the "
+        "annotation for that residue, so it must stand on its own without the rest of the paragraph. "
+        "If the sentence is very long, still give all of it. The role is your own short summary of "
+        "the function the text gives that residue; leave it empty rather than guess."
     )
     try:
         try:
