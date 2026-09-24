@@ -4581,9 +4581,22 @@ function (progress) {
                     this.menu_vis = true;
                 }, 300)
             }
+            // The column half of the fitter, for a path that has just set a table's size and
+            // must keep it. Quiet: a table that cannot be measured keeps even columns.
+            __fitColumnsNow(plate) {
+                try { if (plate && plate.fit !== false) this.fitTableToSpace(plate, { columnsOnly: true }); } catch (e) { }
+            }
+
             addPlateWithConsistentWellSize(newPlate, opts = {}) {
                 if (!newPlate || !newPlate.grid) return newPlate;
                 try { newPlate.__addedAt = Date.now(); } catch (e) { }
+                // THE COLUMNS, BUT NOT THE SIZE. This path exists to give every table the
+                // same cell size so they sit level beside each other, and the layout
+                // normalises them again afterwards -- so the table's box is not ours to
+                // change here. How its width is SHARED OUT is another matter: even columns
+                // put a sentence and a two-digit number in the same room, and the sentence
+                // is the one that gets cut. Applied after the size is set, at the end.
+                try { if (newPlate.fit !== false) this.__fitColumnsAfter = newPlate; } catch (e) { }
 
                 this.root = this.root || [];
 
@@ -4647,6 +4660,7 @@ function (progress) {
                 } else {
 
                     this.root.push(newPlate);
+                    this.__fitColumnsNow(newPlate);
                     this.generateTables?.();
                     return newPlate;
                 }
@@ -4719,6 +4733,7 @@ function (progress) {
                     this.root[idx] = newPlate;
                 } else {
                     this.root.push(newPlate);
+                    this.__fitColumnsNow(newPlate);
                 }
 
                 this.generateTables?.();
@@ -21716,10 +21731,295 @@ function (progress) {
                 if (this._separationCancel) this._separationCancel.active = false;
             }
 
+            // ---- FITTING A NEW TABLE TO THE SPACE THAT IS LEFT ----------------------------
+            //
+            // A table arrived at a default size worked out from nothing but its row and
+            // column COUNT -- every column the same width, whatever was in it. So a table
+            // with one long label and four short numbers got five equal columns: the label
+            // truncated to "Approved or te…" while four columns of two-digit numbers sat in
+            // three times the room they needed. And the table took whatever space that came
+            // to, which on a busy canvas was either a sliver or an overlap.
+            //
+            // These three do it properly: find the white space, measure what each column
+            // actually needs, and divide the space between them in that proportion.
+
+            // The 2D context to measure text with. The canvas's own, so the measurements are
+            // the ones the drawing will make.
+            __fitCtx() {
+                try {
+                    const c = this.__canvas__ || (CurrentLayout.getStashed && CurrentLayout.getStashed('graph-canvas'));
+                    return c && c.getContext ? c.getContext('2d') : null;
+                } catch (e) { return null; }
+            }
+
+            // THE BIGGEST EMPTY RECTANGLE ON SCREEN, in pixels. The canvas is divided into a
+            // coarse grid, every square that any object touches is marked, and the largest
+            // all-clear rectangle is found the standard way (a histogram of clear runs per
+            // row, and the largest rectangle under it). Coarse on purpose: this is choosing
+            // a size, not packing, and a 96 x 64 grid answers in well under a millisecond.
+            __largestFreeRectPx(opts) {
+                const o = opts || {};
+                try {
+                    const ctx = this.__fitCtx();
+                    const W = (ctx && ctx.canvas && ctx.canvas.width) || 0;
+                    const H = (ctx && ctx.canvas && ctx.canvas.height) || 0;
+                    if (!(W > 20 && H > 20)) return null;
+                    const top = Number.isFinite(o.top) ? o.top : 0;        // room for any chrome
+                    const GW = 96, GH = 64;
+                    const cw = W / GW, ch = (H - top) / GH;
+                    const busy = new Uint8Array(GW * GH);
+                    const skip = o.skip || null;
+                    const pad = Number.isFinite(o.pad) ? o.pad : 14;       // nothing sits flush against a neighbour
+                    const mark = (x0, y0, x1, y1) => {
+                        const a = Math.max(0, Math.floor((x0 - pad) / cw)), b = Math.min(GW - 1, Math.ceil((x1 + pad) / cw));
+                        const c = Math.max(0, Math.floor((y0 - pad - top) / ch)), d = Math.min(GH - 1, Math.ceil((y1 + pad - top) / ch));
+                        for (let j = c; j <= d; j++) for (let i = a; i <= b; i++) busy[j * GW + i] = 1;
+                    };
+                    const g = this.grid; g.rescale();
+                    const boxOf = (obj) => {
+                        const b = this.worldBoxOf(obj);
+                        if (!b) return null;
+                        const x0 = g.X(b.x0), x1 = g.X(b.x1), y0 = g.Y(b.y1), y1 = g.Y(b.y0);
+                        return { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: Math.min(y0, y1), y1: Math.max(y0, y1) };
+                    };
+                    for (const obj of [...(this.root || []), ...(this.m_plots || [])]) {
+                        if (!obj || obj.hidden || obj === skip) continue;
+                        const b = boxOf(obj);
+                        if (b) mark(b.x0, b.y0, b.x1, b.y1);
+                    }
+                    for (const gl of (this.glyphs || [])) {
+                        try {
+                            const sh = gl && gl.shape;
+                            if (!sh || typeof sh.getX !== 'function') continue;
+                            const a = g.X(sh.getX()), b2 = g.X(sh.getXf()), c = g.Y(sh.getY()), d = g.Y(sh.getYf());
+                            if (![a, b2, c, d].every(Number.isFinite)) continue;
+                            mark(Math.min(a, b2), Math.min(c, d), Math.max(a, b2), Math.max(c, d));
+                        } catch (e) { }
+                    }
+
+                    // Every all-clear rectangle: a histogram of clear cells per column, grown
+                    // row by row, and the largest rectangle under each histogram.
+                    //
+                    // SCORED BY HOW MUCH OF THE TABLE IT HOLDS, not by area. Area alone
+                    // picked a 125 x 879 sliver down the side of a full canvas over the
+                    // shorter, wider gap beside it -- more square pixels, and five columns of
+                    // 25px each with twenty cells cut (measured). min(w, wanted) x
+                    // min(h, wanted) says what a rectangle is worth to THIS table: extra
+                    // width past what it needs counts for nothing, and neither does a height
+                    // it cannot use. With nothing wanted it falls back to plain area.
+                    const wantW = (o.want && o.want.w > 0) ? o.want.w : 0;
+                    const wantH = (o.want && o.want.h > 0) ? o.want.h : 0;
+                    const score = (wpx, hpx) => (wantW && wantH)
+                        ? Math.min(wpx, wantW) * Math.min(hpx, wantH)
+                        : wpx * hpx;
+                    const height = new Int32Array(GW);
+                    let best = null;
+                    const stack = [];
+                    for (let j = 0; j < GH; j++) {
+                        for (let i = 0; i < GW; i++) height[i] = busy[j * GW + i] ? 0 : height[i] + 1;
+                        stack.length = 0;
+                        for (let i = 0; i <= GW; i++) {
+                            const h = i < GW ? height[i] : 0;
+                            let start = i;
+                            while (stack.length && stack[stack.length - 1].h >= h) {
+                                const t = stack.pop();
+                                const gw = (i - t.i), gh = t.h;
+                                const sc = score(gw * cw, gh * ch);
+                                // A tie on score goes to the bigger rectangle: two gaps that
+                                // both hold the whole table are ranked by what is left over.
+                                if (!best || sc > best.score || (sc === best.score && gw * gh > best.cells)) {
+                                    best = { score: sc, cells: gw * gh, i: t.i, w: gw, h: gh, jEnd: j };
+                                }
+                                start = t.i;
+                            }
+                            stack.push({ i: start, h });
+                        }
+                    }
+                    if (!best || best.score <= 0) return null;
+                    return {
+                        x: best.i * cw,
+                        y: top + (best.jEnd - best.h + 1) * ch,
+                        w: best.w * cw,
+                        h: best.h * ch
+                    };
+                } catch (e) { return null; }
+            }
+
+            // WHAT EACH COLUMN ACTUALLY NEEDS, in pixels, at a given cell height. Measured
+            // with the font the cells will be drawn in -- one size for the whole table, 55%
+            // of the row height, the rule __columnFonts uses -- and divided by 0.85, which
+            // is the share of a cell's width the text is allowed (see well.js fitFontPx).
+            // A cell that WRAPS asks for a sensible line length rather than its whole
+            // paragraph: it is going to take several lines whatever the column is given.
+            __naturalColPx(plate, cellHpx, opts) {
+                const o = opts || {};
+                const ctx = this.__fitCtx();
+                if (!ctx || !plate || !Array.isArray(plate.wells) || !plate.wells.length) return null;
+                const FAM = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+                const fontPx = Math.max(7, Math.round(cellHpx * 0.55));
+                const MIN = Number.isFinite(o.min) ? o.min : 46;
+                const MAX = Number.isFinite(o.max) ? o.max : 460;
+                const WRAP_CHARS = 26;
+                const out = [];
+                ctx.save();
+                ctx.font = fontPx + 'px ' + FAM;
+                for (const col of plate.wells) {
+                    let need = 0;
+                    for (const w of (col || [])) {
+                        if (!w) continue;
+                        let t = '';
+                        try { t = '' + ((w.__displayText ? w.__displayText() : w.value) ?? ''); } catch (e) { t = ''; }
+                        if (!t) continue;
+                        const wraps = (typeof w.__wrapsText === 'function') ? w.__wrapsText() : false;
+                        const measured = wraps
+                            ? ctx.measureText(t.slice(0, WRAP_CHARS)).width
+                            : ctx.measureText(t).width;
+                        // A header is what a reader scans for, so it is never the cell that
+                        // gets cut: it asks for its full width even when it wraps.
+                        const isHeader = !!(w.isHeader && w.isHeader());
+                        const px = (isHeader ? ctx.measureText(t).width : measured) / 0.85;
+                        if (px > need) need = px;
+                    }
+                    out.push(Math.min(MAX, Math.max(MIN, Math.ceil(need) + 10)));
+                }
+                ctx.restore();
+                return out;
+            }
+
+            // Size a table to the space that is free and give each column the share of it
+            // that its own contents need. Returns what it did, or null when it could not
+            // measure (no canvas yet, an empty table).
+            //
+            // opts.free        {x,y,w,h} in px to fit into, instead of the largest free rectangle
+            // opts.apply       false to measure without changing the table
+            // opts.columnsOnly true to keep the table's size and only share its width out
+            //                  between the columns by what is in them. For the paths that
+            //                  set a size deliberately -- a build gives every table the same
+            //                  cell size so they sit level side by side -- where re-sizing
+            //                  would fight that rule but even columns are still wrong.
+            fitTableToSpace(plate, opts) {
+                const o = opts || {};
+                try {
+                    if (!plate || !Array.isArray(plate.wells) || !plate.wells.length) return null;
+                    if (plate.plateType === 'package' || plate.plateType === 'annotation' || plate.plateType === 'document') return null;
+                    const cols = plate.wells.length;
+                    const rows = Math.max(1, (plate.wells[0] || []).length);
+                    const MAX_CELL_H = Number.isFinite(o.maxCellH) ? o.maxCellH : 40;
+                    const MIN_CELL_H = Number.isFinite(o.minCellH) ? o.minCellH : 16;
+                    const MIN_COL = Number.isFinite(o.minCol) ? o.minCol : 46;
+
+                    // WHAT THE TABLE WANTS, worked out before the space is chosen -- the gap
+                    // is picked for THIS table, so it has to be asked first. Measured at the
+                    // cell height it would like; a shorter gap only changes the height, and
+                    // the widths move with the font by so little that measuring twice is not
+                    // worth a second pass over every cell.
+                    const wantCols = this.__naturalColPx(plate, MAX_CELL_H, o);
+                    if (!wantCols || wantCols.length !== cols) return null;
+                    const want = { w: wantCols.reduce((a, c) => a + c, 0), h: rows * MAX_CELL_H };
+
+                    // Keeping the table's own size: the space it already occupies IS the space.
+                    const own = o.columnsOnly ? {
+                        x: 0, y: 0,
+                        w: Math.abs(this.grid.screenWidth(plate.grid.width)),
+                        h: Math.abs(this.grid.screenHeight(plate.getHeight ? plate.getHeight(this) : plate.grid.height))
+                    } : null;
+                    const free = o.free || own || this.__largestFreeRectPx({
+                        skip: plate, want, top: Number.isFinite(o.top) ? o.top : 0
+                    });
+                    if (!free || !(free.w > 40 && free.h > 30)) return null;
+
+                    // A cell is capped at 40px tall -- the cap maximize uses -- and never
+                    // squeezed below the point where its text stops being readable.
+                    const cellH = Math.max(MIN_CELL_H, Math.min(MAX_CELL_H, free.h / rows));
+
+                    const natural = this.__naturalColPx(plate, cellH, o);
+                    if (!natural || natural.length !== cols) return null;
+                    const naturalTotal = natural.reduce((a, c) => a + c, 0);
+
+                    // A GAP TOO NARROW TO BE A TABLE IS NOT A SIZE. On a full canvas the best
+                    // gap can be a 125px strip down one side: five columns of 25px, nothing
+                    // readable, every cell cut. The gap is only a hint about SIZE -- the
+                    // layout decides where the table actually goes -- so when it cannot hold
+                    // half of what the table asked for, it is not space for this table and
+                    // the table takes the width its columns need instead. The packer then
+                    // makes room, which is its job.
+                    const usableW = o.columnsOnly ? free.w
+                        : ((free.w >= want.w * 0.5) ? Math.max(free.w, cols * MIN_COL) : want.w);
+
+                    // FILLING THE SPACE, OR SHARING IT OUT. With room to spare every column
+                    // gets what it asked for and the slack is spread over them in proportion,
+                    // so the table fills the gap instead of leaving a margin nobody wanted.
+                    // With too little, the columns give up their EXCESS over a readable
+                    // minimum in proportion -- a column of two-digit numbers cannot pay for a
+                    // column of sentences, so the wide ones carry the loss.
+                    let widths;
+                    if (naturalTotal <= usableW) {
+                        const slack = usableW - naturalTotal;
+                        widths = natural.map(v => v + slack * (v / naturalTotal));
+                    } else {
+                        const floorTotal = MIN_COL * cols;
+                        const excess = natural.map(v => Math.max(0, v - MIN_COL));
+                        const excessTotal = excess.reduce((a, c) => a + c, 0) || 1;
+                        const room = Math.max(0, usableW - floorTotal);
+                        widths = natural.map((v, i) => MIN_COL + excess[i] * (room / excessTotal));
+                    }
+
+                    const totalW = widths.reduce((a, c) => a + c, 0);
+                    const totalH = cellH * rows;
+                    // How many cells would still be cut at these widths -- the number this is
+                    // trying to bring down, and the thing to look at when it seems wrong.
+                    let cut = 0;
+                    try {
+                        const ctx = this.__fitCtx();
+                        if (ctx) {
+                            ctx.save();
+                            ctx.font = Math.max(7, Math.round(cellH * 0.55)) + 'px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+                            for (let i = 0; i < cols; i++) {
+                                for (const w of (plate.wells[i] || [])) {
+                                    if (!w) continue;
+                                    let t = '';
+                                    try { t = '' + ((w.__displayText ? w.__displayText() : w.value) ?? ''); } catch (e) { t = ''; }
+                                    if (!t) continue;
+                                    if (typeof w.__wrapsText === 'function' && w.__wrapsText()) continue;   // wraps, not cut
+                                    if (ctx.measureText(t).width > widths[i] * 0.85) cut++;
+                                }
+                            }
+                            ctx.restore();
+                        }
+                    } catch (e) { }
+
+                    const report = {
+                        cols, rows, cellH: Math.round(cellH),
+                        free: { w: Math.round(free.w), h: Math.round(free.h) },
+                        usableW: Math.round(usableW),
+                        widthPx: Math.round(totalW), heightPx: Math.round(totalH),
+                        widths: widths.map(v => Math.round(v)), truncated: cut
+                    };
+                    if (o.apply === false) return report;
+
+                    if (!o.columnsOnly) {
+                        plate.setWidth(this.grid.worldWidth(totalW));
+                        plate.setHeight(this.grid.worldHeight(totalH));
+                    }
+                    // column_widths are WEIGHTS that add up to the column count (see __colGeom).
+                    plate.column_widths = widths.map(v => v / totalW * cols);
+                    try { plate.grid.rescale(); } catch (e) { }
+                    plate.__colFontCache = null;
+                    for (const col of plate.wells) for (const c of (col || [])) if (c) c.__wrapKey = null;
+                    return report;
+                } catch (e) { console.warn('[fit table]', e); return null; }
+            }
+
             addNextAvailableX(pl) {
                 if (pl.rescaleDimensions) {
                     pl.rescaleDimensions(this);
                 }
+                // ...and then to the space that is actually free, with the columns divided by
+                // what is in them rather than evenly. rescaleDimensions above knows only the
+                // row and column COUNT, so it hands every table the same shape whatever it
+                // holds. Best-effort: with no canvas yet, or nothing measurable, the default
+                // size stands. Pass fit:false on the table to opt out.
+                if (pl && pl.fit !== false) { try { this.fitTableToSpace(pl); } catch (e) { } }
 
                 const alreadyExists = this.root.some(item => item.name === pl.name);
 
