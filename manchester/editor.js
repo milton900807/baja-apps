@@ -639,6 +639,33 @@ function (path, config) {
                         const regex = /^[ARNDCQEGHILKMFPSTWYV]+$/;
                         return regex.test(sequence);
                     }
+                    // A RESIDUE CALLED OUT IN PROSE -- "Tyr122 in SPTLC2" -- is a paste that names a
+                    // position on a protein, and there is a tool that puts exactly that on the
+                    // transcript: text-extract.js reads the gene and the residue out of the text,
+                    // reuses the track if it is already on the canvas (loads it if not), and marks
+                    // the residue on that track's "pasted_text" layer with the sentence as its
+                    // comment. It used to be reachable only from the Extract-from-text tool, so a
+                    // paste did nothing at all for text under 200 characters and, above that, went
+                    // to paste-to-tracks.js, which knows transcripts, genes and mutations but not
+                    // residues.
+                    //
+                    // Asked BEFORE the table parse, not after it: parse-table.js reads any line of
+                    // words as a one-row table (id "Tyr122", name "in"), and that branch makes an
+                    // awaited NCBI-to-Ensembl call with the first word before anything below runs.
+                    //
+                    // A three-letter code immediately followed by a number and not by more letters
+                    // ("Tyr122" qualifies; "Tyr122Ala" is a mutation and stays with the paths that
+                    // already read those). Not a sequence -- a peptide can spell TYR without being a
+                    // sentence -- and not a table: prose has no tabs, a pasted spreadsheet does.
+                    const looksLikeResidueProse = (t) => {
+                        t = ('' + t);
+                        if (/\t/.test(t)) return false;
+                        const compact = t.replace(/^>[^\n]*\n?/gm, '').replace(/\s+/g, '');
+                        if (/^[ARNDCQEGHILKMFPSTWYV*]{20,}$/.test(compact)) return false;
+                        const letters = compact.toUpperCase().replace(/[^A-Z]/g, '');
+                        if (letters.length >= 20 && (letters.match(/[ACGTUN]/g) || []).length / letters.length > 0.9) return false;
+                        return /\b(?:Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val)\d{1,5}(?![A-Za-z0-9])/.test(t);
+                    };
                     if (isModal()) {
                         return;
                     }
@@ -776,6 +803,8 @@ function (path, config) {
                                         if (s.startsWith(`{"graph"`)) {
                                             let js = JSON.parse(s);
                                             await graph.setState(js)
+                                        } else if (looksLikeResidueProse(s)) {
+                                            await exec('baja/manchester/menu/text-extract.js', graph, genegraph_panel_layout, s);
                                         } else {
 
                                             let tableObjects = await exec('baja/io/parse/parse-table.js', s);
