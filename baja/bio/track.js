@@ -8496,7 +8496,10 @@ return new Promise(async (resolve, reject) => {
               // name. The screen rectangles are kept on the track so the mouse handler
               // can hit-test them; they are rebuilt every frame, because a pan, a zoom or
               // a track resize moves every one of them.
-              const _layers = (this.showLayers === false) ? [] : (this.track_layers || []);
+              // FRONT layer first, as a layers panel lists them: track_layers is drawn in array order,
+              // so the last one is on top, and "Bring to front" in the layer menu
+              // (track-layers-side-menu.js) has to land at the top of THIS list to mean what it says.
+              const _layers = (this.showLayers === false) ? [] : (this.track_layers || []).slice().reverse();
               if (_layers.length) {
                 const _yLow = graph.grid.Y(this.tgraph.Y(this.tgraph.ymin));
                 const _bodyH = Math.abs(_yLow - _yBottom);

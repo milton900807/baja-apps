@@ -99,7 +99,9 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
         // already-annotated gene adds to the SAME "pasted_text" layer, not a second one.
         const pastedLayerFor = (track) => {
             if (!track) return null;
-            let layer = (track.track_layers || []).find((l) => l && l.name === PASTED_LAYER_NAME);
+            // By type as well as by name: the layer menu lets the user rename it, and a renamed
+            // pasted_text layer must still be the one a later paste adds to, not a second one.
+            let layer = (track.track_layers || []).find((l) => l && (l.data_type === PASTED_LAYER_NAME || l.name === PASTED_LAYER_NAME));
             if (layer) return layer;
             const tg = track.tgraph;
             const lo = Math.min(tg.xmin, tg.xmax), hi = Math.max(tg.xmin, tg.xmax);
