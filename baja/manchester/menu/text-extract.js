@@ -7,6 +7,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
         const Annotation = await exec('flexigraph/annotation.js');
         const SnpIndel = await exec('flexigraph/snpindel.js');
         const RectangleText = await exec('flexigraph/shapes/Rect-text.js');
+        const TrackLayer = await exec('baja/bio/track-layer.js');
         let v = null;   // paste editor widget
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -83,11 +84,68 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             return track;
         };
 
+        // A point marker derived from PASTED TEXT (an ASO target, a residue of interest) —
+        // never a mutation, so it is never a SnpIndel — is a glyph-with-description (the
+        // "PointOfInterest" annotation type already draws exactly that: a bar, a name, and
+        // its description text underneath). It goes on its OWN track layer, "pasted_text",
+        // rather than into the track's core annotation set (Exon/CDS/…), so it can be shown,
+        // hidden or found as a group — the same clickable-layer-row + toggle the codebase's
+        // real TrackLayer system already gives every other layer (secretion profile, RNA-seq
+        // coverage, …) — instead of being mixed in with the gene model.
+        const PASTED_LAYER_NAME = 'pasted_text';
+        // One layer per TRACK, reused across every call and every paste into this session.
+        // A track already on the canvas is reused rather than loaded again (loadGene /
+        // findLoadedTrack, above); this does the same for its layer — a second paste into an
+        // already-annotated gene adds to the SAME "pasted_text" layer, not a second one.
+        const pastedLayerFor = (track) => {
+            if (!track) return null;
+            let layer = (track.track_layers || []).find((l) => l && l.name === PASTED_LAYER_NAME);
+            if (layer) return layer;
+            const tg = track.tgraph;
+            const lo = Math.min(tg.xmin, tg.xmax), hi = Math.max(tg.xmin, tg.xmax);
+            layer = new TrackLayer(PASTED_LAYER_NAME, lo, 0, hi, 1);
+            layer.data_type = PASTED_LAYER_NAME;
+            layer.color = 'rgba(180,130,20,0.9)';
+            layer.fillstyle = 'rgba(180,130,20,0.9)';
+            track.addLayer(layer);
+            return layer;
+        };
+        // The track's own `_assignAnnotationLabelLane` only reads `track.annotations`, so it
+        // never sees — and never avoids colliding with — a sibling on this layer. Same
+        // footprint/lane logic, scoped to what could actually overlap a layer annotation: the
+        // track's own labelled annotations, plus whatever else is already on this layer.
+        const layerLabelLane = (track, layer, ann) => {
+            const STEP = 0.5;
+            const footprint = (a) => {
+                const lo0 = Math.min(+a.xi, +a.xf), hi0 = Math.max(+a.xi, +a.xf);
+                if (!isFinite(lo0) || !isFinite(hi0)) return null;
+                const nameLen = ('' + (a.name || '')).length;
+                const c = (lo0 + hi0) / 2;
+                const half = Math.max((hi0 - lo0) / 2, nameLen / 2, 1);
+                return { lo: c - half, hi: c + half };
+            };
+            const mine = footprint(ann);
+            if (!mine) { ann.labelY = 0.45; return; }
+            const occupied = {};
+            for (const other of [].concat(track.annotations || [], layer.annotations || [])) {
+                if (!other || other === ann) continue;
+                const f = footprint(other);
+                if (!f) continue;
+                if (f.lo <= mine.hi && f.hi >= mine.lo) {
+                    const lane = Math.max(0, Math.round((+other.labelY || 0) / STEP));
+                    occupied[lane] = true;
+                }
+            }
+            let lane = 0;
+            while (occupied[lane]) lane++;
+            ann.labelY = lane * STEP;
+        };
         const placePoint = (track, gi, gf, label, note, color) => {
             const an = new Annotation('PointOfInterest', label, gi, gf, track.strand);
             an.color = color; an.description = note; an.comment = note;
-            an.labelY = 0.45 + Math.random() * 0.5;
-            track.add(an);
+            const layer = pastedLayerFor(track);
+            if (layer) { layerLabelLane(track, layer, an); layer.addAnnotation(an); }
+            else { an.labelY = 0.45 + Math.random() * 0.5; track.add(an); }   // no TrackLayer support -- fall back
         };
 
         // Find where an ASO hybridises on the target track's (pre-mRNA) sequence. An antisense
