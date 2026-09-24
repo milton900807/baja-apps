@@ -4117,6 +4117,20 @@ function (progress) {
                 // the folder's objects after they have been saved back.
                 try { this.cancelLayoutAnimation(); } catch (e) { }
 
+                // Release every co-editing lock this session still holds on the folder's OWN
+                // objects, before the canvas swap below replaces root/m_plots/glyphs with the
+                // parent's. A lock taken by selecting or editing a table inside the folder
+                // would otherwise sit held against this user with nothing on screen to show
+                // it or let them let go of it -- the folder is closed, so no one can even see
+                // the object to release it by hand. Same list of arrays collab-session.js
+                // itself treats as "what's on this canvas" (currentObjects()).
+                if (this.__collab && this.__collab.holds && this.__collab.release) {
+                    const leaving = [].concat(this.root || [], this.m_plots || [], this.glyphs || []);
+                    for (const o of leaving) {
+                        try { if (o && this.__collab.holds(o)) this.__collab.release(o); } catch (e) { }
+                    }
+                }
+
                 let content = this.ptracks.pop();
                 const uid = content.substring(0, content.indexOf(':'))
                 content = content.substring(content.indexOf(':') + 1)
