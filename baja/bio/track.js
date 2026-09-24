@@ -7388,6 +7388,13 @@ return new Promise(async (resolve, reject) => {
             // graph.Y(worldY) -> screen pixels; the track bottom is tgraph.Y(0).
             let _seqRowY = this.tgraph.Y(0.012);
             let _pepRowY = this.tgraph.Y(-0.038);
+            // The codon INDEX numbers. They used to be drawn at a fixed fraction of the track height
+            // (GX_AA_INDEX_Y = 0.3) while the letters they number sit at fixed PIXEL offsets from the
+            // bottom, so the two drifted apart with the track's height, and the numbers landed in
+            // whatever else lived up there -- the layer annotations, drawn earlier in the same pass,
+            // were painted over. Now a fixed 14px above the letter row (below), so the number is
+            // always directly over its own peptide. This is the fallback if the row cannot be placed.
+            let _pepIdxY = this.tgraph.Y(GX_AA_INDEX_Y);
             try {
               const _botY = this.tgraph.Y(0), _botPx = graph.Y(_botY);
               const _ppw = (graph.Y(this.tgraph.Y(0.012)) - _botPx) / (this.tgraph.Y(0.012) - _botY);
@@ -7400,6 +7407,8 @@ return new Promise(async (resolve, reject) => {
                 // Peptide baseline sits (seqPx + gap) px above the nucleotide baseline,
                 // so it clears the nucleotide letters however large the font grows.
                 _pepRowY = _seqRowY - (seqPx + 8) / _ppw;
+                // 14px above the letters' centre: half the 18px letter, the 2px gap, half the 11px number.
+                _pepIdxY = _pepRowY - 14 / _ppw;
               }
             } catch (e) { }
             // Expose the peptide row's SCREEN y so annotation leaders (gene-draw.js drawCddSite /
@@ -7419,7 +7428,12 @@ return new Promise(async (resolve, reject) => {
               if (_t1 !== _t0) this.tgraph.__pepTrackY = (_pepRowY - _t0) / (_t1 - _t0);
               // The index numbers sit HIGHER than the letters they number, so they and not the
               // amino-acid row are what a compound has to clear.
-              this.tgraph.__pepIndexTrackY = GX_AA_INDEX_Y;
+              this.tgraph.__pepIndexTrackY = (_t1 !== _t0) ? (_pepIdxY - _t0) / (_t1 - _t0) : GX_AA_INDEX_Y;
+              // ...and in SCREEN px, the top edge of the number text (drawCenteredWorldText sits its
+              // text 5px above the row's y; an 11px number is ~11px tall). Layer annotations
+              // (gene-draw.js 'PastedText') anchor above this so the numbers and letters, which are
+              // drawn after the layers, do not paint over them.
+              this.tgraph.__pepIndexTopPx = graph.Y(_pepIdxY) - 5 - 6;
             } catch (e) { }
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
@@ -7441,8 +7455,8 @@ return new Promise(async (resolve, reject) => {
                         // Codon bracket: a line under the residue spanning the codon's 3 bases
                         // (small gap between codons so each triplet reads as a group).
                         graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
-                        // Codon number, below the track (also centered on the codon).
-                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(GX_AA_INDEX_Y), "#" + color, this.detail_ffont6);
+                        // Codon number, directly above its residue (also centered on the codon).
+                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, _pepIdxY, "#" + color, this.detail_ffont6);
                       }
                     }
                   }
@@ -7465,7 +7479,7 @@ return new Promise(async (resolve, reject) => {
                         const cellX = Math.round(this.tgraph.X(index));
                         drawCenteredWorldText(graph, oor.aa, cellX + 0.5, _pepRowY, "#" + color, this.font);
                         graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
-                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(GX_AA_INDEX_Y), "#" + color, this.detail_ffont6);
+                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, _pepIdxY, "#" + color, this.detail_ffont6);
                       }
                     }
                   }

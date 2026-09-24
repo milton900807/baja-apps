@@ -335,22 +335,38 @@ function () {
         const gene = '' + (an.gene || '');
         const isAso = an.kind === 'aso';
 
-        // ---- the marker on the track: a band over the codon, a pin standing off it ----------
+        // ---- the marker on the track: a band over the residue, a pin standing off it ---------
+        //
+        // WHERE the residue is drawn: baja/bio/track.js publishes the screen y of the codon-number
+        // row (__pepIndexTopPx) and of the amino-acid letters (__pepMidPx) on the track's grid, a
+        // frame ahead of this one. The band spans from the top of the number to the bottom of the
+        // letter, so it reads as a highlighter over "122 / Y" -- and the letters and numbers,
+        // which the track draws AFTER its layers, sit on top of it rather than painting over
+        // something of ours. The pin and the card stand above that. Until the track has drawn once
+        // (or on a track with no peptide row) the band is a strip on the baseline as before.
         const bandW = Math.max(9, Math.abs(sx1 - sx0));
-        const bandH = 15;
-        const pinY = sy - 24;                         // centre of the diamond
+        let bandTop = sy - 7.5, bandBot = sy + 7.5;
+        try {
+            const idxTop = +tgraph.__pepIndexTopPx, pepMid = +tgraph.__pepMidPx;
+            if (isFinite(idxTop) && isFinite(pepMid) && idxTop < pepMid && (pepMid - idxTop) < 120) {
+                bandTop = idxTop - 3;
+                bandBot = pepMid + 5;
+            }
+        } catch (e) { }
+        const bandH = bandBot - bandTop;
+        const pinY = bandTop - 12;                    // centre of the diamond
         ctx.save();
         ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
         try { ctx.setLineDash([]); } catch (e) { }
         ctx.lineJoin = 'round'; ctx.lineCap = 'round';
         // band
         ctx.globalAlpha = 0.2; ctx.fillStyle = accent;
-        __ptRound(ctx, mid - bandW / 2, sy - bandH / 2, bandW, bandH, 3); ctx.fill();
+        __ptRound(ctx, mid - bandW / 2, bandTop, bandW, bandH, 3); ctx.fill();
         ctx.globalAlpha = 1; ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
-        __ptRound(ctx, mid - bandW / 2 + 0.75, sy - bandH / 2 + 0.75, bandW - 1.5, bandH - 1.5, 3); ctx.stroke();
+        __ptRound(ctx, mid - bandW / 2 + 0.75, bandTop + 0.75, bandW - 1.5, bandH - 1.5, 3); ctx.stroke();
         // stem, then the diamond
         ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(mid, sy - bandH / 2); ctx.lineTo(mid, pinY + 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(mid, bandTop); ctx.lineTo(mid, pinY + 6); ctx.stroke();
         const dia = (r) => { ctx.beginPath(); ctx.moveTo(mid, pinY - r); ctx.lineTo(mid + r, pinY); ctx.lineTo(mid, pinY + r); ctx.lineTo(mid - r, pinY); ctx.closePath(); };
         ctx.shadowColor = 'rgba(15,23,42,0.28)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
         dia(7); ctx.fillStyle = '#ffffff'; ctx.fill();
@@ -456,7 +472,7 @@ function () {
             if (elbowY < pinY - 7) { ctx.lineTo(mid, elbowY); ctx.lineTo(anchorX, foot); } else ctx.lineTo(anchorX, foot);
         } else {
             // the card is under the track: leave from the band's foot instead of the pin
-            const top = by, startY = sy + bandH / 2;
+            const top = by, startY = bandBot;
             const elbowY = Math.max(startY + 8, top - 10);
             ctx.moveTo(mid, startY);
             if (elbowY > startY + 8) { ctx.lineTo(mid, elbowY); ctx.lineTo(anchorX, top); } else ctx.lineTo(anchorX, top);
