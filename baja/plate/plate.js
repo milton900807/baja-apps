@@ -685,10 +685,12 @@ function () {
                         name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null('minimize', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'M'
                     },
-                    {
-                        name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.test_menu(bx, by, x, y, pt) },
-                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('close', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'c'
-                    },
+                    // NO CLOSE BUTTON ON THE BAR. A one-click delete sat next to
+                    // maximize and the menu, on every table and chart, a slip away from
+                    // work that took minutes to build -- and it is the only button of the
+                    // four whose mistake is not obvious the moment you make it. Deleting a
+                    // table is still there, where a deliberate act belongs: the menu (M) ▸
+                    // More ▸ Delete table.
                 ];
 
                 this.bottom_buttons = [
@@ -752,10 +754,12 @@ function () {
                         name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null('minimize', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'M'
                     },
-                    {
-                        name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.test_menu(bx, by, x, y, pt) },
-                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('close', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'c'
-                    },
+                    // NO CLOSE BUTTON ON THE BAR. A one-click delete sat next to
+                    // maximize and the menu, on every table and chart, a slip away from
+                    // work that took minutes to build -- and it is the only button of the
+                    // four whose mistake is not obvious the moment you make it. Deleting a
+                    // table is still there, where a deliberate act belongs: the menu (M) ▸
+                    // More ▸ Delete table.
 
                 ];
                 this.icon_buttons = [
@@ -8219,6 +8223,18 @@ function () {
                             });
                         }
                         list.unshift({ label: 'Maximize', click: async () => { pt.maximizeObject(this); }, move: () => { } });
+                        // DELETE LIVES HERE NOW. The bar used to carry a ✕ next to maximize
+                        // and the menu; it was one slip away from work that took minutes to
+                        // build, and the only one of the four buttons whose mistake is not
+                        // obvious the moment you make it. Deleting a table is a deliberate
+                        // act, so it is a menu item -- last, and marked as destructive, the
+                        // way the drawing menu marks its own. It still asks first, and one
+                        // undo still brings the table back.
+                        list.push({ type: 'separator' });
+                        list.push({
+                            label: 'Delete table…', emphasis: 'danger', move: () => { },
+                            click: async () => { try { await this.test_menu(0, 0, 0, 0, pt); } catch (e) { console.warn('delete table', e); } }
+                        });
                     }
                     return list;
                 };

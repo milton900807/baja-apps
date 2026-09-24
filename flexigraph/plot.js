@@ -2693,10 +2693,10 @@ function (MGrid) {
                     name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.displayContextSpecificMenuItems(pt) },
                     highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('minimize') }, color: 'lightcyan'
                 },
-                {
-                    name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.closePlot(pt) },
-                    highlight: async () => { return await this.highlightButton("close") }, color: 'lightcyan'
-                },
+                    // NO CLOSE BUTTON ON THE BAR, for the same reason as a table
+                    // (baja/plate/plate.js): a one-click delete beside maximize and the
+                    // menu, on a chart somebody spent a build making. Removing a chart is
+                    // on its menu.
             ];
             themeName = null;
             theme = null;
