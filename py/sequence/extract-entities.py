@@ -143,13 +143,44 @@ def _pick_primary_mapping(maps):
     return maps[0] if maps else None
 
 
+# ONE TIME BUDGET FOR ALL OF ENSEMBL. Everything below that talks to rest.ensembl.org is
+# best-effort enrichment: the genes, mutations and residues Claude read out of the text are
+# already in hand before the first Ensembl call, and the client has its own fallbacks for
+# whatever Ensembl did not answer (a gene with no transcript id is looked up by
+# prompt-to-transcript.py; a mutation with no coordinate is placed by matching the peptide).
+# But the result is only sent once EVERY call has finished, so with Ensembl flaky (seen
+# 2026-09-24: timeouts and 500s on about half of requests) one hung call, times 6 retries,
+# times 30 s, times several transcripts per mutation, kept a paste showing nothing for
+# minutes while the answer sat ready. Every call now draws on the same clock: past the
+# deadline it returns "no answer" at once and the script finishes with what it has.
+ENSEMBL_BUDGET_SEC = float(os.environ.get("EXTRACT_ENSEMBL_BUDGET") or 40)
+ENSEMBL_TRY_SEC = 12          # one request; Ensembl answers in well under a second when it is well
+_ens_deadline = None
+
+
+def _ens_start():
+    global _ens_deadline
+    _ens_deadline = time.time() + ENSEMBL_BUDGET_SEC
+
+
+def _ens_left():
+    return 1e9 if _ens_deadline is None else _ens_deadline - time.time()
+
+
+def _ens_timeout():
+    """The timeout for the next request: one attempt's worth, never more than what is left."""
+    return min(ENSEMBL_TRY_SEC, max(1.0, _ens_left()))
+
+
 def resolve_rsid(species, rsid):
     if requests is None:
         return None
     sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
+    if _ens_left() <= 0:
+        return None
     try:
         r = requests.get("%s/variation/%s/%s" % (ENSEMBL_REST, sp, rsid),
-                         headers={"content-type": "application/json"}, timeout=30)
+                         headers={"content-type": "application/json"}, timeout=_ens_timeout())
         if r.status_code != 200:
             return None
         best = _pick_primary_mapping((r.json() or {}).get("mappings") or [])
@@ -164,23 +195,23 @@ def resolve_rsid(species, rsid):
         return None
 
 
-def _ensembl_get(url, timeout=30, tries=6):
-    """GET with retry/backoff. Was retried only on 429/503 (a rate-limit throttle); Ensembl
-    is also seen going flat-out UNREACHABLE for several seconds at a stretch and returning
-    plain 500s under its own load (observed directly from this server 2026-09-24: ~40-50%
-    of requests to rest.ensembl.org failed outright over five tries a second apart, with no
-    pattern distinguishing a timeout from a 500) — a single request landing in one of those
-    windows used to fail resolve_transcript() outright, which empties `geneTranscripts` and
-    silently stops every gene in the paste from loading. Now retries connection failures,
-    429/503 AND 500/502/504 alike, with more tries (6, was 4) — an outage that lasts the
-    whole retry budget is still a real failure, but a multi-second blip no longer is one."""
+def _ensembl_get(url, timeout=None, tries=6):
+    """GET with retry/backoff, inside the shared Ensembl time budget (see ENSEMBL_BUDGET_SEC).
+    Retries connection failures and 429/500/502/503/504 -- it used to retry only 429/503,
+    and Ensembl also goes flat-out unreachable for several seconds at a stretch and returns
+    plain 500s under its own load. A single request landing in one of those windows used to
+    fail resolve_transcript() outright, which empties `geneTranscripts`. Retrying is bounded
+    by the budget, not just by `tries`: a request never waits longer than what is left of it."""
     if requests is None:
         return None
     for i in range(tries):
+        if _ens_left() <= 0:
+            return None
         try:
-            r = requests.get(url, headers={"content-type": "application/json"}, timeout=timeout)
+            r = requests.get(url, headers={"content-type": "application/json"},
+                             timeout=min(timeout, _ens_timeout()) if timeout else _ens_timeout())
         except Exception:
-            time.sleep(0.6 * (i + 1))
+            time.sleep(min(0.6 * (i + 1), max(0.0, _ens_left())))
             continue
         if r.status_code == 200:
             return r
@@ -190,7 +221,7 @@ def _ensembl_get(url, timeout=30, tries=6):
                 wait = float(r.headers.get("Retry-After", "1")) or 1.0
             except Exception:
                 wait = 1.0
-            time.sleep(min(6.0, wait) + 0.4 * i)
+            time.sleep(min(min(6.0, wait) + 0.4 * i, max(0.0, _ens_left())))
             continue
         return None
     return None
@@ -298,8 +329,10 @@ def resolve_hgvs(species, hgvs):
     sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
     try:
         from urllib.parse import quote
+        if _ens_left() <= 0:
+            return None
         r = requests.get("%s/vep/%s/hgvs/%s" % (ENSEMBL_REST, sp, quote(hgvs, safe="")),
-                         headers={"content-type": "application/json"}, timeout=30)
+                         headers={"content-type": "application/json"}, timeout=_ens_timeout())
         if r.status_code != 200:
             return None
         arr = r.json() or []
@@ -488,6 +521,7 @@ def resolve_protein_variant(species, gene, protein, tid_by_gene=None):
 
 
 obj, err = ask_claude(text)
+_ens_start()      # the clock for every Ensembl call below starts when Claude has answered
 works.progress(40)
 if obj is None:
     works.progress(100)
