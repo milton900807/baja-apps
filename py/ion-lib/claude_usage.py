@@ -154,9 +154,23 @@ def normalize_email(e):
 
 
 def caller_email(explicit=None):
-    """The user this request belongs to: an explicit value, else the env identity."""
-    return normalize_email(explicit or os.environ.get("SENDER_USER_ID")
-                           or os.environ.get("USER_EMAIL") or "")
+    """The user this request belongs to: an explicit value, else the env identity.
+
+    SENDER_USER_EMAIL FIRST, and it matters. SENDER_USER_ID is whichever form the route that
+    set it chose -- baja-server encrypts the x-user-id header on one path and decrypts it on
+    another -- so metering keyed on it recorded one person under two different strings, and
+    the report, which asks by address, matched neither. SENDER_USER_EMAIL is the address,
+    always, whatever arrived. The old variable is still read so a tool running against an
+    older server keeps counting; a ciphertext is simply refused rather than stored as if it
+    were a user, because a row nobody can look up is worse than no row."""
+    e = normalize_email(explicit or os.environ.get("SENDER_USER_EMAIL") or "")
+    if e:
+        return e
+    fallback = normalize_email(explicit or os.environ.get("SENDER_USER_ID")
+                               or os.environ.get("USER_EMAIL") or "")
+    if fallback and "@" not in fallback and re.match(r"^[0-9a-f]{32,}$", fallback):
+        return ""          # an encrypted identity: not something the report can ask for
+    return fallback
 
 
 def _today():
