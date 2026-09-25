@@ -8237,9 +8237,15 @@ function () {
                                         pt.setMessage((r && r.why) ? ('Could not optimize: ' + r.why) : 'Could not optimize this table.', 2);
                                         return;
                                     }
+                                    // ZOOM TO IT. A table that has just been re-sized is worth
+                                    // looking at, and on a large canvas the one thing you can be
+                                    // sure of is that the view is not framed on it.
+                                    try { if (pt.zoomintoplate) pt.zoomintoplate(this); } catch (e) { }
                                     const whole = Math.max(0, (r.cells || 0) - (r.truncated || 0));
-                                    pt.setMessage(r.cols + ' column' + (r.cols === 1 ? '' : 's') + ' fitted at '
-                                        + r.fontPx + 'px \u2014 ' + whole + ' of ' + (r.cells || 0) + ' cells now read in full.', 3);
+                                    pt.setMessage(r.empty
+                                        ? (r.cols + ' empty column' + (r.cols === 1 ? '' : 's') + ' spread across the space \u2014 nothing in this table to fit yet.')
+                                        : (r.cols + ' column' + (r.cols === 1 ? '' : 's') + ' fitted at '
+                                            + r.fontPx + 'px \u2014 ' + whole + ' of ' + (r.cells || 0) + ' cells now read in full.'), 3);
                                     if (pt.wake) pt.wake();
                                 } catch (e) { console.warn('topt', e); }
                             }

@@ -4686,7 +4686,13 @@ function (progress) {
                         }
                         columns.push(cells);
                     }
-                    if (!columns.some((c) => c.length)) return fail('no text to fit');
+                    // AN EMPTY TABLE IS STILL A TABLE. Refusing one left it at whatever size it
+                    // was born with -- which, for a result table whose rows have not arrived or
+                    // came back blank, is a narrow strip of nothing in the middle of an empty
+                    // canvas. There is no text to weigh, so every column is worth the same and
+                    // they divide the space evenly; the code below already reaches that answer
+                    // on its own once it is allowed to run.
+                    const anyText = columns.some((c) => c.length);
 
                     // ---- the space ---------------------------------------------------------------------
                     const own = {
@@ -4873,7 +4879,7 @@ function (progress) {
                     } catch (e) { }
 
                     const report = {
-                        ok: true, cols: cols, rows: rows,
+                        ok: true, cols: cols, rows: rows, empty: !anyText,
                         cellH: Math.round(bestH), fontPx: Math.max(7, Math.round(bestH * 0.55)),
                         free: { w: Math.round(free.w), h: Math.round(free.h) },
                         widthPx: Math.round(totalW), heightPx: Math.round(totalH),
@@ -4915,6 +4921,12 @@ function (progress) {
                         cut += (r.truncated || 0);
                         cells += (r.cells || 0);
                     }
+                }
+                // AND THEN SHOW IT. Re-sizing every table without moving the camera leaves
+                // the result wherever the view happened to be -- which, on a canvas the size
+                // of this one, is usually not where the tables are.
+                if (done && o.zoom !== false) {
+                    try { if (typeof this.zoomtfit === 'function') this.zoomtfit(); } catch (e) { }
                 }
                 try { if (this.wake) this.wake(); } catch (e) { }
                 return { tables: done, truncated: cut, cells: cells };
@@ -22555,7 +22567,10 @@ function (progress) {
                 // row and column COUNT, so it hands every table the same shape whatever it
                 // holds. Best-effort: with no canvas yet, or nothing measurable, the default
                 // size stands. Pass fit:false on the table to opt out.
-                if (pl && pl.fit !== false) { try { this.fitTableToSpace(pl); } catch (e) { } }
+                // Through topt: it spends the width where it buys the most readable characters,
+                // writes a widths array the plate will actually keep, and gives a table with
+                // nothing in it yet an even share of the space rather than a narrow strip.
+                if (pl && pl.fit !== false) { try { this.topt(pl); } catch (e) { } }
 
                 const alreadyExists = this.root.some(item => item.name === pl.name);
 
