@@ -12106,7 +12106,19 @@ function (progress) {
             objectAt(x, y) {
                 const cands = [];
                 try { const g = this.getGlyph(x, y); if (g) cands.push({ obj: g, kind: 'glyph', rank: 2 }); } catch (e) { }
-                try { const pp = this.getPlot(x, y); if (pp) cands.push({ obj: pp, kind: 'plot', rank: 1 }); } catch (e) { }
+                // SCREEN coordinates, and no fourth argument: inside(grid, x, y, convert)
+                // treats a truthy fourth as "these are world coordinates". getPlot passes one,
+                // so it cannot stand in here -- asking it turned every timeline into a 'plate'
+                // and the press that drags a timeline through time stopped happening.
+                {
+                    let best = null;
+                    for (const p of (this.m_plots || [])) {
+                        if (!p || p.hidden) continue;
+                        try { if (!(p.inside && p.inside(this.grid, x, y))) continue; } catch (e) { continue; }
+                        best = this.__upperOf(best, p, x, y);
+                    }
+                    if (best) cands.push({ obj: best, kind: 'plot', rank: 1 });
+                }
                 try { const pl = this.getPlate(this.grid.Xwc(x), this.grid.Ywc(y)); if (pl) cands.push({ obj: pl, kind: 'plate', rank: 0 }); } catch (e) { }
                 if (!cands.length) return null;
                 let best = cands[0];
