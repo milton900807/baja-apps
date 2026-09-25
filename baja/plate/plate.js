@@ -15656,16 +15656,40 @@ function () {
             __columnFonts(ctx, x0, x1, y0, y1) {
                 if (!this.__colFontCache) this.__colFontCache = {};
                 const NUMERIC = /^[-+]?[\d,.$%\s()]+(e[-+]?\d+)?$/i;
+                // ONE SIZE ALL THE WAY DOWN A COLUMN, by default. A cell that finds its own
+                // size finds a different one from the cell above it, and a column of text at
+                // four sizes reads as four columns. Set uniformColumnFont = false on a table
+                // to let its cells size themselves again.
+                const uniform = this.uniformColumnFont !== false;
+                // WHICH WAY `wells` RUNS. Most builders fill it column-major, createTable
+                // fills it row-major, and this walked it as columns either way -- so on a
+                // row-major table the "column font" was computed down a ROW and every real
+                // column came out mixed, which is the thing it exists to prevent.
+                const nCols = (typeof this.__colCount === 'function' && this.__colCount() > 0)
+                    ? this.__colCount() : (this.wells ? this.wells.length : 0);
+                const colMajor = !this.wells || this.wells.length === nCols;
+                const cellAt = (c, r) => (colMajor ? ((this.wells[c] || [])[r]) : ((this.wells[r] || [])[c]));
+                const nRows = colMajor ? ((this.wells && this.wells[0]) ? this.wells[0].length : 0)
+                    : (this.wells ? this.wells.length : 0);
+                // THE WHOLE COLUMN, not the slice of it on screen. Sizing from the visible
+                // rows meant the size was a function of the scroll position: a row arriving
+                // from below either had no column size at all (it was outside the range that
+                // set them) or changed the one every other row was using. A column's size is
+                // a property of the column.
+                const SAMPLE_CAP = 400;
+                const stride = Math.max(1, Math.ceil(nRows / SAMPLE_CAP));
                 for (let x = x0; x < x1; x++) {
-                    const col = this.wells && this.wells[x];
-                    if (!col) continue;
+                    if (!this.wells || x >= nCols) continue;
                     const cells = [];
                     let key = '';
-                    for (let y = y0; y < y1; y++) {
-                        const w = col[y];
+                    for (let y = 0; y < nRows; y++) {
+                        const w = cellAt(x, y);
                         if (!w) continue;
                         cells.push(w);
-                        key += (w.__screen_width | 0) + ':' + (w.__screen_height | 0) + ':' + (w.value == null ? '' : ('' + w.value)) + '|';
+                        // The key samples a long column; every cell still RECEIVES the size.
+                        if (y === 0 || (y % stride) === 0) {
+                            key += (w.__screen_width | 0) + ':' + (w.__screen_height | 0) + ':' + (w.value == null ? '' : ('' + w.value)) + '|';
+                        }
                     }
                     const c = this.__colFontCache[x];
                     let px;
@@ -15673,22 +15697,44 @@ function () {
                     else {
                         let rowPx = 0;
                         for (const w of cells) if (w.__screen_height > rowPx) rowPx = w.__screen_height;
+                        // A cell that has never been drawn has no screen height; on the first
+                        // pass over a column below the fold that is every cell in it, and a
+                        // height of zero would size the column from nothing. Fall back to the
+                        // rows that HAVE been measured.
+                        if (!(rowPx > 0)) {
+                            for (let y = y0; y < Math.min(y1, nRows); y++) {
+                                const w = cellAt(x, y);
+                                if (w && w.__screen_height > rowPx) rowPx = w.__screen_height;
+                            }
+                        }
                         const target = rowPx > 0 ? Math.max(7, Math.round(rowPx * 0.55)) : null;
                         px = target;
                         if (target != null) {
                             for (const w of cells) {
-                                if (!w.fitFontPx || w.skin_transient || w.skin_type) continue;
+                                if (!w.fitFontPx || w.skin_transient) continue;
                                 if (w.isHeader && w.isHeader()) continue;
                                 const t = w.__displayText ? w.__displayText() : w.value;
                                 const numeric = typeof w.value === 'number' || NUMERIC.test(('' + (t == null ? '' : t)).trim());
-                                if (!numeric) continue;                              // labels keep the table's size
+                                // A CUT NUMBER IS A WRONG NUMBER, so a column of numbers that
+                                // will not fit steps down together until they all do. A label
+                                // that will not fit is shortened with an ellipsis instead --
+                                // it stays at the column's size, because shrinking one label
+                                // to fit is exactly the ragged column this is preventing.
+                                if (!numeric) continue;
                                 const f = w.fitFontPx(ctx);
                                 if (f != null) px = Math.min(px, f);
                             }
                         }
                         this.__colFontCache[x] = { key, px };
                     }
-                    for (const w of cells) w.__colFontPx = (w.skin_transient || w.skin_type || (w.isHeader && w.isHeader())) ? null : px;
+                    // EVERY CELL IN THE COLUMN, not just the plain ones. A skinned cell used
+                    // to be sent back to sizing itself, so one coloured cell in a column of
+                    // labels came out at its own size. A transient skin is still left alone:
+                    // it is an overlay on top of the table rather than part of the column.
+                    for (const w of cells) {
+                        const own = w.skin_transient || (!uniform && (w.skin_type || (w.isHeader && w.isHeader())));
+                        w.__colFontPx = own ? null : px;
+                    }
                 }
             }
             drawBackgroundTableTitles(ctx, name, x, y, w, h) {
