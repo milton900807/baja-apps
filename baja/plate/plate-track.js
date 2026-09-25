@@ -11578,20 +11578,39 @@ function (progress) {
                 const b = this.__plateBar(o);
                 if (!b) return;
                 try {
-                    const on = (this.selectedPlate === o) || (this.activePlot === o) || (this.__hoverBar === o);
+                    // SELECTED IS ORANGE, and only selected. Hover used to share the
+                    // selected look, which left the two states indistinguishable at the
+                    // moment they differ most -- the pointer resting on one object while
+                    // another is the one your next keystroke goes to.
+                    const sel = (this.selectedPlate === o) || (this.activePlot === o);
+                    const hover = !sel && (this.__hoverBar === o);
                     ctx.save();
                     ctx.beginPath();
                     const r = Math.min(8, b.h / 2);
                     if (ctx.roundRect) ctx.roundRect(b.x, b.y, b.w, b.h, [r, r, 0, 0]);
                     else ctx.rect(b.x, b.y, b.w, b.h);
-                    ctx.fillStyle = on ? '#0a2540' : 'rgba(10,37,64,0.72)';
+                    if (sel) {
+                        // Sunset: lighter at the top edge, deeper at the seam, so the bar
+                        // reads as a lit surface rather than a flat swatch.
+                        const g = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+                        g.addColorStop(0, '#ff9e3d');
+                        g.addColorStop(1, '#e8620a');
+                        ctx.fillStyle = g;
+                    } else {
+                        ctx.fillStyle = hover ? '#0a2540' : 'rgba(10,37,64,0.72)';
+                    }
                     ctx.fill();
                     // The name, and nothing else: a bar that carries buttons invites a
                     // mis-click on the thing you are trying to pick the table up by.
                     const name = ('' + (o.name || '')).trim();
                     if (name) {
-                        ctx.fillStyle = '#eaf6f9';
-                        ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                        // DARK TEXT ON THE ORANGE. The pale ink this bar has always used is
+                        // near-invisible on it: white on #e8620a is about 2.6:1, and a deep
+                        // brown-black is over 7:1 the other way. The weight goes up a step
+                        // with it, because dark-on-light reads lighter than light-on-dark at
+                        // the same weight.
+                        ctx.fillStyle = sel ? '#2b1405' : '#eaf6f9';
+                        ctx.font = (sel ? '700' : '600') + ' 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                         ctx.textAlign = 'left';
                         ctx.textBaseline = 'middle';
                         let t = name;
@@ -11612,6 +11631,32 @@ function (progress) {
                         }
                         ctx.fillText(t, b.x + 10, b.y + b.h / 2);
                     }
+                    ctx.restore();
+                } catch (e) { }
+            }
+
+            // THE SHADOW UNDER THE BAR, drawn AFTER the object rather than with the bar.
+            // The bar's bottom edge IS the object's top edge, so a shadow cast downwards with
+            // the rest of the bar is the first thing the table paints over. This is called
+            // once the body is down, and only puts ink below the seam.
+            __drawPlateBarSeam(o, ctx) {
+                const b = this.__plateBar(o);
+                if (!b) return;
+                try {
+                    const sel = (this.selectedPlate === o) || (this.activePlot === o);
+                    const y = b.y + b.h;
+                    const depth = 7;
+                    ctx.save();
+                    // A hairline at the seam itself, then the falloff. Without the line the
+                    // gradient alone reads as a smudge; without the gradient the line reads
+                    // as a border. Together they read as one surface sitting over another.
+                    ctx.fillStyle = sel ? 'rgba(122,54,4,0.55)' : 'rgba(4,16,31,0.35)';
+                    ctx.fillRect(b.x, y, b.w, 1);
+                    const g = ctx.createLinearGradient(0, y, 0, y + depth);
+                    g.addColorStop(0, sel ? 'rgba(92,40,3,0.34)' : 'rgba(4,16,31,0.26)');
+                    g.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = g;
+                    ctx.fillRect(b.x, y + 1, b.w, depth);
                     ctx.restore();
                 } catch (e) { }
             }
@@ -26642,6 +26687,9 @@ function (progress) {
                             try { obj.__barDrawn = !!__pbar; obj.__barRect = __pbar || null; } catch (e) { }
                             if (__pbar) { try { this.__drawPlateBar(obj, ctx); } catch (e) { } }
                             obj.drawPlot(this, ctx);
+                            // ...and the seam last: the chart paints over anything cast below
+                            // the bar's bottom edge, which is its own top edge.
+                            if (__pbar) { try { this.__drawPlateBarSeam(obj, ctx); } catch (e) { } }
                         } else if (obj.draw) {
                             // Zoomed out so far that a cell is under 10 x 5 px, a table is an
                             // unreadable smear of lines: draw where it IS instead -- its
@@ -26658,6 +26706,8 @@ function (progress) {
                             try { obj.__barDrawn = !!__bar; obj.__barRect = __bar || null; } catch (e) { }
                             if (__bar) { try { this.__drawPlateBar(obj, ctx); } catch (e) { } }
                             obj.draw(this, ctx);
+                            // ...and the seam last, for the same reason as the chart above.
+                            if (__bar) { try { this.__drawPlateBarSeam(obj, ctx); } catch (e) { } }
                             // Cell connection arrows: faint and thin, so they hint without intruding.
                             this.drawFormulaDependencyArrows(obj, ctx, this.grid);
                             this.drawFormulaReverseDependencyArrows(obj, ctx, this.grid)
