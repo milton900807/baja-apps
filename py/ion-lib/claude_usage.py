@@ -350,6 +350,90 @@ def _sum_micro(con, email, where, args):
         return 0
 
 
+def _rates(con):
+    """What a call of each feature has COST, on average, from every measured call there is.
+
+    Measured rows are the only evidence available about what an unmeasured call was worth, and
+    one user's handful of them is a poor sample -- so the averages are taken across everybody.
+    Returns ({feature: micro_usd_per_call}, overall_micro_usd_per_call)."""
+    per, overall = {}, 0
+    try:
+        tot_micro = tot_calls = 0
+        for f, calls, micro in con.execute(
+                "SELECT feature, SUM(calls), SUM(micro_usd) FROM spend GROUP BY feature"):
+            calls = int(calls or 0)
+            micro = int(micro or 0)
+            tot_calls += calls
+            tot_micro += micro
+            if calls > 0:
+                per[f] = micro / float(calls)
+        if tot_calls > 0:
+            overall = tot_micro / float(tot_calls)
+    except Exception:
+        pass
+    return per, overall
+
+
+def estimate_unmeasured(con, email, per_feature_rate, overall_rate):
+    """What the actions that were never priced would have cost.
+
+    THE METER COUNTED BEFORE IT PRICED. Actions have been recorded per user, day and feature
+    since August; the tokens and the money have only been recorded since the spend table
+    existed. So a user's history is a pile of actions with no cost attached, and reporting
+    their spend as the measured part alone makes months of real work read as nothing.
+
+    This prices those actions at what the SAME FEATURE has since been measured to cost, per
+    call. It is an estimate and the report says so; it is not mixed into the measured figure.
+    Returns (micro_usd, actions_priced, [{feature, actions, micro_usd, own_rate}...],
+    micro_usd_priced_at_the_overall_average)."""
+    out, total, priced = [], 0, 0
+    weak = [0]              # the part of the estimate priced at the overall average
+    try:
+        measured = {}
+        for day, feat, calls in con.execute(
+                "SELECT day, feature, SUM(calls) FROM spend WHERE email=? GROUP BY day, feature",
+                (email,)):
+            measured[(day, feat)] = int(calls or 0)
+        by_feature = {}
+        for day, feat, n in con.execute(
+                "SELECT day, feature, SUM(n) FROM usage WHERE email=? GROUP BY day, feature",
+                (email,)):
+            n = int(n or 0)
+            # An action that was measured is not estimated as well. A failed request counts as
+            # an action and never reaches the model, so the remainder can only be an upper
+            # bound on what is genuinely unpriced -- which is the right direction for it to err.
+            left = n - measured.get((day, feat), 0)
+            if left <= 0:
+                continue
+            # THE TWO TABLES DO NOT ALWAYS SPELL A FEATURE THE SAME WAY. A script that meters
+            # its own passes by hand bumps a label like "prompt-to-transcript:species", while
+            # the spend row it produces is named after the script -- so an exact match misses
+            # and most of a history ends up priced at the overall average. The part before the
+            # colon is the script, and its rate is the right one for its passes.
+            own = per_feature_rate.get(feat)
+            if not own and ":" in feat:
+                own = per_feature_rate.get(feat.split(":", 1)[0])
+            rate = own if own else overall_rate
+            if not rate:
+                continue
+            micro = int(left * rate)
+            total += micro
+            priced += left
+            # A FEATURE NOBODY HAS MEASURED gets the overall average, which is the average of
+            # whatever HAS been measured -- and that mix is dominated by the expensive tools.
+            # It is the only number available, and the part of the estimate resting on it is
+            # tracked so the report can say how much of itself to take on trust.
+            if not own:
+                weak[0] += micro
+            b = by_feature.setdefault(feat, {"feature": feat, "actions": 0, "micro_usd": 0, "own_rate": bool(own)})
+            b["actions"] += left
+            b["micro_usd"] += micro
+        out = sorted(by_feature.values(), key=lambda r: -r["micro_usd"])[:20]
+    except Exception:
+        pass
+    return total, priced, out, weak[0]
+
+
 def spend_report(email, days=30):
     """What the user has spent: credits today, this month and in all, with the same split by
     feature and by model, and a day-by-day strip. Shapes match report() so one call can
@@ -358,7 +442,13 @@ def spend_report(email, days=30):
            "credits_today": 0.0, "credits_month": 0.0, "credits_total": 0.0,
            "usd_today": 0.0, "usd_month": 0.0, "usd_total": 0.0,
            "tokens_today": 0, "tokens_total": 0,
-           "by_feature": [], "by_model": [], "daily_credits": [], "unpriced_models": []}
+           "by_feature": [], "by_model": [], "daily_credits": [], "unpriced_models": [],
+           # What the actions recorded before the meter priced anything would have cost, at
+           # what the same features have since been measured to cost per call. Kept apart from
+           # the measured figures on purpose -- see estimate_unmeasured.
+           "credits_estimated": 0.0, "usd_estimated": 0.0,
+           "actions_estimated": 0, "estimated_by_feature": [],
+           "credits_with_estimate": 0.0, "credits_estimated_weak": 0.0, "estimate_basis": ""}
     try:
         if not out["email"]:
             return out
@@ -415,6 +505,31 @@ def spend_report(email, days=30):
         for i in range(days):
             dd = (datetime.date.today() - datetime.timedelta(days=days - 1 - i)).isoformat()
             out["daily_credits"].append({"day": dd, "credits": credits_of(rows.get(dd, 0))})
+        # ---- and what the unpriced history would have cost --------------------------------
+        try:
+            per, overall = _rates(con)
+            est_micro, est_actions, est_by, est_weak = estimate_unmeasured(con, em, per, overall)
+            out["credits_estimated"] = credits_of(est_micro)
+            out["usd_estimated"] = round(est_micro / 1000000.0, 4)
+            out["actions_estimated"] = est_actions
+            out["estimated_by_feature"] = [
+                {"feature": r["feature"], "actions": r["actions"], "credits": credits_of(r["micro_usd"]),
+                 "own_rate": bool(r.get("own_rate"))}
+                for r in est_by]
+            out["credits_estimated_weak"] = credits_of(est_weak)
+            out["credits_with_estimate"] = credits_of(micro_total + est_micro)
+            if est_actions:
+                out["estimate_basis"] = ("priced at what the same features have since been "
+                                         "measured to cost per call")
+            # The day the meter started pricing: everything before it can only be estimated.
+            try:
+                first = con.execute("SELECT MIN(day) FROM spend").fetchone()[0]
+                if first:
+                    out["priced_since"] = first
+            except Exception:
+                pass
+        except Exception:
+            pass
         con.close()
     except Exception:
         pass

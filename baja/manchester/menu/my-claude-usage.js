@@ -45,6 +45,16 @@ function () {
         const month = Number(r.credits_month) || 0;
         const total = Number(r.credits_total) || 0;
         const feats = (r.by_feature || []).filter((f) => f && (Number(f.credits) || 0) > 0);
+        // WHAT WAS COUNTED BEFORE IT WAS PRICED. The meter counted actions per user, day and
+        // feature long before it recorded tokens, so a history of real work reads as nothing
+        // against the measured figure alone. Those actions are priced at what the same
+        // feature has since been measured to cost per call -- which is an estimate, is shown
+        // as one, and is never added into a measured number.
+        const est = Number(r.credits_estimated) || 0;
+        const estActions = Number(r.actions_estimated) || 0;
+        const estWeak = Number(r.credits_estimated_weak) || 0;
+        const estFeats = (r.estimated_by_feature || []).filter((f) => f && (Number(f.credits) || 0) > 0);
+        const pricedSince = r.priced_since || '';
         const models = (r.by_model || []).filter((m) => m && (Number(m.credits) || 0) > 0);
         const daily = (r.daily_credits || []);
         const actions = Number(r.total_today) || 0;
@@ -101,8 +111,24 @@ function () {
             + '<div style="display:flex;gap:12px;margin-top:18px;flex-wrap:wrap;">'
             + stat('Today', cr(today), actions ? (num(actions) + ' AI action' + (actions === 1 ? '' : 's')) : 'no AI actions yet')
             + stat('This month', cr(month), money(r.usd_month))
-            + stat('All time', cr(total), money(r.usd_total))
+            + stat('All time', cr(total), money(r.usd_total) + (est ? ' measured' : ''))
+            + (est ? stat('Estimated before', cr(est), money(r.usd_estimated) + ' \u00b7 ' + num(estActions) + ' earlier actions') : '')
             + '</div>'
+            + (est
+                ? ('<div style="margin-top:12px;background:rgba(251,191,36,0.07);border:1px solid rgba(251,191,36,0.28);'
+                    + 'border-radius:10px;padding:12px 14px;font:12.5px/1.55 system-ui,Segoe UI,Arial;color:' + C.dim + ';">'
+                    + '<b style="color:' + C.warm + ';">Estimated, not measured.</b> '
+                    + 'Your usage was counted before it was priced'
+                    + (pricedSince ? (' \u2014 tokens have been recorded since ' + esc(pricedSince)) : '')
+                    + '. The ' + num(estActions) + ' action' + (estActions === 1 ? '' : 's')
+                    + ' before that are priced here at what the same features have since been measured to cost per call, '
+                    + 'so this figure is an indication of scale and not a bill.'
+                    + (estWeak > 0
+                        ? (' <b style="color:' + C.ink + ';">' + cr(estWeak) + ' of it</b> is for features that have never been '
+                            + 'measured at all, priced at the average across everything that has \u2014 treat that part more loosely still.')
+                        : '')
+                    + '</div>')
+                : '')
 
             + (daily.length
                 ? ('<div style="margin-top:22px;font:600 11px system-ui,Segoe UI,Arial;letter-spacing:.08em;'
@@ -133,10 +159,31 @@ function () {
                     + '<div style="margin-top:8px;">' + modelRow + '</div>')
                 : '')
 
+            + (estFeats.length
+                ? ('<div style="margin-top:24px;font:600 11px system-ui,Segoe UI,Arial;letter-spacing:.08em;'
+                    + 'text-transform:uppercase;color:' + C.dim + ';">Estimated, before pricing began</div>'
+                    + '<table style="width:100%;margin-top:6px;border-collapse:collapse;font:13px system-ui,Segoe UI,Arial;">'
+                    + '<tr style="color:' + C.dim + ';font-size:11px;letter-spacing:.06em;text-transform:uppercase;">'
+                    + '<th style="text-align:left;padding-bottom:6px;border-bottom:1px solid ' + C.line + ';">Feature</th>'
+                    + '<th style="text-align:right;padding-bottom:6px;border-bottom:1px solid ' + C.line + ';">Actions</th>'
+                    + '<th style="text-align:right;padding-bottom:6px;border-bottom:1px solid ' + C.line + ';">Priced at</th>'
+                    + '<th style="text-align:right;padding-bottom:6px;border-bottom:1px solid ' + C.line + ';">Credits</th></tr>'
+                    + estFeats.map((f) => '<tr>'
+                        + '<td style="padding:7px 12px 7px 0;color:' + C.ink + ';">' + esc(title(f.feature)) + '</td>'
+                        + '<td style="padding:7px 12px 7px 0;text-align:right;color:' + C.dim + ';">' + num(f.actions) + '</td>'
+                        + '<td style="padding:7px 12px 7px 0;text-align:right;color:' + (f.own_rate ? C.dim : C.warm) + ';font-size:12px;">'
+                        + (f.own_rate ? 'its own measured rate' : 'the overall average') + '</td>'
+                        + '<td style="padding:7px 0;text-align:right;font-weight:700;color:' + C.dim + ';white-space:nowrap;">~' + cr(f.credits) + '</td>'
+                        + '</tr>').join('')
+                    + '</table>')
+                : '')
+
             + '<div style="margin-top:22px;padding-top:12px;border-top:1px solid ' + C.line + ';'
             + 'font:12px/1.5 system-ui,Segoe UI,Arial;color:' + C.dim + ';">'
             + 'Credits are a record of what your AI-powered work cost, priced from the tokens each '
-            + 'model billed. Nothing here limits what you can run.'
+            + 'model billed. Nothing here limits what you can run. '
+            + (est ? 'Measured and estimated figures are kept apart throughout: the three cards on the '
+                + 'left are measured, the one marked estimated is not.' : '')
             + ((r.unpriced_models && r.unpriced_models.length)
                 ? ('<br>' + esc(r.unpriced_models.join(', ')) + ' has no price on file and is charged at the standard rate.')
                 : '')
