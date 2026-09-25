@@ -15729,10 +15729,18 @@ function () {
                     }
                     // EVERY CELL IN THE COLUMN, not just the plain ones. A skinned cell used
                     // to be sent back to sizing itself, so one coloured cell in a column of
-                    // labels came out at its own size. A transient skin is still left alone:
-                    // it is an overlay on top of the table rather than part of the column.
+                    // labels came out at its own size.
+                    //
+                    // TWO EXCEPTIONS, both deliberate. A HEADER sizes itself: it is the label
+                    // for the column rather than one of its values, it is read as a heading
+                    // and not compared down the column, and holding it to the body's size
+                    // makes a long one ellipsise where it could simply have been set smaller
+                    // and stayed whole. A TRANSIENT skin is left alone too -- it is an overlay
+                    // on top of the table rather than part of the column.
                     for (const w of cells) {
-                        const own = w.skin_transient || (!uniform && (w.skin_type || (w.isHeader && w.isHeader())));
+                        const own = w.skin_transient
+                            || (w.isHeader && w.isHeader())
+                            || (!uniform && w.skin_type);
                         w.__colFontPx = own ? null : px;
                     }
                 }
