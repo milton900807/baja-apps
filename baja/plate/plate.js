@@ -8223,6 +8223,27 @@ function () {
                             });
                         }
                         list.unshift({ label: 'Maximize', click: async () => { pt.maximizeObject(this); }, move: () => { } });
+                        // OPTIMIZE (topt). Fit this table to the room it has and divide that
+                        // width between its columns so the most characters are on screen --
+                        // see baja/plate/ops/topt.js. It says what it did, because a layout
+                        // change that looks like nothing happened is indistinguishable from a
+                        // layout change that did nothing.
+                        list.unshift({
+                            label: 'Optimize this table', move: () => { },
+                            click: async () => {
+                                try {
+                                    const r = pt.topt(this);
+                                    if (!r || r.ok === false) {
+                                        pt.setMessage((r && r.why) ? ('Could not optimize: ' + r.why) : 'Could not optimize this table.', 2);
+                                        return;
+                                    }
+                                    const whole = Math.max(0, (r.cells || 0) - (r.truncated || 0));
+                                    pt.setMessage(r.cols + ' column' + (r.cols === 1 ? '' : 's') + ' fitted at '
+                                        + r.fontPx + 'px \u2014 ' + whole + ' of ' + (r.cells || 0) + ' cells now read in full.', 3);
+                                    if (pt.wake) pt.wake();
+                                } catch (e) { console.warn('topt', e); }
+                            }
+                        });
                         // DELETE LIVES HERE NOW. The bar used to carry a ✕ next to maximize
                         // and the menu; it was one slip away from work that took minutes to
                         // build, and the only one of the four buttons whose mistake is not

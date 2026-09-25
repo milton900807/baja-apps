@@ -2682,6 +2682,27 @@ function (path, config) {
                         } catch (e) { console.warn('tetris layout', e); }
                     })
                 },
+                // OPTIMIZE EVERY TABLE (topt). The layout above decides where the tables go;
+                // this decides what can be READ once they are there -- the row height and the
+                // share of each table's width that every column gets, chosen to put the most
+                // characters on screen. They are separate buttons because they are separate
+                // decisions: a canvas can be tidy and unreadable, or readable and overlapping.
+                {
+                    icon: 'table_chart', color: '#ffffff', tooltip: 'Optimize tables (topt): fit the columns so the most text is readable',
+                    ionfunction: createIonFunction(async () => {
+                        const pt = pm.plateTrack;
+                        try {
+                            if (pt.__maximized) { pt.setMessage('Exit maximize to optimize the tables.', 2); return; }
+                            if (typeof pt.toptAll !== 'function') { pt.setMessage('The table optimizer is not available here.', 2); return; }
+                            try { pt.pushUndoSnapshot && pt.pushUndoSnapshot(); } catch (e) { }
+                            const r = await pt.toptAll();
+                            if (!r || !r.tables) { pt.setMessage('No table on the canvas to optimize.', 2); return; }
+                            const whole = Math.max(0, (r.cells || 0) - (r.truncated || 0));
+                            pt.setMessage(r.tables + (r.tables === 1 ? ' table' : ' tables') + ' optimized \u2014 '
+                                + whole + ' of ' + (r.cells || 0) + ' cells now read in full. Undo puts them back.', 3);
+                        } catch (e) { console.warn('topt all', e); }
+                    })
+                },
             ];
             pm.__appMenus = () => [
                 { label: 'Build', items: refreshBuildLibrary() },

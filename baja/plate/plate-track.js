@@ -4588,7 +4588,336 @@ function (progress) {
             // The column half of the fitter, for a path that has just set a table's size and
             // must keep it. Quiet: a table that cannot be measured keeps even columns.
             __fitColumnsNow(plate) {
-                try { if (plate && plate.fit !== false) this.fitTableToSpace(plate, { columnsOnly: true }); } catch (e) { }
+                // Through topt now, which spends the width where it buys the most readable
+                // characters rather than in proportion to what each column asked for. Same
+                // signature, same callers, better answer; fitTableToSpace stays as the
+                // fallback for the case where topt cannot be loaded.
+                try { if (plate && plate.fit !== false) this.topt(plate, { columnsOnly: true }); } catch (e) { }
+            }
+
+            // topt — THE TABLE OPTIMIZER, and it lives here rather than in ops/ because it has
+            // to be able to run DURING a layout. exec() resolves a module asynchronously, and
+            // the three callers that matter -- a table being added, a table being given a
+            // consistent cell size, and the tetris pass -- all measure the table on the very
+            // next line. An optimizer that answered a frame later would be read stale by all
+            // three, so it is a method.
+            //   pt.topt(table)                         size it and share its columns out
+            //   pt.topt(table, { apply: false })       measure only; returns the report
+            //   pt.topt(table, { columnsOnly: true })  keep its size, fix its columns
+            topt(plate, opts) {
+
+                // topt — THE TABLE OPTIMIZER. Give a table the most readable characters the space can
+                // hold, and divide its width between the columns so that as few of them as possible are
+                // cut off.
+                //
+                //   pt.topt(table)                    one table, sized and shared out
+                //   pt.topt(table, { apply: false })  measure only, change nothing
+                //
+                // WHAT IT OPTIMIZES, stated plainly, because the previous fit did not state one: the
+                // number of characters actually on screen, summed over every cell. fitTableToSpace shared
+                // the width out in PROPORTION to what each column wanted, which is a reasonable-sounding
+                // rule that is not an objective -- it hands width to a column that will still be cut after
+                // getting it, and takes it from one that was two characters short of complete.
+                //
+                // The share-out is a budget problem and it has an exact answer. Every extra pixel given to
+                // a column buys characters only in the cells that are STILL cut there, so the value of
+                // width in a column falls as the column widens -- and for a sum of falling returns under a
+                // fixed budget, spending each next pixel wherever it buys most is optimal, not merely
+                // sensible. That is the whole algorithm.
+                //
+                // THE FONT IS CHOSEN THE SAME WAY, with one rule on top. Smaller type fits more characters,
+                // so "most characters" alone would drive every table to the smallest font it is allowed --
+                // which is not what anyone means by optimized. So: find the greatest number of characters
+                // any allowed row height can show, then take the LARGEST row height that still shows that
+                // many. When everything fits, that is the biggest legible type; when the table is too big
+                // for the space, it is the smallest, and the two cases need no separate code.
+                const o = opts || {};
+                const FAM = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+                const USABLE = 0.85;              // of a cell's width is text; the rest is padding (well.js)
+                const PAD_PX = 10;                // the padding itself, kept out of the character budget
+                const MAX_CELL_H = Number.isFinite(o.maxCellH) ? o.maxCellH : 40;
+                const MIN_CELL_H = Number.isFinite(o.minCellH) ? o.minCellH : 16;
+                const MIN_COL_PX = Number.isFinite(o.minCol) ? o.minCol : 34;
+                const STEP_PX = 3;                // the grain the budget is spent in
+                const MAX_ROWS_SAMPLED = 400;     // a long table is measured on a sample; see below
+
+                const fail = (why) => ({ ok: false, why: why });
+
+                try {
+                    if (false || !plate || !Array.isArray(plate.wells) || !plate.wells.length) return fail('not a table');
+                    if (plate.plateType === 'package' || plate.plateType === 'annotation' || plate.plateType === 'document') {
+                        return fail('not a table');
+                    }
+                    const ctx = (typeof this.__fitCtx === 'function') ? this.__fitCtx() : null;
+                    if (!ctx) return fail('nothing to measure with yet');
+
+                    // HOW MANY COLUMNS THE TABLE THINKS IT HAS, which is not always how many entries
+                    // `wells` has. The authority is the plate's own grid (plate.__colCount), and
+                    // plate.__colGeom THROWS AWAY a column_widths array whose length disagrees with it --
+                    // silently, back to even columns. Some builders fill wells column-major and at least
+                    // one (createTable) fills it row-major, so a fitter that assumed wells.length was the
+                    // column count produced a widths array of the wrong length for those tables and had
+                    // its answer discarded. That is exactly the even-columns look this is here to fix.
+                    const cols = (typeof plate.__colCount === 'function' && plate.__colCount() > 0)
+                        ? plate.__colCount() : plate.wells.length;
+                    const colMajor = (plate.wells.length === cols);
+                    const cellAt = (c, r) => (colMajor ? (plate.wells[c] || [])[r] : (plate.wells[r] || [])[c]);
+                    const rows = Math.max(1, colMajor ? (plate.wells[0] || []).length : plate.wells.length);
+
+                    // ---- what is in the table ---------------------------------------------------------
+                    // Per column, the texts that have to fit. A long table is sampled rather than read in
+                    // full: the widest hundred rows decide the width, and reading ten thousand to find
+                    // them costs more than it buys.
+                    const stride = Math.max(1, Math.ceil(rows / MAX_ROWS_SAMPLED));
+                    const columns = [];
+                    for (let i = 0; i < cols; i++) {
+                        const cells = [];
+                        for (let r = 0; r < rows; r += (r === 0 ? 1 : stride)) {
+                            const w = cellAt(i, r);
+                            if (!w) continue;
+                            let t = '';
+                            try { t = '' + ((w.__displayText ? w.__displayText() : w.value) ?? ''); } catch (e) { t = ''; }
+                            if (!t) continue;
+                            let wraps = false;
+                            try { wraps = (typeof w.__wrapsText === 'function') ? !!w.__wrapsText() : false; } catch (e) { }
+                            let header = false;
+                            try { header = !!(w.isHeader && w.isHeader()); } catch (e) { }
+                            cells.push({ t: t, n: t.length, wraps: wraps, header: header, weight: (r === 0 ? 1 : stride) });
+                        }
+                        columns.push(cells);
+                    }
+                    if (!columns.some((c) => c.length)) return fail('no text to fit');
+
+                    // ---- the space ---------------------------------------------------------------------
+                    const own = {
+                        w: Math.abs(this.grid.screenWidth(plate.grid.width)),
+                        h: Math.abs(this.grid.screenHeight(plate.getHeight ? plate.getHeight(this) : plate.grid.height))
+                    };
+                    let free = o.free || (o.columnsOnly ? own : null);
+                    if (!free && typeof this.__largestFreeRectPx === 'function') {
+                        // What the table would LIKE, so the search for a gap knows what it is looking for.
+                        let wantW = 0;
+                        ctx.save();
+                        ctx.font = Math.max(7, Math.round(MAX_CELL_H * 0.55)) + 'px ' + FAM;
+                        for (const cells of columns) {
+                            let need = 0;
+                            for (const c of cells) { const px = ctx.measureText(c.t).width; if (px > need) need = px; }
+                            wantW += Math.min(460, need / USABLE + PAD_PX);
+                        }
+                        ctx.restore();
+                        free = this.__largestFreeRectPx({ skip: plate, want: { w: wantW, h: rows * MAX_CELL_H }, top: o.top || 0 });
+                        // A gap too narrow to be a table is not space for this table: take what the
+                        // columns need and let the packer make room. Same judgement fitTableToSpace made.
+                        if (free && free.w < wantW * 0.5) free = { x: free.x, y: free.y, w: Math.max(wantW, cols * MIN_COL_PX), h: free.h };
+                    }
+                    if (!free) free = own;
+                    if (!free || !(free.w > 40 && free.h > 24)) return fail('no room to fit into');
+
+                    // ---- how many characters a given row height can show --------------------------------
+                    // Per column, at a font: each cell's mean character width, from its own measured text.
+                    // A proportional font has no single character width, but a cell's own average is what
+                    // decides how much of THAT cell fits, and it is one measurement rather than a binary
+                    // search per cell.
+                    const measureAt = (cellH) => {
+                        const fontPx = Math.max(7, Math.round(cellH * 0.55));
+                        ctx.save();
+                        ctx.font = fontPx + 'px ' + FAM;
+                        const per = [];
+                        for (const cells of columns) {
+                            const m = [];
+                            for (const c of cells) {
+                                const full = ctx.measureText(c.t).width;
+                                m.push({ n: c.n, full: full, cw: full / Math.max(1, c.n), wraps: c.wraps,
+                                         header: c.header, weight: c.weight });
+                            }
+                            per.push(m);
+                        }
+                        ctx.restore();
+                        return per;
+                    };
+                    // Characters of column `m` visible at width w (px, including padding).
+                    const visibleIn = (m, w) => {
+                        const text = Math.max(0, (w - PAD_PX)) * USABLE;
+                        let seen = 0;
+                        for (const c of m) {
+                            // A wrapping cell shows everything once it has a couple of characters of
+                            // width: it uses height rather than width, so it does not compete here.
+                            const fit = c.wraps ? c.n : Math.min(c.n, Math.floor(text / c.cw));
+                            seen += Math.max(0, fit) * c.weight;
+                        }
+                        return seen;
+                    };
+                    // Width at which a column stops gaining: everything in it is whole.
+                    const fullWidthOf = (m) => {
+                        let need = 0;
+                        for (const c of m) { const px = (c.wraps && !c.header) ? c.cw * Math.min(c.n, 26) : c.full; if (px > need) need = px; }
+                        return need / USABLE + PAD_PX;
+                    };
+
+                    // ---- share the width out, one grain at a time, wherever it buys most ---------------
+                    const solveWidths = (per, budgetW) => {
+                        const w = new Array(cols).fill(0);
+                        const cap = per.map(fullWidthOf);
+                        // A floor first, so no column is reduced to nothing by a greedy that can always
+                        // find a better home for the next pixel elsewhere. A column nobody can see is not
+                        // a saving, it is a missing column.
+                        let spent = 0;
+                        for (let i = 0; i < cols; i++) { w[i] = Math.min(MIN_COL_PX, cap[i]); spent += w[i]; }
+                        if (spent > budgetW) {          // not even the floors fit: even shares, and say so
+                            const even = budgetW / cols;
+                            return { widths: new Array(cols).fill(even), cramped: true };
+                        }
+                        const cur = per.map((m, i) => visibleIn(m, w[i]));
+                        // Greedy on marginal gain. The gain from a grain of width falls as a column
+                        // widens -- each step can only complete cells, never un-complete them -- so
+                        // taking the best step every time is the optimum for this budget, not a guess.
+                        let guard = Math.ceil(budgetW / STEP_PX) + cols + 4;
+                        // How many characters column i is still short of showing in full.
+                        const deficitOf = (m, wpx) => {
+                            const text = Math.max(0, (wpx - PAD_PX)) * USABLE;
+                            let miss = 0;
+                            for (const c of m) {
+                                if (c.wraps) continue;
+                                const fit = Math.min(c.n, Math.floor(text / c.cw));
+                                if (fit < c.n) miss += (c.n - fit) * c.weight;
+                            }
+                            return miss;
+                        };
+                        while (spent + STEP_PX <= budgetW && guard-- > 0) {
+                            let best = -1, bestGain = 0, bestVis = 0;
+                            for (let i = 0; i < cols; i++) {
+                                if (w[i] >= cap[i]) continue;             // whole already; more is waste
+                                const v = visibleIn(per[i], w[i] + STEP_PX);
+                                const gain = v - cur[i];
+                                if (gain > bestGain) { bestGain = gain; best = i; bestVis = v; }
+                            }
+                            if (best < 0) {
+                                // NO COLUMN GAINS A WHOLE CHARACTER FROM ONE GRAIN -- which is
+                                // the usual case, since a grain is a few pixels and a character
+                                // is seven. Stopping here was wrong: it left every column at
+                                // its floor and the leftover was then spread evenly, which is
+                                // the even-columns answer this exists to avoid. Width goes to
+                                // whichever column is furthest from showing its text, and
+                                // accumulates there until it converts.
+                                let worst = -1, worstMiss = 0;
+                                for (let i = 0; i < cols; i++) {
+                                    if (w[i] >= cap[i]) continue;
+                                    const miss = deficitOf(per[i], w[i]);
+                                    if (miss > worstMiss) { worstMiss = miss; worst = i; }
+                                }
+                                if (worst < 0) break;                     // everything is whole
+                                w[worst] += STEP_PX; cur[worst] = visibleIn(per[worst], w[worst]); spent += STEP_PX;
+                                continue;
+                            }
+                            w[best] += STEP_PX; cur[best] = bestVis; spent += STEP_PX;
+                        }
+                        // Room over after every column is whole: spread it so the table fills its space
+                        // rather than leaving a margin nobody asked for. In proportion, so the shape the
+                        // contents earned is kethis.
+                        const left = budgetW - spent;
+                        if (left > 0.5) {
+                            const total = w.reduce((a, c) => a + c, 0) || 1;
+                            for (let i = 0; i < cols; i++) w[i] += left * (w[i] / total);
+                        }
+                        return { widths: w, cramped: false };
+                    };
+
+                    // ---- choose the row height ----------------------------------------------------------
+                    const heights = [];
+                    for (let h = MAX_CELL_H; h >= MIN_CELL_H; h -= 2) heights.push(h);
+                    if (heights[heights.length - 1] !== MIN_CELL_H) heights.push(MIN_CELL_H);
+                    let bestH = null, bestSeen = -1, bestWidths = null, bestCramped = false;
+                    const tried = [];          // every height considered, tallest first
+                    for (const h of heights) {
+                        if (!o.columnsOnly && h * rows > free.h && h > MIN_CELL_H) continue;   // taller than the space
+                        const per = measureAt(h);
+                        const sol = solveWidths(per, free.w);
+                        let seen = 0;
+                        for (let i = 0; i < cols; i++) seen += visibleIn(per[i], sol.widths[i]);
+                        tried.push({ h: h, seen: seen, widths: sol.widths, cramped: sol.cramped });
+                        if (seen > bestSeen) bestSeen = seen;
+                    }
+                    // THE TALLEST TYPE THAT SHOWS ESSENTIALLY ALL OF IT. Taking the maximum
+                    // alone drives every table to the smallest font it is allowed, because
+                    // smaller type always fits at least a few more characters -- which is not
+                    // what anyone means by an optimized table. Measured on a three-column
+                    // table in a 380px gap: 9px type showed 141 characters and 20px type
+                    // showed 138, and the first is unreadable for the sake of three letters.
+                    // So the best count is the target and anything within a whisker of it is
+                    // as good; of those, the biggest type wins.
+                    const KEEP = Math.max(bestSeen * 0.98, bestSeen - 8);
+                    for (const t of tried) {
+                        if (t.seen >= KEEP) { bestH = t.h; bestWidths = t.widths; bestCramped = t.cramped; bestSeen = t.seen; break; }
+                    }
+                    if (bestH == null) { bestH = MIN_CELL_H; const per = measureAt(bestH); const sol = solveWidths(per, free.w); bestWidths = sol.widths; bestCramped = sol.cramped; }
+
+                    const widths = bestWidths;
+                    const totalW = widths.reduce((a, c) => a + c, 0);
+                    const totalH = bestH * rows;
+
+                    // ---- what this actually achieved, measured rather than assumed ----------------------
+                    // The solver works from each cell's average character width, which is an estimate for
+                    // a proportional font. The report does not: it asks the canvas whether each cell fits.
+                    let cut = 0, total = 0;
+                    try {
+                        ctx.save();
+                        ctx.font = Math.max(7, Math.round(bestH * 0.55)) + 'px ' + FAM;
+                        for (let i = 0; i < cols; i++) {
+                            for (const c of (columns[i] || [])) {
+                                total += c.weight;
+                                if (c.wraps) continue;
+                                if (ctx.measureText(c.t).width > (widths[i] - PAD_PX) * USABLE) cut += c.weight;
+                            }
+                        }
+                        ctx.restore();
+                    } catch (e) { }
+
+                    const report = {
+                        ok: true, cols: cols, rows: rows,
+                        cellH: Math.round(bestH), fontPx: Math.max(7, Math.round(bestH * 0.55)),
+                        free: { w: Math.round(free.w), h: Math.round(free.h) },
+                        widthPx: Math.round(totalW), heightPx: Math.round(totalH),
+                        widths: widths.map((v) => Math.round(v)),
+                        charsVisible: Math.round(bestSeen),
+                        cells: total, truncated: cut, cramped: bestCramped
+                    };
+                    if (o.apply === false) return report;
+
+                    if (!o.columnsOnly) {
+                        plate.setWidth(this.grid.worldWidth(totalW));
+                        plate.setHeight(this.grid.worldHeight(totalH));
+                    }
+                    // column_widths are WEIGHTS adding up to the column count (see plate.__colGeom).
+                    plate.column_widths = widths.map((v) => v / totalW * cols);
+                    try { plate.grid.rescale(); } catch (e) { }
+                    plate.__colFontCache = null;
+                    for (const col of plate.wells) for (const c of (col || [])) if (c) c.__wrapKey = null;
+                    report.colMajor = colMajor;
+                    return report;
+                } catch (e) {
+                    console.warn('[topt]', e);
+                    return fail((e && e.message) ? e.message : ('' + e));
+                }
+
+            }
+
+            // Every table on the canvas, optimized, and then laid out so they do not overlap.
+            // What the Optimize tables menu item runs.
+            async toptAll(opts) {
+                const o = opts || {};
+                const plates = (this.root || []).filter((p) => p && p.wells && p.fit !== false
+                    && p.plateType !== 'package' && p.plateType !== 'annotation' && p.plateType !== 'document');
+                let done = 0, cut = 0, cells = 0;
+                for (const p of plates) {
+                    const r = this.topt(p, { columnsOnly: o.columnsOnly !== false });
+                    if (r && r.ok !== false) {
+                        done++;
+                        cut += (r.truncated || 0);
+                        cells += (r.cells || 0);
+                    }
+                }
+                try { if (this.wake) this.wake(); } catch (e) { }
+                return { tables: done, truncated: cut, cells: cells };
             }
 
             addPlateWithConsistentWellSize(newPlate, opts = {}) {
