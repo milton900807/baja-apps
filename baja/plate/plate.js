@@ -9012,6 +9012,9 @@ function () {
             fireBarButton(x, y, pt) {
                 const hit = this.barButtonAt(x, y, pt);
                 if (!hit) return false;
+                // One press, one firing: the canvas fires this when it sees a press on the
+                // bar, and the table's own handler fires it too when it is installed.
+                if (this.__btnJustFired()) return true;
                 this.__btnFiredAt = Date.now();
                 try { this.highlightbutton = hit.button.name; } catch (e) { }
                 try { hit.button.action(hit.x, hit.y, x, y, pt); } catch (e) { console.warn('[button]', e); }

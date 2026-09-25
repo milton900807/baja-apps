@@ -8628,6 +8628,15 @@ function (progress) {
                             onButton = bar.barButtonAt ? !!bar.barButtonAt(x, y, this)
                                 : !!(bar.inButtons && bar.inButtons(x, y, this));
                         } catch (e) { onButton = false; }
+                        // AND IT IS FIRED HERE. Knowing a button is under the pointer and
+                        // then doing nothing left it to the object's OWN mouse-down handler,
+                        // which only exists while that object is the active workbench -- so a
+                        // timeline's buttons did nothing at all until something else had
+                        // installed it. fireBarButton is guarded against going off twice, so
+                        // the object's handler running as well is harmless.
+                        if (onButton) {
+                            try { if (bar.fireBarButton && bar.fireBarButton(x, y, this)) return; } catch (e) { console.warn('bar button', e); }
+                        }
                         if (!onButton) {
                             // setSelected for a chart or a timeline too: that is exactly what a
                             // press on its body does (selectIt, then clk_drag, which is what

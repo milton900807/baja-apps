@@ -2693,10 +2693,14 @@ function (MGrid) {
                     name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.displayContextSpecificMenuItems(pt) },
                     highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('minimize') }, color: 'lightcyan'
                 },
-                    // NO CLOSE BUTTON ON THE BAR, for the same reason as a table
-                    // (baja/plate/plate.js): a one-click delete beside maximize and the
-                    // menu, on a chart somebody spent a build making. Removing a chart is
-                    // on its menu.
+                {
+                    // A CHART AND A TIMELINE KEEP THEIRS. The ✕ came off a TABLE's bar
+                    // because a table is a sheet of work and its delete is one slip from the
+                    // maximize beside it -- but a chart or a timeline is one object, closing
+                    // it is the ordinary thing to do with it, and it asks first either way.
+                    name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.closePlot(pt) },
+                    highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('close') }, color: 'lightcyan'
+                },
             ];
             themeName = null;
             theme = null;
@@ -17553,6 +17557,49 @@ function (MGrid) {
             }
             // No wait before a button answers: they run on the PRESS now (see plate.js
             // fireBarButton for why the wait was there and why it no longer is).
+            // THE BUTTON UNDER A SCREEN POINT, or null. One geometry with the drawing
+            // (__btnRowGeom), so the row can never be drawn in one place and clicked in
+            // another. Unlike inButtons it does not highlight anything: asking what is there
+            // is not the same as pressing it.
+            //
+            // These three were CALLED but never defined -- clk_drag's mouse-down runs
+            // `if (this.fireBarButton(x, y, pt)) return;` and the release runs
+            // `this.__btnJustFired()`. Both threw TypeError on every press, which killed the
+            // handler before it reached anything else: the bar's buttons did nothing, and so
+            // did the rest of that press.
+            barButtonAt(x, y, pt) {
+                try {
+                    const b = this.buttons || [];
+                    const g = this.__btnRowGeom();
+                    for (let i = 0; i < b.length; i++) {
+                        const bx = g.init + i * bsize;
+                        if (x >= bx && x <= bx + bsize && y >= g.y && y <= g.y + (b[i].height || 20)) {
+                            return { button: b[i], x: bx, y: g.y };
+                        }
+                    }
+                } catch (e) { }
+                return null;
+            }
+            // A bar button answers on the PRESS, for the reason plate.js gives: a release can
+            // land somewhere else entirely, and the button looks pressed a beat earlier.
+            fireBarButton(x, y, pt) {
+                const hit = this.barButtonAt(x, y, pt);
+                if (!hit) return false;
+                // ONE PRESS, ONE FIRING. The press reaches this from two directions -- the
+                // canvas dispatches it when it sees a press on the bar, and the object's own
+                // clk_drag handler runs it too when that handler happens to be installed.
+                // Answering "yes, handled" the second time without running the action again
+                // is what keeps a single click from opening two menus.
+                if (this.__btnJustFired()) return true;
+                this.__btnFiredAt = Date.now();
+                try { if (hit.button.highlight) hit.button.highlight(hit.x, hit.y, x, y, pt); } catch (e) { }
+                try { hit.button.action(hit.x, hit.y, x, y, pt); } catch (e) { console.warn('[plot button]', e); }
+                return true;
+            }
+            __btnJustFired() {
+                return !!(this.__btnFiredAt && (Date.now() - this.__btnFiredAt) < 700);
+            }
+
             inButtons(x, y, pt) {
                 let b = this.buttons;
                 const __g = this.__btnRowGeom();
