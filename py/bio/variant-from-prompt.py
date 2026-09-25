@@ -28,6 +28,7 @@ Resolves:
 import json
 import os
 import re
+import time
 
 from ion import works
 
@@ -490,6 +491,57 @@ def protein_edit(spec, cds, protein, histone_offset=0, user_text=""):
             "codon": codon, "new_codon": new_codon, "changes": n}, None
 
 
+def ensembl_cdna(transcript_id, timeout=20):
+    """The transcript's own sequence from Ensembl, 5' first. "" when it cannot be had."""
+    tid = re.sub(r"\.\d+$", "", str(transcript_id or "").strip())
+    if not requests or not re.match(r"^ENS[A-Z]*T\d+$", tid, re.I):
+        return ""
+    for attempt in range(3):
+        try:
+            r = requests.get("https://rest.ensembl.org/sequence/id/%s?type=cdna" % tid,
+                             headers={"Accept": "application/json"}, timeout=timeout)
+            if r.status_code == 200:
+                return re.sub(r"[^ACGTN]", "", str((r.json() or {}).get("seq") or "").upper())
+            if r.status_code in (400, 404):
+                return ""
+        except Exception:
+            pass
+        time.sleep(1.5 * (attempt + 1))
+    return ""
+
+
+def align_numbering(tx, transcript_id):
+    """Where n.1 really is in the copy of the transcript the client sent.
+
+    n. NUMBERING COUNTS FROM THE 5' END, so it is only meaningful if base 1 really is base 1.
+    The annotation the server bundles is a GENCODE release, and a transcript revised since
+    then can be a few bases longer or shorter at either end -- RNU4-2 is ENST00000365668.1,
+    141 nt, in the bundle and .2, 145 nt, at Ensembl. A 3' revision is harmless for n.64; a
+    5' revision silently shifts every position, which is the one outcome worth a round trip
+    to prevent.
+
+    Returns (offset, length, note, error). `offset` is how many bases of the real transcript
+    are missing from the front of `tx`, so real n.p is tx[p - 1 - offset]. Ensembl being
+    unreachable is not an error: the numbering is used as given and the note says so."""
+    ens = ensembl_cdna(transcript_id)
+    if not ens:
+        return 0, len(tx), "numbering taken as loaded (Ensembl could not be reached to confirm it)", None
+    if ens == tx:
+        return 0, len(ens), "", None
+    at = ens.find(tx)
+    if at >= 0:
+        note = ("this transcript is %d nt at Ensembl and the copy loaded here has %d"
+                % (len(ens), len(tx)))
+        if at:
+            note += "; n. numbering is offset by %d to match Ensembl" % at
+        return at, len(ens), note, None
+    # Not a piece of the current transcript at all -- a different revision, or the wrong
+    # sequence. Numbering it would be guessing.
+    return 0, len(ens), "", ("the copy of %s loaded here (%d nt) is not part of the %d nt "
+                             "transcript Ensembl holds, so n. positions on it cannot be "
+                             "trusted" % (transcript_id or "this transcript", len(tx), len(ens)))
+
+
 # An explicit n. change needs nobody's opinion: "n.64_65insT" says which bases and where.
 NONCODING_RE = re.compile(
     r"\bn\.\s*(\d+)(?:_(\d+))?\s*"
@@ -524,21 +576,33 @@ def noncoding_from_text(text):
     return None
 
 
-def noncoding_edit(spec, tx):
+def noncoding_edit(spec, tx, offset=0, full_len=0):
     """The same arithmetic as cdna_edit, on the TRANSCRIPT rather than the coding sequence.
 
     A non-coding transcript -- an snRNA, a lncRNA, a pseudogene -- has no CDS and no protein,
     so c. and p. mean nothing on it and everything was refused. n. numbering is simply the
     spliced transcript, base 1 at its 5' end, which every transcript has. Offsets come back
-    as tx_offset, 0-based into that sequence, in TRANSCRIPT orientation."""
+    as tx_offset, 0-based into that sequence, in TRANSCRIPT orientation.
+
+    `offset` is how many bases of the real transcript the loaded copy is missing from its 5'
+    end (align_numbering works it out). Positions are STATED in real n. numbering -- that is
+    what the label has to say -- and INDEXED after shifting, so a track built from an older
+    annotation release still puts the variant on the right base."""
     try:
-        pos = int(spec.get("pos"))
+        n_pos = int(spec.get("pos"))
     except Exception:
         return None, "no transcript position in the description"
     kind = str(spec.get("type") or "sub").lower()
-    if not (1 <= pos <= len(tx)):
-        return None, "n.%d is outside this transcript (%d nt)" % (pos, len(tx))
-    end = int(spec.get("end") or pos)
+    n_end = int(spec.get("end") or n_pos)
+    total = full_len or (len(tx) + offset)
+    if not (1 <= n_pos <= total):
+        return None, "n.%d is outside this transcript (%d nt)" % (n_pos, total)
+    have_from, have_to = offset + 1, offset + len(tx)
+    # The positions as indices into the copy that is actually loaded.
+    pos, end = n_pos - offset, n_end - offset
+    if pos < 1 or end > len(tx) or end < pos:
+        return None, ("n.%d is in the part of this transcript the loaded copy does not have "
+                      "(it holds n.%d to n.%d of %d)" % (n_pos, have_from, have_to, total))
     if kind == "sub":
         ref = str(spec.get("ref") or "").upper()
         alt = str(spec.get("alt") or "").upper()
@@ -546,19 +610,19 @@ def noncoding_edit(spec, tx):
             return None, "no alternate base"
         have = tx[pos - 1: pos - 1 + max(1, len(ref))]
         if ref and have != ref:
-            return None, "n.%d is %s in this transcript, not %s" % (pos, have, ref)
-        lab = "n.%d%s>%s" % (pos, have, alt)
+            return None, "n.%d is %s in this transcript, not %s" % (n_pos, have, ref)
+        if alt == have:
+            return None, "n.%d is already %s in this transcript; that is not a change" % (n_pos, have)
+        lab = "n.%d%s>%s" % (n_pos, have, alt)
         return {"edits": [{"tx_offset": pos - 1, "ref": have, "alt": alt, "type": "snp",
                            "label": lab}], "hgvs_c": lab}, None
     if kind in ("del", "delins"):
-        if not (1 <= end <= len(tx)) or end < pos:
-            return None, "n.%d_%d is not a range on this transcript" % (pos, end)
         if pos < 2:
             return None, "a deletion at n.1 has no anchor base"
         deleted = tx[pos - 1: end]
         anchor = tx[pos - 2]
         ins = str(spec.get("seq") or "").upper() if kind == "delins" else ""
-        span = ("n.%d_%ddel" % (pos, end)) if end > pos else ("n.%ddel" % pos)
+        span = ("n.%d_%ddel" % (n_pos, n_end)) if n_end > n_pos else ("n.%ddel" % n_pos)
         lab = (span + "ins" + ins) if ins else span
         return {"edits": [{"tx_offset": pos - 2, "ref": anchor + deleted, "alt": anchor + ins,
                            "type": ("delins" if ins else "del"), "label": lab}],
@@ -566,16 +630,16 @@ def noncoding_edit(spec, tx):
     if kind in ("ins", "dup"):
         seq = str(spec.get("seq") or "").upper()
         if kind == "dup":
-            if not (1 <= end <= len(tx)) or end < pos:
-                return None, "n.%d_%d is not a range on this transcript" % (pos, end)
             seq = tx[pos - 1: end]
             anchor_off = end - 1
-            lab = ("n.%d_%ddup" % (pos, end)) if end > pos else ("n.%ddup" % pos)
+            lab = ("n.%d_%ddup" % (n_pos, n_end)) if n_end > n_pos else ("n.%ddup" % n_pos)
         else:
             anchor_off = pos - 1          # HGVS ins: between pos and pos+1
-            lab = "n.%d_%dins%s" % (pos, pos + 1, seq)
+            lab = "n.%d_%dins%s" % (n_pos, n_pos + 1, seq)
             if anchor_off + 1 >= len(tx):
-                return None, "n.%d_%d has no base after it on this transcript" % (pos, pos + 1)
+                return None, ("n.%d_%d has no base after it in the copy of this transcript "
+                              "loaded here (it holds n.%d to n.%d of %d)"
+                              % (n_pos, n_pos + 1, have_from, have_to, total))
         if not seq:
             return None, "no inserted sequence"
         anchor = tx[anchor_off]
@@ -771,12 +835,23 @@ elif mode in ("cohort", "verify") and not out["error"]:
                             % (text, ("; " + "; ".join("%s: %s" % (r["label"], r["why"])
                                                        for r in rejected[:3])) if rejected else ""))
 elif not out["error"] and noncoding_track:
+    # WHERE n.1 REALLY IS, before anything is numbered against it. The bundled annotation is
+    # a GENCODE release and a transcript revised since then can differ at either end.
+    works.msg("Checking this transcript's numbering against Ensembl…")
+    n_offset, n_total, n_note, n_err = align_numbering(txseq, ctx.get("transcript"))
+    if n_note:
+        out["note"] = (out.get("note") + "; " + n_note).strip("; ")
+    out["n_offset"] = n_offset
+    out["transcript_len"] = n_total
+    out["loaded_len"] = len(txseq)
     # WRITTEN OUT IS ANSWERED WITHOUT ASKING. "n.64_65insT" already names the bases and the
     # position; a model can only agree with it or, worse, not.
     spec = noncoding_from_text(text)
-    if spec:
+    if n_err:
+        res, err = None, n_err
+    elif spec:
         out["explanation"] = "read directly from the n. notation in the description"
-        res, err = noncoding_edit(spec, txseq)
+        res, err = noncoding_edit(spec, txseq, n_offset, n_total)
     else:
         works.msg("Reading the description…")
         got, err = ask(text, ctx, "", extra)
@@ -794,7 +869,8 @@ elif not out["error"] and noncoding_track:
             elif lvl in ("noncoding", "cdna"):
                 # c. on a non-coding transcript is the model reaching for the numbering it
                 # knows; the positions it gives are transcript positions either way.
-                res, err = noncoding_edit(got.get("noncoding") or got.get("cdna") or {}, txseq)
+                res, err = noncoding_edit(got.get("noncoding") or got.get("cdna") or {},
+                                          txseq, n_offset, n_total)
             else:
                 res, err = None, (VAGUE + (out["explanation"]
                                            or "no change on this transcript was named"))
