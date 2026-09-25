@@ -50,6 +50,14 @@ function () {
         // against the measured figure alone. Those actions are priced at what the same
         // feature has since been measured to cost per call -- which is an estimate, is shown
         // as one, and is never added into a measured number.
+        // THE FREE ALLOWANCE. A non-subscriber gets $10 of model usage; a subscriber is not
+        // metered against anything and is not shown a bar they cannot fill.
+        const freeLimit = Number(r.free_limit) || 0;
+        const freeUsed = Number(r.free_used) || 0;
+        const freeLeft = Number(r.free_remaining) || 0;
+        const subscribed = !!r.subscribed;
+        const blocked = !!r.blocked;
+        const showFree = freeLimit > 0 && !subscribed;
         const est = Number(r.credits_estimated) || 0;
         const estActions = Number(r.actions_estimated) || 0;
         const estWeak = Number(r.credits_estimated_weak) || 0;
@@ -108,6 +116,28 @@ function () {
             + '<div style="font:13px system-ui,Segoe UI,Arial;color:' + C.dim + ';margin-top:3px;">'
             + esc(who) + ' &middot; one credit is one US cent of AI usage</div>'
 
+            + (showFree
+                ? ('<div style="margin-top:16px;background:' + (blocked ? 'rgba(239,98,10,0.10)' : C.card) + ';'
+                    + 'border:1px solid ' + (blocked ? 'rgba(239,98,10,0.45)' : C.line) + ';border-radius:12px;padding:14px 16px;">'
+                    + '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+                    + '<div style="font:700 14px system-ui,Segoe UI,Arial;color:' + C.ink + ';">Free plan</div>'
+                    + '<div style="font:13px system-ui,Segoe UI,Arial;color:' + C.dim + ';">'
+                    + cr(freeUsed) + ' of ' + cr(freeLimit) + ' credits used'
+                    + ' <span style="opacity:.75;">(' + money(freeUsed / 100) + ' of ' + money(freeLimit / 100) + ')</span></div>'
+                    + '<div style="margin-left:auto;font:700 13px system-ui,Segoe UI,Arial;color:'
+                    + (blocked ? C.warm : C.accent) + ';">'
+                    + (blocked ? 'Allowance spent' : (cr(freeLeft) + ' left')) + '</div>'
+                    + '</div>'
+                    // The bar, because a fraction is easier to see than to read.
+                    + '<div style="margin-top:10px;height:8px;border-radius:999px;background:rgba(255,255,255,0.10);overflow:hidden;">'
+                    + '<div style="height:100%;width:' + Math.max(0, Math.min(100, Math.round((freeUsed / freeLimit) * 100))) + '%;'
+                    + 'background:' + (blocked ? '#e8620a' : C.accent) + ';"></div></div>'
+                    + '<div style="font:12px/1.5 system-ui,Segoe UI,Arial;color:' + C.dim + ';margin-top:9px;">'
+                    + (blocked
+                        ? 'AI-powered actions are paused until you subscribe. Everything you have made stays where it is.'
+                        : 'The free plan includes ' + money(freeLimit / 100) + ' of AI usage. Subscribing removes the limit.')
+                    + '</div></div>')
+                : '')
             + '<div style="display:flex;gap:12px;margin-top:18px;flex-wrap:wrap;">'
             + stat('Today', cr(today), actions ? (num(actions) + ' AI action' + (actions === 1 ? '' : 's')) : 'no AI actions yet')
             + stat('This month', cr(month), money(r.usd_month))

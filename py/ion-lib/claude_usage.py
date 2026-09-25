@@ -149,6 +149,75 @@ def credits_of(micro_usd):
         return 0.0
 
 
+# ---------------------------------------------------------------- the free allowance
+# WHAT A NON-SUBSCRIBER GETS BEFORE BEING ASKED TO PAY: ten dollars of model usage, which
+# is a thousand credits. Not per month -- a trial is a trial, and an allowance that refills
+# is a plan. A subscriber is never metered against it, and neither is a caller the server
+# could not identify: refusing work over an identity we do not have is the one failure mode
+# worse than letting a stranger through.
+FREE_CREDIT_LIMIT = 1000.0          # credits; 1000 credits = $10.00
+
+FREE_LIMIT_MESSAGE = (
+    "You have used the $10 of AI credits that come with the free plan. "
+    "Subscribe to keep going — everything you have made stays where it is."
+)
+
+
+def free_credit_limit():
+    try:
+        v = float(os.environ.get("FREE_CREDIT_LIMIT") or FREE_CREDIT_LIMIT)
+        return v if v > 0 else FREE_CREDIT_LIMIT
+    except Exception:
+        return FREE_CREDIT_LIMIT
+
+
+def _subscribed(email):
+    try:
+        from ion import works as _w
+        return bool(_w.has_active_subscription(email))
+    except Exception:
+        # A subscription check that cannot run must not turn a paying user away.
+        return True
+
+
+def allowance(email=None):
+    """Where this user stands against the free allowance.
+
+    {email, subscribed, used, limit, remaining, blocked}. `blocked` is the only field a
+    caller has to act on, and it is False for a subscriber, for an unidentified caller, and
+    whenever anything at all goes wrong -- the meter is not a gate it can fail closed on."""
+    em = caller_email(email)
+    out = {"email": em, "subscribed": False, "used": 0.0,
+           "limit": free_credit_limit(), "remaining": free_credit_limit(), "blocked": False}
+    if not em:
+        return out
+    try:
+        if _subscribed(em):
+            out["subscribed"] = True
+            return out
+        con = _conn()
+        if not con:
+            return out
+        micro = con.execute("SELECT COALESCE(SUM(micro_usd),0) FROM spend WHERE email=?",
+                            (em,)).fetchone()[0] or 0
+        con.close()
+        used = credits_of(micro)
+        out["used"] = used
+        out["remaining"] = round(max(0.0, out["limit"] - used), 2)
+        out["blocked"] = used >= out["limit"]
+    except Exception:
+        out["blocked"] = False
+    return out
+
+
+class FreeLimitReached(Exception):
+    """Raised in place of a Claude request once the free allowance is spent."""
+    def __init__(self, info=None):
+        Exception.__init__(self, FREE_LIMIT_MESSAGE)
+        self.info = info or {}
+        self.free_limit = True
+
+
 def normalize_email(e):
     return ("" + (e or "")).strip().lower()
 
@@ -299,8 +368,28 @@ def install_http_meter():
         if getattr(requests, "__baja_usage_metered", False):
             return True
 
+        def _anthropic_url(a, kw, bound):
+            try:
+                for cand in (a[1] if bound and len(a) > 1 else (a[0] if a else None), kw.get("url")):
+                    if isinstance(cand, str) and cand and "api.anthropic.com" in cand:
+                        return True
+            except Exception:
+                pass
+            return False
+
         def _wrap(fn, bound):
             def inner(*a, **kw):
+                # THE GATE SITS WHERE THE METER SITS, and for the same reason: two dozen tools
+                # post to the Messages API themselves, and a check written into each of them
+                # is a check somebody forgets. Refused BEFORE the request goes out, so a user
+                # who is out of credits is never charged for the call that tells them so.
+                if _anthropic_url(a, kw, bound):
+                    try:
+                        st = allowance()
+                    except Exception:
+                        st = None
+                    if st and st.get("blocked"):
+                        raise FreeLimitReached(st)
                 r = fn(*a, **kw)
                 try:
                     # A STREAMED RESPONSE IS NOT READ HERE. r.json() would pull the whole
@@ -448,7 +537,10 @@ def spend_report(email, days=30):
            # the measured figures on purpose -- see estimate_unmeasured.
            "credits_estimated": 0.0, "usd_estimated": 0.0,
            "actions_estimated": 0, "estimated_by_feature": [],
-           "credits_with_estimate": 0.0, "credits_estimated_weak": 0.0, "estimate_basis": ""}
+           "credits_with_estimate": 0.0, "credits_estimated_weak": 0.0, "estimate_basis": "",
+           # Where this user stands against the free allowance (see allowance()).
+           "free_limit": 0.0, "free_used": 0.0, "free_remaining": 0.0,
+           "subscribed": False, "blocked": False}
     try:
         if not out["email"]:
             return out
@@ -531,6 +623,15 @@ def spend_report(email, days=30):
         except Exception:
             pass
         con.close()
+        try:
+            a = allowance(em)
+            out["free_limit"] = a.get("limit") or 0.0
+            out["free_used"] = a.get("used") or 0.0
+            out["free_remaining"] = a.get("remaining") or 0.0
+            out["subscribed"] = bool(a.get("subscribed"))
+            out["blocked"] = bool(a.get("blocked"))
+        except Exception:
+            pass
     except Exception:
         pass
     return out
