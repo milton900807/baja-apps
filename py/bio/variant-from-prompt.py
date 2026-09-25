@@ -221,9 +221,10 @@ def ask(text, ctx, protein, extra=""):
         "classify the description and restate it in standard form. Reply with ONLY a JSON "
         "object, no prose:\n"
         "{\n"
-        '  "level": "protein" | "cdna" | "genomic" | "rsid" | "unknown",\n'
+        '  "level": "protein" | "cdna" | "noncoding" | "genomic" | "rsid" | "unknown",\n'
         '  "protein": {"ref": "K", "pos": 28, "alt": "M"},          // level protein: one-letter, HGVS numbering (Met = 1)\n'
         '  "cdna": {"pos": 83, "type": "sub"|"del"|"ins"|"dup", "ref": "A", "alt": "T", "end": 83, "seq": ""},  // level cdna: c. numbering, A of ATG = 1\n'
+        '  "noncoding": {"pos": 64, "type": "sub"|"del"|"ins"|"dup"|"delins", "ref": "G", "alt": "A", "end": 65, "seq": "T"},  // level noncoding: n. numbering, base 1 = the 5\' end of the transcript\n'
         '  "genomic": {"chr": "17", "pos": 7675088, "ref": "C", "alt": "T"},   // level genomic, GRCh38\n'
         '  "rsid": "rs...",\n'
         '  "hgvs_p": "p.Lys28Met", "hgvs_c": "c.83A>T",\n'
@@ -236,14 +237,29 @@ def ask(text, ctx, protein, extra=""):
         "residue is at the position you give; if it is at the neighbouring position because of "
         "such a convention, use that position. If the text is an rsID or genomic coordinates, "
         "return that level and leave the other fields empty. If it cannot be resolved for this "
-        "gene, level is \"unknown\" and explanation says why."
+        "gene, level is \"unknown\" and explanation says why.\n"
+        "n. NUMBERING IS THE TRANSCRIPT ITSELF, base 1 at its 5' end, and it is what a "
+        "non-coding transcript -- an snRNA, a lncRNA, a pseudogene -- is described in. Use "
+        "level \"noncoding\" for an n. change. For an insertion, HGVS names the two bases it "
+        "goes BETWEEN (n.64_65insT inserts T between bases 64 and 65), so pos is the first of "
+        "them. When the transcript below has no protein, protein and cDNA numbering do not "
+        "exist for it and \"noncoding\" is the only nucleotide level available."
     )
+    if protein:
+        body = ("Protein (HGVS numbering, Met = 1; %d residues):\n%s\n"
+                % (len(protein), protein))
+    else:
+        # NO PROTEIN, AND SAYING SO IS THE POINT. Handing over an empty protein sequence
+        # without a word invites a p. answer against nothing.
+        tx = re.sub(r"[^ACGTN]", "", str(ctx.get("txseq") or "").upper())
+        body = ("This transcript is NON-CODING: it has no protein and no CDS, so p. and c. "
+                "numbering do not apply to it. Its sequence in n. numbering (base 1 first, "
+                "%d nt):\n%s\n" % (len(tx), tx))
     user = (
-        "Gene / transcript: %s / %s (%s)\nStrand: %s   Chromosome: %s\n"
-        "Protein (HGVS numbering, Met = 1; %d residues):\n%s\n\n"
+        "Gene / transcript: %s / %s (%s)\nStrand: %s   Chromosome: %s\n%s\n"
         "Description from the user: %s"
         % (ctx.get("gene") or "?", ctx.get("transcript") or "?", ctx.get("description") or "",
-           ctx.get("strand"), ctx.get("chr"), len(protein), protein, text)
+           ctx.get("strand"), ctx.get("chr"), body, text)
     )
     # The user's own instructions, kept separate from the description and clearly labelled as
     # guidance rather than as the variant itself, so a sentence of context cannot be mistaken
@@ -474,6 +490,100 @@ def protein_edit(spec, cds, protein, histone_offset=0, user_text=""):
             "codon": codon, "new_codon": new_codon, "changes": n}, None
 
 
+# An explicit n. change needs nobody's opinion: "n.64_65insT" says which bases and where.
+NONCODING_RE = re.compile(
+    r"\bn\.\s*(\d+)(?:_(\d+))?\s*"
+    r"(?:([ACGT])\s*>\s*([ACGT])|(del)([ACGT]*)(?:ins([ACGT]+))?|(ins)([ACGT]+)|(dup)([ACGT]*))",
+    re.I)
+
+
+def noncoding_from_text(text):
+    """An n. change written out in the description, read off it. Returns a spec or None.
+
+    The same reason the RefSeq accession is not put to a model: "n.64_65insT" is already the
+    answer. Asking for it back invites a different one."""
+    m = NONCODING_RE.search(str(text or ""))
+    if not m:
+        return None
+    pos = int(m.group(1))
+    end = int(m.group(2) or pos)
+    if m.group(3):
+        return {"pos": pos, "end": pos, "type": "sub",
+                "ref": m.group(3).upper(), "alt": m.group(4).upper()}
+    if m.group(5):
+        ins = (m.group(7) or "").upper()
+        if ins:
+            return {"pos": pos, "end": end, "type": "delins", "seq": ins}
+        return {"pos": pos, "end": end, "type": "del"}
+    if m.group(8):
+        # HGVS insertion: "n.64_65insT" names the two bases it goes BETWEEN, so the anchor is
+        # the first of them and `end` is not a span.
+        return {"pos": pos, "end": end, "type": "ins", "seq": m.group(9).upper()}
+    if m.group(10):
+        return {"pos": pos, "end": end, "type": "dup", "seq": (m.group(11) or "").upper()}
+    return None
+
+
+def noncoding_edit(spec, tx):
+    """The same arithmetic as cdna_edit, on the TRANSCRIPT rather than the coding sequence.
+
+    A non-coding transcript -- an snRNA, a lncRNA, a pseudogene -- has no CDS and no protein,
+    so c. and p. mean nothing on it and everything was refused. n. numbering is simply the
+    spliced transcript, base 1 at its 5' end, which every transcript has. Offsets come back
+    as tx_offset, 0-based into that sequence, in TRANSCRIPT orientation."""
+    try:
+        pos = int(spec.get("pos"))
+    except Exception:
+        return None, "no transcript position in the description"
+    kind = str(spec.get("type") or "sub").lower()
+    if not (1 <= pos <= len(tx)):
+        return None, "n.%d is outside this transcript (%d nt)" % (pos, len(tx))
+    end = int(spec.get("end") or pos)
+    if kind == "sub":
+        ref = str(spec.get("ref") or "").upper()
+        alt = str(spec.get("alt") or "").upper()
+        if not alt:
+            return None, "no alternate base"
+        have = tx[pos - 1: pos - 1 + max(1, len(ref))]
+        if ref and have != ref:
+            return None, "n.%d is %s in this transcript, not %s" % (pos, have, ref)
+        lab = "n.%d%s>%s" % (pos, have, alt)
+        return {"edits": [{"tx_offset": pos - 1, "ref": have, "alt": alt, "type": "snp",
+                           "label": lab}], "hgvs_c": lab}, None
+    if kind in ("del", "delins"):
+        if not (1 <= end <= len(tx)) or end < pos:
+            return None, "n.%d_%d is not a range on this transcript" % (pos, end)
+        if pos < 2:
+            return None, "a deletion at n.1 has no anchor base"
+        deleted = tx[pos - 1: end]
+        anchor = tx[pos - 2]
+        ins = str(spec.get("seq") or "").upper() if kind == "delins" else ""
+        span = ("n.%d_%ddel" % (pos, end)) if end > pos else ("n.%ddel" % pos)
+        lab = (span + "ins" + ins) if ins else span
+        return {"edits": [{"tx_offset": pos - 2, "ref": anchor + deleted, "alt": anchor + ins,
+                           "type": ("delins" if ins else "del"), "label": lab}],
+                "hgvs_c": lab}, None
+    if kind in ("ins", "dup"):
+        seq = str(spec.get("seq") or "").upper()
+        if kind == "dup":
+            if not (1 <= end <= len(tx)) or end < pos:
+                return None, "n.%d_%d is not a range on this transcript" % (pos, end)
+            seq = tx[pos - 1: end]
+            anchor_off = end - 1
+            lab = ("n.%d_%ddup" % (pos, end)) if end > pos else ("n.%ddup" % pos)
+        else:
+            anchor_off = pos - 1          # HGVS ins: between pos and pos+1
+            lab = "n.%d_%dins%s" % (pos, pos + 1, seq)
+            if anchor_off + 1 >= len(tx):
+                return None, "n.%d_%d has no base after it on this transcript" % (pos, pos + 1)
+        if not seq:
+            return None, "no inserted sequence"
+        anchor = tx[anchor_off]
+        return {"edits": [{"tx_offset": anchor_off, "ref": anchor, "alt": anchor + seq,
+                           "type": "ins", "label": lab}], "hgvs_c": lab}, None
+    return None, "unsupported non-coding change type: %s" % kind
+
+
 def cdna_edit(spec, cds):
     try:
         pos = int(spec.get("pos"))
@@ -535,20 +645,35 @@ if mode == "verify":
     except Exception:
         given = []
 cds = re.sub(r"[^ACGTN]", "", str(ctx.get("cds") or "").upper())
+# THE TRANSCRIPT, whether or not it codes for anything. An snRNA, a lncRNA or a pseudogene
+# has no CDS and no protein, and every variant on one is written in n. numbering -- which is
+# just this sequence, base 1 at the 5' end.
+txseq = re.sub(r"[^ACGTN]", "", str(ctx.get("txseq") or "").upper())
+noncoding_track = len(cds) < 3
 out = {"ok": False, "level": None, "edits": [], "hgvs_p": None, "hgvs_c": None,
        "protein_len": 0, "note": "", "explanation": "", "model": ANTHROPIC_MODEL,
        "instructions": extra, "error": None, "vague": False, "cohort": False,
-       "rejected": []}
+       "noncoding": noncoding_track, "rejected": []}
+protein = ""
 
 if not text:
     out["error"] = "no description given"
-elif len(cds) < 3:
-    out["error"] = "this track has no coding sequence (no ORF); load a transcript with a CDS"
+elif noncoding_track and len(txseq) < 2:
+    out["error"] = ("this track has neither a coding sequence nor a transcript sequence to "
+                    "place a change on")
+elif noncoding_track:
+    out["level"] = "noncoding"
 else:
     protein = translate(cds)
     out["protein_len"] = len(protein.rstrip("*"))
 
-if mode in ("cohort", "verify") and not out["error"]:
+if mode in ("cohort", "verify") and not out["error"] and noncoding_track:
+    # Both of those ask which PROTEIN changes a context means. A transcript with no protein
+    # has none, and saying that is better than enumerating variants it cannot carry.
+    out["error"] = ("%s is non-coding, so a set of protein variants cannot be placed on it; "
+                    "describe the change in n. numbering instead"
+                    % (ctx.get("gene") or "this transcript"))
+elif mode in ("cohort", "verify") and not out["error"]:
     # The other question: not "which change is this" but "which changes does this context
     # mean". Each one still has to survive protein_edit against this transcript.
     out["cohort"] = True
@@ -645,6 +770,43 @@ if mode in ("cohort", "verify") and not out["error"]:
             out["error"] = ("no variant could be placed for \"%s\"%s"
                             % (text, ("; " + "; ".join("%s: %s" % (r["label"], r["why"])
                                                        for r in rejected[:3])) if rejected else ""))
+elif not out["error"] and noncoding_track:
+    # WRITTEN OUT IS ANSWERED WITHOUT ASKING. "n.64_65insT" already names the bases and the
+    # position; a model can only agree with it or, worse, not.
+    spec = noncoding_from_text(text)
+    if spec:
+        out["explanation"] = "read directly from the n. notation in the description"
+        res, err = noncoding_edit(spec, txseq)
+    else:
+        works.msg("Reading the description…")
+        got, err = ask(text, ctx, "", extra)
+        if err:
+            res = None
+        else:
+            lvl = str(got.get("level") or "unknown").lower()
+            out["explanation"] = str(got.get("explanation") or "")
+            if lvl in ("genomic", "rsid"):
+                out["level"] = lvl
+                out["genomic"] = got.get("genomic")
+                out["rsid"] = got.get("rsid")
+                out["ok"] = True
+                res, err = None, None
+            elif lvl in ("noncoding", "cdna"):
+                # c. on a non-coding transcript is the model reaching for the numbering it
+                # knows; the positions it gives are transcript positions either way.
+                res, err = noncoding_edit(got.get("noncoding") or got.get("cdna") or {}, txseq)
+            else:
+                res, err = None, (VAGUE + (out["explanation"]
+                                           or "no change on this transcript was named"))
+    if err:
+        if err.startswith(VAGUE):
+            err = err[len(VAGUE):]
+            out["vague"] = True
+        out["error"] = err
+    elif res:
+        out.update({k: v for k, v in res.items() if v is not None})
+        out["level"] = "noncoding"
+        out["ok"] = True
 elif not out["error"]:
     protein = translate(cds)
     works.msg("Reading the description…")
