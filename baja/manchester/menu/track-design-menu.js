@@ -1747,19 +1747,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             },
         ];
 
-        // Preset modality (e.g. from the tile-oligos entry): skip the Design menu and open that
-        // therapeutic designer directly — its own Default/Advanced dialog + py design run from here.
-        if (presetModality) {
-            const __k = ('' + presetModality).toLowerCase();
-            const __idx = (__k.indexOf('sirna') >= 0 || __k.indexOf('si-rna') >= 0) ? 0
-                : (__k.indexOf('gap') >= 0 ? 1
-                    : (__k.indexOf('steric') >= 0 ? 2 : -1));
-            if (__idx >= 0 && therapeutics[__idx] && typeof therapeutics[__idx].click === 'function') {
-                try { await therapeutics[__idx].click(); } catch (e) { }
-                return;
-            }
-        }
-
         // Off-target count for an oligo — matches the on-canvas badge: distinct off-target
         // GENES, else the offtargetsymbols count, else the raw Levenshtein hit count.
         // Hoisted out of the menu item that used to wrap it, so the Design library can use it.
@@ -2618,6 +2605,33 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 open: () => exec('manchester/clinical-library.js', graph, genegraph_panel_layout)
             }
         ];
+
+        // PRESET MODALITY (the tile-oligos entry, and anything else that names one): skip the
+        // Design library and open that therapeutic designer directly -- its own
+        // Default/Advanced dialog, then the python run, from here.
+        //
+        // THIS RUNS AT THE END, not beside the therapeutics array where it used to. The click
+        // handlers close over helpers declared further down this function -- __wholeTrackSequence
+        // is one, and it is the first thing the gapmer and steric handlers call after their
+        // dialog -- so dispatching before those declarations put every one of them in the
+        // temporal dead zone. The handler threw on the line after the dialog closed, the throw
+        // was swallowed by the catch here, and the design silently did nothing: dialog, Run
+        // design, no compounds, no error. Nothing is dispatched until the body has finished.
+        if (presetModality) {
+            const __k = ('' + presetModality).toLowerCase();
+            const __idx = (__k.indexOf('sirna') >= 0 || __k.indexOf('si-rna') >= 0) ? 0
+                : (__k.indexOf('gap') >= 0 ? 1
+                    : (__k.indexOf('steric') >= 0 ? 2 : -1));
+            if (__idx >= 0 && therapeutics[__idx] && typeof therapeutics[__idx].click === 'function') {
+                // Reported rather than swallowed: a designer that fails should say so.
+                try { await therapeutics[__idx].click(); }
+                catch (e) {
+                    console.warn('[design] ' + __k + ' designer failed', e);
+                    try { graph.setMessage(' The ' + __k + ' designer could not run: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                }
+                return;
+            }
+        }
 
         await exec('baja/lib/shelf.js', {
             id: 'baja-design-library',
