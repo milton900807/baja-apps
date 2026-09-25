@@ -22,6 +22,7 @@ This module lives in py/ion-lib (already on the spawned scripts' PYTHONPATH), so
 claude_usage` works from any tool without extra setup.
 """
 import datetime
+import json
 import os
 import re
 import sqlite3
@@ -210,6 +211,50 @@ def allowance(email=None):
     return out
 
 
+def _gate_path():
+    bd = os.environ.get("BIGDATA") or ""
+    return os.path.join(bd, "credit-gate.json") if bd else None
+
+
+def publish_gate():
+    """Write what the SERVER needs to refuse a call before it spawns anything.
+
+    The /py route answers the moment it has started a script -- the output is streamed to a
+    file and polled -- so a 402 has to be decided before the spawn, and node has no way to
+    read this sqlite. So the three facts it needs are published beside it as plain JSON:
+    what each user has spent, what the allowance is, and WHICH SCRIPTS SPEND IT.
+
+    That last one maintains itself. Every spend row is labelled with the script that made the
+    call, so the set of Claude-powered tools is not a list anybody has to keep up to date --
+    it is the set of scripts that have ever billed a token. A tool nobody has run yet is not
+    gated, which is the right way round: it has not cost anyone anything.
+
+    Best-effort and never raises; a missing file means the server lets everything through."""
+    path = _gate_path()
+    if not path:
+        return False
+    try:
+        con = _conn()
+        if not con:
+            return False
+        balances = {}
+        for em, micro in con.execute("SELECT email, SUM(micro_usd) FROM spend GROUP BY email"):
+            if em:
+                balances[em] = credits_of(micro)
+        scripts = sorted({str(f).split(":", 1)[0] for (f,) in
+                          con.execute("SELECT DISTINCT feature FROM spend") if f})
+        con.close()
+        body = {"limit": free_credit_limit(), "balances": balances,
+                "ai_scripts": scripts, "written": datetime.datetime.now().isoformat(timespec="seconds")}
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(body, fh)
+        os.replace(tmp, path)          # so a reader never sees half a file
+        return True
+    except Exception:
+        return False
+
+
 class FreeLimitReached(Exception):
     """Raised in place of a Claude request once the free allowance is spent."""
     def __init__(self, info=None):
@@ -300,6 +345,12 @@ def record(feature="claude", model="", input_tokens=0, output_tokens=0,
                 (em, d, f, m, it, ot, cw, cr, micro, it, ot, cw, cr, micro),
             )
         con.close()
+        # Keep the server's copy in step. It is a small file and this is the only place the
+        # numbers in it change.
+        try:
+            publish_gate()
+        except Exception:
+            pass
         return micro
     except Exception:
         return 0
