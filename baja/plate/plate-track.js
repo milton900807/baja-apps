@@ -4414,6 +4414,9 @@ function (progress) {
                 if (fs.glyphs) {
                     for (let g of fs.glyphs) {
                         let gg = Glyph.buildFromJSON(g);
+                        // The stacking stamp is not part of a glyph's own shape data, so it is
+                        // carried across by hand rather than lost on every reload.
+                        if (gg && g && typeof g.zorder === 'number') gg.zorder = g.zorder;
                         if (gg) this.glyphs.push(gg);
                     }
                 }
@@ -4451,6 +4454,7 @@ function (progress) {
                     this.__collab.release(this.selectedPlate);
                 }
                 this.selectedPlate = __selected;
+                try { this.raiseToFront(__selected); } catch (e) { }
                 // Maximized view follows the selection: choosing another table, timeline or
                 // chart (from the object list, a menu or the search) maximizes that one.
                 if (this.__maximized && __selected && __selected !== this.__maximized) {
@@ -6459,6 +6463,7 @@ function (progress) {
                     });
                 }
                 this.activePlot = plot;
+                try { this.raiseToFront(plot); } catch (e) { }
                 if (this.__maximized && plot && plot !== this.__maximized) {
                     if (this.__objectOnly) { this.activePlot = null; return; }
                     try { this.maximizeObject(plot); } catch (e) { }
@@ -6527,6 +6532,7 @@ function (progress) {
                 this.clearActionGlyphs();
                 selected_glyphs = []
                 selected_glyphs.push(glyph)
+                try { this.raiseToFront(glyph); } catch (e) { }
                 try {
                     let hd = {
                         selected_glyphs: selected_glyphs,
@@ -8338,6 +8344,7 @@ function (progress) {
 
                 if (this.wbid === null || !this.wbid.startsWith('glyph')) {
                     let gfs = this.getGlyph(x, y)
+                    if (gfs && !this.__glyphOnTop(gfs, x, y)) gfs = null;
                     if (gfs) {
                         const alreadySelected =
                             Array.isArray(selected_glyphs) &&
@@ -8828,6 +8835,7 @@ function (progress) {
                 } else {
                     if (this.wbid === null || !this.wbid.startsWith('glyph')) {
                         let gfs = this.getGlyph(x, y)
+                        if (gfs && !this.__glyphOnTop(gfs, x, y)) gfs = null;
                         if (gfs) {
                             // PRESS AND DRAG, LIKE A FOLDER CARD. Selecting a drawing used
                             // to put a menu under the pointer and arm the move 100 ms later,
@@ -8878,13 +8886,12 @@ function (progress) {
             }
 
             getGlyph(x, y) {
-                for (let i = this.glyphs.length - 1; i >= 0; i--) {
-                    const glyph = this.glyphs[i];
-                    if (isInGlyph(x, y, glyph, this.grid)) {
-                        return glyph;
-                    }
+                let best = null;
+                for (const glyph of (this.glyphs || [])) {
+                    if (!glyph || !isInGlyph(x, y, glyph, this.grid)) continue;
+                    if (!best || this.__zOf(glyph) >= this.__zOf(best)) best = glyph;
                 }
-                return null;
+                return best;
             }
 
             saveLJLBookmark(name, value) {
@@ -11975,13 +11982,88 @@ function (progress) {
                     return { x0, y0, x1, y1 };
                 } catch (e) { return null; }
             }
+            // STACKING ORDER. Everything on the canvas carries a zorder -- a plain name, so
+            // it survives a save -- and whatever was touched last has the highest one. The
+            // number only has to be bigger than the rest, so it is read off the canvas each
+            // time rather than kept in a counter that a load would have to restore.
+            __zOf(o) {
+                const z = o && o.zorder;
+                return (typeof z === 'number' && Number.isFinite(z)) ? z : 0;
+            }
+            // A drawing under the pointer only counts when nothing stacked ABOVE it is there
+            // too -- otherwise a press on a raised table that happens to overlap a drawing is
+            // taken by the drawing, which is behind it.
+            __glyphOnTop(gfs, x, y) {
+                if (!gfs) return false;
+                try { const t = this.objectAt(x, y); return !t || t.obj === gfs; } catch (e) { return true; }
+            }
+            // A plot counts its MARGINS as part of itself -- its inside() answers yes for a
+            // strip below the axis as well -- so two objects can both claim a point that is
+            // plainly inside only one of them. This says whether the point is within the
+            // object's drawn box, and breaks that tie.
+            __tightHit(o, sx, sy) {
+                try {
+                    const b = this.__hitBox(o);
+                    if (!b) return false;
+                    return sx >= b.x0 && sx <= b.x1 && sy >= b.y0 && sy <= b.y1;
+                } catch (e) { return false; }
+            }
+            // Which of two objects under the same point is the upper one: the stamp first,
+            // then the one actually drawn there, then the one added later.
+            __upperOf(a, b, sx, sy) {
+                if (!a) return b;
+                if (!b) return a;
+                const az = this.__zOf(a), bz = this.__zOf(b);
+                if (az !== bz) return az > bz ? a : b;
+                const at = this.__tightHit(a, sx, sy), bt = this.__tightHit(b, sx, sy);
+                if (at !== bt) return at ? a : b;
+                return b;
+            }
+            __zNext() {
+                let top = 0;
+                for (const list of [this.root, this.m_plots, this.glyphs]) {
+                    if (!Array.isArray(list)) continue;
+                    for (const o of list) { const z = this.__zOf(o); if (z > top) top = z; }
+                }
+                return top + 1;
+            }
+            // Bring an object to the front. ONLY THE STAMP MOVES. The lists themselves keep
+            // the order things were added in, because the tetris layout and the object list
+            // read that order -- selecting a table must not quietly send it to the back of
+            // the next layout. Everything that cares about what is on top reads the stamp.
+            raiseToFront(obj) {
+                if (!obj) return false;
+                try {
+                    const z = this.__zNext();
+                    if (this.__zOf(obj) > 0 && this.__zOf(obj) >= z - 1) return true;   // already on top
+                    obj.zorder = z;
+                } catch (e) { return false; }
+                return true;
+            }
+            // Bottom first. A BACKGROUND object stays behind whatever it is a backdrop for;
+            // among the rest, the stamp wins, and objects that have never been touched keep
+            // the order they were added in (the sort is stable, and they all read as 0).
+            __zSort(list) {
+                try {
+                    return list.map((o, i) => ({ o, i }))
+                        .sort((a, b) => {
+                            const ab = a.o && a.o.isBackground ? 0 : 1;
+                            const bb = b.o && b.o.isBackground ? 0 : 1;
+                            if (ab !== bb) return ab - bb;
+                            const az = this.__zOf(a.o), bz = this.__zOf(b.o);
+                            if (az !== bz) return az - bz;
+                            return a.i - b.i;
+                        })
+                        .map(e => e.o);
+                } catch (e) { return list; }
+            }
             // Draw order, bottom first -- the same order the frame uses, including the
             // selected object being lifted to the end (drawn last, so drawn on top).
             __drawOrder() {
                 const list = [...(this.root || []), ...(this.m_plots || [])].filter(Boolean);
                 const i = list.indexOf(this.selectedPlate);
                 if (i >= 0) { list.splice(i, 1); list.push(this.selectedPlate); }
-                return list;
+                return this.__zSort(list);
             }
             __topAt(x, y) {
                 try {
@@ -12017,14 +12099,26 @@ function (progress) {
             }
 
             // The topmost object under a screen point: a note, a chart or timeline, or a table.
+            // TOPMOST MEANS TOPMOST. A drawing used to win over a chart and a chart over a
+            // table whatever the stacking said, so the thing the pointer was plainly over was
+            // not always the thing that answered. Every candidate is collected and the one
+            // drawn last wins; the old precedence only settles a tie.
             objectAt(x, y) {
-                try { const g = this.getGlyph(x, y); if (g) return { obj: g, kind: 'glyph' }; } catch (e) { }
-                for (let i = (this.m_plots || []).length - 1; i >= 0; i--) {
-                    const p = this.m_plots[i];
-                    try { if (p && p.inside && p.inside(this.grid, x, y)) return { obj: p, kind: 'plot' }; } catch (e) { }
+                const cands = [];
+                try { const g = this.getGlyph(x, y); if (g) cands.push({ obj: g, kind: 'glyph', rank: 2 }); } catch (e) { }
+                try { const pp = this.getPlot(x, y); if (pp) cands.push({ obj: pp, kind: 'plot', rank: 1 }); } catch (e) { }
+                try { const pl = this.getPlate(this.grid.Xwc(x), this.grid.Ywc(y)); if (pl) cands.push({ obj: pl, kind: 'plate', rank: 0 }); } catch (e) { }
+                if (!cands.length) return null;
+                let best = cands[0];
+                for (const c of cands) {
+                    if (c === best) continue;
+                    const cz = this.__zOf(c.obj), bz = this.__zOf(best.obj);
+                    if (cz !== bz) { if (cz > bz) best = c; continue; }
+                    const ct = this.__tightHit(c.obj, x, y), bt = this.__tightHit(best.obj, x, y);
+                    if (ct !== bt) { if (ct) best = c; continue; }
+                    if (c.rank > best.rank) best = c;
                 }
-                try { const pl = this.getPlate(this.grid.Xwc(x), this.grid.Ywc(y)); if (pl) return { obj: pl, kind: 'plate' }; } catch (e) { }
-                return null;
+                return { obj: best.obj, kind: best.kind };
             }
             // Mobile: a tap on an object opens it maximized for editing (a finger has no room
             // for the desktop's drag, resize and hover). Returns true when it did so; while an
@@ -20129,18 +20223,17 @@ function (progress) {
 
             }
             getPlot(scx, scy) {
-                for (let i = this.m_plots.length - 1; i >= 0; i--) {
-                    let p = this.m_plots[i];
-                    if (p._highlight === true && p.inside(this.grid, scx, scy, this)) {
-                        return p;
+                // Highlighted first as before, then by the stacking stamp: the one drawn on
+                // top is the one the pointer is on.
+                for (const pass of [true, false]) {
+                    let best = null;
+                    for (const p of (this.m_plots || [])) {
+                        if (!p) continue;
+                        if (pass && p._highlight !== true) continue;
+                        try { if (!p.inside(this.grid, scx, scy, this)) continue; } catch (e) { continue; }
+                        best = this.__upperOf(best, p, scx, scy);
                     }
-                }
-
-                for (let i = this.m_plots.length - 1; i >= 0; i--) {
-                    let p = this.m_plots[i];
-                    if (p.inside(this.grid, scx, scy, this)) {
-                        return p;
-                    }
+                    if (best) return best;
                 }
                 return null;
             }
@@ -24082,33 +24175,38 @@ function (progress) {
 
             getPlate(wx, wy) {
 
-                for (let i = this.glyphs.length - 1; i >= 0; i--) {
-                    const glyph = this.glyphs[i];
-                    if (glyph.inside && glyph.inside(this.grid, wx, wy, true)) {
-                        return glyph;
+                // A drawing answers first only among drawings, and only if nothing stacked
+                // above it is under the point as well.
+                {
+                    let top = null;
+                    for (const glyph of (this.glyphs || [])) {
+                        if (glyph && glyph.inside && glyph.inside(this.grid, wx, wy, true)) {
+                            if (!top || this.__zOf(glyph) >= this.__zOf(top)) top = glyph;
+                        }
+                    }
+                    if (top) {
+                        let over = false;
+                        for (const o of [...(this.root || []), ...(this.m_plots || [])]) {
+                            if (!o || o.hidden || this.__zOf(o) <= this.__zOf(top)) continue;
+                            try { if (o.inside && o.inside(this.grid, wx, wy, true)) { over = true; break; } } catch (e) { }
+                        }
+                        if (!over) return top;
                     }
                 }
 
-                const allObjects = [
+                const allObjects = this.__zSort([
                     ...this.root.slice().reverse(),
                     ...this.m_plots,
                     this.selectedPlate,
-                ].filter(obj => obj);
+                ].filter(obj => obj));
 
-                allObjects.sort((a, b) => {
-                    const aBg = a.isBackground ? 0 : 1;
-                    const bBg = b.isBackground ? 0 : 1;
-                    return aBg - bBg;
-                });
-
-                for (let i = allObjects.length - 1; i >= 0; i--) {
-                    const obj = allObjects[i];
-                    if (obj.inside && obj.inside(this.grid, wx, wy, true)) {
-                        return obj;
-                    }
+                const __sx = this.grid.X(wx), __sy = this.grid.Y(wy);
+                let best = null;
+                for (const obj of allObjects) {
+                    try { if (!(obj.inside && obj.inside(this.grid, wx, wy, true))) continue; } catch (e) { continue; }
+                    best = this.__upperOf(best, obj, __sx, __sy);
                 }
-
-                return null;
+                return best;
             }
 
             getSelectedWells() {
@@ -26589,7 +26687,11 @@ function (progress) {
                         return aBg - bBg;
                     });
 
-                    let allObjects = [...nonGlyphObjects, ...glyphObjects];
+                    // THE STAMP HAS THE LAST WORD. Tables and plots were drawn in two fixed
+                    // groups and drawings after both, so a chart clicked while it sat under a
+                    // timeline stayed under it -- the timeline's top edge could not be reached.
+                    // Selecting anything now raises it, and the frame follows that order.
+                    let allObjects = this.__zSort([...nonGlyphObjects, ...glyphObjects]);
                     // A single-object share, before (and after) it is pinned: only that object
                     // exists on this canvas. Everything else is filtered out of the frame, with
                     // a navy backdrop so the empty canvas does not read as a broken document.

@@ -4050,6 +4050,7 @@ function (MGrid) {
                     if (data.showBudget !== undefined) plot.showBudget = data.showBudget !== false;
                     if (data.showNowBar !== undefined) plot.showNowBar = data.showNowBar !== false;
                     plot.isBackground = data.isBackground;
+                    if (typeof data.zorder === 'number') plot.zorder = data.zorder;
                     plot.x = data.x;
                     plot.y = data.y;
                     plot.backgroundColor = data.backgroundColor;
@@ -13085,6 +13086,7 @@ function (MGrid) {
                     startDate: this.startDate,
                     endDate: this.endDate,
                     isBackground: this.isBackground,
+                    zorder: this.zorder,        // where it sits in the stack, so a reload keeps it
                     maximize: this.maximize,
                     // Saved with the timeline, or the choice is made again every time it opens.
                     fillScreenWhenZoomed: this.fillScreenWhenZoomed === true,

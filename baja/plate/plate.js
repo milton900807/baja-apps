@@ -13121,6 +13121,7 @@ function () {
                     name: this.name,
                     selected: this.selected,
                     hidden: this.hidden,
+                    zorder: this.zorder,        // where it sits in the stack, so a reload keeps it
                     parent_reference: this.parent_reference,
 
                     visible_cell_aspect_ratio_max: this.visible_cell_aspect_ratio_max,
