@@ -569,6 +569,9 @@ def parse_request(payload: Any) -> Dict[str, Any]:
                 "antisense": "",
             },
             "weights": {},
+            # A bare sequence is the rule-based design, as it has always been.
+            "design_mode": "rules",
+            "tile_step": 0,
         }
 
     if isinstance(payload, dict):
@@ -599,9 +602,55 @@ def parse_request(payload: Any) -> Dict[str, Any]:
                 "antisense": str(overhangs.get("antisense", "")),
             },
             "weights": weights,
+            # HOW THE ANSWER IS CHOSEN, which is a different question from how it is scored.
+            #   "rules" returns the best duplexes by score, wherever on the target they are.
+            #   "tile"  walks the TARGET and returns one at every step along it, scored the
+            #           same way -- a walk rather than a shortlist.
+            # This designer has no non-overlapping pass, so its ranked answer can be the same
+            # site at a dozen offsets; a walk is the other way of asking, and the one to ask
+            # when the question is what the whole transcript does rather than which duplex to
+            # order.
+            "design_mode": ("tile" if str(payload.get("design_mode", "rules")).lower().startswith("til")
+                            else "rules"),
+            # The increment, in bases. 0 means END TO END: each duplex starts where the last
+            # one finished, so the target is covered once with no overlap and no gap.
+            "tile_step": max(0, int(payload.get("tile_step", 0))),
         }
 
     raise ValueError("Input must be either a sequence string or a JSON object.")
+
+
+def select_tiled(candidates: List[Candidate], step: int, top_n: int = 0) -> List[Candidate]:
+    """A WALK ACROSS THE TARGET: the best duplex starting at each step along it.
+
+    Every start is still generated and scored exactly as it is for a ranked design -- this
+    changes only which of them come back. At each position the best of that start's lengths
+    is kept, so a tile is the best duplex that begins there, not an arbitrary one.
+
+    `step` is the increment in bases; 0 means end to end, where the next duplex starts one
+    base after the last one finishes. The step is measured from the tile ACTUALLY TAKEN, so a
+    position with no candidate moves the next one along instead of dropping it."""
+    best_at: Dict[int, Candidate] = {}
+    for cand in candidates:
+        cur = best_at.get(cand.start)
+        if cur is None or cand.score > cur.score:
+            best_at[cand.start] = cand
+    if not best_at:
+        return []
+    starts = sorted(best_at)
+    selected: List[Candidate] = []
+    want = starts[0]
+    for st in starts:
+        if st < want:
+            continue
+        cand = best_at[st]
+        selected.append(cand)
+        want = (cand.end + 1) if step <= 0 else (st + step)
+        if top_n and len(selected) >= top_n:
+            break
+    for idx, candidate in enumerate(selected, start=1):
+        candidate.rank = idx
+    return selected
 
 
 def design_sirna_sites(payload: Any) -> Dict[str, Any]:
@@ -609,6 +658,8 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
 
     raw_sequence = request["sequence"]
     top_n = request["top_n"]
+    design_mode = request["design_mode"]
+    tile_step = request["tile_step"]
     lengths = request["lengths"]
     output_alphabet = request["output_alphabet"]
     strand = request["strand"]
@@ -662,11 +713,25 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
         "Scored %d candidate duplex%s"
         % (len(all_candidates), "" if len(all_candidates) == 1 else "es")
     )
-    # Said plainly, because it is the one place this designer differs from the ASO designers:
-    # there is no non-overlapping pass here, so the top N can sit on top of each other.
-    works.msg("Taking the best %d by score, overlaps allowed" % top_n)
-
-    top_candidates = all_candidates[:top_n]
+    if design_mode == "tile":
+        # A WALK, NOT A SHORTLIST. The ranking decides which length is kept at each step, not
+        # which steps are in the answer, so the result covers the target evenly. It is the
+        # answer to a different question from the one below, and on this designer especially:
+        # with no non-overlapping pass, a ranked top N can be one good site at a dozen offsets.
+        works.msg(
+            "Tiling the target %s"
+            % ("end to end" if tile_step <= 0 else "every %d base%s" % (tile_step, "" if tile_step == 1 else "s"))
+        )
+        top_candidates = select_tiled(all_candidates, step=tile_step, top_n=top_n)
+        works.msg(
+            "%d tile%s across %d nt"
+            % (len(top_candidates), "" if len(top_candidates) == 1 else "s", len(normalized_rna))
+        )
+    else:
+        # Said plainly, because it is the one place this designer differs from the ASO designers:
+        # there is no non-overlapping pass here, so the top N can sit on top of each other.
+        works.msg("Taking the best %d by score, overlaps allowed" % top_n)
+        top_candidates = all_candidates[:top_n]
 
     works.progress(90)
     works.msg("Top candidates: %d" % len(top_candidates))
@@ -683,6 +748,10 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
             "strand = -1 uses antisense core = complement(target)."
         ),
         "top_n": top_n,
+        "selection_mode": ("tiled_across_target" if design_mode == "tile"
+                           else "global_top_n_overlaps_allowed"),
+        "design_mode": design_mode,
+        "tile_step": (tile_step if design_mode == "tile" else None),
         "lengths_scanned": list(lengths),
         "output_alphabet": output_alphabet,
         "overhangs": {

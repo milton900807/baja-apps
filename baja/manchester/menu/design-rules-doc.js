@@ -151,7 +151,13 @@ function (kind, strategy) {
 
     return H('What runs')
         + P('<b>py_sirna_design</b> — an siRNA duplex designer. It slides across the whole '
-            + 'sequence, scores every candidate window, and ranks them.')
+            + 'sequence, scores every candidate window, and '
+            + (('' + (strategy || 'rules')).toLowerCase() === 'tile'
+                ? 'returns the best one starting at each step along the target, in order along '
+                    + 'it. The scores come with them; they are not what decides which sites are '
+                    + 'in the answer.'
+                : 'ranks them. There is no non-overlapping pass, so the top of that ranking can '
+                    + 'be one site at several offsets.'))
         + H('The candidate space')
         + UL([
             'Duplex cores of <b>21, 22, 23</b> nt',
