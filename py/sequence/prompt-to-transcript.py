@@ -348,15 +348,86 @@ def genes_db_path():
     return ""
 
 
+ENS_SPECIES = {"human": "homo_sapiens", "mouse": "mus_musculus", "rat": "rattus_norvegicus",
+               "dog": "canis_lupus_familiaris", "yeast": "saccharomyces_cerevisiae",
+               "cynomolgus monkey": "macaca_fascicularis", "rhesus macaque": "macaca_mulatta"}
+
+
+def ens_species(species):
+    return ENS_SPECIES.get(str(species or "").lower(), "homo_sapiens")
+
+
+# RefSeq: NM_ (coding), NR_ (non-coding), XM_/XR_ (predicted), version optional.
+REFSEQ_RE = re.compile(r"^(?:N|X)[MR]_\d+(?:\.\d+)?$", re.I)
+
+
+def refseq_lookup(acc, species="human"):
+    """A RefSeq accession -> the Ensembl transcript it names, BY LOOKUP.
+
+    "NR_003137.2" is a fact, not a question: Ensembl holds the cross-reference and will say
+    which transcript it is. It used to go to the model with everything else, which answered
+    with CDKN1A -- a real transcript of an unrelated gene -- so a paste quoting a RefSeq id
+    loaded the wrong thing or nothing at all. The version suffix is dropped: the xref is on
+    the accession, and NR_003137.2 returns nothing while NR_003137 returns the transcript."""
+    if not requests or not acc:
+        return []
+    sp = ens_species(species)
+    bare = re.sub(r"\.\d+$", "", str(acc).strip())
+    hdr = {"Accept": "application/json"}
+    try:
+        x = requests.get("https://rest.ensembl.org/xrefs/symbol/%s/%s" % (sp, bare),
+                         headers=hdr, timeout=25)
+        if x.status_code != 200:
+            return []
+        rows = x.json() or []
+    except Exception:
+        return []
+    tids, gids = [], []
+    for row in rows:
+        rid = strip_version(str(row.get("id") or ""))
+        kind = str(row.get("type") or "")
+        if kind == "transcript" and TRANSCRIPT_RE.match(rid):
+            tids.append(rid)
+        elif kind == "gene" and rid.startswith("ENS"):
+            gids.append(rid)
+    if not tids:
+        return []
+    sym = ""
+    if gids:
+        try:
+            g = requests.get("https://rest.ensembl.org/lookup/id/%s" % gids[0],
+                             headers=hdr, timeout=25)
+            if g.status_code == 200:
+                sym = str((g.json() or {}).get("display_name") or "")
+        except Exception:
+            sym = ""
+    out = []
+    for tid in tids[:2]:
+        bio, canon = None, False
+        try:
+            t = requests.get("https://rest.ensembl.org/lookup/id/%s" % tid,
+                             headers=hdr, timeout=25)
+            if t.status_code == 200:
+                tj = t.json() or {}
+                bio = tj.get("biotype")
+                canon = bool(tj.get("is_canonical"))
+                if not sym:
+                    # "RNU4-2-201" is the transcript's name; the gene's is what precedes it.
+                    sym = re.sub(r"-\d+$", "", str(tj.get("display_name") or ""))
+        except Exception:
+            pass
+        out.append({"id": tid, "gene": (sym or None), "species": species, "biotype": bio,
+                    "canonical": canon, "why": "the Ensembl transcript for %s" % acc})
+    return out
+
+
 def ensembl_symbol_lookup(symbol, species="human"):
     """A gene symbol -> its real canonical transcript, from Ensembl. Used when the local
     catalogue does not know the symbol -- which happens for legacy names the index has
     renamed (H3F3A is H3-3A there) and for species it does not cover."""
     if not requests or not symbol:
         return []
-    sp = {"human": "homo_sapiens", "mouse": "mus_musculus", "rat": "rattus_norvegicus",
-          "dog": "canis_lupus_familiaris",
-          "yeast": "saccharomyces_cerevisiae"}.get(str(species).lower(), "homo_sapiens")
+    sp = ens_species(species)
     hdr = {"Accept": "application/json"}
     try:
         r = requests.get("https://rest.ensembl.org/lookup/symbol/%s/%s?expand=1" % (sp, symbol),
@@ -637,6 +708,79 @@ results = []
 species_seen = []
 genes_seen = []
 mode = "anthropic-2pass"
+
+# --- what can be looked up is looked up, before anything is asked -------------------------
+# Two shapes in a prompt are facts rather than questions, and both used to be handed to the
+# model along with the rest of the sentence:
+#   a RefSeq accession  "NR_003137.2"          -> came back as CDKN1A, an unrelated gene
+#   a bare gene symbol  "canonical RNU4-2 ..." -> came back as ENST00000362307, which is MIR31
+# Both are in Ensembl. Ask Ensembl.
+FILLER_WORDS = {"in", "for", "from", "load", "the", "a", "an", "and", "with", "of", "gene",
+                "genes", "transcript", "transcripts", "canonical", "please", "show", "open",
+                "main", "primary", "default", "sequence"}
+SPECIES_WORDS = set(SPECIES_INDEX) | set(SPECIES_ALIASES)
+# A symbol, not a sentence: letters first, then letters/digits and the separators real
+# symbols use (RNU4-2, H3-3A, MT-CO1, C9orf72, HLA-DRB1).
+SYMBOL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[-._][A-Za-z0-9]+)*$")
+
+
+def prompt_words(t):
+    return [w for w in (x.strip("(),;.:'\"") for x in re.split(r"[\s,;]+", str(t or "").strip())) if w]
+
+
+if prompt_text:
+    _sp0 = override or norm_species(species_override) or "human"
+    _words = prompt_words(prompt_text)
+    _accs = [w for w in _words if REFSEQ_RE.match(w)]
+    if _accs:
+        _unresolved = []
+        for a in _accs[:MAX_GENES]:
+            got = refseq_lookup(a, _sp0)
+            if not got:
+                _unresolved.append(a)
+                errs.append("%s: no Ensembl transcript carries that RefSeq accession" % a)
+                continue
+            mode = "refseq"
+            for r in got:
+                results.append(r)
+                if r.get("gene") and r["gene"] not in genes_seen:
+                    genes_seen.append(r["gene"])
+            if _sp0 not in species_seen:
+                species_seen.append(_sp0)
+        # The accession WAS the request -- "NR_003137.2", or a couple of filler words around
+        # it. A whole paragraph that happens to quote one still goes on to be read.
+        if results and not _unresolved and len(_words) <= len(_accs) + 4:
+            prompt_text = ""
+
+if prompt_text and not results:
+    _words = prompt_words(prompt_text)
+    _sp_named = [w for w in _words if w.lower() in SPECIES_WORDS]
+    _rest = [w for w in _words
+             if w.lower() not in FILLER_WORDS and w.lower() not in SPECIES_WORDS]
+    # Only when the WHOLE prompt is symbols and filler, and only when every one of them is a
+    # gene: "cystic fibrosis" has neither word in Ensembl and goes on to the model as before.
+    if _rest and len(_rest) <= 4 and all(SYMBOL_RE.match(w) for w in _rest):
+        _sp = (norm_species(_sp_named[0]) if _sp_named else "") or override \
+            or norm_species(species_override) or "human"
+        if _sp != "yeast":
+            _picks = []
+            for g in _rest:
+                got = ensembl_symbol_lookup(g, _sp)
+                if not got:
+                    _picks = []
+                    break
+                _picks.append({"id": got[0]["id"], "gene": g, "species": _sp, "biotype": None,
+                               "canonical": bool(got[0].get("canonical")),
+                               "why": "the canonical transcript of %s, from Ensembl" % g})
+            if _picks:
+                mode = "ensembl-symbol"
+                results.extend(_picks)
+                for g in _rest:
+                    if g not in genes_seen:
+                        genes_seen.append(g)
+                if _sp not in species_seen:
+                    species_seen.append(_sp)
+                prompt_text = ""
 
 direct_yeast = []
 YEAST_WORDS = ("yeast", "cerevisiae", "saccharomyces", "s", "s.", "sgd", "s288c", "saccer3", "r64")

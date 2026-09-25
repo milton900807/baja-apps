@@ -167,7 +167,24 @@ function (server, graph, genegraph_panel_layout, text) {
             try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, wanted[i]); }
             catch (e) { }
         }
-        const loaded = (graph.track || []).filter((t) => t && !before.has(t));
+        let loaded = (graph.track || []).filter((t) => t && !before.has(t));
+        // THE GENE IS RIGHT THERE. A transcript id that will not resolve used to end the
+        // whole paste -- "No transcript could be loaded" -- even though the same paragraph
+        // named the gene it belongs to, and the gene is ticked off by default because the
+        // id is normally the better answer. When the ticked ids come back with nothing,
+        // the genes found in the text are tried before giving up.
+        if (!loaded.length && pick.transcripts.length && genes.length) {
+            const tried = new Set(wanted);
+            for (const g of genes) {
+                const ask = 'canonical ' + g.symbol + ' in human';
+                if (tried.has(ask)) continue;
+                tried.add(ask);
+                say('That transcript could not be loaded — trying ' + g.symbol + '…');
+                try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, ask); }
+                catch (e) { }
+            }
+            loaded = (graph.track || []).filter((t) => t && !before.has(t));
+        }
 
         // ---- and the changes on them --------------------------------------------------------
         // Pinned to what this paste loaded. A change named in a CFTR paper belongs on the CFTR
