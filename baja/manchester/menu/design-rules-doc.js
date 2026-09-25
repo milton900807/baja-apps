@@ -1,7 +1,14 @@
-function (kind) {
+function (kind, strategy) {
 
     // The rules a DEFAULT design run will apply, as a document.
     //   const html = await exec('baja/manchester/menu/design-rules-doc.js', 'gapmer');
+    //   const html = await exec('baja/manchester/menu/design-rules-doc.js', 'gapmer', 'tile');
+    //
+    // `strategy` is 'rules' (the default) or 'tile'. It changes ONE sentence -- which
+    // candidates come back -- because that is the only thing tiling changes. Everything else
+    // in here, the candidate space and every scoring term, applies to a tiling exactly as it
+    // applies to a ranked design: a tile is still the best-scoring layout that starts where
+    // it starts.
     //
     // Default mode takes every parameter out of the user's hands, which is the point of it --
     // and left them with no way to find out what it chose. The Advanced tab at least showed
@@ -60,7 +67,11 @@ function (kind) {
         return H('What runs')
             + P('<b>py_ssaso_design</b> — an RNase&nbsp;H1 gapmer designer. It scans every start '
                 + 'position on the sequence at each length and gap size, scores all of them, and '
-                + 'returns the best non-overlapping sites.')
+                + (('' + (strategy || 'rules')).toLowerCase() === 'tile'
+                    ? 'returns the best one starting at each step along the target, in order '
+                        + 'along it. The scores come with them; they are not what decides which '
+                        + 'sites are in the answer.'
+                    : 'returns the best non-overlapping sites.'))
             + H('The candidate space')
             + UL([
                 'Lengths <b>16, 17, 18, 19, 20</b> nt',

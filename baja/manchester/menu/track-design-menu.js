@@ -728,7 +728,13 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     let Oligo = await exec('flexigraph/oligo.js');
                     const str = `py/ssaso/design.py`;
                     // Default / Advanced design dialog — the LAST interface before the design runs.
-                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer');
+                    // The target's length goes in with it so the Tiling strategy can say what a
+                    // step costs in compounds BEFORE it is run: "every 3 bases" over a 3 kb
+                    // transcript is a thousand ASOs, and that is worth knowing at the moment
+                    // the step is chosen rather than when the results land.
+                    let __targetLen = 0;
+                    try { __targetLen = (__wholeTrackSequence() || '').length; } catch (e) { __targetLen = 0; }
+                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer', __targetLen);
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();
                     let va = parseInt(__p.top_n) || 100;
@@ -784,6 +790,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // good site fill the top of the list. The dialog's Advanced tab can still
                         // ask for those variants explicitly.
                         "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
+
+                        // RULE-BASED or TILED. The first ranks every candidate and returns the
+                        // best sites anywhere in the target; the second walks the target and
+                        // returns one at every step along it, each still the best layout that
+                        // starts there. tile_step is the increment in bases, 0 meaning end to
+                        // end. Absent, design.py behaves exactly as it did before either
+                        // existed. See the selection step in py/ssaso/design.py.
+                        "design_mode": __p.design_mode || "rules",
+                        "tile_step": (__p.tile_step != null ? __p.tile_step : 0),
 
                         // NO off-target screen during design. py/ssaso/design.py can run one --
                         // pass offtarget_index and it weights every site by the other genes it

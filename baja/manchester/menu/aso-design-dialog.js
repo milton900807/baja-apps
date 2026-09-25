@@ -1,4 +1,4 @@
-function (kind) {
+function (kind, targetLength) {
 
     // Default / Advanced design dialog for SINGLE-STRANDED ASOs — the last interface before the
     // design runs (mirrors the siRNA dialog). `kind` is 'gapmer' or 'steric'. Resolves with the
@@ -6,6 +6,9 @@ function (kind) {
     //   const p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer');
     const K = ('' + (kind || 'gapmer')).toLowerCase();
     const isGapmer = K.indexOf('gap') >= 0;
+    // How long the thing being designed against is, when the caller knows. Only used to say
+    // what a step will cost in compounds before it is run.
+    const TARGET_LEN = (Number.isFinite(+targetLength) && +targetLength > 0) ? Math.floor(+targetLength) : 0;
     const title = isGapmer ? 'Gapmer ASO Design' : 'Steric-blocking ASO Design';
 
     return new Promise((resolve) => {
@@ -88,8 +91,39 @@ function (kind) {
                 + '<button id="ad-default" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Default</button>'
                 + '<button id="ad-advanced" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Advanced</button>'
                 + '</div>'
-                + '<label style="' + lbl + '">Maximum candidates</label>'
-                + '<input id="ad-topn" type="number" min="1" max="1000" value="100" style="' + inp + '"/>'
+                // HOW THE ANSWER IS CHOSEN, which is a different question from how it is
+                // scored and a different one again from the chemistry. Rule-based ranks every
+                // candidate and hands back the best sites anywhere in the target. Tiling walks
+                // the target and hands back one at every step along it. They answer different
+                // questions -- "which ASO should I make" and "what does this transcript do to
+                // an ASO everywhere along it" -- and ranking cannot give you the second,
+                // because the good sites cluster and the stretches between them are exactly
+                // what a walk is for.
+                + (isGapmer
+                    ? ('<label style="' + lbl + '">Design strategy</label>'
+                        + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
+                        + '<button id="ad-strat-rules" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Rule-based</button>'
+                        + '<button id="ad-strat-tile" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Tiling</button>'
+                        + '</div>'
+                        + '<div id="ad-strat-note" style="font:11.5px Arial;color:#9fb3c8;margin-top:6px;">Every candidate is scored and the best non-overlapping sites across the target are returned, best first.</div>'
+                        + '<div id="ad-tilewrap" style="display:none;margin-top:12px;">'
+                        + '<label style="font:600 11px Arial;color:#9fb3c8;">Step along the target</label>'
+                        + '<select id="ad-tilestep" style="' + inp + '">'
+                        + '<option value="1">Every base (1 nt)</option>'
+                        + '<option value="3">Every 3 bases</option>'
+                        + '<option value="5">Every 5 bases</option>'
+                        + '<option value="10">Every 10 bases</option>'
+                        + '<option value="0" selected>End to end (no overlap, no gap)</option>'
+                        + '<option value="custom">Custom…</option>'
+                        + '</select>'
+                        + '<div id="ad-tilecustomwrap" style="display:none;margin-top:8px;">'
+                        + '<label style="font:600 11px Arial;color:#9fb3c8;">Custom step (bases)</label>'
+                        + '<input id="ad-tilecustom" type="number" min="1" max="500" value="7" style="' + inp + '"/></div>'
+                        + '<div id="ad-tileest" style="font:11.5px Arial;color:#9fb3c8;margin-top:8px;"></div>'
+                        + '</div>')
+                    : '')
+                + '<label style="' + lbl + '" id="ad-topn-label">Maximum candidates</label>'
+                + '<input id="ad-topn" type="number" min="1" max="20000" value="100" style="' + inp + '"/>'
                 // THE TRACK'S OWN ALLELE, AND THE OTHER TRACKS' VARIANTS.
                 //
                 // Two separate questions about the same workbench. The first is what to design
@@ -127,14 +161,20 @@ function (kind) {
             const q = (id) => panel.querySelector(id);
             const parseList = (s, d) => { try { const a = ('' + s).split(/[,\s]+/).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0); return a.length ? a : d; } catch (e) { return d; } };
             let mode = 'default';
+            // Declared up here, not beside its buttons: fillDoc() reads it, and a `let` read
+            // before its declaration throws even through typeof.
+            let strategy = 'rules';
             // Fetched once, on the first switch into Default, and reused after that.
-            let docHtml = null;
+            // Cached PER STRATEGY: the document's selection sentence differs between them, and
+            // one cache would have shown whichever was asked for first.
+            const docHtml = {};
             const fillDoc = async () => {
                 try {
-                    if (docHtml == null) {
-                        docHtml = await exec('baja/manchester/menu/design-rules-doc.js', K);
+                    const key = (strategy === 'tile') ? 'tile' : 'rules';
+                    if (docHtml[key] == null) {
+                        docHtml[key] = await exec('baja/manchester/menu/design-rules-doc.js', K, key);
                     }
-                    q('#ad-doc').innerHTML = docHtml || '';
+                    q('#ad-doc').innerHTML = docHtml[key] || '';
                 } catch (e) { try { q('#ad-doc').innerHTML = ''; } catch (e2) { } }
             };
             const setMode = (m) => {
@@ -249,6 +289,85 @@ function (kind) {
                 };
             }
 
+            // ---- design strategy ----------------------------------------------------------
+            const tileStepNow = () => {
+                const sel = q('#ad-tilestep');
+                if (!sel) return 0;
+                if (sel.value === 'custom') {
+                    const v = parseInt(q('#ad-tilecustom') ? q('#ad-tilecustom').value : '', 10);
+                    return (Number.isFinite(v) && v > 0) ? Math.min(500, v) : 1;
+                }
+                return Math.max(0, parseInt(sel.value, 10) || 0);
+            };
+            const showTileEstimate = () => {
+                const el = q('#ad-tileest');
+                if (!el) return;
+                const step = tileStepNow();
+                const ls = lengthsNow();
+                const len = ls.length ? Math.max.apply(null, ls) : 20;
+                if (!TARGET_LEN) {
+                    el.textContent = step > 0
+                        ? ('One ASO every ' + step + ' base' + (step === 1 ? '' : 's') + ' along the target.')
+                        : 'Each ASO starts one base after the previous one ends, so the target is covered once.';
+                    return;
+                }
+                // End to end steps by the oligo, so the count is the target over its length.
+                const per = step > 0 ? step : len;
+                const n = Math.max(1, Math.floor((TARGET_LEN - len) / per) + 1);
+                // WHAT IT COSTS, SAID BEFORE IT IS RUN. A one-base walk over a transcript is
+                // thousands of compounds on one track -- a legitimate thing to order, and not
+                // something anyone should discover by watching them land.
+                const big = n > 500;
+                el.innerHTML = 'About <b>' + n.toLocaleString() + '</b> ASO' + (n === 1 ? '' : 's')
+                    + ' across ' + TARGET_LEN.toLocaleString() + ' nt'
+                    + (step > 0 ? (', one every ' + step + ' base' + (step === 1 ? '' : 's')) : ', end to end')
+                    + '. Raise the maximum below if you want all of them.'
+                    + (big ? ('<br><span style="color:#fbbf24;">That is a large panel to put on a single '
+                        + 'track, and it will take a while to design and to draw. A wider step, or a '
+                        + 'selected region rather than the whole transcript, is the usual first pass.</span>') : '');
+            };
+            const setStrategy = (v) => {
+                strategy = v;
+                const tiling = (v === 'tile');
+                const on = q('#ad-strat-tile'), off = q('#ad-strat-rules');
+                if (on && off) {
+                    on.style.background = tiling ? '#22c55e' : 'transparent';
+                    on.style.color = tiling ? '#04210f' : '#fff';
+                    off.style.background = tiling ? 'transparent' : '#22c55e';
+                    off.style.color = tiling ? '#fff' : '#04210f';
+                }
+                const wrap = q('#ad-tilewrap'); if (wrap) wrap.style.display = tiling ? 'block' : 'none';
+                const note = q('#ad-strat-note');
+                if (note) {
+                    note.textContent = tiling
+                        ? 'One ASO at every step along the target, each the best layout that starts there. The scores come back with them, to read rather than to select on — this is the walk you order to test a transcript, not the shortlist you order to pick a compound.'
+                        : 'Every candidate is scored and the best non-overlapping sites across the target are returned, best first.';
+                }
+                // A walk wants room. 100 is the right cap for a shortlist and the wrong one
+                // for a tiling, which is not a shortlist at all.
+                const lab = q('#ad-topn-label'), topn = q('#ad-topn');
+                if (lab) lab.textContent = tiling ? 'Maximum tiles' : 'Maximum candidates';
+                if (topn && tiling && (parseInt(topn.value, 10) || 0) <= 100) topn.value = '2000';
+                if (topn && !tiling && (parseInt(topn.value, 10) || 0) > 1000) topn.value = '100';
+                // Overlap between layouts of one site is the ranked design's question; the
+                // step is what decides overlap in a tiling.
+                const ov = q('#ad-overlap');
+                if (ov && ov.parentElement) ov.parentElement.style.display = tiling ? 'none' : '';
+                if (tiling) showTileEstimate();
+                if (mode === 'default') fillDoc();
+            };
+            if (q('#ad-strat-rules')) {
+                q('#ad-strat-rules').onclick = () => setStrategy('rules');
+                q('#ad-strat-tile').onclick = () => setStrategy('tile');
+                q('#ad-tilestep').onchange = () => {
+                    const custom = q('#ad-tilestep').value === 'custom';
+                    q('#ad-tilecustomwrap').style.display = custom ? 'block' : 'none';
+                    showTileEstimate();
+                };
+                if (q('#ad-tilecustom')) q('#ad-tilecustom').addEventListener('input', showTileEstimate);
+                if (q('#ad-lengths')) q('#ad-lengths').addEventListener('input', showTileEstimate);
+            }
+
             fillDoc();
             q('#ad-default').onclick = () => setMode('default');
             q('#ad-advanced').onclick = () => setMode('advanced');
@@ -261,8 +380,15 @@ function (kind) {
                     const g = (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed) ? CurrentLayout.getStashed('graph') : null;
                     if (g) { try { if (g.showSideMenu) g.showSideMenu(null); } catch (e) { } g.menu = null; if (g.graph) g.graph.menu = null; if (g.wake) g.wake(); }
                 } catch (e) { }
-                const topn = Math.max(1, Math.min(1000, parseInt(q('#ad-topn').value, 10) || 100));
-                let params = { top_n: topn };
+                const tiling = (strategy === 'tile');
+                const topn = Math.max(1, Math.min(tiling ? 20000 : 1000, parseInt(q('#ad-topn').value, 10) || 100));
+                let params = { top_n: topn, design_mode: tiling ? 'tile' : 'rules' };
+                if (tiling) {
+                    params.tile_step = tileStepNow();       // 0 = end to end
+                    // The step decides the overlap in a tiling; the ranked design's
+                    // one-per-site rule has nothing to say about it.
+                    params.enforce_non_overlapping = false;
+                }
                 if (mode === 'advanced') {
                     params.lengths = parseList(q('#ad-lengths').value, isGapmer ? [16, 17, 18, 19, 20] : [18, 19, 20]);
                     if (isGapmer) { params.gap_sizes = parseList(q('#ad-gaps').value, [8, 9, 10]); }
@@ -280,7 +406,7 @@ function (kind) {
                     params.output_alphabet = q('#ad-alpha') ? q('#ad-alpha').value : 'DNA';
                     // The checkbox asks the opposite question now: ticking it opts INTO the
                     // overlapping layouts, which is the exception rather than the default.
-                    params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
+                    if (!tiling) params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
                 }
                 // Asked on both tabs: they are about the workbench, not about the chemistry,
                 // so a Default-tab run can use them without going through Advanced.
