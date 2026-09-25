@@ -1069,7 +1069,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     const str = `py/ssaso/design-steric-blocking.py`;
 
                     // Default / Advanced design dialog — the LAST interface before the design runs.
-                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric');
+                    // The target's length goes with it so the Tiling strategy can say what a
+                    // step costs in compounds before the run (see the gapmer call above).
+                    let __targetLenS = 0;
+                    try { __targetLenS = (__wholeTrackSequence() || '').length; } catch (e) { __targetLenS = 0; }
+                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric', __targetLenS);
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();
                     let _sequence = __wholeTrackSequence();
@@ -1122,6 +1126,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // which returns the length variants of a few good sites rather than a
                         // design spread across the transcript.
                         enforce_non_overlapping: (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
+
+                        // RULE-BASED or TILED, as for the gapmer: the first returns the best
+                        // sites anywhere in the target, the second walks the target and returns
+                        // one at every step along it. tile_step is the increment in bases, 0
+                        // meaning end to end. Absent, the designer behaves as it did before
+                        // either existed.
+                        design_mode: __p.design_mode || "rules",
+                        tile_step: (__p.tile_step != null ? __p.tile_step : 0),
 
                         // No off-target screen here either -- see the note in the gapmer
                         // request above.
@@ -1190,6 +1202,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 // Dense over a short sequence: the regions are a few hundred
                                 // bases, so this covers them without a large payload.
                                 enforce_non_overlapping: false,
+                                // ALWAYS RULE-BASED HERE, whatever the dialog asked for. This
+                                // path has a selection of its own -- design densely over the
+                                // model's windows, drop what straddles a join or sits on a
+                                // splice site, then rank what is left by window impact -- and
+                                // it needs a dense set to do it with. A walk would hand it a
+                                // sparse one and the filters would take most of that away.
+                                // Tiling still means tiling on the plain steric run below.
+                                design_mode: 'rules',
                                 top_n: Math.max(400, wantN * 4)
                             }));
                         } catch (e) { rr = null; }   // __runDesign already reported it

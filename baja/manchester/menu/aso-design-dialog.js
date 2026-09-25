@@ -99,7 +99,7 @@ function (kind, targetLength) {
                 // an ASO everywhere along it" -- and ranking cannot give you the second,
                 // because the good sites cluster and the stretches between them are exactly
                 // what a walk is for.
-                + (isGapmer
+                + (true
                     ? ('<label style="' + lbl + '">Design strategy</label>'
                         + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
                         + '<button id="ad-strat-rules" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Rule-based</button>'
@@ -340,7 +340,13 @@ function (kind, targetLength) {
                 const note = q('#ad-strat-note');
                 if (note) {
                     note.textContent = tiling
-                        ? 'One ASO at every step along the target, each the best layout that starts there. The scores come back with them, to read rather than to select on — this is the walk you order to test a transcript, not the shortlist you order to pick a compound.'
+                        ? ('One ASO at every step along the target, each the best layout that starts there. '
+                            + 'The scores come back with them, to read rather than to select on — this is the walk '
+                            + 'you order to '
+                            + (isGapmer
+                                ? 'test a transcript, not the shortlist you order to pick a compound.'
+                                : 'find out which stretches of a transcript can be occupied to any effect, '
+                                    + 'which is a question about the whole of it rather than about its best few sites.'))
                         : 'Every candidate is scored and the best non-overlapping sites across the target are returned, best first.';
                 }
                 // A walk wants room. 100 is the right cap for a shortlist and the wrong one

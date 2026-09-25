@@ -846,6 +846,9 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "annotations": [],
             "enforce_non_overlapping": True,
             "min_separation": 0,
+            # A bare sequence is the rule-based design, as it has always been.
+            "design_mode": "rules",
+            "tile_step": 0,
             "offtarget_index": None,
             "offtarget_edit_distance": 3,
             "offtarget_oversample": 3,
@@ -889,6 +892,18 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             # allowed is the best site written out N times, not the best N ASOs.
             "enforce_non_overlapping": bool(payload.get("enforce_non_overlapping", True)),
             "min_separation": int(payload.get("min_separation", 0)),
+            # HOW THE ANSWER IS CHOSEN, which is a different question from how it is scored.
+            #   "rules" walks the ranking and returns the best sites anywhere in the target.
+            #   "tile"  walks the TARGET and returns one at every step along it, scored the
+            #           same way -- a walk rather than a shortlist. For a steric blocker that
+            #           is often the point: which stretch of this transcript can be occupied
+            #           to any effect is a question about the whole of it, not about its best
+            #           few sites.
+            "design_mode": ("tile" if str(payload.get("design_mode", "rules")).lower().startswith("til")
+                            else "rules"),
+            # The increment, in bases. 0 means END TO END: each tile starts where the last one
+            # finished, so the target is covered once with no overlap and no gap.
+            "tile_step": max(0, int(payload.get("tile_step", 0))),
             # Off-target screen. No index named, no screen -- and the design then runs exactly
             # as it did before this existed, which is what makes it safe for a caller that may
             # or may not have an index to offer to ask for it unconditionally.
@@ -905,6 +920,44 @@ def parse_request(payload: Any) -> Dict[str, Any]:
         }
 
     raise ValueError("Input must be either a sequence string or a JSON object.")
+
+
+def select_tiled(
+    candidates: List[StericBlockingASOCandidate],
+    step: int,
+    top_n: int = 0,
+) -> List[StericBlockingASOCandidate]:
+    """A WALK ACROSS THE TARGET: the best candidate starting at each step along it.
+
+    Every start is still generated and scored exactly as it is for a ranked design -- this
+    changes only which of them come back. At each position the best of that start's lengths
+    is kept, so a tile is the best ASO that begins there, not an arbitrary one.
+
+    `step` is the increment in bases; 0 means end to end, where the next tile starts one base
+    after the last one finishes. The step is measured from the tile ACTUALLY TAKEN rather
+    than from a fixed grid, so a position with no candidate moves the next tile along instead
+    of dropping it."""
+    best_at: Dict[int, StericBlockingASOCandidate] = {}
+    for cand in candidates:
+        cur = best_at.get(cand.start)
+        if cur is None or cand.score > cur.score:
+            best_at[cand.start] = cand
+    if not best_at:
+        return []
+    starts = sorted(best_at)
+    selected: List[StericBlockingASOCandidate] = []
+    want = starts[0]
+    for st in starts:
+        if st < want:
+            continue
+        cand = best_at[st]
+        selected.append(cand)
+        want = (cand.end + 1) if step <= 0 else (st + step)
+        if top_n and len(selected) >= top_n:
+            break
+    for idx, candidate in enumerate(selected, start=1):
+        candidate.rank = idx
+    return selected
 
 
 def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
@@ -924,6 +977,8 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     exclude_regions = request.get("exclude_regions") or []
     enforce_non_overlapping = request["enforce_non_overlapping"]
     min_separation = request["min_separation"]
+    design_mode = request["design_mode"]
+    tile_step = request["tile_step"]
     offtarget_index = request["offtarget_index"]
     offtarget_edit_distance = request["offtarget_edit_distance"]
     offtarget_oversample = request["offtarget_oversample"]
@@ -1001,9 +1056,24 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     # asked for, screen those, re-score, keep the best of them.
     _ot = _offtarget_module() if offtarget_index else None
     screen = _ot.load_search() if _ot else None
-    want = (min(top_n * offtarget_oversample, offtarget_screen_cap)) if screen else top_n
+    # The oversample is room for the screen to CHANGE which sites come back, which only makes
+    # sense when the answer is a shortlist. A tiling is a walk: every step of it is wanted.
+    want = (min(top_n * offtarget_oversample, offtarget_screen_cap)
+            if (screen and design_mode != "tile") else top_n)
 
-    if enforce_non_overlapping:
+    if design_mode == "tile":
+        # A WALK, NOT A SHORTLIST. The ranking decides which layout is kept at each step, not
+        # which steps are in the answer, so the result covers the target evenly.
+        works.msg(
+            "Tiling the target %s"
+            % ("end to end" if tile_step <= 0 else "every %d base%s" % (tile_step, "" if tile_step == 1 else "s"))
+        )
+        top_candidates = select_tiled(all_candidates, step=tile_step, top_n=want)
+        works.msg(
+            "%d tile%s across %d nt"
+            % (len(top_candidates), "" if len(top_candidates) == 1 else "s", len(normalized_rna))
+        )
+    elif enforce_non_overlapping:
         works.msg(
             "Ranking every candidate, then taking the best %d sites%s"
             % (want, (" at least %d nt apart" % min_separation) if min_separation else ", non-overlapping")
@@ -1067,9 +1137,15 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
                 ]
                 if symbols:
                     c.notes.append("Nearest off-targets: " + ", ".join(symbols))
-            top_candidates.sort(key=lambda x: (-x.score, abs(x.tm_c - 65.0),
-                                               abs(x.gc_percent - 50.0), -x.length))
-            top_candidates = top_candidates[:top_n]
+            if design_mode == "tile":
+                # THE WALK IS THE ANSWER and the screen must not rewrite it. Re-ranking here
+                # would hand back the best-scoring tiles rather than a walk across the target.
+                # The off-target numbers stay on each tile, to be read.
+                top_candidates.sort(key=lambda x: x.start)
+            else:
+                top_candidates.sort(key=lambda x: (-x.score, abs(x.tm_c - 65.0),
+                                                   abs(x.gc_percent - 50.0), -x.length))
+                top_candidates = top_candidates[:top_n]
             for idx, c in enumerate(top_candidates, start=1):
                 c.rank = idx
             offtarget_report["ran"] = True
@@ -1130,7 +1206,11 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
         "top_n": top_n,
         "coverage": coverage,
         "offtarget_screen": offtarget_report,
-        "selection_mode": "rank_order_across_sequence_space" if enforce_non_overlapping else "global_top_n_overlaps_allowed",
+        "selection_mode": ("tiled_across_target" if design_mode == "tile"
+                           else ("rank_order_across_sequence_space" if enforce_non_overlapping
+                                 else "global_top_n_overlaps_allowed")),
+        "design_mode": design_mode,
+        "tile_step": (tile_step if design_mode == "tile" else None),
         "min_separation": min_separation,
         "lengths_scanned": list(lengths),
         "full_modification": normalize_full_modification(full_modification),

@@ -114,7 +114,12 @@ function (kind, strategy) {
         return H('What runs')
             + P('<b>py_ssaso_design-steric-blocking</b> — a fully modified single strand that '
                 + 'occupies its site rather than triggering cleavage. No DNA gap, so no '
-                + 'RNase&nbsp;H1 and no degradation of the transcript.')
+                + 'RNase&nbsp;H1 and no degradation of the transcript. '
+                + (('' + (strategy || 'rules')).toLowerCase() === 'tile'
+                    ? 'It scores every start position and returns the best one starting at each '
+                        + 'step along the target, in order along it. The scores come with them; '
+                        + 'they are not what decides which sites are in the answer.'
+                    : 'It scores every start position and returns the best non-overlapping sites.'))
             + H('The candidate space')
             + UL([
                 'Lengths <b>18, 19, 20</b> nt',
