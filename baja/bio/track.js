@@ -4185,6 +4185,20 @@ return new Promise(async (resolve, reject) => {
 
       track.trackRef = trackRef_;
 
+      // THE ORF, BUILT HERE. An mRNA track came back with no orf at all -- so no cdsi, and
+      // the amino-acid row had nothing to draw: the whole point of splicing a transcript
+      // down to its mRNA is to read the protein off it, and it was the one thing missing.
+      //
+      // Nothing else was going to do it either. The automatic refresh elsewhere in this class
+      // only fires when a track ALREADY carries both a start and a stop annotation, and a
+      // freshly spliced track carries a TSS but no STOP -- generateORF is what adds the STOP
+      // and the Translation in the first place. Measured on INS: before, orf null and no STOP;
+      // after, 330 cdsi entries and 110 residues reading MALWMRLLPLLALLALWGPDPAAA.
+      //
+      // Best-effort: a spliced non-coding transcript has no ORF to find, and that is not a
+      // reason to fail building the track.
+      try { if (typeof track.generateORF === 'function') track.generateORF(); } catch (e) { }
+
       return track;
     }
     setSequence(sequence) {
