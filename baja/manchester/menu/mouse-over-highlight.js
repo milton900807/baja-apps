@@ -4987,6 +4987,31 @@ function (graph, genegraph_panel_layout) {
                 })
                 // Oligo and amplicon options are no longer shown from hover — they are
                 // attached, grouped by object type, in the selection window instead.
+                // MODIFY THE WHOLE TRACK, described in words -- the same tool the selected
+                // sequence menu offers for a span, given no range at all. One implementation
+                // for both, so the checks on what comes back, the confirmation of what will
+                // change and the single Undo are the same wherever it is asked for.
+                //
+                // Offered only when there is a sequence to change. A long track is not
+                // refused here: the tool says what the limit is and what to do instead, which
+                // is better than a menu item that is missing for a reason nobody can see.
+                try {
+                    if (selectedTrack && typeof selectedTrack.sequence === 'string' && selectedTrack.sequence.length) {
+                        track_list.push({
+                            label: 'Modify\u2026',
+                            move: () => { },
+                            click: async () => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                try {
+                                    await exec('baja/manchester/menu/modify-sequence-tool.js', graph, selectedTrack, null);
+                                } catch (e) {
+                                    try { graph.setMessage(' The modification could not be made: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                }
+                            }
+                        });
+                    }
+                } catch (e) { }
+
                 // Track-related items float to the top (stable within each group);
                 // compound/chemistry/drawing items follow below.
                 // If the track has introns, offer to build a spliced mRNA track — but
@@ -5121,7 +5146,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Convert to mRNA', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Convert to mRNA', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
