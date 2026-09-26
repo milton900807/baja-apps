@@ -206,6 +206,115 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                     say(' Removed ' + gone + ' layer' + (gone === 1 ? '' : 's') + ' over ' + start + '–' + end + '. ');
                 })
             ]),
+            // MODIFY. Say what should happen to the selected span -- "delete the ATG", "insert
+            // a stop codon after the third codon", "make this a Kozak sequence" -- and it is
+            // rewritten in place. The description is the interface; what works it out is not
+            // the user's problem and is not mentioned.
+            //
+            // In place, with the change pushed onto the history stack first, so one Undo puts
+            // the sequence back. A length change shifts every annotation downstream of the
+            // selection, the same way the repeat expansion does -- an exon the edit sits
+            // inside gets longer or shorter, which is what an insertion or a deletion means.
+            go('Modify\u2026', async () => {
+                const before = seqOf();
+                if (!before) { say(' Nothing to modify in the selection. '); return; }
+                let va = null;
+                try {
+                    va = await prompt('Modify ' + len.toLocaleString() + ' nt of ' + (t.name || 'this track'),
+                        ['Describe the modification'],
+                        { 'Describe the modification': '' }, 560, 260);
+                } catch (e) { va = null; }
+                const ask = va ? ('' + (va['Describe the modification'] || '')).trim() : '';
+                if (!ask) { say(' No modification described. '); return; }
+
+                // The bases on either side, so a change that depends on what the selection
+                // sits between can be made correctly. Context only -- never written back.
+                const flank = (a, b) => { try { return dna(t.getSequenceRange(a, b)); } catch (e) { return ''; } };
+                const ctx = {
+                    gene: t.name || '', track: t.name || '', strand: t.strand,
+                    chr: t.contig || t.chr || '', start: start, end: end,
+                    left: flank(Math.max(t.xi || 0, t.markstart - 60), t.markstart),
+                    right: flank(t.markend, t.markend + 60)
+                };
+                say(' Working out the modification\u2026 ');
+                const em = new EngineMonitor((m) => { try { say(m); } catch (e) { } });
+                let r = null;
+                try { r = await exec('/py/sequence/modify-sequence.py', em, before, ask, JSON.stringify(ctx)); }
+                catch (e) { r = null; }
+                if (!r || r.error || !r.ok) {
+                    say(' ' + ((r && r.error) || 'The modification could not be made.') + ' ');
+                    return;
+                }
+                const after = ('' + (r.sequence || '')).toUpperCase();
+                if (!after) { say(' Nothing came back to apply. '); return; }
+                if (!r.changed || after === before) {
+                    say(' That leaves the sequence as it is \u2014 nothing was changed. ');
+                    return;
+                }
+
+                // ---- apply it ------------------------------------------------------------
+                const seq = ('' + (t.sequence || ''));
+                const xi = Number(t.xi) || 0;
+                const from = Math.max(0, Math.floor(t.markstart) - xi);
+                const to = Math.max(from, Math.ceil(t.markend) - xi);
+                if (!(to <= seq.length)) { say(' The selection is outside this track\u2019s sequence. '); return; }
+                // The span on the track has to be the span that was sent, or the edit would
+                // land on bases nobody looked at.
+                if (seq.slice(from, to).toUpperCase().replace(/U/g, 'T') !== before) {
+                    say(' The sequence changed while the modification was being worked out \u2014 nothing applied. ');
+                    return;
+                }
+                // SHOWN BEFORE IT IS APPLIED. What comes back can be checked for being a
+                // sequence and for not running away in length, and it cannot be checked
+                // against the DESCRIPTION -- asked to drop ten bases it may drop thirteen and
+                // say it dropped ten. So the change is stated in the numbers that are certain
+                // (how long it was, how long it is now) and applied only when accepted. Undo
+                // still puts it back afterwards.
+                const d0 = after.length - before.length;
+                const howMany = (d0 === 0) ? 'the same length'
+                    : (d0 > 0 ? ('\u002b' + d0 + ' nt longer') : (Math.abs(d0) + ' nt shorter'));
+                const accepted = await new Promise((resolve) => {
+                    let settled = false;
+                    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+                    try {
+                        Promise.resolve(exec('baja/lib/confirm.js',
+                            'Replace ' + len.toLocaleString() + ' nt of ' + (t.name || 'this track')
+                            + ' with ' + after.length.toLocaleString() + ' nt (' + howMany + ')?'
+                            + (r.note ? '  ' + r.note : ''),
+                            () => done(true), 'Replace')).then(() => {
+                                // confirm.js resolves as soon as the panel is up; a decline
+                                // simply never calls back, so the menu is not left waiting.
+                                setTimeout(() => done(false), 120000);
+                            }).catch(() => done(false));
+                    } catch (e) { done(false); }
+                });
+                if (!accepted) { say(' Nothing was changed. '); return; }
+                // No snapshot here: confirm.js pushes one before it calls back, and a second
+                // would mean two Undos to get one edit back.
+                const delta = after.length - (to - from);
+                t.sequence = seq.slice(0, from) + after + seq.slice(to);
+                if (delta !== 0) {
+                    const at = xi + to;              // everything past the selection moves
+                    for (const an of (t.annotations || [])) {
+                        if (!an) continue;
+                        const ai = Number(an.xi), af = Number(an.xf);
+                        if (Number.isFinite(ai) && ai >= at) an.xi = ai + delta;
+                        if (Number.isFinite(af) && af >= at) an.xf = af + delta;
+                    }
+                    try { t.xf = (Number(t.xf) || (xi + seq.length)) + delta; } catch (e) { }
+                    try { if (t.tgraph && t.tgraph.setxmax) { t.tgraph.setxmax(t.xf); t.tgraph.rescale(); } } catch (e) { }
+                    try { t.markend = t.markend + delta; } catch (e) { }
+                }
+                try { t.__colFontCache = null; } catch (e) { }
+                try { if (typeof t.generateORF === 'function') t.generateORF(); } catch (e) { }
+                try { if (graph.wake) graph.wake(); } catch (e) { }
+                const how = (delta === 0) ? 'same length'
+                    : (delta > 0 ? ('+' + delta + ' nt') : (delta + ' nt'));
+                try {
+                    graph.setResultMessage(' ' + (t.name || 'Track') + ' ' + start + '\u2013' + end
+                        + ': ' + (r.note || 'modified') + ' (' + how + '). Undo puts it back. ');
+                } catch (e) { say(' Modified (' + how + '). Undo puts it back. '); }
+            }),
             sub('Sequence ▸', seqItems),
             go('Design ▸', async () => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout)),
             go('Off-targets...', async () => exec('baja/manchester/menu/run-off-targets.js', graph, genegraph_panel_layout)),
