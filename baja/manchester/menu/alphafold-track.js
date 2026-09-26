@@ -32,6 +32,40 @@ function (graph, genegraph_panel_layout, track) {
         };
         const clearTick = () => { try { graph.setMessageCenter(''); } catch (e) { } };
 
+        // A CLOCK THAT KEEPS TICKING, from the moment folding starts until it is over.
+        //
+        // setMessageCenter clears itself after ten seconds, and the submit can sit for far
+        // longer than that before it fails -- so a fold against a host that is not answering
+        // showed one message, lost it nine seconds later, and then looked exactly like a fold
+        // that was never started. Re-stating it every three seconds keeps it alive, and the
+        // phase says which part is slow.
+        const mmss = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+        let __phase = '', __t0 = 0, __timer = null;
+        const stopClock = () => { if (__timer) { try { clearInterval(__timer); } catch (e) { } __timer = null; } };
+        const startClock = (phase) => {
+            __phase = phase; __t0 = Date.now();
+            stopClock();
+            const beat = () => {
+                tick('AlphaFold \u00b7 ' + (track && track.name || 'track')
+                    + '   ' + mmss(Math.floor((Date.now() - __t0) / 1000))
+                    + (__phase ? ('   \u00b7   ' + __phase) : ''));
+            };
+            beat();
+            __timer = setInterval(beat, 3000);
+        };
+        const phase = (p) => { __phase = p; };
+
+        // AND A HARD CEILING ON THE SUBMIT. An unreachable host does not refuse a connection,
+        // it hangs: the POST to a stopped machine sat unresolved, so the fallback to the other
+        // queue never fired, the in-progress flag was never cleared, and nothing on screen ever
+        // changed. The browser's own timeout is minutes away and not ours to set.
+        const withTimeout = (p, ms, what) => Promise.race([
+            Promise.resolve(p),
+            new Promise((_, rej) => setTimeout(
+                () => rej(new Error(what + ' did not answer within ' + Math.round(ms / 1000) + 's')), ms))
+        ]);
+        const SUBMIT_TIMEOUT_MS = 30000;
+
         // Azure GPU first, its CPU twin as the fallback. The CPU queue is slower but it is
         // there when the GPU host is occupied, which it often is.
         const GPU = 'https://gpu.hts.bio/alphafold/';
@@ -65,24 +99,25 @@ function (graph, genegraph_panel_layout, track) {
         const jobName = safeJobName(peptide);
         say('Folding ' + peptide.length + ' residues from ' + (track.name || 'the track')
             + ' — this takes from a few seconds to several minutes.');
-        try { graph.setMessageCenter('AlphaFold · ' + (track.name || 'track')); } catch (e) { }
         try { graph.___folder_calculation = true; } catch (e) { }
+        startClock('submitting');
 
         let out = null;
         try {
             out = await submitAndWait(GPU, jobName, peptide, 'AlphaFold / GPU');
             if (!out || !out.pdbUrl) {
                 say('The GPU queue did not answer — trying the CPU queue.');
+                phase('GPU queue silent, trying CPU');
                 out = await submitAndWait(CPU, jobName, peptide, 'AlphaFold / CPU');
             }
         } catch (e) {
+            stopClock(); clearTick();
             try { graph.___folder_calculation = false; } catch (e2) { }
-            clearTick();
             say('Folding failed: ' + (e && e.message ? e.message : e));
             return null;
         }
+        stopClock(); clearTick();
         try { graph.___folder_calculation = false; } catch (e) { }
-        clearTick();
 
         if (!out || !out.pdbUrl) {
             // NAME THE SERVICE. "No structure came back" reads as a fault in the track or
@@ -193,8 +228,12 @@ function (graph, genegraph_panel_layout, track) {
         async function submitAndWait(baseUrl, name, pep, label) {
             const join = (b, p) => new URL(p, String(b).endsWith('/') ? b : b + '/').toString();
             let res = null;
-            try { res = await POSTJSON({ job_name: name, sequence: pep }, join(baseUrl, 'predict')); }
-            catch (e) { say(label + ' could not be reached.'); return null; }
+            phase('submitting to ' + label);
+            try {
+                res = await withTimeout(POSTJSON({ job_name: name, sequence: pep }, join(baseUrl, 'predict')),
+                    SUBMIT_TIMEOUT_MS, label);
+            }
+            catch (e) { say(label + ': ' + (e && e.message ? e.message : 'could not be reached') + '.'); return null; }
             // POSTJSON RESOLVES WITH THE ERROR rather than rejecting (baja/src/app/engine/
             // io-db.ts: its catchError calls resolve(error)), so a service that is down
             // arrives here as a perfectly ordinary value carrying an `error` field -- and,
@@ -221,11 +260,9 @@ function (graph, genegraph_panel_layout, track) {
                     const hit = files.find((f) => ('' + f).toLowerCase().endsWith('.pdb'));
                     if (hit) return { pdbUrl: join(filesUrl + '/', hit), logUrl: logUrl, filesUrl: filesUrl };
                 }
-                const secs = Math.floor((i * POLL_MS) / 1000);
-                const status = label + '  ' + String(Math.floor(secs / 60)).padStart(2, '0')
-                    + ':' + String(secs % 60).padStart(2, '0');
-                try { graph.___folder_calculation_status = status; } catch (e) { }
-                tick(status);
+                // The clock is running on its own; this only says WHAT is being waited for.
+                phase('folding on ' + label);
+                try { graph.___folder_calculation_status = label + ' ' + mmss(Math.floor((i * POLL_MS) / 1000)); } catch (e) { }
                 await new Promise((r) => setTimeout(r, POLL_MS));
             }
             say(label + ' did not finish in time.');
