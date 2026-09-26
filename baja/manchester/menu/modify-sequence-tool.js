@@ -73,14 +73,30 @@ function (graph, track, range) {
         const d0 = after.length - before.length;
         const howMany = (d0 === 0) ? 'the same length'
             : (d0 > 0 ? ('+' + d0 + ' nt longer') : (Math.abs(d0) + ' nt shorter'));
+        // THE SPANS THAT CHANGE, NAMED. The reply is a list of positions to replace and
+        // everything outside them is copied from the original, so naming them says exactly
+        // what the edit does. Without it, "141 nt becomes 131 nt" leaves the reader to guess
+        // where the ten went.
+        let edits = [];
+        try { edits = JSON.parse(r.edits || '[]'); } catch (e) { edits = []; }
+        const cutTo = (x, n) => { x = '' + x; return x.length > n ? (x.slice(0, n) + '\u2026') : x; };
+        const spans = edits.slice(0, 6).map((e) => {
+            const at = gStart + (Number(e.start) || 1) - 1;
+            const wasN = ('' + (e.was || '')).length, repN = ('' + (e.replacement || '')).length;
+            if (!repN) return at + ': remove ' + wasN + ' nt';
+            if (!wasN) return at + ': add ' + repN + ' nt';
+            return at + ': ' + cutTo(e.was, 12) + ' \u2192 ' + cutTo(e.replacement, 12);
+        }).join(';  ') + (edits.length > 6 ? ';  and ' + (edits.length - 6) + ' more' : '');
         const accepted = await new Promise((resolve) => {
             let settled = false;
             const fin = (v) => { if (!settled) { settled = true; resolve(v); } };
             try {
                 Promise.resolve(exec('baja/lib/confirm.js',
-                    'Replace ' + len.toLocaleString() + ' nt of ' + (t.name || 'this track')
-                    + ' with ' + after.length.toLocaleString() + ' nt (' + howMany + ')?'
-                    + (r.note ? '  ' + r.note : ''),
+                    (edits.length === 1 ? 'One change' : (edits.length + ' changes'))
+                    + ' to ' + (t.name || 'this track') + ', leaving it ' + howMany + '.  '
+                    + (spans ? spans + '.  ' : '')
+                    + 'Nothing outside ' + (edits.length === 1 ? 'that span' : 'those spans')
+                    + ' is altered.' + (r.note ? '  ' + r.note : ''),
                     () => fin(true), 'Replace'))
                     .then(() => { setTimeout(() => fin(false), 120000); })
                     .catch(() => fin(false));
