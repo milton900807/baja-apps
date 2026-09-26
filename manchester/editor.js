@@ -3559,62 +3559,22 @@ function (path, config) {
 
                 CurrentLayout.stash('mainPanel', main_layout)
 
-                // ---- close ------------------------------------------------------------
+                // ---- no close button ---------------------------------------------------
                 //
-                // This editor fills the screen and had no way out at all. A fixed ✕ rather
-                // than a toolbar entry, matching the chromosome view: the toolbar is a row
-                // of things to DO to the design, and leaving is not one of them.
+                // There was a fixed ✕ at the top right, added when this editor filled the
+                // screen with no way out of it. It has been taken out at the user's request.
                 //
-                // Top-right at the same 44px offset the other full-screen views use, which
-                // clears the application's navigation bar and stays off the toolbar, which
-                // runs from the left.
+                // Anything that runs here and then wants to leave should go through
+                // exec('baja/init') the way that button did, and take the editor's window
+                // listeners with it -- window.__bajaEditorListenerTypes names them -- or a
+                // drop on the home screen is still handled by an editor nobody can see.
+                //
+                // One left over from a previous load is cleared, so a session that had the
+                // button before this change does not keep it.
                 try {
-                    const __CLOSE_ID = 'baja-editor-close';
-                    const __prevX = document.getElementById(__CLOSE_ID);
+                    const __prevX = document.getElementById('baja-editor-close');
                     if (__prevX && __prevX.parentNode) __prevX.parentNode.removeChild(__prevX);
-                    const __xb = document.createElement('div');
-                    __xb.id = __CLOSE_ID;
-                    __xb.title = 'Close the oligo designer';
-                    __xb.setAttribute('role', 'button');
-                    __xb.setAttribute('tabindex', '0');
-                    __xb.setAttribute('aria-label', 'Close the oligo designer');
-                    __xb.textContent = '\u2715';
-                    __xb.style.cssText = 'position:fixed;top:44px;right:14px;z-index:2147483000;'
-                        + 'width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
-                        + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
-                        + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
-                    __xb.onmouseenter = () => { try { __xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
-                    __xb.onmouseleave = () => { try { __xb.style.filter = ''; } catch (e) { } };
-                    const __goHome = async () => {
-                        // Confirm before leaving: a screen full of designed compounds that
-                        // have not been saved is exactly the thing not to discard on one
-                        // click. Defaults to staying.
-                        let __leave = true;
-                        try {
-                            __leave = await exec('baja/lib/confirm-leave.js', {
-                                title: 'Close the oligo designer?',
-                                message: 'Anything you have not saved will be lost.',
-                                confirmLabel: 'Close without saving'
-                            });
-                        } catch (e) { __leave = false; }
-                        if (!__leave) return;
-                        try { if (__xb.parentNode) __xb.parentNode.removeChild(__xb); } catch (e) { }
-                        // Take the window listeners with it, or a drop on the home screen is
-                        // still handled by an editor that is no longer on screen.
-                        try {
-                            for (const t of (window.__bajaEditorListenerTypes || [])) {
-                                const k = '__bajaEditorListener_' + t;
-                                if (window[k]) { window.removeEventListener(t, window[k]); window[k] = null; }
-                            }
-                        } catch (e) { }
-                        try { await exec('baja/init'); } catch (e) { console.log('[editor] returning home failed: ' + e); }
-                    };
-                    __xb.onclick = __goHome;
-                    __xb.onkeydown = (e) => {
-                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); __goHome(); }
-                    };
-                    document.body.appendChild(__xb);
-                } catch (e) { console.log('[editor] close button failed: ' + e); }
+                } catch (e) { }
                 // Every cpd/*.js editor (viewer.js, main.js, editor.js, ...) stashes 'graph'
                 // alongside its own mainPanel, so CurrentLayout.getStashed('graph') is a
                 // reliable way for code with no graph of its own (a file browser, a menu

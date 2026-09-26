@@ -100,12 +100,6 @@ function (graph, opts) {
                     + 'track to see what you can do with it.',
             },
             {
-                title: 'Leaving',
-                sel: '#baja-editor-close',
-                text: 'The cross in the corner closes the editor. Save first from File if you '
-                    + 'want the design back the way it is now.',
-            },
-            {
                 title: 'That is the tour',
                 byTitle: 'A quick tour of the editor',
                 byIcon: 'help_outline',
