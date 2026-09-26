@@ -57,44 +57,46 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
-            title: 'RNA–protein coupling', badge: 'CPTAC', ready: true,
-            blurb: 'How closely does this protein\'s level follow its mRNA?',
+            title: 'RNA–protein coupling', badge: '7 studies', ready: true,
+            blurb: 'When this gene\'s mRNA changes, how much does its protein change — and how reliably?',
             open: () => __onParentTrack('RNA–protein coupling',
                 (list) => exec('baja/bio/protein/rna-protein-correlation.js', graph, L, list, null)),
             docs: {
-                summary: 'Predicts, from the protein sequence alone, how tightly the protein\'s '
-                    + 'abundance tracks its mRNA across tumours: the Spearman correlation (ρ) '
-                    + 'between mRNA and protein. Low means the protein is set mostly after '
-                    + 'transcription (complex subunits, ribosomal proteins); high means mRNA is a '
-                    + 'good proxy for protein (secreted proteins). Drawn as a bar over the coding '
-                    + 'exons at the predicted ρ, with a line at the MEASURED ρ when CPTAC '
-                    + 'quantified the protein. Also reports the gene\'s mRNA half-life and what it '
-                    + 'implies: across 11,786 genes, longer-lived mRNAs carry more protein per mRNA '
-                    + '(Spearman 0.31; 0.36× the median gene in the shortest-lived tenth, 2.6× in the '
-                    + 'longest) while half-life does not change how closely protein follows mRNA (0.05).',
-                provenance: 'Trained on 12,185 proteins whose ρ was measured across 1,350 CPTAC '
-                    + 'tumour and normal samples in 10 cancer types. Cross-validated with whole '
-                    + 'homology clusters held out: r = 0.42 against measured ρ, AUROC 0.79 '
-                    + 'separating the top third from the bottom third, and r = 0.47 against CCLE '
-                    + 'cell-line ρ, which it never saw. A length-only control reaches r = 0.09. '
-                    + 'The full model (ESM-2 language-model embeddings + sequence features) is '
-                    + 'precomputed for every GENCODE v50 protein; an edited or variant protein is '
-                    + 'scored live by the sequence-feature half alone (r = 0.29), and the result '
-                    + 'says which was used. mRNA half-life is a consensus of 49 published datasets '
-                    + '(Agarwal & Kelley 2022 compendium; split-half reliability 0.94), with HeLa hours '
-                    + 'from Tani et al. 2012 where measured. Runs locally; no service is called.',
-                usage: 'Run it on a protein-coding track, or select a range to score the ORF '
-                    + 'inside it. The protein comes from the track\'s own ORF, exon-aware; a track '
-                    + 'with no ORF is not scored. Needs at least 30 residues. Where a MEASURED value '
-                    + 'exists, trust it over the prediction. Coupling also depends on how much the '
-                    + 'mRNA varies between samples — flat mRNA cannot correlate with anything — so '
-                    + 'the number describes a typical tumour cohort. It is not calibrated for cell '
-                    + 'lines, where coupling can differ (NEK1: 0.54 in tumours, 0.14 in CCLE).',
+                summary: 'Predicts two numbers from the protein and mRNA sequence. TRANSFER is how much '
+                    + 'the protein moves when its mRNA moves — the log-log slope of protein on mRNA across '
+                    + 'samples — on a normalized scale where the typical gene is 1.0: below 1 the protein '
+                    + 'is buffered (ribosomal and complex subunits; RPL5 is 0.27), above 1 it is responsive. '
+                    + 'ρ is how reliably protein follows mRNA. Drawn as a bar over the coding exons at the '
+                    + 'predicted transfer (the typical gene sits at mid-height), with a line at the MEASURED '
+                    + 'transfer where any study quantified the protein. The annotation also gives the gene\'s '
+                    + 'mRNA half-life: longer-lived mRNAs carry more protein per mRNA (Spearman 0.31) but '
+                    + 'half-life does not change how closely protein follows mRNA.',
+                provenance: 'Labels combine 7 paired mRNA/protein studies — CPTAC (10 cancer types), CCLE and '
+                    + 'Sanger cell lines, TCGA breast, ovarian (two labs) and colorectal tumours, NCI-60 — '
+                    + 'four mass-spec methods. Mass spec compresses protein ratios by different amounts, so '
+                    + 'each study\'s slopes are divided by its median gene before combining, weighted by '
+                    + 'samples and by how well each study agrees with the rest. 11,039 proteins. The model '
+                    + '(ESM-2 protein embeddings + protein features + mRNA features: UTR lengths, codon '
+                    + 'usage, uORFs, AU-rich and Pumilio elements) reaches Spearman 0.49 for transfer and '
+                    + '0.52 for ρ with whole homology clusters held out. Held out one study at a time, it '
+                    + 'predicts most studies better than a model trained on CPTAC alone (CCLE ρ 0.55 vs '
+                    + '0.51). It is precomputed for every GENCODE v50 protein; an edited or variant protein '
+                    + 'is scored live by protein features alone (Spearman 0.33), and the result says which '
+                    + 'was used. mRNA half-life: consensus of 49 datasets (Agarwal & Kelley 2022). Runs '
+                    + 'locally; no service is called.',
+                usage: 'Run it on a protein-coding track, or select a range to score the ORF inside it. The '
+                    + 'protein comes from the track\'s own ORF, exon-aware; a track with no ORF is not '
+                    + 'scored. Needs at least 30 residues. Where a MEASURED value exists, trust it over the '
+                    + 'prediction; the per-study values are in the log, and studies can disagree (NEK1: '
+                    + '0.99 in CPTAC tumours, 0.40 in CCLE cell lines). Transfer is relative to the typical '
+                    + 'gene, not an absolute fold change: the absolute slope depends on how protein is '
+                    + 'measured (a typical gene moves ~0.3 log2 of protein per log2 of mRNA in TMT data). '
+                    + 'Flat mRNA cannot move protein, so transfer matters for genes whose mRNA varies.',
                 links: [
                     { title: 'CPTAC pan-cancer proteogenomics', url: 'https://proteomics.cancer.gov/programs/cptac',
-                      note: 'The tumour RNA and protein measurements the correlations were computed from.' },
+                      note: 'The largest of the seven paired studies.' },
                     { title: 'ESM-2 protein language model', url: 'https://github.com/facebookresearch/esm',
-                      note: 'The sequence embeddings behind the full model.' },
+                      note: 'The protein embeddings behind the full model.' },
                     { title: 'Agarwal & Kelley 2022, human mRNA half-life compendium', url: 'https://doi.org/10.1186/s13059-022-02811-x',
                       note: 'The 54 half-life datasets the consensus is built from.' }
                 ]

@@ -1,12 +1,15 @@
 function (graph, genegraph_panel_layout, presetTrack, presetRange) {
-    // RNA–protein coupling — how tightly this protein's level follows its mRNA.
+    // RNA–protein coupling — how MUCH, and how reliably, this protein follows its mRNA.
     //
     // Sends the track's protein to py/bio/protein/rna-protein-correlation.py, which returns
-    // the predicted Spearman rho between mRNA and protein across tumours, and the MEASURED
-    // rho when CPTAC quantified that protein. It is a whole-protein number, not a profile,
-    // so it is drawn as a flat bar over the coding exons at the predicted rho (0..1 frame,
-    // zero across introns), a line at the measured rho when there is one, and one
-    // annotation over the CDS that says both.
+    //   transfer  the protein change per mRNA change (log-log slope across samples),
+    //             normalized so the typical gene = 1.0: below 1 buffered, above 1 responsive
+    //   rho       how reliably protein follows mRNA (Spearman)
+    // for the protein, and the MEASURED values where any of 7 paired studies quantified it.
+    // It is a whole-protein number, not a profile, so it is drawn as a flat bar over the
+    // coding exons at the predicted transfer (0..2 frame: the typical gene sits at
+    // mid-height, zero across introns), a line at the measured transfer, and one annotation
+    // over the CDS carrying transfer, rho, the measurement and the mRNA half-life.
     //
     // The protein comes from the track's own ORF exactly as the secretion layer reads it
     // (this.orf.cdsi, the codons the editor draws; same selection rule as
@@ -125,20 +128,24 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
                 const data = await exec(window['env']['apiUrl'] + '/py/bio/protein/rna-protein-correlation.py', em,
                     '' + got.protein, '' + (track.name || ''));
-                if (!data || data.error || data.predicted_rho == null) {
+                let transfer = null, rhoP = null, measured = null, notes = [], half = null;
+                try { transfer = JSON.parse(data && data.transfer || 'null'); } catch (e) { }
+                try { rhoP = JSON.parse(data && data.rho || 'null'); } catch (e) { }
+                if (!data || data.error || !transfer || !rhoP) {
                     done('RNA–protein coupling: ' + ((data && data.error) || 'no result from the server'));
                     clearWork(); restoreHover(); return false;
                 }
-                let measured = null, notes = [], drivers = [], half = null;
                 try { measured = JSON.parse(data.measured || 'null'); } catch (e) { }
                 try { half = JSON.parse(data.halflife || 'null'); } catch (e) { }
                 try { notes = JSON.parse(data.notes || '[]'); } catch (e) { }
-                try { drivers = JSON.parse(data.drivers || '[]'); } catch (e) { }
-                const rho = +data.predicted_rho;
-                const mrho = (measured && measured.cptac != null) ? +measured.cptac : null;
-                const clamp = (v) => Math.max(0, Math.min(1, v));
+                // transfer: protein change per mRNA change, typical gene = 1.0. Drawn on a 0..2
+                // frame so the typical gene sits at mid-height.
+                const tv = +transfer.value;
+                const mtv = (measured && measured.transfer != null) ? +measured.transfer : null;
+                const FRAME_MAX = 2;
+                const clamp = (v) => Math.max(0, Math.min(FRAME_MAX, v));
 
-                // ---- layers: predicted bar over the coding exons, measured line ----------
+                // ---- layers: predicted transfer bar over the coding exons, measured line ---
                 const TrackLayer = await exec('baja/bio/track-layer.js');
                 const tg = track.tgraph;
                 const lo = Math.min(tg.xmin, tg.xmax), hi = Math.max(tg.xmin, tg.xmax);
@@ -148,7 +155,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     track.track_layers = (track.track_layers || []).filter((l) => !l || ('' + l.data_type).indexOf('rna-protein') !== 0);
                 } catch (e) { }
                 const plateau = (name, type, v, fill, stroke) => {
-                    const L = new TrackLayer((track.name || 'track') + '_' + name, lo, 0, hi, 1);
+                    const L = new TrackLayer((track.name || 'track') + '_' + name, lo, 0, hi, FRAME_MAX);
                     L.data_type = type;
                     L.polygon_type = fill ? 'fill' : 'line';
                     L.color = stroke;
@@ -163,13 +170,12 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     track.addLayer(L);
                     return L;
                 };
-                const COL = { low: 'rgba(200,70,50,', typical: 'rgba(120,120,120,', high: 'rgba(40,120,200,' }[data.call]
+                const COL = { buffered: 'rgba(200,70,50,', typical: 'rgba(120,120,120,', responsive: 'rgba(40,120,200,' }[transfer.call]
                     || 'rgba(120,120,120,';
-                const bar = plateau('rna_protein', 'rna-protein', clamp(rho), COL + '0.30)', COL + '0.9)');
-                if (mrho != null) plateau('rna_protein_measured', 'rna-protein:measured', clamp(mrho), null, 'rgba(20,20,20,0.9)');
+                const bar = plateau('rna_protein', 'rna-protein', clamp(tv), COL + '0.30)', COL + '0.9)');
+                if (mtv != null) plateau('rna_protein_measured', 'rna-protein:measured', clamp(mtv), null, 'rgba(20,20,20,0.9)');
 
-                // ---- one annotation over the CDS: the number, the call, the measurement --
-                const callWord = { low: 'LOW', typical: 'typical', high: 'HIGH' }[data.call] || data.call;
+                // ---- one annotation over the CDS ------------------------------------------
                 const ord = (p) => {
                     const n = Math.round(+p);
                     if (n < 1) return 'bottom 1%';
@@ -177,12 +183,12 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     const suf = (n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
                     return n + suf + ' percentile';
                 };
-                // mRNA half-life: hours where HeLa measured it, otherwise the percentile
                 const hlShort = half ? (half.hela_hours != null
                     ? ('mRNA t½ ' + (+half.hela_hours).toFixed(1) + ' h')
                     : ('mRNA t½ ' + ord(half.percentile))) : '';
-                const label = 'RNA→protein ρ ' + rho.toFixed(2) + ' · ' + callWord
-                    + (mrho != null ? (' (measured ' + mrho.toFixed(2) + ')') : '')
+                const label = 'mRNA→protein ' + tv.toFixed(2) + '× · ' + transfer.call + ' · ρ ' + (+rhoP.value).toFixed(2)
+                    + (mtv != null ? (' (measured ' + mtv.toFixed(2) + '×, ' + measured.n_studies + ' stud'
+                        + (measured.n_studies === 1 ? 'y' : 'ies') + ')') : '')
                     + (hlShort ? (' · ' + hlShort) : '');
                 try {
                     const Annotation = await exec('flexigraph/annotation.js');
@@ -198,29 +204,26 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 8100);
                 if (graph.wake) graph.wake();
 
+                const how = { buffered: 'changes LESS than', typical: 'changes about as much as', responsive: 'changes MORE than' }[transfer.call];
                 const src = data.source === 'full'
-                    ? 'full model (ESM-2 + sequence), precomputed for this annotated protein'
-                    : 'sequence-feature model (this exact protein is not in the precomputed set)';
-                const byCancer = (measured && measured.by_cancer) ? Object.keys(measured.by_cancer)
-                    .map((k) => k + ' ' + (+measured.by_cancer[k]).toFixed(2)).join(', ') : '';
-                const msg = ' RNA–protein coupling on ' + who + ' from ' + got.source + ': predicted ρ '
-                    + rho.toFixed(2) + ' (80% ' + (+data.interval_lo).toFixed(2) + '–' + (+data.interval_hi).toFixed(2)
-                    + '), ' + Math.round(+data.percentile) + 'th percentile of human proteins — ' + callWord
-                    + '. ' + (mrho != null
-                        ? ('Measured in CPTAC tumours: ' + mrho.toFixed(2)
-                            + (measured.ccle != null ? ('; CCLE cell lines ' + (+measured.ccle).toFixed(2)) : '')
-                            + ' (' + measured.gene + ', matched by ' + measured.match + ').')
-                        : 'Not measured in CPTAC, so this is a prediction only.')
+                    ? 'full model (ESM-2 + protein + mRNA features), precomputed for this annotated protein'
+                    : 'protein-feature fallback (this exact protein is not an annotated GENCODE protein)';
+                const perStudy = (measured && measured.studies) ? Object.keys(measured.studies)
+                    .map((k) => k + ' ' + (+measured.studies[k][0]).toFixed(2)).join(', ') : '';
+                const msg = ' mRNA→protein transfer on ' + who + ' from ' + got.source + ': ' + tv.toFixed(2)
+                    + '× the typical gene (80% ' + (+transfer.interval_80[0]).toFixed(2) + '–' + (+transfer.interval_80[1]).toFixed(2)
+                    + ', ' + ord(transfer.percentile) + ') — when its mRNA changes, its protein ' + how + ' the typical protein. '
+                    + 'Reliability ρ ' + (+rhoP.value).toFixed(2) + ' (' + ord(rhoP.percentile) + '). '
+                    + (mtv != null
+                        ? ('Measured in ' + measured.n_studies + ' stud' + (measured.n_studies === 1 ? 'y' : 'ies') + ': '
+                            + mtv.toFixed(2) + '×, ρ ' + (measured.rho != null ? (+measured.rho).toFixed(2) : 'n/a') + '.')
+                        : 'Not measured in any study, so this is a prediction only.')
                     + (half ? (' mRNA half-life: ' + ord(half.percentile)
-                        + (half.hela_hours != null ? (' (' + (+half.hela_hours).toFixed(1) + ' h in HeLa)') : '')
-                        + '; genes this stable carry ' + (+half.typical_protein_per_mrna_fold).toFixed(2)
-                        + '× the median protein per mRNA.') : ' No measured mRNA half-life for this gene.')
+                        + (half.hela_hours != null ? (' (' + (+half.hela_hours).toFixed(1) + ' h in HeLa)') : '') + '.') : '')
                     + ' Source: ' + src + '. ';
                 try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
                 try {
-                    if (byCancer) log('[rna-protein] measured by cancer type: ' + byCancer);
-                    if (drivers.length) log('[rna-protein] sequence features moving the prediction: '
-                        + drivers.map((d) => d.label + ' ' + (d.effect >= 0 ? '+' : '') + (+d.effect).toFixed(3)).join(', '));
+                    if (perStudy) log('[rna-protein] measured transfer by study: ' + perStudy);
                     if (notes.length) log('[rna-protein] ' + notes.join('  '));
                 } catch (e) { }
                 clearWork(); restoreHover();
