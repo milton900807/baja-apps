@@ -110,6 +110,43 @@ function (graph, genegraph_panel_layout, tracks) {
                 }
             },
             {
+                title: 'RNA–protein coupling', badge: 'CPTAC', ready: true,
+                blurb: 'How closely does this protein\'s level follow its mRNA?',
+                open: () => __onParentTrack('RNA–protein coupling',
+                    (list) => exec('baja/bio/protein/rna-protein-correlation.js', graph, L, list, null)),
+                docs: {
+                    summary: 'Predicts, from the protein sequence alone, how tightly the protein\'s '
+                        + 'abundance tracks its mRNA across tumours: the Spearman correlation (ρ) '
+                        + 'between mRNA and protein. Low means the protein is set mostly after '
+                        + 'transcription (complex subunits, ribosomal proteins); high means mRNA is a '
+                        + 'good proxy for protein (secreted proteins). Drawn as a bar over the coding '
+                        + 'exons at the predicted ρ, with a line at the MEASURED ρ when CPTAC '
+                        + 'quantified the protein.',
+                    provenance: 'Trained on 12,185 proteins whose ρ was measured across 1,350 CPTAC '
+                        + 'tumour and normal samples in 10 cancer types. Cross-validated with whole '
+                        + 'homology clusters held out: r = 0.42 against measured ρ, AUROC 0.79 '
+                        + 'separating the top third from the bottom third, and r = 0.47 against CCLE '
+                        + 'cell-line ρ, which it never saw. A length-only control reaches r = 0.09. '
+                        + 'The full model (ESM-2 language-model embeddings + sequence features) is '
+                        + 'precomputed for every GENCODE v50 protein; an edited or variant protein is '
+                        + 'scored live by the sequence-feature half alone (r = 0.29), and the result '
+                        + 'says which was used. Runs locally; no service is called.',
+                    usage: 'Run it on a protein-coding track, or select a range to score the ORF '
+                        + 'inside it. The protein comes from the track\'s own ORF, exon-aware; a track '
+                        + 'with no ORF is not scored. Needs at least 30 residues. Where a MEASURED value '
+                        + 'exists, trust it over the prediction. Coupling also depends on how much the '
+                        + 'mRNA varies between samples — flat mRNA cannot correlate with anything — so '
+                        + 'the number describes a typical tumour cohort. It is not calibrated for cell '
+                        + 'lines, where coupling can differ (NEK1: 0.54 in tumours, 0.14 in CCLE).',
+                    links: [
+                        { title: 'CPTAC pan-cancer proteogenomics', url: 'https://proteomics.cancer.gov/programs/cptac',
+                          note: 'The tumour RNA and protein measurements the correlations were computed from.' },
+                        { title: 'ESM-2 protein language model', url: 'https://github.com/facebookresearch/esm',
+                          note: 'The sequence embeddings behind the full model.' }
+                    ]
+                }
+            },
+            {
                 title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
                 blurb: 'Per-position RBP binding profile across the track.',
                 // The chosen protein comes from the page's picker and is passed straight
