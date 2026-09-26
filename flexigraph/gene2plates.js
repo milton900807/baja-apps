@@ -1821,8 +1821,36 @@ function (plateManager, progress) {
                             let try_local = host_ + `/transcript/${ensembleId}`;
                             js = await GETJSON(try_local);
 
-                            let jsm = js[0]
-                            for (let jl of js) {
+                            // THE LOCAL TRANSCRIPT ENDPOINT RETURNS AN OBJECT, not the bare
+                            // annotation array it once did:
+                            //   { transcriptId, sequence, annotations, strand,
+                            //     reversedForNegativeStrand, species, sequenceSource }
+                            // This iterated the response directly, so `for (let jl of js)` threw
+                            // "js is not iterable" on EVERY ENST load. The whole branch fell into
+                            // the catch below and the track was rebuilt from the Ensembl REST
+                            // lookup instead -- which carries exons but no CDS.
+                            //
+                            // That is why a transcript on this canvas never showed an amino-acid
+                            // row: generateORF translates the CDS segments, and there were none.
+                            // Measured on INS (ENST00000381330): annotations arrived as
+                            // Exon/TSS/STOP/Translation with no CDS, orf empty, and a protein
+                            // track built from it came back 0 nt. The endpoint itself had the CDS
+                            // all along -- 11 annotations including CDS x2 -- it was never read.
+                            //
+                            // Both shapes are accepted, because the array form is what every
+                            // saved document and any older server still hands back.
+                            const __anns = Array.isArray(js)
+                                ? js
+                                : ((js && Array.isArray(js.annotations)) ? js.annotations : []);
+                            // The local endpoint returns the sequence ALREADY ORIENTED for the
+                            // strand (reversedForNegativeStrand), the same sequence the editor
+                            // uses. Taking it here also saves a cross-origin hop to Ensembl.
+                            const __localSeq = (js && !Array.isArray(js) && js.sequence)
+                                ? ('' + js.sequence).trim() : '';
+                            if (!__anns.length) throw new Error('no annotations for ' + ensembleId);
+
+                            let jsm = __anns[0]
+                            for (let jl of __anns) {
                                 if (jl.feature === 'transcript') {
                                     jsm = jl
                                     break;
@@ -1882,19 +1910,23 @@ function (plateManager, progress) {
                                 this.setMouseMode('navigate')
                             }, 500)
                             this.graph.rescale();
-                            let ensembl_sequence = prefix + `/sequence/id/${ensembleId}?content-type=text/plain`;
-                            let fasta = await GETXT(ensembl_sequence)
-                            fasta = fasta.trim();
-                            if (t.strand < 0) {
-                                let temp = '';
-                                for (let c = fasta.length - 1; c >= 0; c--) {   // >= 0: c > 0 dropped fasta[0], leaving the minus-strand sequence one base short
-                                    temp += fasta[c]
-                                }
-                                t.setSequence(temp)
+                            if (__localSeq) {
+                                t.setSequence(__localSeq);
                             } else {
-                                t.setSequence(fasta)
+                                let ensembl_sequence = prefix + `/sequence/id/${ensembleId}?content-type=text/plain`;
+                                let fasta = await GETXT(ensembl_sequence)
+                                fasta = fasta.trim();
+                                if (t.strand < 0) {
+                                    let temp = '';
+                                    for (let c = fasta.length - 1; c >= 0; c--) {   // >= 0: c > 0 dropped fasta[0], leaving the minus-strand sequence one base short
+                                        temp += fasta[c]
+                                    }
+                                    t.setSequence(temp)
+                                } else {
+                                    t.setSequence(fasta)
+                                }
                             }
-                            let annotations = this.createTrackFromLocal(js);
+                            let annotations = this.createTrackFromLocal(__anns);
                             for (let an of annotations) {
                                 t.add(an)
                             }
