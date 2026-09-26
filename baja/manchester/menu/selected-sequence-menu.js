@@ -3,16 +3,13 @@ function (graph, selectedTrack, genegraph_panel_layout) {
     // "Selected Sequence" menu — the counterpart to the selected-TRACK menu, opened by
     // clicking inside an existing selection.
     //
-    // SHOWN THE WAY A COMPOUND'S MENU IS SHOWN. This used to go to showSideMenu, which
-    // collapses to an orange chip in the top-left corner of the canvas -- so selecting a
-    // stretch of sequence, down at the track, put its options as far from the selection as
-    // the window allows, behind a second click to expand them. showWindowMenu is the one the
-    // oligos use: the list opens where it is asked for and reads as the same menu the rest of
-    // the editor opens.
-    //
-    // Both are still used deliberately: a SIDE menu is right for something that stays open
-    // while you work through it, a WINDOW menu for a list you pick one thing from and
-    // dismiss. This is the second kind. Same shape (Layers / Data / Models / Design /
+    // SHOWN IN PLACE, beside the selection. This used to go to showSideMenu, which collapses
+    // to an orange chip in the top-left corner -- so the options for a stretch of sequence
+    // down at the track appeared as far from it as the window allows, behind a second click.
+    // The full-screen list (showWindowMenu) is no better on a desktop: it covers the very
+    // sequence the menu is about. So it is a small panel at the pointer, in the editor's own
+    // navy, and popup-menu.js hands a PHONE back to the full-screen list where a thumb wants
+    // it. Same shape (Layers / Data / Models / Design /
     // Sequence / Export), but every operation is scoped to markstart..markend instead of the
     // whole track: layers cover only the selected span, models are run on the selected
     // sub-sequence, and oligo design uses the selected range as its target.
@@ -52,8 +49,19 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         };
         const show = (list, sx, sy) => {
             const at = (Number.isFinite(sx) && Number.isFinite(sy)) ? { x: sx, y: sy } : __where();
-            try { graph.showSideMenu(null); } catch (e) { }      // never both at once
-            try { graph.showWindowMenu(list, at.x, at.y, 260); } catch (e) { }
+            try { graph.showSideMenu(null); } catch (e) { }      // never two menus at once
+            // In place, beside the selection. popup-menu.js hands a PHONE back to the
+            // full-screen list, which is the right shape for a thumb and the wrong one for a
+            // pointer -- on a desktop the full-screen list covers the sequence the menu is
+            // about.
+            try {
+                Promise.resolve(exec('baja/manchester/menu/popup-menu.js', graph, list, at.x, at.y, {
+                    title: (t.name || 'Sequence'),
+                    subtitle: len.toLocaleString() + ' nt selected'
+                })).catch(() => { try { graph.showWindowMenu(list, at.x, at.y, 260); } catch (e) { } });
+            } catch (e) {
+                try { graph.showWindowMenu(list, at.x, at.y, 260); } catch (e2) { }
+            }
         };
 
         const go = (label, fn) => ({
