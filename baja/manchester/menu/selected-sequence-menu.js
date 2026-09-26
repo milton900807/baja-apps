@@ -33,6 +33,23 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             } catch (e) { say(' Could not copy: ' + e + ' '); }
         };
 
+        // HOW MANY RESIDUES THE SELECTION HOLDS, or 0 if it holds none. Worked out here so the
+        // Fold entry can say the count in its label and be left out entirely when the span
+        // carries no coding bases -- an entry whose only answer is "that is outside the ORF"
+        // is a worse answer than not being there.
+        //
+        // Read off the ORF, not off the bases: a selection is a span of NUCLEOTIDES, and
+        // whatever three-frame translation falls out of it is not the protein the track
+        // draws. getPeptideFromORF walks orf.cdsi, so the residues are the track's own.
+        const __foldAa = (() => {
+            try {
+                if (!(t.orf && t.orf.cdsi && t.orf.cdsi.length)) return 0;
+                const r = (typeof t.selectedRange === 'function') ? t.selectedRange() : null;
+                if (!r) return 0;
+                return ('' + (t.getPeptideFromORF(r.start, r.end) || '')).trim().length;
+            } catch (e) { return 0; }
+        })();
+
         // Every leaf closes the side menu first, then runs, and reports its own failure rather
         // than throwing out of the menu handler and leaving the canvas half-configured.
         // Where the menu opens: beside the selection rather than in a corner. Worked out
@@ -227,6 +244,11 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                 await exec('baja/manchester/menu/modify-sequence-tool.js', graph, t,
                     { start: t.markstart, end: t.markend });
             }),
+            // FOLD WHAT IS SELECTED. The same tool the track menu uses; it reads the
+            // selection off the track itself, so the two cannot disagree about which
+            // residues are meant. Only offered when the span actually holds some.
+            ...(__foldAa ? [go('Fold selected peptide (AlphaFold, ' + __foldAa + ' aa)\u2026', async () =>
+                exec('baja/manchester/menu/alphafold-track.js', graph, genegraph_panel_layout, t))] : []),
             sub('Sequence ▸', seqItems),
             go('Design ▸', async () => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout)),
             go('Off-targets...', async () => exec('baja/manchester/menu/run-off-targets.js', graph, genegraph_panel_layout)),
