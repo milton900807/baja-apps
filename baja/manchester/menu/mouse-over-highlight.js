@@ -5214,6 +5214,47 @@ function (graph, genegraph_panel_layout) {
                     }
                 } catch (e) { }
 
+                // FOLD THIS PROTEIN. Only when there IS one -- a track with no ORF has nothing
+                // to fold, and an item that answers "no coding sequence" is a worse answer
+                // than not being there. The label says WHICH residues it will take, because a
+                // selection and the whole ORF give very different structures and a selection
+                // made ten minutes ago is easy to forget.
+                try {
+                    const __foldPep = (() => {
+                        try {
+                            const t = selectedTrack;
+                            if (!t) return null;
+                            if (!(t.orf && t.orf.cdsi && t.orf.cdsi.length)) return null;
+                            const r = (typeof t.selectedRange === 'function') ? t.selectedRange() : null;
+                            if (r) {
+                                const p = ('' + (t.getPeptideFromORF(r.start, r.end) || '')).trim();
+                                // A selection that holds no coding bases is not a peptide; the
+                                // whole-ORF label would then be a lie, so nothing is offered.
+                                return p ? { n: p.length, selected: true } : null;
+                            }
+                            const w = ('' + (t.getProteinSequence() || '')).trim();
+                            return w ? { n: w.length, selected: false } : null;
+                        } catch (e) { return null; }
+                    })();
+                    if (__foldPep) {
+                        track_list.push({
+                            label: (__foldPep.selected ? 'Fold selected peptide' : 'Fold protein')
+                                + ' (AlphaFold, ' + __foldPep.n + ' aa)\u2026',
+                            __sortAs: 'Fold protein',
+                            move: () => { },
+                            click: async () => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                const st = selectedTrack;
+                                try {
+                                    await exec('baja/manchester/menu/alphafold-track.js', graph, genegraph_panel_layout, st);
+                                } catch (e) {
+                                    try { graph.setMessage(' Folding could not be started: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                }
+                            }
+                        });
+                    }
+                } catch (e) { }
+
                 // CONVERT TO PROTEIN: the coding sequence on its own, spliced from the CDS
                 // segments, with the amino-acid row over it. Offered when the track HAS a
                 // coding sequence and is not already just that -- and "already just that" is
@@ -5365,11 +5406,16 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1, 'Machine Learning Models': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Machine Learning Models \u25b8', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Machine Learning Models \u25b8', 'Fold protein', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
-                const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
-                const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };
+                // An item whose LABEL is computed -- "Fold protein (AlphaFold, 110 aa)..." --
+                // can never match a fixed table, so it sorted to the bottom with the items that
+                // are not track items at all. __sortAs is what it is ordered BY when it carries
+                // one; the label stays free to say whatever the track makes it say.
+                const __key = (m) => ('' + ((m && m.__sortAs) || (m && m.label) || '')).trim();
+                const __isTrackItem = (m) => m && __trackItemLabels.indexOf(__key(m)) >= 0;
+                const __ti = (m) => { const k = __trackItemLabels.indexOf(__key(m)); return k < 0 ? 999 : k; };
                 track_list = track_list.filter(__isTrackItem).sort((a, b) => __ti(a) - __ti(b))
                     .concat(track_list.filter((m) => !__isTrackItem(m)));
                 const __trackMenu = mergePendingSnp(track_list);
