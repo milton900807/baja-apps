@@ -5192,6 +5192,63 @@ function (graph, genegraph_panel_layout) {
                     }
                 } catch (e) { }
 
+                // PROTEIN DOMAINS (CDD), AS A LAYER. Offered only on a track that has a
+                // protein, and worded so the two scopes are not a guess: this track, or every
+                // coding track on the board -- which is what "make sure they are all mapped"
+                // means and is otherwise a click per track.
+                //
+                // A LAYER rather than annotations (which is what protein-domains.js adds):
+                // a layer toggles, reorders and deletes in one go through the layer menu,
+                // where domains mixed into the track's own annotations cannot be hidden
+                // without hiding real ones, and are saved as though someone drew them.
+                try {
+                    const __hasPeptide = (t) => {
+                        try {
+                            if (!t) return false;
+                            if (t.orf && t.orf.cdsi && t.orf.cdsi.length) return true;
+                            return ('' + (t.getProteinSequence ? t.getProteinSequence() : '')).length >= 3;
+                        } catch (e) { return false; }
+                    };
+                    if (__hasPeptide(selectedTrack)) {
+                        const __coding = ((graph && graph.track) || []).filter(__hasPeptide);
+                        track_list.push({
+                            label: 'Protein domains (CDD) \u25b8',
+                            __sortAs: 'Protein domains (CDD) \u25b8',
+                            move: () => { },
+                            click: async (scx, scy) => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                const st = selectedTrack;
+                                const run = async (list, redo) => {
+                                    try {
+                                        await exec('baja/bio/protein/cdd-domain-layer.js', graph,
+                                            genegraph_panel_layout, list, { redo: !!redo });
+                                    } catch (e) {
+                                        try { graph.setResultMessage(' Domain search failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                    }
+                                };
+                                const items = [
+                                    { label: 'On this track', move: () => { }, click: async () => run([st], false) }
+                                ];
+                                if (__coding.length > 1) {
+                                    items.push({
+                                        label: 'On all coding tracks (' + __coding.length + ')',
+                                        move: () => { }, click: async () => run(__coding, false)
+                                    });
+                                }
+                                items.push({ type: 'separator' });
+                                items.push({
+                                    label: 'Search again on this track',
+                                    move: () => { }, click: async () => run([st], true)
+                                });
+                                try {
+                                    await exec('baja/manchester/menu/popup-menu.js', graph, items, scx, scy,
+                                        { title: 'Protein domains \u00b7 ' + ((st && st.name) || 'Track') });
+                                } catch (e) { }
+                            }
+                        });
+                    }
+                } catch (e) { }
+
                 // MACHINE LEARNING MODELS, listed rather than catalogued. Every model that can
                 // be run on a track, one click from the track's own menu, with the splicing
                 // models behind their own submenu and BajaCLIP's RNA-binding proteins behind
@@ -5420,7 +5477,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1, 'Machine Learning Models': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Machine Learning Models \u25b8', 'Fold protein', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Machine Learning Models \u25b8', 'Protein domains (CDD) \u25b8', 'Fold protein', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 // An item whose LABEL is computed -- "Fold protein (AlphaFold, 110 aa)..." --
