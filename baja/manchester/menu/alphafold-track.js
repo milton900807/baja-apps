@@ -19,8 +19,18 @@ function (graph, genegraph_panel_layout, track) {
 
     return (async () => {
         const L = genegraph_panel_layout;
+        // THE CANVAS DOES NOT PAINT setMessage. Only setResultMessage and setMessageCenter
+        // reach the screen, so a fold reporting its progress through setMessage -- which is
+        // what the older runner does -- spends several minutes looking like nothing at all is
+        // happening, and then says nothing when it fails either.
+        //   say()  terminal outcomes, as a toast
+        //   tick() the running clock, in the centre, where it replaces itself rather than
+        //          stacking one toast every three seconds
         const say = (m) => { try { graph.setResultMessage(' ' + m + ' '); } catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } } };
-        const note = (m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } };
+        const tick = (m) => {
+            try { graph.setMessageCenter(m); } catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } }
+        };
+        const clearTick = () => { try { graph.setMessageCenter(''); } catch (e) { } };
 
         // Azure GPU first, its CPU twin as the fallback. The CPU queue is slower but it is
         // there when the GPU host is occupied, which it often is.
@@ -49,7 +59,7 @@ function (graph, genegraph_panel_layout, track) {
 
         // ---- confirm, with the sequence in front of them --------------------------------
         const go = await confirmFold(peptide, scope, track);
-        if (!go) { note('Folding cancelled.'); return null; }
+        if (!go) { say('Folding cancelled.'); return null; }
 
         // ---- run -------------------------------------------------------------------------
         const jobName = safeJobName(peptide);
@@ -62,18 +72,24 @@ function (graph, genegraph_panel_layout, track) {
         try {
             out = await submitAndWait(GPU, jobName, peptide, 'AlphaFold / GPU');
             if (!out || !out.pdbUrl) {
-                note('The GPU queue did not return a structure — trying the CPU queue.');
+                say('The GPU queue did not answer — trying the CPU queue.');
                 out = await submitAndWait(CPU, jobName, peptide, 'AlphaFold / CPU');
             }
         } catch (e) {
             try { graph.___folder_calculation = false; } catch (e2) { }
+            clearTick();
             say('Folding failed: ' + (e && e.message ? e.message : e));
             return null;
         }
         try { graph.___folder_calculation = false; } catch (e) { }
+        clearTick();
 
         if (!out || !out.pdbUrl) {
-            say('No structure came back for ' + (track.name || 'the track') + '. The service may be busy — try again shortly.');
+            // NAME THE SERVICE. "No structure came back" reads as a fault in the track or
+            // the sequence; the folding host is a separate machine, and when it is down that
+            // is the fact worth having.
+            say('No structure came back — the folding service (gpu.hts.bio) is not answering. '
+                + 'Nothing is wrong with the sequence; try again when it is back.');
             return null;
         }
 
@@ -178,9 +194,15 @@ function (graph, genegraph_panel_layout, track) {
             const join = (b, p) => new URL(p, String(b).endsWith('/') ? b : b + '/').toString();
             let res = null;
             try { res = await POSTJSON({ job_name: name, sequence: pep }, join(baseUrl, 'predict')); }
-            catch (e) { note(label + ' could not be reached.'); return null; }
+            catch (e) { say(label + ' could not be reached.'); return null; }
+            // POSTJSON RESOLVES WITH THE ERROR rather than rejecting (baja/src/app/engine/
+            // io-db.ts: its catchError calls resolve(error)), so a service that is down
+            // arrives here as a perfectly ordinary value carrying an `error` field -- and,
+            // because that same catchError returns null into the pipe, with a stray RxJS
+            // "you provided 'null' where a stream was expected" on the console that has
+            // nothing to do with this job. A missing results_url is the reliable tell.
             if (!res || res.error || !res.results_url) {
-                note(label + ' declined the job' + (res && res.error ? (': ' + res.error) : '') + '.');
+                say(label + ' is not answering' + (res && res.status ? (' (HTTP ' + res.status + ')') : '') + '.');
                 return null;
             }
 
@@ -200,13 +222,13 @@ function (graph, genegraph_panel_layout, track) {
                     if (hit) return { pdbUrl: join(filesUrl + '/', hit), logUrl: logUrl, filesUrl: filesUrl };
                 }
                 const secs = Math.floor((i * POLL_MS) / 1000);
-                const status = label + ' · ' + String(Math.floor(secs / 60)).padStart(2, '0')
+                const status = label + '  ' + String(Math.floor(secs / 60)).padStart(2, '0')
                     + ':' + String(secs % 60).padStart(2, '0');
                 try { graph.___folder_calculation_status = status; } catch (e) { }
-                note(status);
+                tick(status);
                 await new Promise((r) => setTimeout(r, POLL_MS));
             }
-            note(label + ' did not finish in time.');
+            say(label + ' did not finish in time.');
             return null;
         }
 
