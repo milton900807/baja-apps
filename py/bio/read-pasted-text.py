@@ -17,12 +17,14 @@ Params (after the EngineMonitor):
     param(1) : the pasted text
 
 Resolves:
-    { ok, summary, transcripts, genes, diseases, mutations, note, error }
-  where the four lists are JSON strings:
+    { ok, summary, transcripts, genes, diseases, mutations, repeats, note, error }
+  where the lists are JSON strings:
     transcripts [{"id": "ENST00000003084", "why": "..."}]
     genes       [{"symbol": "CFTR", "quoted": true, "why": "..."}]
     diseases    [{"name": "Cystic fibrosis", "quoted": true, "why": "..."}]
     mutations   [{"gene": "CFTR", "label": "F508del", "quoted": true, "why": "..."}]
+    repeats     [{"gene": "HTT", "motif": "CAG", "normal_min": 9, "normal_max": 36,
+                  "pathogenic_min": 37, "pathogenic_max": null, "why": "..."}]
 """
 import json
 import os
@@ -46,7 +48,7 @@ TRANSCRIPT_RE = re.compile(r"^(?:ENS[A-Z]*T\d+|[NX][MR]_\d+)(?:\.\d+)?$", re.I)
 
 text = str(works.param(1) or "")
 out = {"ok": False, "summary": "", "transcripts": "[]", "genes": "[]", "diseases": "[]",
-       "mutations": "[]", "note": "", "error": None}
+       "mutations": "[]", "repeats": "[]", "note": "", "error": None}
 
 SYSTEM = (
     "You read a piece of text someone pasted into a genome browser and say what in it can be "
@@ -57,6 +59,9 @@ SYSTEM = (
     '  "genes": [{"symbol": "CFTR", "why": "the gene under study"}],\n'
     '  "diseases": [{"name": "Cystic fibrosis", "why": "the condition described"}],\n'
     '  "mutations": [{"gene": "CFTR", "label": "F508del", "why": "the variant reported"}],\n'
+    '  "repeats": [{"gene": "HTT", "motif": "CAG", "normal_min": 9, "normal_max": 36,\n'
+    '               "pathogenic_min": 37, "pathogenic_max": null,\n'
+    '               "why": "the expansion that causes the disease"}],\n'
     '  "note": "one short sentence, or empty"\n'
     "}\n"
     "Rules:\n"
@@ -155,15 +160,53 @@ else:
                     diseases.append({"name": nm, "quoted": quoted(nm),
                                      "why": str(d.get("why") or "")})
 
-                out["ok"] = bool(transcripts or genes or diseases or mutations)
+                # A REPEAT EXPANSION IS NOT A MUTATION LABEL, which is why a Huntington
+                # entry came back with a gene, a disease and nothing to place: the only
+                # variant it names is "(CAG)n", and there is no HGVS for "more than 37 of
+                # them". The motif is the claim, and it is held to the same rule as every
+                # other -- it has to be in the text. The counts are checked for sense rather
+                # than for wording: a page says "9 to 36" in a dozen ways and none of them
+                # would survive a verbatim match.
+                repeats = []
+                for rp in (got.get("repeats") or [])[:MAX_EACH]:
+                    motif = re.sub(r"[^ACGT]", "", str((rp or {}).get("motif") or "").upper())
+                    if not motif or len(motif) < 2 or len(motif) > 12:
+                        continue
+                    if motif.lower() not in low:
+                        continue                      # not a motif this text named
+                    def _n(k):
+                        try:
+                            v = int(rp.get(k))
+                            return v if 0 < v < 100000 else None
+                        except Exception:
+                            return None
+                    nmin, nmax = _n("normal_min"), _n("normal_max")
+                    pmin, pmax = _n("pathogenic_min"), _n("pathogenic_max")
+                    # A pathogenic range at or below the normal one is a misreading, and a
+                    # repeat with no pathogenic threshold at all cannot be built into
+                    # anything, so neither is offered.
+                    if pmin is None:
+                        continue
+                    if nmax is not None and pmin <= nmax and (nmin is None or pmin <= nmin):
+                        continue
+                    repeats.append({"gene": str(rp.get("gene") or "").strip().upper(),
+                                    "motif": motif,
+                                    "normal_min": nmin, "normal_max": nmax,
+                                    "pathogenic_min": pmin, "pathogenic_max": pmax,
+                                    "why": str(rp.get("why") or "")})
+
+                out["ok"] = bool(transcripts or genes or diseases or mutations or repeats)
                 out["summary"] = str(got.get("summary") or "")
                 out["note"] = str(got.get("note") or "")
                 out["transcripts"] = json.dumps(transcripts)
                 out["genes"] = json.dumps(genes)
                 out["diseases"] = json.dumps(diseases)
                 out["mutations"] = json.dumps(mutations)
-                works.msg("%d transcript(s), %d gene(s), %d disease(s), %d mutation(s)"
-                          % (len(transcripts), len(genes), len(diseases), len(mutations)))
+                out["repeats"] = json.dumps(repeats)
+                works.msg("%d transcript(s), %d gene(s), %d disease(s), %d mutation(s), "
+                          "%d repeat expansion(s)"
+                          % (len(transcripts), len(genes), len(diseases), len(mutations),
+                             len(repeats)))
     except Exception as e:
         out["error"] = str(e)
 

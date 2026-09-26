@@ -36,13 +36,14 @@ function (server, graph, genegraph_panel_layout, text) {
             say('The pasted text could not be read' + ((r && r.error) ? ': ' + r.error : '') + '.');
             return false;
         }
-        let transcripts = [], genes = [], diseases = [], mutations = [];
+        let transcripts = [], genes = [], diseases = [], mutations = [], repeats = [];
         try { transcripts = JSON.parse(r.transcripts || '[]'); } catch (e) { }
         try { genes = JSON.parse(r.genes || '[]'); } catch (e) { }
         try { diseases = JSON.parse(r.diseases || '[]'); } catch (e) { }
         try { mutations = JSON.parse(r.mutations || '[]'); } catch (e) { }
+        try { repeats = JSON.parse(r.repeats || '[]'); } catch (e) { }
 
-        if (!transcripts.length && !genes.length && !diseases.length && !mutations.length) {
+        if (!transcripts.length && !genes.length && !diseases.length && !mutations.length && !repeats.length) {
             // Say so and stop. A paste that names nothing loadable is not an error, and a
             // dialog offering an empty list is worse than a sentence.
             say('Nothing loadable was found in the pasted text'
@@ -115,12 +116,32 @@ function (server, graph, genegraph_panel_layout, text) {
             body += '<label style="' + LBL + '">Changes named in the text</label>'
                 + mutations.map((m, i) => row('m', i, (m.gene ? m.gene + ' ' : '') + m.label, m.why, true, '')).join('');
         }
+        if (repeats.length) {
+            // A REPEAT EXPANSION IS OFFERED AS A PAIR, because that is what it is: the same
+            // gene at a normal length and at a disease length. Ticked by default -- it is
+            // usually the whole point of a page that mentions one.
+            body += '<label style="' + LBL + '">Repeat expansions</label>'
+                + repeats.map((rp, i) => {
+                    const range = (rp.normal_min != null && rp.normal_max != null)
+                        ? (rp.normal_min + '\u2013' + rp.normal_max + ' normal, ')
+                        : '';
+                    const path = (rp.pathogenic_max != null)
+                        ? (rp.pathogenic_min + '\u2013' + rp.pathogenic_max)
+                        : ('\u2265' + rp.pathogenic_min);
+                    const label = (rp.gene ? rp.gene + ' ' : '') + '(' + rp.motif + ')n \u2014 '
+                        + range + path + ' in disease';
+                    return row('r', i, label, (rp.why || '') + ' Two tracks are made: the reference and an expanded copy.', true, '');
+                }).join('');
+        }
         if (diseases.length) {
             // Not ticked by default when the text already names its changes: those ARE what
             // the paper is about, and enumerating the condition on top of them puts a second,
             // broader set beside the specific ones that were asked for.
+            // ...and not when a REPEAT was found either. "Huntington disease" enumerated as
+            // a set of protein changes is the wrong question to ask of a page whose answer is
+            // a tract length: it comes back asking which of the 180 glutamines was meant.
             body += '<label style="' + LBL + '">Conditions</label>'
-                + diseases.map((d, i) => row('d', i, d.name, d.why, !mutations.length,
+                + diseases.map((d, i) => row('d', i, d.name, d.why, !mutations.length && !repeats.length,
                     d.quoted ? '' : 'inferred')).join('');
         }
         body += '<div style="font:12px Arial;color:#9fb3c8;margin-top:18px;">'
@@ -148,8 +169,9 @@ function (server, graph, genegraph_panel_layout, text) {
                 const out = {
                     transcripts: chosen('t', transcripts), genes: chosen('g', genes),
                     mutations: chosen('m', mutations), diseases: chosen('d', diseases),
+                    repeats: chosen('r', repeats),
                 };
-                if (!out.transcripts.length && !out.genes.length
+                if (!out.transcripts.length && !out.genes.length && !out.repeats.length
                     && !out.mutations.length && !out.diseases.length) {
                     say('Tick something to load.'); return;
                 }
@@ -160,8 +182,14 @@ function (server, graph, genegraph_panel_layout, text) {
 
         // ---- load the transcripts -----------------------------------------------------------
         const before = new Set((graph.track || []));
+        // A repeat's gene has to be loaded too -- it is the track the expansion is built
+        // from -- and without being asked for twice if it was ticked as a gene as well.
+        const repeatGenes = (pick.repeats || []).map((rp) => ('' + (rp.gene || '')).trim()).filter(Boolean);
         const wanted = pick.transcripts.map((t) => t.id)
-            .concat(pick.genes.map((g) => 'canonical ' + g.symbol + ' in human'));
+            .concat(pick.genes.map((g) => 'canonical ' + g.symbol + ' in human'))
+            .concat(repeatGenes
+                .filter((sym) => !pick.genes.some((g) => ('' + g.symbol).toUpperCase() === sym.toUpperCase()))
+                .map((sym) => 'canonical ' + sym + ' in human'));
         for (let i = 0; i < wanted.length; i++) {
             say('Loading ' + wanted[i] + ' — ' + (i + 1) + ' of ' + wanted.length + '…');
             try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, wanted[i]); }
@@ -198,6 +226,37 @@ function (server, graph, genegraph_panel_layout, text) {
             restoreHover();
             return false;
         }
+        // ---- the repeat expansions: a second copy of the gene, expanded ---------------------
+        let expanded = 0;
+        const expandedNotes = [];
+        for (const rp of (pick.repeats || [])) {
+            const sym = ('' + (rp.gene || '')).trim().toUpperCase();
+            // The track this expansion belongs to: the one just loaded for its gene.
+            const host = loaded.find((t) => {
+                try {
+                    const n = ('' + (t.name || '')).toUpperCase();
+                    return sym && (n === sym || n.indexOf(sym) >= 0);
+                } catch (e) { return false; }
+            }) || (loaded.length === 1 ? loaded[0] : null);
+            if (!host) {
+                expandedNotes.push((sym || 'that gene') + ': no track was loaded to expand');
+                continue;
+            }
+            say('Building the expanded ' + rp.motif + ' repeat on ' + (host.name || sym) + '…');
+            try {
+                const made = await exec('baja/data/repeat-expansion-track.js', graph, host, rp);
+                if (made && made.ok) {
+                    expanded++;
+                    expandedNotes.push((sym || host.name) + ': ' + made.normal + ' \u2192 ' + made.expanded
+                        + ' \u00d7 ' + made.unit);
+                } else {
+                    expandedNotes.push((sym || host.name) + ': ' + ((made && made.why) || 'could not be expanded'));
+                }
+            } catch (e) {
+                expandedNotes.push((sym || host.name) + ': ' + ((e && e.message) || e));
+            }
+        }
+
         let placed = 0;
         for (const ask of asks) {
             say('Placing ' + ask + '…');
@@ -208,9 +267,15 @@ function (server, graph, genegraph_panel_layout, text) {
             } catch (e) { }
         }
         say('Loaded ' + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's')
+            + (expanded ? (' and built ' + expanded + ' expanded repeat track' + (expanded === 1 ? '' : 's')) : '')
             + (asks.length ? ' and placed ' + placed + ' of ' + asks.length + ' change'
                 + (asks.length === 1 ? '' : 's') : '')
             + ' from the pasted text.');
+        // What each expansion actually did, or why it did not: a pair of tracks that differ
+        // by a number is worth stating in numbers.
+        if (expandedNotes.length) {
+            try { graph.setResultMessage(' ' + expandedNotes.join('  \u00b7  ') + ' '); } catch (e) { }
+        }
         try { if (graph.wake) graph.wake(); } catch (e) { }
         restoreHover();
         return true;
