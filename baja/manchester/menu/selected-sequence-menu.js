@@ -1,7 +1,18 @@
 function (graph, selectedTrack, genegraph_panel_layout) {
 
-    // "Selected Sequence" side menu — the counterpart to the selected-TRACK menu, opened by
-    // clicking inside an existing selection. Same shape (Layers / Data / Models / Design /
+    // "Selected Sequence" menu — the counterpart to the selected-TRACK menu, opened by
+    // clicking inside an existing selection.
+    //
+    // SHOWN THE WAY A COMPOUND'S MENU IS SHOWN. This used to go to showSideMenu, which
+    // collapses to an orange chip in the top-left corner of the canvas -- so selecting a
+    // stretch of sequence, down at the track, put its options as far from the selection as
+    // the window allows, behind a second click to expand them. showWindowMenu is the one the
+    // oligos use: the list opens where it is asked for and reads as the same menu the rest of
+    // the editor opens.
+    //
+    // Both are still used deliberately: a SIDE menu is right for something that stays open
+    // while you work through it, a WINDOW menu for a list you pick one thing from and
+    // dismiss. This is the second kind. Same shape (Layers / Data / Models / Design /
     // Sequence / Export), but every operation is scoped to markstart..markend instead of the
     // whole track: layers cover only the selected span, models are run on the selected
     // sub-sequence, and oligo design uses the selected range as its target.
@@ -27,6 +38,24 @@ function (graph, selectedTrack, genegraph_panel_layout) {
 
         // Every leaf closes the side menu first, then runs, and reports its own failure rather
         // than throwing out of the menu handler and leaving the canvas half-configured.
+        // Where the menu opens: beside the selection rather than in a corner. Worked out
+        // once, from the marks, and reused by every level so a submenu does not jump.
+        const __where = () => {
+            try {
+                const g = graph.graph || graph;
+                const mid = (t.markstart + t.markend) / 2;
+                const sx = (typeof g.X === 'function') ? g.X(t.tgraph ? t.tgraph.X(mid) : mid) : null;
+                const sy = (typeof g.Y === 'function') ? g.Y(t.tgraph ? t.tgraph.Y(0) : 0) : null;
+                if (Number.isFinite(sx) && Number.isFinite(sy)) return { x: Math.round(sx), y: Math.round(sy) };
+            } catch (e) { }
+            return { x: 120, y: 140 };
+        };
+        const show = (list, sx, sy) => {
+            const at = (Number.isFinite(sx) && Number.isFinite(sy)) ? { x: sx, y: sy } : __where();
+            try { graph.showSideMenu(null); } catch (e) { }      // never both at once
+            try { graph.showWindowMenu(list, at.x, at.y, 260); } catch (e) { }
+        };
+
         const go = (label, fn) => ({
             label: label, move: () => { },
             click: async () => {
@@ -37,7 +66,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         });
         const sub = (label, items) => ({
             label: label, move: () => { },
-            click: async (sx, sy) => { try { graph.showSideMenu(items, sx, sy); } catch (e) { } }
+            click: async (sx, sy) => { show(items, sx, sy); }
         });
 
         // ---- Navigate -----------------------------------------------------------------
@@ -176,7 +205,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             go('Synthesis cost', async () => exec('baja/manchester/menu/synthesis-cost.js', graph, t, genegraph_panel_layout))
         ];
 
-        try { graph.showSideMenu(items, null, selectedTrack.name); } catch (e) { }
+        show(items);
         return graph;
     })();
 }
