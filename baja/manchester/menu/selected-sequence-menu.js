@@ -41,7 +41,14 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         // Read off the ORF, not off the bases: a selection is a span of NUCLEOTIDES, and
         // whatever three-frame translation falls out of it is not the protein the track
         // draws. getPeptideFromORF walks orf.cdsi, so the residues are the track's own.
-        const __foldAa = (() => {
+        // ...and only when the folding host is actually up. Same cached verdict the track menu
+        // reads; unknown counts as down.
+        let __afUp = false;
+        try {
+            const __af = await exec('baja/manchester/menu/alphafold-available.js', graph, { waitMs: 1200 });
+            __afUp = !!(__af && __af.up === true);
+        } catch (e) { __afUp = false; }
+        const __foldAa = !__afUp ? 0 : (() => {
             try {
                 if (!(t.orf && t.orf.cdsi && t.orf.cdsi.length)) return 0;
                 const r = (typeof t.selectedRange === 'function') ? t.selectedRange() : null;

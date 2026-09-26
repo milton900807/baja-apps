@@ -13,6 +13,11 @@ function (graph, genegraph_panel_layout) {
     // swallowed it first. Installs once per canvas; calling it again just refreshes the graph.
     try { Promise.resolve(exec('baja/manchester/menu/layer-row-press.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
 
+    // Ask the folding host whether it is up, now, in the background. The Fold item is only
+    // drawn when it is, and finding that out costs a round trip -- done here, once, the answer
+    // is already cached by the time anyone opens a track menu, so no menu ever waits on it.
+    try { Promise.resolve(exec('baja/manchester/menu/alphafold-available.js', graph)).catch(() => { }); } catch (e) { }
+
     // Paste-an-image → tracks is now an EXPLICIT action ("Parse mutations from image" in the
     // paste panel, manchester/controls/paste-panel.js) rather than an automatic global paste
     // listener, so the one-time listener installer is intentionally not wired up here.
@@ -5220,7 +5225,16 @@ function (graph, genegraph_panel_layout) {
                 // selection and the whole ORF give very different structures and a selection
                 // made ten minutes ago is easy to forget.
                 try {
-                    const __foldPep = (() => {
+                    // IS THE SERVICE UP. Asked from the cache the probe above filled; waits at
+                    // most a moment, and only on the very first menu after the editor loads.
+                    // Unknown counts as down -- an item that might not work is the thing this
+                    // is here to avoid.
+                    let __afUp = false;
+                    try {
+                        const __af = await exec('baja/manchester/menu/alphafold-available.js', graph, { waitMs: 1200 });
+                        __afUp = !!(__af && __af.up === true);
+                    } catch (e) { __afUp = false; }
+                    const __foldPep = !__afUp ? null : (() => {
                         try {
                             const t = selectedTrack;
                             if (!t) return null;
