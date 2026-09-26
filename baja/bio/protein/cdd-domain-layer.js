@@ -31,9 +31,17 @@ function (graph, genegraph_panel_layout, tracks, options) {
 
     return (async () => {
         const TrackLayer = await exec('baja/bio/track-layer.js');
-        const say = (m) => { try { graph.setResultMessage(' ' + m + ' '); } catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } } };
-        const tick = (m) => { try { graph.setMessageCenter(m); } catch (e) { } };
-        const clearTick = () => { try { graph.setMessageCenter(''); } catch (e) { } };
+        // QUIET for the automatic pass. Every coding track gets its domains as it loads, and a
+        // toast per track -- over a board being restored, a dozen of them -- is noise about
+        // something nobody asked for. Run from a menu it says what it did; run on load it says
+        // nothing and just draws.
+        const quiet = !!o.quiet;
+        const say = (m) => {
+            if (quiet) return;
+            try { graph.setResultMessage(' ' + m + ' '); } catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } }
+        };
+        const tick = (m) => { if (quiet) return; try { graph.setMessageCenter(m); } catch (e) { } };
+        const clearTick = () => { if (quiet) return; try { graph.setMessageCenter(''); } catch (e) { } };
 
         if (!list.length) { say('No tracks to map domains onto.'); return { done: 0, skipped: 0, empty: 0 }; }
 
@@ -157,17 +165,49 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 layer.color = 'rgba(43,176,191,0.35)';
                 layer.fillstyle = 'rgba(43,176,191,0.35)';
                 try { layer.setLabelFont('10px Arial'); } catch (e) { }
+                // NAME THE DOMAINS AT ANY ZOOM. The default threshold (0.4 px per base) means
+                // labels only appear once the track is zoomed in near enough to read the
+                // sequence -- and a whole gene in view, which is where a domain map is worth
+                // having, is two orders of magnitude below that. The domains drew as unlabelled
+                // slivers. This is the one layer whose whole content IS its labels.
+                layer.labelZoomThreshold = 0;
+                // Labels are drawn to the RIGHT of their bar, so on a gene whose domains sit
+                // end to end -- EGFR's four do -- each name lands on the next domain's name and
+                // the row reads "Recep_L_doFurin-likeeep_L_domain". avoidLabelOverlap drops a
+                // label that would land on one already placed instead of overprinting it: the
+                // bar is still there and the hover panel still has the name.
+                layer.avoidLabelOverlap = true;
 
+                // THE BAR HEIGHT IS int.y. The renderer reads y as both the top of the bar and
+                // its depth (fillRect(x, Y(y), w, screenHeight(y))), so the lane numbers
+                // getYByOverlapCount hands out -- 0.05, 0.13, ... -- are not just lanes, they
+                // are bars 1.8px tall on a 35px band. Which is why the layer was there, correct,
+                // and invisible. Domains get a real height, and overlaps stack upward from it.
+                //
+                // Lanes are packed here rather than through getYByOverlapCount, because that
+                // helper searches its own 0.05/0.08 ladder and cannot find a lane among y values
+                // it did not choose.
+                const BASE = 0.50, STEP = 0.22;
+                const spans = [];
                 for (const d of domains) {
                     const a = posOf(d.start), b = posOf(d.end);
                     if (a < 0 || b < 0) continue;
                     // codonPos runs 3'->5' on a minus-strand track, so the span is ordered here
                     // rather than assumed; +2 takes in the last codon's remaining two bases.
-                    const x1 = Math.min(a, b), x2 = Math.max(a, b) + 2;
-                    const nm = ('' + (d.name || d.id || 'domain')).trim() || 'domain';
-                    const y = layer.getYByOverlapCount(x1, x2);
-                    layer.addInterval(x1, x2, y, nm);
-                    try { layer.setIntervalColor(x1, x2, y, nm, colorOf(nm, 0.42)); } catch (e) { }
+                    spans.push({
+                        x1: Math.min(a, b), x2: Math.max(a, b) + 2,
+                        nm: ('' + (d.name || d.id || 'domain')).trim() || 'domain'
+                    });
+                }
+                spans.sort((p, q) => p.x1 - q.x1);
+                const laneEnd = [];   // rightmost x2 placed in each lane so far
+                for (const sp of spans) {
+                    let lane = 0;
+                    while (lane < laneEnd.length && laneEnd[lane] > sp.x1) lane++;
+                    laneEnd[lane] = sp.x2;
+                    const y = BASE + lane * STEP;
+                    layer.addInterval(sp.x1, sp.x2, y, sp.nm);
+                    try { layer.setIntervalColor(sp.x1, sp.x2, y, sp.nm, colorOf(sp.nm, 0.42)); } catch (e) { }
                 }
                 // COUNT WHAT IS IN THE LAYER, not how many times addInterval was called: it
                 // drops a span it already holds, so counting calls overstated the result --
@@ -190,6 +230,11 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 slayer.color = 'rgba(190,60,60,0.55)';
                 slayer.fillstyle = 'rgba(190,60,60,0.55)';
                 try { slayer.setLabelFont('10px Arial'); } catch (e) { }
+                slayer.avoidLabelOverlap = true;   // 67 sites, most of them called "active site"
+                // A site is ONE residue -- three bases -- which across a whole gene is well
+                // under a pixel, so this layer only says anything once the view is close. Its
+                // labels are left on the default threshold for that reason: a screenful of
+                // "active site" over a gene nobody has zoomed into is not information.
 
                 for (const s of sites) {
                     const raw = '' + (s.sites || '');
