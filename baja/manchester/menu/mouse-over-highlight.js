@@ -5187,6 +5187,64 @@ function (graph, genegraph_panel_layout) {
                     }
                 } catch (e) { }
 
+                // CONVERT TO PROTEIN: the coding sequence on its own, spliced from the CDS
+                // segments, with the amino-acid row over it. Offered when the track HAS a
+                // coding sequence and is not already just that -- and "already just that" is
+                // measured rather than flagged, because every track this builds carries
+                // track_type 'CDNA' whichever annotation it was spliced on, so the type says
+                // nothing about which one. A track whose sequence is already the length of
+                // its own CDS segments is the protein track, and is not offered it again.
+                try {
+                    const __cdsAnn = (selectedTrack && Array.isArray(selectedTrack.annotations))
+                        ? selectedTrack.annotations.filter((a) => a && a.type === 'CDS') : [];
+                    const __cdsLen = __cdsAnn.reduce(
+                        (n, a) => n + Math.max(0, Math.floor(Math.abs(a.xf - a.xi)) + 1), 0);
+                    const __seqLen = (selectedTrack && selectedTrack.sequence || '').length;
+                    // Within a codon of the CDS length: the stop is counted in one place and
+                    // not the other depending on where the annotation came from.
+                    const __isAlreadyCds = __cdsLen > 0 && Math.abs(__seqLen - __cdsLen) <= 3;
+                    if (__cdsAnn.length && __seqLen && !__isAlreadyCds) {
+                        track_list.push({
+                            label: 'Convert to protein',
+                            click: async () => {
+                                graph.showSideMenu(null);
+                                const st = selectedTrack;
+                                if (!st) return;
+                                let track;
+                                // PROTEIN and CDS both splice on the CDS segments (baja/bio/track.js);
+                                // the tag chosen here is what names the track.
+                                try { track = st.createTrackFromAnnotation('PROTEIN'); }
+                                catch (e) { try { graph.setResultMessage(' Could not build the protein track: ' + e + ' '); } catch (e2) { graph.setMessage(' Could not build the protein track: ' + e); } return; }
+                                if (!track || !(track.sequence || '').length) {
+                                    const __no = ' No coding sequence to build a protein track from. ';
+                                    try { graph.setResultMessage(__no); } catch (e) { graph.setMessage(__no); }
+                                    return;
+                                }
+                                try { if (st.snpindels && st.snpindels.length > 0) { track.liftSnpindels(); track.targetPhase = st.targetPhase; } } catch (e) { }
+                                try { if (st.oligos && st.oligos.length > 0) track.liftCompounds(); } catch (e) { }
+                                try { if (st.plots && st.plots.length > 0) track.liftPlots(); } catch (e) { }
+                                graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
+                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+                                graph.deselectAllTracks();
+                                try { track.select(); } catch (e) { }
+                                try {
+                                    const ax = track.grid || track.tgraph;   // see Convert to mRNA above
+                                    if (ax) graph.animateTo(ax.xi - 100, ax.xi + ax.width + 100, ax.Y(-3), ax.Y(3));
+                                } catch (e) { }
+                                // The residue count is the one number that says whether it worked,
+                                // and it is the reason for building the track at all.
+                                let __aa = 0;
+                                try { __aa = ('' + (track.orf && track.orf.sequence || '')).length; } catch (e) { }
+                                const __done = ' Created ' + (track.name || 'a protein track') + ' from ' + (st.name || 'track')
+                                    + ' — ' + (track.sequence || '').length + ' nt'
+                                    + (__aa ? (', ' + __aa + ' residues') : '') + '. ';
+                                try { graph.setResultMessage(__done); } catch (e) { graph.setMessage(__done); }
+                            },
+                            move: () => { }
+                        });
+                    }
+                } catch (e) { }
+
                 // Compounds ▸ — only when the track carries compounds. One compound opens its menu
                 // directly; several are listed to pick from (each opens the single-compound menu).
                 try {
@@ -5280,7 +5338,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Convert to mRNA', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
