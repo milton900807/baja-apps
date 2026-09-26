@@ -4060,6 +4060,16 @@ return new Promise(async (resolve, reject) => {
       if (annotation === "CDNA") {
         _annotation_tag = "Exon";
       }
+      // A PROTEIN TRACK IS SPLICED ON THE CDS, not on the Translation annotation.
+      // "Translation" is ONE annotation spanning start to stop in GENOMIC coordinates, so
+      // splicing on it copies the introns too: INS came back 1120 nt instead of 333, out of
+      // frame, generateORF found nothing and the amino-acid row had nothing to draw. The CDS
+      // segments are the same span exon by exon, which is what "the translated sequence"
+      // means once it is spliced -- 333 nt, 110 residues, the same MALWMRLLPLLA... the mRNA
+      // track shows. PROTEIN is accepted as a name for the same thing.
+      if (annotation === "Translation" || annotation === "PROTEIN" || annotation === "Protein") {
+        _annotation_tag = "CDS";
+      }
 
       const sorted_annotations = [...this.annotations].sort((a, b) => {
         return parseFloat(a.xi) - parseFloat(b.xi);
