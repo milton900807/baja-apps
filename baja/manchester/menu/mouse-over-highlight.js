@@ -5187,6 +5187,33 @@ function (graph, genegraph_panel_layout) {
                     }
                 } catch (e) { }
 
+                // MACHINE LEARNING MODELS, listed rather than catalogued. Every model that can
+                // be run on a track, one click from the track's own menu, with the splicing
+                // models behind their own submenu and BajaCLIP's RNA-binding proteins behind
+                // theirs. The list comes from the same catalogue the library shelf reads
+                // (baja/ml/models-catalogue.js), so the menu cannot offer a model the library
+                // does not have, or miss one it gained.
+                //
+                // The shelf is still there, last in the list: it is the reading room, which is
+                // the right shape the first time and the wrong one the fifth.
+                try {
+                    if (selectedTrack) {
+                        track_list.push({
+                            label: 'Machine Learning Models \u25b8',
+                            move: () => { },
+                            click: async (scx, scy) => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                const st = selectedTrack;
+                                try {
+                                    await exec('baja/ml/models-menu.js', graph, genegraph_panel_layout, st, scx, scy);
+                                } catch (e) {
+                                    try { graph.setMessage(' The models menu could not be opened: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                }
+                            }
+                        });
+                    }
+                } catch (e) { }
+
                 // CONVERT TO PROTEIN: the coding sequence on its own, spliced from the CDS
                 // segments, with the amino-acid row over it. Offered when the track HAS a
                 // coding sequence and is not already just that -- and "already just that" is
@@ -5336,9 +5363,9 @@ function (graph, genegraph_panel_layout) {
                 // Mark the top-level items that open a SUBMENU with ▸ (Compounds ▸ / Variants ▸
                 // already carry it) so every submenu reads consistently; orderMenu then groups them
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
-                const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
+                const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1, 'Machine Learning Models': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Machine Learning Models \u25b8', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
