@@ -56,16 +56,64 @@ function (graph, genegraph_panel_layout) {
         };
         // `label` names the menu in the panel header. Forwarded rather than dropped: every
         // caller routed through here would otherwise lose the context it already has.
+        // WHERE A MENU OPENS, for every menu this file builds -- a track's, a compound's, an
+        // annotation's, and every submenu of them.
+        //
+        // The side menu collapses to a chip in the top-left corner, so the options for
+        // something you pressed at the bottom of the canvas arrived as far from it as the
+        // window allows, behind a second click. On a desktop they now open AT THE PRESS, as a
+        // small panel in the same navy (baja/manchester/menu/popup-menu.js). On a phone
+        // nothing changes: the side menu is what a thumb can work with, and popup-menu hands
+        // a phone back anyway.
+        //
+        // Coordinates: whatever the caller passed, else the press that opened this -- which is
+        // what makes a submenu appear where its parent was rather than back at the corner,
+        // since the submenu handlers here call this with none.
+        const __menuPoint = (x, y) => {
+            if (Number.isFinite(x) && Number.isFinite(y)) return { x: x, y: y };
+            try {
+                const ds = graph.__downScreen || (graph.graph && graph.graph.__downScreen);
+                if (ds && Number.isFinite(ds.x) && Number.isFinite(ds.y)) return { x: ds.x, y: ds.y };
+            } catch (e) { }
+            return null;
+        };
+        const __popupMenu = (menu, x, y, label) => {
+            const at = __menuPoint(x, y);
+            if (!at) return false;                       // nothing pressed yet: not our case
+            try {
+                let phone = false;
+                try { phone = (typeof isMobile === 'function') && isMobile(); } catch (e) { phone = false; }
+                if (phone) return false;                 // the side menu is the mobile answer
+                Promise.resolve(exec('baja/manchester/menu/popup-menu.js', graph, orderMenu(menu), at.x, at.y,
+                    { title: label || '' }))
+                    .catch(() => { try { graph.showSideMenu(orderMenu(menu), x, y, label); } catch (e) { } });
+                return true;
+            } catch (e) { return false; }
+        };
         const showSideMenuDelayed = (menu, x, y, label) => {
-            if (menu == null) { if (graph && graph.showSideMenu) graph.showSideMenu(null); return; }
-            setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(orderMenu(menu), x, y, label); }, MENU_OPEN_DELAY_MS);
+            if (menu == null) {
+                if (graph && graph.showSideMenu) graph.showSideMenu(null);
+                try { if (window.__bajaPopupMenu && window.__bajaPopupMenu.destroy) window.__bajaPopupMenu.destroy(); } catch (e) { }
+                return;
+            }
+            setTimeout(() => {
+                if (__popupMenu(menu, x, y, label)) return;
+                if (graph && graph.showSideMenu) graph.showSideMenu(orderMenu(menu), x, y, label);
+            }, MENU_OPEN_DELAY_MS);
         };
         // On mobile the full-screen feature menu is blocking, so a quick tap only SELECTS —
         // the menu opens on a LONG-PRESS (~500ms held still), armed as graph.graph.__longPressReady
         // by flexigraph/graph.js. Desktop is unaffected.
         const __menuAllowedOnTap = () => { try { return (typeof isMobile !== 'function') || !isMobile() || !!(graph && graph.graph && graph.graph.__longPressReady); } catch (e) { return true; } };
+        // The compound menus came through here, to the FULL-SCREEN list at 10,10 -- the right
+        // shape for a thumb and the wrong one for a pointer, where it covers the compound the
+        // menu is about. Same treatment: a panel at the press on a desktop, the full-screen
+        // list on a phone.
         const showWindowMenuDelayed = (menu, a, b, c) => {
-            setTimeout(() => { if (graph && graph.showWindowMenu) graph.showWindowMenu(menu, a, b, c); }, MENU_OPEN_DELAY_MS);
+            setTimeout(() => {
+                if (__popupMenu(menu, undefined, undefined, (c && typeof c === 'string') ? c : '')) return;
+                if (graph && graph.showWindowMenu) graph.showWindowMenu(menu, a, b, c);
+            }, MENU_OPEN_DELAY_MS);
         };
 
         // Show a set of DESIGN strategies as a library (baja/lib/shelf.js) rather than a side
