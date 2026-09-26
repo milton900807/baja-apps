@@ -14,12 +14,18 @@ Two models, and the result says which one answered (`source`):
 Runs on numpy alone: the LightGBM trees are stored as JSON and walked by
 rna_protein_model/scorer.py, whose export was verified to reproduce the trained model.
 
+Also returns the gene's consensus mRNA half-life (49 datasets; HeLa hours where measured)
+and what it implies for protein expression: across genes, longer-lived mRNAs carry more
+protein per mRNA (Spearman 0.31) but half-life does not change how closely protein follows
+mRNA (0.05). The gene is taken from the GENCODE protein with this exact sequence, else
+from the measured match, else from the track name.
+
 Params (after the EngineMonitor at param(0)):
     param(1) : protein sequence (the track's ORF peptide)
     param(2) : gene or track name, used only to look up a measured value
 
 Resolves { predicted_rho, interval_lo, interval_hi, percentile, call, source, drivers,
-           measured, cv, n_residues, notes, error }  (drivers / measured / cv / notes are JSON strings)
+           measured, halflife, cv, n_residues, notes, error }  (drivers / measured / cv / notes are JSON strings)
 """
 import json
 import os
@@ -34,6 +40,16 @@ if _MODEL_DIR not in sys.path:
     sys.path.insert(0, _MODEL_DIR)
 
 MIN_RESIDUES = 30
+
+
+def ordinal(p):
+    n = int(round(p))
+    if n < 1:
+        return "bottom 1%"
+    if n > 99:
+        return "top 1%"
+    suf = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return "%d%s percentile" % (n, suf)
 PLAIN = {
     "length": "protein length", "log_length": "protein length", "n_tm": "membrane helices",
     "signal_like": "signal peptide", "signal_hydrophobic": "N-terminal hydrophobicity",
@@ -50,7 +66,7 @@ PLAIN = {
 }
 
 out = {"predicted_rho": None, "interval_lo": None, "interval_hi": None, "percentile": None,
-       "call": None, "source": None, "drivers": "[]", "measured": "null", "cv": "{}", "n_residues": 0,
+       "call": None, "source": None, "drivers": "[]", "measured": "null", "halflife": "null", "cv": "{}", "n_residues": 0,
        "notes": "[]", "error": None}
 notes = []
 
@@ -75,6 +91,9 @@ try:
     # "NEK1 (ENST...)" carry the symbol first
     gene = re.split(r"[\s\-_(|:]", name)[0] if name else None
     meas = model.measured(seq, gene)
+    hl_gene = model.gencode_gene(seq) or (meas and meas.get("gene")) or gene
+    half = model.halflife(hl_gene)
+    out["halflife"] = json.dumps(half)
 
     out.update(predicted_rho=round(p["predicted_rho"], 4), interval_lo=round(p["interval_80"][0], 4),
                interval_hi=round(p["interval_80"][1], 4), percentile=round(p["percentile"], 1),
@@ -91,6 +110,12 @@ try:
                  % ("full model, precomputed for this annotated protein" if p["source"] == "full"
                     else "sequence-feature model (protein not in the precomputed GENCODE set)",
                     p["cv_r"]))
+    if half:
+        notes.append("mRNA half-life of %s: %s%s; genes this stable carry %.2fx the median "
+                     "protein per mRNA. Half-life does not change how closely protein follows mRNA."
+                     % (half["gene"], ordinal(half["percentile"]),
+                        (", %.1f h in HeLa" % half["hela_hours"]) if half.get("hela_hours") is not None else "",
+                        half["typical_protein_per_mrna_fold"]))
     notes.append("Coupling also depends on how much the mRNA varies between samples: flat "
                  "mRNA cannot correlate with protein. The number is for a typical tumour cohort.")
     works.progress(100)

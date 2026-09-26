@@ -129,8 +129,9 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     done('RNA–protein coupling: ' + ((data && data.error) || 'no result from the server'));
                     clearWork(); restoreHover(); return false;
                 }
-                let measured = null, notes = [], drivers = [];
+                let measured = null, notes = [], drivers = [], half = null;
                 try { measured = JSON.parse(data.measured || 'null'); } catch (e) { }
+                try { half = JSON.parse(data.halflife || 'null'); } catch (e) { }
                 try { notes = JSON.parse(data.notes || '[]'); } catch (e) { }
                 try { drivers = JSON.parse(data.drivers || '[]'); } catch (e) { }
                 const rho = +data.predicted_rho;
@@ -169,8 +170,20 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
 
                 // ---- one annotation over the CDS: the number, the call, the measurement --
                 const callWord = { low: 'LOW', typical: 'typical', high: 'HIGH' }[data.call] || data.call;
+                const ord = (p) => {
+                    const n = Math.round(+p);
+                    if (n < 1) return 'bottom 1%';
+                    if (n > 99) return 'top 1%';
+                    const suf = (n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+                    return n + suf + ' percentile';
+                };
+                // mRNA half-life: hours where HeLa measured it, otherwise the percentile
+                const hlShort = half ? (half.hela_hours != null
+                    ? ('mRNA t½ ' + (+half.hela_hours).toFixed(1) + ' h')
+                    : ('mRNA t½ ' + ord(half.percentile))) : '';
                 const label = 'RNA→protein ρ ' + rho.toFixed(2) + ' · ' + callWord
-                    + (mrho != null ? (' (measured ' + mrho.toFixed(2) + ')') : '');
+                    + (mrho != null ? (' (measured ' + mrho.toFixed(2) + ')') : '')
+                    + (hlShort ? (' · ' + hlShort) : '');
                 try {
                     const Annotation = await exec('flexigraph/annotation.js');
                     try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'RnaProteinCoupling'); } catch (e) { }
@@ -198,6 +211,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                             + (measured.ccle != null ? ('; CCLE cell lines ' + (+measured.ccle).toFixed(2)) : '')
                             + ' (' + measured.gene + ', matched by ' + measured.match + ').')
                         : 'Not measured in CPTAC, so this is a prediction only.')
+                    + (half ? (' mRNA half-life: ' + ord(half.percentile)
+                        + (half.hela_hours != null ? (' (' + (+half.hela_hours).toFixed(1) + ' h in HeLa)') : '')
+                        + '; genes this stable carry ' + (+half.typical_protein_per_mrna_fold).toFixed(2)
+                        + '× the median protein per mRNA.') : ' No measured mRNA half-life for this gene.')
                     + ' Source: ' + src + '. ';
                 try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
                 try {

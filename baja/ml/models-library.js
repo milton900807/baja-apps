@@ -121,7 +121,10 @@ function (graph, genegraph_panel_layout, tracks) {
                         + 'transcription (complex subunits, ribosomal proteins); high means mRNA is a '
                         + 'good proxy for protein (secreted proteins). Drawn as a bar over the coding '
                         + 'exons at the predicted ρ, with a line at the MEASURED ρ when CPTAC '
-                        + 'quantified the protein.',
+                        + 'quantified the protein. Also reports the gene\'s mRNA half-life and what it '
+                        + 'implies: across 11,786 genes, longer-lived mRNAs carry more protein per mRNA '
+                        + '(Spearman 0.31; 0.36× the median gene in the shortest-lived tenth, 2.6× in the '
+                        + 'longest) while half-life does not change how closely protein follows mRNA (0.05).',
                     provenance: 'Trained on 12,185 proteins whose ρ was measured across 1,350 CPTAC '
                         + 'tumour and normal samples in 10 cancer types. Cross-validated with whole '
                         + 'homology clusters held out: r = 0.42 against measured ρ, AUROC 0.79 '
@@ -130,7 +133,9 @@ function (graph, genegraph_panel_layout, tracks) {
                         + 'The full model (ESM-2 language-model embeddings + sequence features) is '
                         + 'precomputed for every GENCODE v50 protein; an edited or variant protein is '
                         + 'scored live by the sequence-feature half alone (r = 0.29), and the result '
-                        + 'says which was used. Runs locally; no service is called.',
+                        + 'says which was used. mRNA half-life is a consensus of 49 published datasets '
+                        + '(Agarwal & Kelley 2022 compendium; split-half reliability 0.94), with HeLa hours '
+                        + 'from Tani et al. 2012 where measured. Runs locally; no service is called.',
                     usage: 'Run it on a protein-coding track, or select a range to score the ORF '
                         + 'inside it. The protein comes from the track\'s own ORF, exon-aware; a track '
                         + 'with no ORF is not scored. Needs at least 30 residues. Where a MEASURED value '
@@ -142,7 +147,9 @@ function (graph, genegraph_panel_layout, tracks) {
                         { title: 'CPTAC pan-cancer proteogenomics', url: 'https://proteomics.cancer.gov/programs/cptac',
                           note: 'The tumour RNA and protein measurements the correlations were computed from.' },
                         { title: 'ESM-2 protein language model', url: 'https://github.com/facebookresearch/esm',
-                          note: 'The sequence embeddings behind the full model.' }
+                          note: 'The sequence embeddings behind the full model.' },
+                        { title: 'Agarwal & Kelley 2022, human mRNA half-life compendium', url: 'https://doi.org/10.1186/s13059-022-02811-x',
+                          note: 'The 54 half-life datasets the consensus is built from.' }
                     ]
                 }
             },

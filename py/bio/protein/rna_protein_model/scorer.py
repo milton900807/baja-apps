@@ -36,6 +36,7 @@ class CouplingModel:
         self.m = model
         self._measured = None
         self._pre = None
+        self._half = None
 
     def precomputed(self, seq):
         """Full-model (ESM-2 + sequence) rho for an annotated GENCODE protein, or None.
@@ -46,13 +47,47 @@ class CouplingModel:
                 self._pre = False
                 return None
             z = np.load(path)
-            self._pre = (z["keys"], z["rho"])
+            self._pre = (z["keys"], z["rho"], z["gene"] if "gene" in z.files else None,
+                         z["gene_names"] if "gene_names" in z.files else None)
         if self._pre is False:
             return None
-        keys, vals = self._pre
+        i = self._index(seq)
+        return None if i is None else float(self._pre[1][i])
+
+    def _index(self, seq):
+        keys = self._pre[0]
         k = np.uint64(int(hashlib.md5(seq.encode()).hexdigest()[:16], 16))
         i = int(np.searchsorted(keys, k))
-        return float(vals[i]) if i < len(keys) and keys[i] == k else None
+        return i if i < len(keys) and keys[i] == k else None
+
+    def gencode_gene(self, seq):
+        """Gene symbol of an annotated GENCODE protein with exactly this sequence, or None."""
+        if self._pre is None:
+            self.precomputed(seq)
+        if not self._pre or self._pre[2] is None:
+            return None
+        i = self._index(seq)
+        return None if i is None else str(self._pre[3][self._pre[2][i]])
+
+    def halflife(self, gene):
+        """Consensus mRNA half-life for a gene symbol, with what it implies for protein."""
+        if self._half is None:
+            path = os.path.join(_HERE, "halflife.json.gz")
+            if not os.path.exists(path):
+                self._half = False
+                return None
+            with gzip.open(path, "rt") as fh:
+                self._half = json.load(fh)
+        if not self._half or not gene:
+            return None
+        row = self._half["genes"].get(str(gene).upper())
+        if row is None:
+            return None
+        out = dict(zip(self._half["fields"], row), gene=str(gene).upper())
+        out["typical_protein_per_mrna_fold"] = self._half["decile_fold"][out["decile"] - 1]
+        out["spearman"] = self._half["spearman"]
+        out["source"] = self._half["source"]
+        return out
 
     def predict_one(self, seq, use_precomputed=True):
         f = featurize(seq)
