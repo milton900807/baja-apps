@@ -8451,6 +8451,11 @@ return new Promise(async (resolve, reject) => {
           // whose tab is not drawn this frame, must not leave clickable rectangles behind
           // at coordinates that now belong to something else.
           this.__layerTabs = [];
+          // The NAME TAB's screen rectangle and the CORNER GRIP's, both rebuilt every frame
+          // for the same reason the layer rows are: a pan, a zoom or a resize moves them, and
+          // a rectangle left behind points at coordinates that now belong to something else.
+          this.__nameTab = null;
+          this.__resizeGrip = null;
           const _c = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
           if (_c && (this.name || this.chr)) {
             const _cw = _c.canvas.width, _ch = _c.canvas.height;
@@ -8538,6 +8543,82 @@ return new Promise(async (resolve, reject) => {
                 _c.globalAlpha = 1;
               }
               _c.restore();
+
+              // The tab is the track's own furniture, so pressing it is pressing the track:
+              // the rectangle is kept here and the editor's mouse handler opens the track's
+              // menu in place over it (baja/manchester/menu/mouse-over-highlight.js).
+              this.__nameTab = { x: _x, y: _yTop, w: _w, h: _h };
+
+              // ---- corner grip: drag to resize the track --------------------------
+              //
+              // Only while the track is under the pointer or selected (showResizeBar), so an
+              // idle board carries no handles. Bottom-right, where a window's grip lives, and
+              // drawn as the usual three diagonal rules rather than a box, so it reads as a
+              // grip and not as a feature of the track.
+              if (this.showResizeBar) {
+                const _bx = graph.X(this.tgraph.xi) + graph.screenWidth(this.tgraph.width);
+                const _by = graph.Y(this.tgraph.yi) + graph.screenHeight(-1 * this.tgraph.height);
+                if (isFinite(_bx) && isFinite(_by) && _bx > -60 && _bx < _cw + 60 && _by > -60 && _by < _ch + 60) {
+                  // OUTSIDE the corner, down and to the right of it. Drawn inside the track it
+                  // sat on top of the track's own content -- the last bases, a compound or an
+                  // annotation at the 3' end -- and a handle that hides data is worse than no
+                  // handle. The gap also makes it unambiguous: everything inside the track
+                  // belongs to the track, and this one square outside it is the grip.
+                  //
+                  // QUIET UNTIL IT IS AIMED AT: three hairlines and no box. A filled square
+                  // with a border read as an object in its own right sitting next to the
+                  // track -- it is furniture, and it only has to be findable once someone is
+                  // already looking for it. The rules are the track's own ink, so it belongs
+                  // to the track on every theme without competing with anything on it.
+                  //
+                  // Under the pointer it lights: the rules come up to full strength on a
+                  // rounded ground, so there is no doubt about what will be grabbed. While
+                  // it is actually being dragged it goes teal and keeps the light on even
+                  // though the pointer has long since left the corner it started at.
+                  const _g = 13, _pad = 7;
+                  const _gx = _bx + _pad, _gy = _by + _pad;
+                  this.__resizeGrip = { x: _gx - 5, y: _gy - 5, w: _g + 10, h: _g + 10 };
+
+                  let _gripLive = false, _gripHot = false;
+                  try { _gripLive = (graph.__gripLiveTrack === this); } catch (e) { }
+                  try { _gripHot = _gripLive || (graph.__gripHotTrack === this); } catch (e) { }
+
+                  _c.save();
+                  _c.shadowColor = 'transparent'; _c.shadowBlur = 0;
+                  if (_gripHot) {
+                    const _rr = this.__resizeGrip;
+                    const _rad = 5;
+                    _c.beginPath();
+                    _c.moveTo(_rr.x + _rad, _rr.y);
+                    _c.lineTo(_rr.x + _rr.w - _rad, _rr.y);
+                    _c.quadraticCurveTo(_rr.x + _rr.w, _rr.y, _rr.x + _rr.w, _rr.y + _rad);
+                    _c.lineTo(_rr.x + _rr.w, _rr.y + _rr.h - _rad);
+                    _c.quadraticCurveTo(_rr.x + _rr.w, _rr.y + _rr.h, _rr.x + _rr.w - _rad, _rr.y + _rr.h);
+                    _c.lineTo(_rr.x + _rad, _rr.y + _rr.h);
+                    _c.quadraticCurveTo(_rr.x, _rr.y + _rr.h, _rr.x, _rr.y + _rr.h - _rad);
+                    _c.lineTo(_rr.x, _rr.y + _rad);
+                    _c.quadraticCurveTo(_rr.x, _rr.y, _rr.x + _rad, _rr.y);
+                    _c.closePath();
+                    _c.globalAlpha = _gripLive ? 0.22 : 0.14;
+                    _c.fillStyle = _gripLive ? GX_START : _ink;
+                    _c.fill();
+                    _c.globalAlpha = 1;
+                  }
+                  _c.globalAlpha = _gripLive ? 1 : (_gripHot ? 0.92 : 0.34);
+                  _c.strokeStyle = _gripLive ? GX_START : _ink;
+                  _c.lineWidth = _gripHot ? 1.7 : 1;
+                  _c.lineCap = 'round';
+                  for (let _k = 1; _k <= 3; _k++) {
+                    const _o = _k * 4;
+                    _c.beginPath();
+                    _c.moveTo(_gx + _g - _o + 0.5, _gy + _g - 0.5);
+                    _c.lineTo(_gx + _g - 0.5, _gy + _g - _o + 0.5);
+                    _c.stroke();
+                  }
+                  _c.globalAlpha = 1;
+                  _c.restore();
+                }
+              }
 
               // ---- clickable layer list, under the name tab ------------------------
               //

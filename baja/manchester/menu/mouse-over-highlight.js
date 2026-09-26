@@ -22,6 +22,82 @@ function (graph, genegraph_panel_layout) {
         let move = null;
         let md = false;
 
+        // THE TRACK'S OWN FURNITURE: its name tab and its corner grip.
+        //
+        // Both rectangles are drawn and published by the track every frame (baja/bio/track.js,
+        // __nameTab / __resizeGrip, in CANVAS PIXELS). Neither is part of the track's body, so
+        // graph.getTrack() does not see them and nothing below would ever have fired on one.
+        // THE DRAG LIVES ON THE GRAPH, not in this closure. This module is exec'd more than
+        // once against the same graph (__hoverRearm re-arms it after an animated zoom), so
+        // every press is seen by several copies of these handlers; a drag held in the closure
+        // would be armed and disarmed independently in each of them and they would disagree
+        // about whether one is in progress.
+        let tabMenuAt = null;       // canvas px of a press that landed on a name tab, else null
+        // Ends a corner drag from wherever the release is noticed. Returns true when a drag
+        // that actually MOVED has just ended, which is the release the context menu must not
+        // act on. The stamp is read by every copy of the handler, not just the one that
+        // happened to end it.
+        // WHERE THE RENDERER LOOKS. A track's draw() is handed the GRAPH (gene.js: tk.draw(
+        // this.graph)), not the gene object these handlers are given, so a flag set on the
+        // gene is invisible to the thing that paints the handle -- which is why the first
+        // version of the hover light never appeared however reliably the hover was detected.
+        // State stays on the gene, where the handlers agree about it; the two display flags
+        // are mirrored onto the graph, which is all the renderer needs.
+        const publishGripFlags = () => {
+            try {
+                const gx = graph.graph || graph;
+                gx.__gripHotTrack = graph.__gripHotTrack || null;
+                gx.__gripLiveTrack = (graph.__trackGrip && graph.__trackGrip.track) || null;
+            } catch (e) { }
+        };
+        const endTrackGrip = () => {
+            const gr = graph.__trackGrip;
+            if (!gr) { publishGripFlags(); return false; }
+            graph.__trackGrip = null;
+            publishGripFlags();
+            try { if (graph.graph) graph.graph.mode = 'navigate'; } catch (e) { }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            if (gr.moved) {
+                graph.__trackGripUntil = Date.now() + 400;
+                try { graph.setResultMessage(' ' + (gr.track && gr.track.name || 'Track') + ' resized. '); } catch (e) { }
+                return true;
+            }
+            return false;
+        };
+        // THE CANVAS MOUSE-UP DOES NOT ALWAYS REACH THIS MODULE. flexigraph/graph.js offers the
+        // release to its mouse delegate first and stops there when the delegate claims priority
+        // -- which it does while the mode is 'move', the mode the drag itself sets. A release
+        // this file never sees leaves the drag armed, and the track then goes on resizing under
+        // plain mouse movement with no button held. The window hears every release.
+        try {
+            if (!graph.__trackGripUpInstalled) {
+                graph.__trackGripUpInstalled = true;
+                window.addEventListener('mouseup', () => { try { endTrackGrip(); } catch (e) { } }, true);
+                window.addEventListener('blur', () => { try { endTrackGrip(); } catch (e) { } }, true);
+            }
+        } catch (e) { }
+        const inRect = (r, sx, sy) => !!r && sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h;
+        // THE PRESS IN CANVAS PIXELS. flexigraph/graph.js stashes it as __downScreen on the
+        // GRAPH, not on the gene object this file is handed -- graph.__downScreen is always
+        // undefined here, which is why the layer-row and off-target-badge blocks below never
+        // fire and had to be re-done as a separate canvas listener (layer-row-press.js).
+        // Converting the world coordinates the listener is already given is independent of
+        // where anyone chose to hang that property.
+        const pressPx = (x, y) => {
+            const ds = graph.__downScreen || (graph.graph && graph.graph.__downScreen);
+            if (ds && isFinite(ds.x) && isFinite(ds.y)) return ds;
+            try { return { x: graph.X(x), y: graph.Y(y) }; } catch (e) { return null; }
+        };
+        // Topmost first: tracks are drawn in array order, so the last one drawn is the one
+        // whose furniture is on top where two overlap.
+        const trackFurnitureAt = (key, sx, sy) => {
+            const ts = graph.track || [];
+            for (let i = ts.length - 1; i >= 0; i--) {
+                if (ts[i] && inRect(ts[i][key], sx, sy)) return { track: ts[i], index: i };
+            }
+            return null;
+        };
+
         xi = 0;
         yi = 0
         let diffx = 0
@@ -1520,6 +1596,30 @@ function (graph, genegraph_panel_layout) {
             let y = scy;
             graph.mousex = scx;
             graph.mousey = scy;
+            // A CORNER DRAG IN PROGRESS. The grip is the track's bottom-right corner, so the
+            // pointer's world position IS the new corner: width and height are the distance
+            // from the track's own origin to it. Floors stop a track being dragged inside out
+            // or down to nothing, from which there is no grip left to drag back.
+            if (graph.__trackGrip) {
+                const gr = graph.__trackGrip;
+                try {
+                    const tg = gr.track.tgraph;
+                    if (!gr.pushed) { try { graph.pushOntoHistory(); } catch (e) { } gr.pushed = true; }
+                    // ABSOLUTE, not incremental: the pointer IS the corner. Several copies of
+                    // this handler run per move (see above) and an incremental step would be
+                    // applied once per copy; setting the corner to where the pointer is gives
+                    // the same answer however many times it runs.
+                    const w = (scx - gr.dx) - tg.xi;
+                    const h = (scy - gr.dy) - tg.yi;       // negative: the editor's y runs downward
+                    if (isFinite(w) && w > gr.minW) tg.width = w;
+                    if (isFinite(h) && h < -gr.minH) tg.height = h;
+                    tg.rescale();
+                    gr.moved = true;
+                    if (graph.graph) graph.graph.mode = 'move';   // keep the canvas from panning under it
+                    if (graph.wake) graph.wake();
+                } catch (e) { }
+                return;
+            }
             // Vertical oligo drag: while an oligo is being dragged (started on a
             // mouse-down over it), move it in Y only, keep the pan suppressed, and
             // skip hover handling. X is never changed, so it only moves vertically.
@@ -1541,6 +1641,21 @@ function (graph, genegraph_panel_layout) {
                 } catch (e) { }
                 return;
             }
+            // THE CORNER GRIP LIGHTS UNDER THE POINTER. Kept on the graph, like the drag
+            // itself, because several copies of this handler run per move and the track reads
+            // one answer when it draws. Repaint only on a CHANGE: the hover state is the only
+            // thing this affects, and waking the canvas on every mouse move to redraw an
+            // unchanged handle would repaint the whole board for nothing.
+            try {
+                const __hot = trackFurnitureAt('__resizeGrip', graph.X(scx), graph.Y(scy));
+                const __hotTrack = __hot ? __hot.track : null;
+                if (graph.__gripHotTrack !== __hotTrack) {
+                    graph.__gripHotTrack = __hotTrack;
+                    publishGripFlags();
+                    if (graph.wake) graph.wake();
+                }
+            } catch (e) { }
+
             // While a menu is open, freeze hover behavior — don't let it select or
             // deselect tracks / annotations under the cursor, so the user's current
             // selection stays put while they interact with the menu.
@@ -1737,6 +1852,12 @@ function (graph, genegraph_panel_layout) {
             }
 
             move = null;
+
+            // Finish a corner drag, and let the release that ended one go no further -- the
+            // stamp, not a local flag, because the release may have been noticed by the window
+            // listener or by another copy of this handler rather than by this one.
+            if (endTrackGrip()) return;
+            if (graph.__trackGripUntil && Date.now() < graph.__trackGripUntil) return;
 
             // The press landed in a menu (flag set on mouse-down), or a menu is
             // still open now — don't deselect anything or open a menu over it.
@@ -2804,6 +2925,19 @@ function (graph, genegraph_panel_layout) {
 
             }
             let selectedtrackIndex = graph.getTrack(Math.floor(x), y);
+            // THE NAME TAB IS THE TRACK. It is drawn above the track's box, so getTrack()
+            // -- which tests the box -- returns nothing for a press on it, and the whole
+            // menu below was unreachable from the one piece of the track that is labelled
+            // with its name. tabMenuAt was set on the press and also tells the end of this
+            // block to open the menu in place rather than park it in the selection box.
+            if ((selectedtrackIndex == null || selectedtrackIndex < 0) && tabMenuAt) {
+                const __tab = trackFurnitureAt('__nameTab', tabMenuAt.x, tabMenuAt.y);
+                if (__tab) selectedtrackIndex = __tab.index; else tabMenuAt = null;
+            } else if (selectedtrackIndex != null && selectedtrackIndex >= 0 && tabMenuAt) {
+                // The press was on a tab that overlaps its own track's box; still a tab press.
+                const __tab = trackFurnitureAt('__nameTab', tabMenuAt.x, tabMenuAt.y);
+                if (!__tab || __tab.index !== selectedtrackIndex) tabMenuAt = null;
+            }
             if (selectedtrackIndex != null && selectedtrackIndex >= 0) {
                 let selectedTrack = graph.track[selectedtrackIndex]
                 selectedTrack.select();
@@ -5159,6 +5293,26 @@ function (graph, genegraph_panel_layout) {
                 // The track menu is no longer popped up on click. Instead the track is
                 // added to the selection box as its own object type; the menu is shown
                 // only when the user opens it there (selection box → Tracks → track).
+                //
+                // PRESSED ON THE NAME TAB -> the same items, in place, beside the tab. The
+                // selection-box pill is two steps away from the thing clicked (open the box,
+                // find the track, open it), and the label bar is exactly where someone
+                // reaches for a window's menu. A press anywhere else on the track is
+                // unchanged: it still goes to the selection box.
+                const __at = tabMenuAt;
+                tabMenuAt = null;
+                if (__at) {
+                    // A RESOLVED CALL HAS SHOWN A MENU, whatever it returns: on a phone
+                    // popup-menu.js hands straight to the full-screen list and returns null,
+                    // so treating null as "did not open" would show that list AND drop the
+                    // track in the selection box. Only a throw falls through.
+                    try {
+                        const __items = Array.isArray(__trackMenu) ? __trackMenu : (__trackMenu.items || []);
+                        await exec('baja/manchester/menu/popup-menu.js', graph, __items,
+                            __at.x, __at.y, { title: (selectedTrack && selectedTrack.name) || 'Track' });
+                        return;
+                    } catch (e) { console.warn('[track tab menu]', e); }
+                }
                 if (graph.addTrackToSelection) graph.addTrackToSelection(selectedTrack, __trackMenu);
                 // Same value as __menuTitle above, so the panel label and the chip agree.
                 else graph.showSideMenu(__trackMenu, null, (selectedTrack && selectedTrack.name) || 'Track');
@@ -5181,6 +5335,48 @@ function (graph, genegraph_panel_layout) {
             // the up fires), and don't deselect anything here.
             graph.__downInMenu = !!(graph.side_menu || (graph.menuVisible && graph.menuVisible()));
             if (graph.__downInMenu) return;
+
+            // Every press starts with no tab claim; the test below re-makes it. And any drag
+            // still armed is over: a new press cannot belong to the previous one.
+            tabMenuAt = null;
+            try { endTrackGrip(); } catch (e) { }
+            try {
+                const dsf = pressPx(x, y);
+                if (dsf) {
+                    // THE CORNER GRIP owns the press outright: it is a drag, not a click, and
+                    // nothing else on the canvas should see it. The flag stops mouse-up
+                    // opening a menu over the track that was just resized.
+                    const grip = trackFurnitureAt('__resizeGrip', dsf.x, dsf.y);
+                    if (grip) {
+                        const tg = grip.track.tgraph;
+                        // WHERE ON THE HANDLE IT WAS GRABBED. The handle sits outside the
+                        // corner, so the pointer is never on the corner itself; without this
+                        // the corner would jump to the pointer the instant it was pressed.
+                        // Measured once, in world units, and held for the whole drag.
+                        const __gdx = x - (tg.xi + tg.width);
+                        const __gdy = y - (tg.yi + tg.height);
+                        graph.__trackGrip = {
+                            track: grip.track, w0: tg.width, h0: tg.height,
+                            dx: (isFinite(__gdx) ? __gdx : 0), dy: (isFinite(__gdy) ? __gdy : 0),
+                            // A track narrower than a few bases or shorter than a hairline has
+                            // no grip left to grab, so it could not be undone by dragging.
+                            minW: Math.max(1, Math.abs(tg.width) * 0.02),
+                            minH: Math.max(0.2, Math.abs(tg.height) * 0.05),
+                            pushed: false, moved: false
+                        };
+                        publishGripFlags();
+                        graph.__downMenuHandled = true;
+                        if (graph.graph) graph.graph.mode = 'move';
+                        try { graph.setMessage(' Drag to resize ' + (grip.track.name || 'the track') + '. '); } catch (e) { }
+                        return;
+                    }
+                    // THE NAME TAB is only remembered here. The menu is built on mouse-up by
+                    // showContextMenu, which is where every other menu in this file is built;
+                    // opening it on the press would fight the release that follows.
+                    const tab = trackFurnitureAt('__nameTab', dsf.x, dsf.y);
+                    if (tab) tabMenuAt = { x: dsf.x, y: dsf.y };
+                }
+            } catch (e) { }
 
             // Click on an off-target COUNT badge → show its statistics popup.
             try {
