@@ -285,6 +285,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 // last of them. It is a predicted REGION, not a cleavage-site call: the
                 // model was never trained to place the cleavage site.
                 const th = (thresholds && thresholds.precision90 != null) ? +thresholds.precision90 : 0.9;
+                let sigSpan = null, sigResidues = null;     // the predicted signal region, if any
                 const SIGNAL_AA = 25;
                 let nAnn = 0;
                 if (peak && peak.value != null && +peak.value >= 0.5) {
@@ -312,6 +313,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                     }
                     pieces.push([segStart, prev]);
 
+                    sigResidues = [rFrom + 1, rTo + 1];
                     try {
                         const Annotation = await exec('flexigraph/annotation.js');
                         // Re-running replaces the previous call rather than stacking another
@@ -332,6 +334,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                                 alo, ahi);
                             an.color = 'rgba(200,60,40,0.9)';
                             an.labelY = 2.2;
+                            // The region stays a real annotation; its words move to the curve's
+                            // callout above the track, so nothing is written over the sequence.
+                            an.hideLabel = true;
+                            sigSpan = sigSpan ? [Math.min(sigSpan[0], alo), Math.max(sigSpan[1], ahi)] : [alo, ahi];
                             try { track.add(an); } catch (e) { (track.annotations || []).push(an); }
                             nAnn++;
                         }
@@ -360,6 +366,19 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                         + (nAnn > 1 ? (' in ' + nAnn + ' exonic pieces') : '') + '.') : '')
                     + (gaps.length ? (' Drops to zero across ' + gaps.length + ' intron'
                         + (gaps.length === 1 ? '' : 's') + '.') : '') + ' ';
+                // Axis on the curve and the label ABOVE the track (TrackLayer.__drawDecor), with its
+                // arrow on the predicted signal region, or on the whole ORF when there is none.
+                const orfLo = Math.min(...got.posMap), orfHi = Math.max(...got.posMap) + 2;
+                curve.decor = {
+                    axis: { ticks: [0, 0.5, 1], labels: ['0', '0.5', '1'], title: 'P(secreted)' },
+                    callout: {
+                        text: 'Secretion ' + pw + ' · ' + verdict
+                            + (sigResidues ? (' · signal region, residues ' + sigResidues[0] + '–' + sigResidues[1]) : ' · no signal region')
+                            + ((peak && peak.value != null) ? (' · peak ' + (+peak.value).toFixed(2) + ' at residue ' + peak.residue) : ''),
+                        x0: sigSpan ? sigSpan[0] : orfLo, x1: sigSpan ? sigSpan[1] : orfHi,
+                        color: 'rgba(200,60,40,0.95)'
+                    }
+                };
                 try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
                 // The caveats travel with the result rather than living only in the docs,
                 // because a tall peak on a retained protein looks exactly like a secreted one.

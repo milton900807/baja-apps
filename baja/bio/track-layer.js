@@ -1014,7 +1014,7 @@ return new Promise(async (resolve, reject) => {
                     // above and covers them, and the arrows read as passing behind it.
                     const withCallout = decorated.filter((l) => l.decor.callout);
                     const row = Math.max(0, withCallout.length - 1 - withCallout.indexOf(this));
-                    const ROW = 14, GAP = 10;
+                    const ROW = 14, GAP = 17;          // GAP leaves a visible arrow even for a single label
                     const labelY = top - GAP - row * ROW;
                     const fx0 = tg.X(Math.min(c.x0, c.x1)), fx1 = tg.X(Math.max(c.x0, c.x1));
                     const vis0 = Math.max(fx0, 0), vis1 = Math.min(fx1, W);

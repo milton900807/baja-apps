@@ -141,7 +141,9 @@ function () {
                 // Shapes that render their own label are skipped so the name isn't drawn twice.
                 const __ty = '' + (this.type || '');
                 const __SELF = { 'PointOfInterest': 1, 'PastedText': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1, 'AA': 1, 'Exon': 1 };
-                if (this.name && !__SELF[__ty] && __ty.indexOf('cdd-') !== 0) {
+                // hideLabel: the annotation marks its region but its name is shown elsewhere (e.g. a
+                // layer's callout above the track), so it is not drawn over the sequence here.
+                if (this.name && !this.hideLabel && !__SELF[__ty] && __ty.indexOf('cdd-') !== 0) {
                     try {
                         const gctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
                         const cx = graph.X(ti + ((tf - ti) / 2));
