@@ -157,6 +157,57 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'RNA dynamic range', badge: '78 tissues', ready: true,
+            blurb: 'How widely does this gene\'s mRNA vary between samples of a tissue — and does its protein follow?',
+            open: (tissue) => __onParentTrack('RNA dynamic range',
+                (list) => exec('baja/bio/rna/rna-dynamic-range.js', graph, L, list, null, tissue)),
+            docs: {
+                summary: 'Shows how widely the gene\'s mRNA varies between samples of the chosen tissue: '
+                    + 'its MEASURED 5–95% spread as a fold change and its rank among protein-coding '
+                    + 'genes. Drawn as a bar over the transcript\'s exons (UTRs included) at that rank, '
+                    + 'with a black line at the protein\'s PREDICTED range rank in the same tissue: bar '
+                    + 'well above the line means the protein is buffered against its mRNA\'s swings. '
+                    + 'Works on non-coding tracks too (XIST, MALAT1, HOTAIR), by gene name.',
+                provenance: 'Measured, not modelled: 5th–95th percentile of log2 expression across each '
+                    + 'tissue\'s own samples — 10 CPTAC tumour types (1,022 tumours), 19 DepMap '
+                    + 'cell-line lineages (1,684 lines) and 49 GTEx v8 healthy tissues (17,000 '
+                    + 'samples). Every gene, coding or not, is ranked against the protein-coding genes '
+                    + 'of that tissue. The protein line comes from the Protein dynamic range model '
+                    + '(validated for tumours and cell lines, not for healthy tissues).',
+                usage: 'Pick a tissue, then run it on a track. A gene counts as barely expressed when '
+                    + 'even its highest-expressing samples (95th percentile) are in the bottom 30% of '
+                    + 'protein-coding genes there; it then gets no range, because what varies is noise. '
+                    + 'This is judged on the high end so that a gene expressed in only some samples '
+                    + 'keeps its range: XIST, expressed in women only, spans ~67,000× in lung squamous '
+                    + 'cancer. Tumour ranges include the surrounding normal tissue, which varies from '
+                    + 'sample to sample. mRNA folds are real measured folds; the protein line is a rank '
+                    + '— compare ranks, since mass spec compresses protein ratios.',
+                choice: {
+                    label: 'Tissue',
+                    note: 'All mRNA ranges are measured. The protein line is validated for tumours and cell lines only.',
+                    value: 'tumour:brca',
+                    empty: 'The tissue list could not be read on this server.',
+                    options: async () => {
+                        const em = new EngineMonitor(() => { });
+                        const res = await exec(window['env']['apiUrl'] + '/py/bio/protein/list-range-tissues.py', em);
+                        const rows = JSON.parse((res && res.tissues) || '[]');
+                        const group = { tumour: 'Tumour', cell_line: 'Cell lines', normal: 'Healthy' };
+                        return rows.map((r) => ({
+                            value: r.key,
+                            label: (group[r.kind] || r.kind) + ' — ' + r.label.replace(/ cell lines$/, '') + '   (' + r.samples + ')',
+                            note: 'mRNA range measured across ' + r.samples + ' samples.'
+                        }));
+                    }
+                },
+                links: [
+                    { title: 'GTEx Portal', url: 'https://gtexportal.org/home/',
+                      note: 'The healthy-tissue RNA behind the 49 normal-tissue ranges.' },
+                    { title: 'CPTAC pan-cancer proteogenomics', url: 'https://proteomics.cancer.gov/programs/cptac',
+                      note: 'The tumour RNA behind the 10 cancer-type ranges.' }
+                ]
+            }
+        },
+        {
             title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
             blurb: 'Per-position RBP binding profile across the track.',
             // The chosen protein comes from the page's picker and is passed straight

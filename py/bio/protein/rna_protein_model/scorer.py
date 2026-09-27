@@ -50,6 +50,7 @@ class TransferModel:
         self._half = None
         self._range = None
         self._tissue = None
+        self._rna_tissue = None
 
     # ---------------------------------------------------------------- lookup
     def _load_pre(self):
@@ -183,4 +184,37 @@ class TransferModel:
                 raise ValueError("unknown tissue %r" % tissue)
             j = T["keys"].index(tissue)
             out["tissue"] = cell(j) if pct[j] >= 0 else dict(T["meta"][tissue], rank_pct=None, fold_5_95=None)
+        return out
+
+    # ---------------------------------------------------------------- measured mRNA range
+    def rna_tissue_range(self, gene, tissue=None, top=5):
+        """MEASURED mRNA spread (5-95%) of a gene in one tissue, and where it is widest.
+        Coding and non-coding genes; same 78 tissues as the protein atlas."""
+        if self._rna_tissue is None:
+            path = os.path.join(_HERE, "rna_tissue_atlas.npz")
+            meta = _gz_json("tissues.json.gz")
+            if not os.path.exists(path) or not meta:
+                self._rna_tissue = False
+            else:
+                z = np.load(path)
+                self._rna_tissue = {"genes": {g: i for i, g in enumerate(z["genes"])}, "keys": list(z["keys"]),
+                                    "pct": z["pct"], "level": z["level"], "span": z["span"], "low": z["low"],
+                                    "meta": {t["key"]: t for t in meta["tissues"]}}
+        T = self._rna_tissue
+        if not T or not gene or str(gene).upper() not in T["genes"]:
+            return None
+        i = T["genes"][str(gene).upper()]
+        pct, lvl, span, low = T["pct"][i], T["level"][i], T["span"][i].astype(float), T["low"][i]
+        cell = lambda j: dict(T["meta"][T["keys"][j]], rank_pct=int(pct[j]), level_pct=int(lvl[j]),
+                              fold_5_95=float(2 ** span[j]), low_expression=bool(low[j]))
+        have = [j for j in range(len(T["keys"])) if pct[j] >= 0 and not low[j]]
+        order = sorted(have, key=lambda j: -span[j])
+        out = {"gene": str(gene).upper(), "measured": True, "widest_in": [cell(j) for j in order[:top]],
+               "narrowest_in": [cell(j) for j in order[-3:]]}
+        if tissue:
+            if tissue not in T["keys"]:
+                raise ValueError("unknown tissue %r" % tissue)
+            j = T["keys"].index(tissue)
+            out["tissue"] = cell(j) if pct[j] >= 0 else dict(T["meta"][tissue], rank_pct=None, level_pct=None,
+                                                             fold_5_95=None, low_expression=True)
         return out
