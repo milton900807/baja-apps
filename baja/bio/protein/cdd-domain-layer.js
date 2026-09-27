@@ -206,8 +206,16 @@ function (graph, genegraph_panel_layout, tracks, options) {
                     while (lane < laneEnd.length && laneEnd[lane] > sp.x1) lane++;
                     laneEnd[lane] = sp.x2;
                     const y = BASE + lane * STEP;
+                    // A "transcription..." hit is a broad superfamily-level match that spans most of the
+                    // protein: as a full-strength labelled bar it drowns the specific domains inside
+                    // it. It is kept, very faint and unlabelled; the hover panel still names it.
+                    const faint = /transcript/i.test(sp.nm);
                     layer.addInterval(sp.x1, sp.x2, y, sp.nm);
-                    try { layer.setIntervalColor(sp.x1, sp.x2, y, sp.nm, colorOf(sp.nm, 0.42)); } catch (e) { }
+                    try { layer.setIntervalColor(sp.x1, sp.x2, y, sp.nm, colorOf(sp.nm, faint ? 0.06 : 0.42)); } catch (e) { }
+                    if (faint) {
+                        const iv = (layer.intervals || []).find((v) => v.x1 === sp.x1 && v.x2 === sp.x2);
+                        if (iv) iv.noLabel = true;
+                    }
                 }
                 // COUNT WHAT IS IN THE LAYER, not how many times addInterval was called: it
                 // drops a span it already holds, so counting calls overstated the result --

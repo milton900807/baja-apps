@@ -5630,29 +5630,6 @@ function (graph, genegraph_panel_layout) {
                 }
             } catch (e) { }
 
-            // Press on a layer label's round "?" (TrackLayer.__drawDecor) -> its explanation.
-            // Each decorated layer stamps the button's position and time when it draws; only
-            // stamps from the latest frame count, so a label that has since scrolled away or
-            // been hidden cannot catch the press.
-            try {
-                const ds3 = graph.__downScreen;
-                const last = window.__decorHelpLastDraw || 0;
-                if (ds3) {
-                    for (const t3 of (graph.track || [])) {
-                        for (const L of (t3.track_layers || [])) {
-                            const hr = L && L.__helpRect;
-                            if (!hr || hr.t < last - 300) continue;
-                            const dx = ds3.x - hr.x, dy = ds3.y - hr.y;
-                            if (dx * dx + dy * dy <= (hr.r + 3) * (hr.r + 3)) {
-                                graph.__downMenuHandled = true;
-                                await exec('baja/bio/decor-help.js', L, graph, ds3.x, ds3.y);
-                                return;
-                            }
-                        }
-                    }
-                }
-            } catch (e) { }
-
             // Box-zoom owns the interaction — don't let hover select/deselect or
             // clear the selection while the user is dragging a zoom rectangle.
             if (graph.graph && graph.graph.mode === 'bpx') return;

@@ -1,5 +1,6 @@
 function (graph, genegraph_panel_layout) {
-    // A PRESS ON A LAYER'S LABEL ROW OPENS ITS MENU, whatever else the graph is doing.
+    // A PRESS ON A LAYER'S LABEL ROW OPENS ITS MENU, whatever else the graph is doing; a press on a
+    // layer label's round "?" (TrackLayer.__drawDecor) opens its explanation.
     //   exec('baja/manchester/menu/layer-row-press.js', graph, genegraph_panel_layout)
     //
     // The rows under a track's name (baja/bio/track.js, kept as rectangles on track.__layerTabs) used
@@ -52,6 +53,21 @@ function (graph, genegraph_panel_layout) {
             }
             return null;
         };
+        // A layer label's round "?" (TrackLayer.__drawDecor stamps its position and time on the layer
+        // each frame). Only stamps from the latest frame count, so a label that has scrolled away or
+        // been hidden cannot catch the press.
+        const helpAt = (g, p) => {
+            const last = window.__decorHelpLastDraw || 0;
+            for (const t of ((g && g.track) || [])) {
+                for (const L of ((t && t.track_layers) || [])) {
+                    const hr = L && L.__helpRect;
+                    if (!hr || hr.t < last - 300) continue;
+                    const dx = p.x - hr.x, dy = p.y - hr.y;
+                    if (dx * dx + dy * dy <= (hr.r + 3) * (hr.r + 3)) return L;
+                }
+            }
+            return null;
+        };
         const describe = (el) => el ? ((el.nodeName || '') + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : '')) : null;
         let lastHandledAt = 0;
 
@@ -74,6 +90,20 @@ function (graph, genegraph_panel_layout) {
                 if (!(top === el || (box && top && box.contains(top) && !top.closest('[role="menu"],[role="dialog"],#baja-layer-popup')))) return;
                 const p = toCanvas(e, el);
                 rec.at_canvas_px = { x: Math.round(p.x), y: Math.round(p.y) };
+                // The "?" after a layer's label: its explanation (baja/bio/decor-help.js).
+                const helpLayer = helpAt(g, p);
+                if (helpLayer) {
+                    rec.hit = true; rec.help = helpLayer.name || helpLayer.data_type;
+                    const dupH = (rec.at - lastHandledAt) < 250;
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+                    if (dupH) return;
+                    lastHandledAt = rec.at;
+                    g.__downMenuHandled = true;
+                    try { await exec('baja/bio/decor-help.js', helpLayer, g, p.x, p.y); rec.opened = 'help'; }
+                    catch (err) { rec.error = '' + (err && err.message || err); console.warn('[layer help] failed', err); }
+                    return;
+                }
                 const hit = rowAt(g, p);
                 if (!hit) return;
                 rec.hit = true;

@@ -1283,7 +1283,9 @@ return new Promise(async (resolve, reject) => {
                     if (__minPx && Math.abs(drawWidth) < __minPx) drawWidth = (drawWidth < 0) ? -__minPx : __minPx;
                     ctx.fillRect(x, y, drawWidth, height);
 
-                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
+                    // int.noLabel: draw the bar but not its name (a background interval such as a
+                    // broad superfamily domain); the name stays on the interval for the hover panel.
+                    if (!int.noLabel && screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
                         let text;
                         if (int.t) {
                             text = int.t;
@@ -1653,7 +1655,9 @@ return new Promise(async (resolve, reject) => {
                     if (__minPx && Math.abs(drawWidth) < __minPx) drawWidth = (drawWidth < 0) ? -__minPx : __minPx;
                     ctx.fillRect(x, y, drawWidth, height);
 
-                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
+                    // int.noLabel: draw the bar but not its name (a background interval such as a
+                    // broad superfamily domain); the name stays on the interval for the hover panel.
+                    if (!int.noLabel && screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
                         let text;
                         if (int.t) {
                             text = int.t;

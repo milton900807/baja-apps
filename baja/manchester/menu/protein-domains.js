@@ -235,6 +235,12 @@ function (graph, genegraph_panel_layout, presetTrack) {
                     const ahi = Math.max(istart, iend) + 2;   // include the last codon
                     const an = new Annotation('ProteinDomain', d.name, alo, ahi);
                     an.labelY = Math.random() + 2;
+                    // Broad "transcription..." superfamily hits span most of the protein and drown
+                    // the specific domains: very faint, and no name drawn on the track.
+                    if (/transcript/i.test('' + d.name)) {
+                        an.color = 'rgba(120,120,120,0.06)';
+                        an.hideLabel = true;
+                    }
                     t.add(an);
                     nDomains++;
                 }
