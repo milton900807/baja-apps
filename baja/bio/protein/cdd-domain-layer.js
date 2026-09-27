@@ -222,6 +222,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
             // domain is a region of a hundred residues, a site is one. In one layer the sites
             // vanish under the domain bars.
             let nS = 0;
+            const SITE_BASE = 0.30, SITE_STEP = 0.10;
             if (sites.length) {
                 const slayer = new TrackLayer(label + SITE_SUFFIX, lo, 0, hi, 1);
                 slayer.type = 'TrackLayer';
@@ -231,10 +232,27 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 slayer.fillstyle = 'rgba(190,60,60,0.55)';
                 try { slayer.setLabelFont('10px Arial'); } catch (e) { }
                 slayer.avoidLabelOverlap = true;   // 67 sites, most of them called "active site"
-                // A site is ONE residue -- three bases -- which across a whole gene is well
-                // under a pixel, so this layer only says anything once the view is close. Its
-                // labels are left on the default threshold for that reason: a screenful of
-                // "active site" over a gene nobody has zoomed into is not information.
+                // A SITE IS ONE RESIDUE -- three bases -- which across a whole gene is well
+                // under a pixel. So this layer holds itself back until the view is close
+                // enough for a site to mean something, and then makes sure it can be seen:
+                //
+                //   drawZoomThreshold  nothing below ~0.05 px per base. On a 1200px canvas
+                //                      that is a view of about 25 kb, which is a gene or an
+                //                      exon rather than a chromosome. Above it the sites come
+                //                      in; below it they would be 67 sub-pixel slivers over
+                //                      the domains.
+                //   minIntervalPx      3 px, so a three-base site is a tick you can actually
+                //                      see and click once it is drawn at all.
+                //   bar height         the same fix the domains needed: int.y is the bar's
+                //                      depth as well as its position, so the 0.05 lanes drew
+                //                      hairlines. Sites sit LOWER than the domains (0.30
+                //                      against 0.50) so the two read as separate rows rather
+                //                      than one bar hiding the other.
+                //
+                // Labels stay on the default threshold: the ticks say where, and the names
+                // arrive when there is room to read them.
+                slayer.drawZoomThreshold = 0.05;
+                slayer.minIntervalPx = 3;
 
                 for (const s of sites) {
                     const raw = '' + (s.sites || '');
@@ -247,7 +265,11 @@ function (graph, genegraph_panel_layout, tracks, options) {
                         const g = posOf(aa);
                         if (g < 0) continue;
                         const nm = ('' + (s.name || 'site')).trim() || 'site';
-                        const y = slayer.getYByOverlapCount(g, g + 2);
+                        // Lanes from the helper, then mapped onto a visible band: sites at one
+                        // residue rarely overlap, so lane 0 is the usual answer and SITE_BASE
+                        // is what decides whether anything is seen at all.
+                        const lane = Math.max(0, Math.round((slayer.getYByOverlapCount(g, g + 2) - 0.05) / 0.08));
+                        const y = SITE_BASE + lane * SITE_STEP;
                         slayer.addInterval(g, g + 2, y, nm);
                         try { slayer.setIntervalColor(g, g + 2, y, nm, colorOf(nm, 0.6)); } catch (e) { }
                     }

@@ -190,6 +190,21 @@ return new Promise(async (resolve, reject) => {
         defaultFont = "10px Arial";
         uid = uuid();
         drawStyle = 'default'
+
+        // ZOOM GATE AND MINIMUM TICK, both off by default so every existing layer is unchanged.
+        //
+        // drawZoomThreshold: below this many screen pixels per base, the layer's intervals are
+        // not drawn. For a layer whose features are a residue wide -- CDD functional sites are
+        // three bases -- a whole gene in view is well under a pixel each, and drawing them
+        // there is a picket fence that says nothing and hides what is underneath. null means
+        // draw at every zoom, which is what every layer did before this existed.
+        //
+        // minIntervalPx: a floor on a bar's drawn WIDTH. A three-base feature is legitimately
+        // sub-pixel at most zooms; once the layer has decided it is close enough to show them,
+        // a tick you can see beats an exact width you cannot. Only the width is floored, never
+        // the coordinates.
+        drawZoomThreshold = null;
+        minIntervalPx = 0;
         polynomialFunction = null;
 
         defaultColor = 'rgba(100, 100, 200, 1)'
@@ -1085,7 +1100,11 @@ return new Promise(async (resolve, reject) => {
                 // text ON TOP of the whole layer. Nothing about an individual label changes --
                 // same position, same collision avoidance -- only when it is painted.
                 const __labelJobs = [];
-                for (let int of this.intervals) {
+                // Gated here rather than at the top, so a gated layer still paints its
+                // annotations, points and polygons -- only the intervals wait for the zoom.
+                const __ivs = (this.drawZoomThreshold != null && screencell < this.drawZoomThreshold)
+                    ? [] : this.intervals;
+                for (let int of __ivs) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
                     ctx.lineTo((this.tgraph.X(int.x2)), (this.tgraph.Y(int.y)));
@@ -1111,6 +1130,8 @@ return new Promise(async (resolve, reject) => {
                     // intervals stay visible even when the view is zoomed way out.
                     let drawWidth = width;
                     if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
+                    const __minPx = +this.minIntervalPx || 0;
+                    if (__minPx && Math.abs(drawWidth) < __minPx) drawWidth = (drawWidth < 0) ? -__minPx : __minPx;
                     ctx.fillRect(x, y, drawWidth, height);
 
                     if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
@@ -1449,7 +1470,11 @@ return new Promise(async (resolve, reject) => {
                 // text ON TOP of the whole layer. Nothing about an individual label changes --
                 // same position, same collision avoidance -- only when it is painted.
                 const __labelJobs = [];
-                for (let int of this.intervals) {
+                // Gated here rather than at the top, so a gated layer still paints its
+                // annotations, points and polygons -- only the intervals wait for the zoom.
+                const __ivs = (this.drawZoomThreshold != null && screencell < this.drawZoomThreshold)
+                    ? [] : this.intervals;
+                for (let int of __ivs) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
                     ctx.lineTo((this.tgraph.X(int.x2)), (this.tgraph.Y(int.y)));
@@ -1475,6 +1500,8 @@ return new Promise(async (resolve, reject) => {
                     // intervals stay visible even when the view is zoomed way out.
                     let drawWidth = width;
                     if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
+                    const __minPx = +this.minIntervalPx || 0;
+                    if (__minPx && Math.abs(drawWidth) < __minPx) drawWidth = (drawWidth < 0) ? -__minPx : __minPx;
                     ctx.fillRect(x, y, drawWidth, height);
 
                     if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
