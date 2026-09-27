@@ -103,6 +103,60 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'Protein dynamic range', badge: '78 tissues', ready: true,
+            blurb: 'How widely does this protein vary between samples of a tissue — predicted from mRNA?',
+            // The tissue comes from the picker and is passed straight through to the runner.
+            open: (tissue) => __onParentTrack('Protein dynamic range',
+                (list) => exec('baja/bio/protein/protein-dynamic-range.js', graph, L, list, null, tissue)),
+            docs: {
+                summary: 'Predicts how widely the protein\'s level varies between samples of the chosen '
+                    + 'tissue: its 5–95% spread as a fold change and its rank among all proteins. Drawn '
+                    + 'as a bar over the coding exons at that rank (taller = more variable), a black line '
+                    + 'at its MEASURED variability rank where a proteomics study quantified it, and an '
+                    + 'annotation naming the tissues where it varies most. CYP3A4, for example, varies '
+                    + 'most in intestine, liver and pancreas; splicing factors such as SF3B1 barely vary.',
+                provenance: 'A model learned protein range from mRNA range across 7 paired mRNA/protein '
+                    + 'studies (42k gene × study rows), keeping mRNA range as the backbone and adding a '
+                    + 'shrunk correction from the gene\'s sequence, mRNA level, sample type and platform, '
+                    + 'then a monotone calibration. Held out one study at a time it ranks protein '
+                    + 'variability better than mRNA range alone in every study (CPTAC 0.84 vs 0.76); per '
+                    + 'cancer type, with CPTAC held out of training, 0.62–0.79, better in all 10. It was '
+                    + 'run on each tissue\'s own RNA: 10 CPTAC tumour types, 19 DepMap cell-line '
+                    + 'lineages and 49 GTEx healthy tissues. Healthy tissues are NOT validated — there '
+                    + 'is no matched normal-tissue proteomics here and the model never saw normal tissue.',
+                usage: 'Pick a tissue, then run it on a protein-coding track. The gene comes from the '
+                    + 'track\'s own ORF (the exact annotated protein) or the track name. Folds are on a '
+                    + 'DIA mass-spec scale — what a proteomics experiment would measure, compressed '
+                    + 'relative to true biology — so compare ranks across genes and tissues rather than '
+                    + 'reading the fold literally. A gene barely expressed in the chosen tissue gets no '
+                    + 'range, because what varies there is noise. Tumour ranges include the surrounding '
+                    + 'normal tissue, which varies from sample to sample (pancreatic enzymes in PDAC).',
+                choice: {
+                    label: 'Tissue',
+                    note: 'Tumour types and cell-line lineages are validated; healthy tissues are not.',
+                    value: 'tumour:brca',
+                    empty: 'The tissue list could not be read on this server.',
+                    options: async () => {
+                        const em = new EngineMonitor(() => { });
+                        const res = await exec(window['env']['apiUrl'] + '/py/bio/protein/list-range-tissues.py', em);
+                        const rows = JSON.parse((res && res.tissues) || '[]');
+                        const group = { tumour: 'Tumour', cell_line: 'Cell lines', normal: 'Healthy' };
+                        return rows.map((r) => ({
+                            value: r.key,
+                            label: (group[r.kind] || r.kind) + ' — ' + r.label.replace(/ cell lines$/, '') + '   (' + r.samples + ')',
+                            note: r.kind === 'normal' ? 'GTEx healthy tissue — not validated.' : ('Validated: ' + r.validated + '.')
+                        }));
+                    }
+                },
+                links: [
+                    { title: 'GTEx Portal', url: 'https://gtexportal.org/home/',
+                      note: 'The healthy-tissue RNA the 49 normal-tissue ranges are computed from.' },
+                    { title: 'DepMap', url: 'https://depmap.org/portal/',
+                      note: 'The cell-line RNA behind the 19 lineage ranges.' }
+                ]
+            }
+        },
+        {
             title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
             blurb: 'Per-position RBP binding profile across the track.',
             // The chosen protein comes from the page's picker and is passed straight

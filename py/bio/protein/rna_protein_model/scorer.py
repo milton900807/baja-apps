@@ -48,6 +48,8 @@ class TransferModel:
         self._pre = None
         self._measured = None
         self._half = None
+        self._range = None
+        self._tissue = None
 
     # ---------------------------------------------------------------- lookup
     def _load_pre(self):
@@ -124,4 +126,61 @@ class TransferModel:
         out = dict(zip(self._half["fields"], row), gene=str(gene).upper())
         out["typical_protein_per_mrna_fold"] = self._half["decile_fold"][out["decile"] - 1]
         out["spearman"] = self._half["spearman"]
+        return out
+
+    def dynamic_range(self, gene):
+        """Protein dynamic range atlas entry (tumours: CPTAC; cell lines: DepMap) for a gene."""
+        if self._range is None:
+            self._range = _gz_json("range_atlas.json.gz") or False
+        if not self._range or not gene:
+            return None
+        row = self._range["genes"].get(str(gene).upper())
+        if row is None:
+            return None
+        R = self._range
+        out = {"gene": str(gene).upper(), "platform": R["platform"], "references": R["references"]}
+        for c, v in zip(R["contexts"], row[:2]):
+            out[c] = dict(zip(R["fields"], v)) if v else None
+        out["measured_rank"] = {s: v for s, v in zip(R["measured_studies"], row[2]) if v is not None}
+        return out
+
+    # ---------------------------------------------------------------- tissue-specific range
+    def _load_tissue(self):
+        if self._tissue is None:
+            path = os.path.join(_HERE, "tissue_atlas.npz")
+            meta = _gz_json("tissues.json.gz")
+            if not os.path.exists(path) or not meta:
+                self._tissue = False
+            else:
+                z = np.load(path)
+                self._tissue = {"genes": {g: i for i, g in enumerate(z["genes"])}, "keys": list(z["keys"]),
+                                "pct": z["pct"], "fold": z["fold"], "low": z["low"] if "low" in z.files else None,
+                                "meta": {t["key"]: t for t in meta["tissues"]}}
+        return self._tissue
+
+    def tissues(self):
+        """Every tissue in the atlas: key, label, kind (tumour / cell_line / normal), samples, validated."""
+        T = self._load_tissue()
+        return [T["meta"][k] for k in T["keys"]] if T else []
+
+    def tissue_range(self, gene, tissue=None, top=5):
+        """The gene's protein range in one tissue, and the tissues where it varies most."""
+        T = self._load_tissue()
+        if not T or not gene or str(gene).upper() not in T["genes"]:
+            return None
+        i = T["genes"][str(gene).upper()]
+        pct, fold = T["pct"][i], T["fold"][i].astype(float)
+        low = T["low"][i] if T["low"] is not None else np.zeros(len(T["keys"]), bool)
+        cell = lambda j: dict(T["meta"][T["keys"][j]], rank_pct=int(pct[j]), fold_5_95=round(float(fold[j]), 2),
+                              low_expression=bool(low[j]))
+        # "where it varies most" only counts tissues where the gene is actually expressed
+        have = [j for j in range(len(T["keys"])) if pct[j] >= 0 and not low[j]]
+        order = sorted(have, key=lambda j: (-pct[j], -fold[j]))
+        out = {"gene": str(gene).upper(), "most_variable_in": [cell(j) for j in order[:top]],
+               "least_variable_in": [cell(j) for j in order[-3:]]}
+        if tissue:
+            if tissue not in T["keys"]:
+                raise ValueError("unknown tissue %r" % tissue)
+            j = T["keys"].index(tissue)
+            out["tissue"] = cell(j) if pct[j] >= 0 else dict(T["meta"][tissue], rank_pct=None, fold_5_95=None)
         return out
