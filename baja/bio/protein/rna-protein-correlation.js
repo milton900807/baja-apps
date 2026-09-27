@@ -107,7 +107,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             return spans.sort((u, v) => u[0] - v[0]);
         };
 
-        const runOnTrack = async (track, range) => {
+        const runOnTrack = async (track, range, showPanel = true) => {
             const who = (track && track.name) || 'that track';
             try {
                 const got = proteinFor(track, range);
@@ -252,7 +252,16 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     + (half ? (' mRNA half-life: ' + ord(half.percentile)
                         + (half.hela_hours != null ? (' (' + (+half.hela_hours).toFixed(1) + ' h in HeLa)') : '') + '.') : '')
                     + ' Source: ' + src + '. ';
-                try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
+                // The result opens in the same panel as the label's "?" (baja/bio/decor-help.js) rather
+                // than a canvas message that is gone in a few seconds. A sweep over many tracks
+                // (runAllTracks) does not open one per track: each keeps its "?" to reopen it.
+                if (showPanel && bar.decor && bar.decor.help) {
+                    try { graph.setMessage(' '); } catch (e) { }
+                    try { await exec('baja/bio/decor-help.js', bar, graph); }
+                    catch (e) { try { graph.setResultMessage(msg); } catch (e2) { graph.setMessage(msg); } }
+                } else {
+                    try { graph.setMessage(msg); } catch (e) { }
+                }
                 try {
                     if (perStudy) log('[rna-protein] measured transfer by study: ' + perStudy);
                     if (notes.length) log('[rna-protein] ' + notes.join('  '));
@@ -278,7 +287,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    try { if (await runOnTrack(all[i], ownRange(all[i]))) ok++; } catch (e) { }
+                    try { if (await runOnTrack(all[i], ownRange(all[i]), false)) ok++; } catch (e) { }
                 }
                 try { window.__workStatus = ''; if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh(); } catch (e) { }
                 if (all.length > 1) done('RNA–protein coupling added to ' + ok + ' of ' + all.length + ' tracks.');

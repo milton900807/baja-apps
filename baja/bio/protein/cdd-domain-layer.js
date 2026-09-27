@@ -123,6 +123,57 @@ function (graph, genegraph_panel_layout, tracks, options) {
         };
         const colorOf = (name, alpha) => 'hsla(' + hueOf(name) + ',62%,46%,' + alpha + ')';
 
+        // ---- the label above the track, and the "?" behind it (TrackLayer.__drawDecor) -------
+        // One short line - this layer is on every coding track - with the explanation a press
+        // away: this protein's domains with residues and E-values, then what the layer shows.
+        const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+        const decorate = (t, dlayer, nD, nS, info, span) => {
+            if (!dlayer || !span) return;
+            const rows = [];
+            const shown = (info || []).slice(0, 8);
+            for (const d of shown) {
+                rows.push([d.nm, [
+                    (d.a && d.b) ? ('residues ' + d.a + '–' + d.b) : null,
+                    d.evalue ? ('E = ' + d.evalue) : null,
+                    d.type ? ('' + d.type).toLowerCase() + ' hit' : null,
+                    d.faint ? 'drawn faint: a broad superfamily-level match spanning most of the protein' : null
+                ].filter(Boolean).join(' · ') || 'conserved domain']);
+            }
+            if ((info || []).length > shown.length) rows.push(['+' + (info.length - shown.length) + ' more', 'Hover a bar for its name.']);
+            rows.push(['bars', 'Each bar is a conserved domain found in this track\'s protein, placed on the codons that encode it. '
+                + 'Overlapping hits stack upward, one lane each.']);
+            rows.push(['colours', 'Each domain name has its own colour, the same on every track, so a shared domain is easy to spot.']);
+            if ((info || []).some((d) => d.faint)) rows.push(['faint bars', 'Broad "transcription…" superfamily hits span most of the '
+                + 'protein; they are kept but drawn faint and unlabelled so the specific domains inside them stand out.']);
+            rows.push(['sites', nS ? (plural(nS, 'functional site') + ' (active, binding and catalytic residues) in their own layer, '
+                + 'on a lower row. They appear once zoomed in to about a gene.') : 'No functional sites are annotated for these domains.']);
+            dlayer.decor = {
+                callout: { text: 'Protein domains (CDD): ' + plural(nD, 'domain') + (nS ? (' · ' + plural(nS, 'site')) : ''),
+                           x0: span[0], x1: span[1], color: 'rgba(30,120,130,0.95)' },
+                help: {
+                    title: 'Protein domains: conserved domains found in this protein',
+                    rows: rows,
+                    note: 'Search: RPS-BLAST of the track\'s protein against NCBI\'s Conserved Domain Database (CDD), E ≤ 0.01 '
+                        + '(run locally where the database is installed, through NCBI CD-Search otherwise). A hit means the sequence '
+                        + 'resembles a known domain family; it does not show the domain is folded or functional in this isoform.'
+                }
+            };
+        };
+        // A layer made before the label existed: label it from what it already holds (names and
+        // counts), without searching again. The residues and E-values need a fresh search (redo).
+        const decorateExisting = (t) => {
+            try {
+                const dl = (t.track_layers || []).find((l) => l && ('' + l.name).indexOf(DOMAIN_SUFFIX) >= 0 && ('' + l.data_type) === 'CDD');
+                if (!dl || (dl.decor && dl.decor.help)) return;
+                const sl = (t.track_layers || []).find((l) => l && ('' + l.name).indexOf(SITE_SUFFIX) >= 0 && ('' + l.data_type) === 'CDD');
+                const ivs = dl.intervals || [];
+                if (!ivs.length) return;
+                const info = ivs.map((v) => ({ nm: '' + (v.t || 'domain'), faint: !!v.noLabel }));
+                const span = [Math.min(...ivs.map((v) => v.x1)), Math.max(...ivs.map((v) => v.x2))];
+                decorate(t, dl, ivs.length, (sl && sl.intervals) ? sl.intervals.length : 0, info, span);
+            } catch (e) { }
+        };
+
         let done = 0, skipped = 0, empty = 0, already = 0;
         const per = [];
 
@@ -130,7 +181,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
             const t = list[n];
             const label = (t && t.name) || ('track ' + (n + 1));
 
-            if (!o.redo && hasLayer(t, DOMAIN_SUFFIX)) { already++; continue; }
+            if (!o.redo && hasLayer(t, DOMAIN_SUFFIX)) { decorateExisting(t); already++; continue; }
 
             const cds = proteinOf(t);
             if (!cds) { skipped++; continue; }          // no protein: not an error, just not this track
@@ -148,7 +199,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
             if (!out) { empty++; continue; }
 
             const domains = parseBlock(out, 'DOMAIN', 'ENDDOMAINS',
-                (c) => (c.length > 9 ? { start: +c[4], end: +c[5], evalue: c[6], id: c[8], name: c[9] } : null));
+                (c) => (c.length > 9 ? { type: c[2], start: +c[4], end: +c[5], evalue: c[6], id: c[8], name: c[9] } : null));
             const sites = parseBlock(out, 'SITES', 'ENDSITES',
                 (c) => (c.length > 4 ? { name: c[3], sites: c[4] } : null));
 
@@ -156,7 +207,8 @@ function (graph, genegraph_panel_layout, tracks, options) {
 
             // ---- the domains ---------------------------------------------------------------
             const lo = Math.min(t.xi, t.xf), hi = Math.max(t.xi, t.xf);
-            let nD = 0;
+            let nD = 0, dlayer = null;
+            const dinfo = [];
             if (domains.length) {
                 const layer = new TrackLayer(label + DOMAIN_SUFFIX, lo, 0, hi, 1);
                 layer.type = 'TrackLayer';
@@ -198,6 +250,8 @@ function (graph, genegraph_panel_layout, tracks, options) {
                         x1: Math.min(a, b), x2: Math.max(a, b) + 2,
                         nm: ('' + (d.name || d.id || 'domain')).trim() || 'domain'
                     });
+                    dinfo.push({ nm: ('' + (d.name || d.id || 'domain')).trim() || 'domain', a: d.start, b: d.end,
+                                 evalue: d.evalue, type: d.type, faint: /transcript/i.test('' + d.name) });
                 }
                 spans.sort((p, q) => p.x1 - q.x1);
                 const laneEnd = [];   // rightmost x2 placed in each lane so far
@@ -222,7 +276,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 // EGFR reported 88 sites while carrying 67. The number said out loud has to be
                 // the number a user can go and count.
                 nD = (layer.intervals || []).length;
-                if (nD) { try { t.addLayer(layer); } catch (e) { } }
+                if (nD) { try { t.addLayer(layer); dlayer = layer; } catch (e) { } }
             }
 
             // ---- the functional sites, in their own layer ----------------------------------
@@ -286,6 +340,10 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 if (nS) { try { t.addLayer(slayer); } catch (e) { } }
             }
 
+            if (dlayer) {
+                const cp = cds.codonPos.filter((x) => isFinite(+x) && +x >= 0);
+                if (cp.length) decorate(t, dlayer, nD, nS, dinfo, [Math.min(...cp), Math.max(...cp) + 2]);
+            }
             if (!nD && !nS) { empty++; continue; }
             done++;
             per.push(label + ': ' + nD + ' domain' + (nD === 1 ? '' : 's')

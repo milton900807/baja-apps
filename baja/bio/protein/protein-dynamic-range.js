@@ -110,7 +110,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
             return n + suf + ' percentile';
         };
 
-        const runOnTrack = async (track, range) => {
+        const runOnTrack = async (track, range, showPanel = true) => {
             const who = (track && track.name) || 'that track';
             try {
                 // The protein only identifies the gene; a track with no usable ORF still gets
@@ -219,7 +219,16 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
                     + (mrank != null ? ('Measured variability rank across ' + mvals.length + ' stud' + (mvals.length === 1 ? 'y' : 'ies')
                         + ': ' + ord(mrank) + ' (black line). ') : '')
                     + 'Gene matched by ' + (data.matched_by || 'name') + '. ';
-                try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
+                // The result opens in the same panel as the label's "?" (baja/bio/decor-help.js) rather
+                // than a canvas message that is gone in a few seconds. A sweep over many tracks
+                // (runAllTracks) does not open one per track: each keeps its "?" to reopen it.
+                if (showPanel && bar.decor && bar.decor.help) {
+                    try { graph.setMessage(' '); } catch (e) { }
+                    try { await exec('baja/bio/decor-help.js', bar, graph); }
+                    catch (e) { try { graph.setResultMessage(msg); } catch (e2) { graph.setMessage(msg); } }
+                } else {
+                    try { graph.setMessage(msg); } catch (e) { }
+                }
                 try { if (notes.length) log('[protein-range] ' + notes.join('  ')); } catch (e) { }
                 clearWork(); restoreHover();
                 return true;
@@ -237,7 +246,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
             (async () => {
                 let ok = 0;
                 for (let i = 0; i < all.length; i++) {
-                    try { if (await runOnTrack(all[i], ownRange(all[i]))) ok++; } catch (e) { }
+                    try { if (await runOnTrack(all[i], ownRange(all[i]), false)) ok++; } catch (e) { }
                 }
                 if (all.length > 1) done('Protein dynamic range added to ' + ok + ' of ' + all.length + ' tracks.');
             })();

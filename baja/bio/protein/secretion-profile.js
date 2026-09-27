@@ -139,7 +139,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
             };
         };
 
-        const runOnTrack = async (track, range) => {
+        const runOnTrack = async (track, range, showPanel = true) => {
             try {
                 const got = proteinFor(track, range);
                 const who = (track && track.name) || 'that track';
@@ -397,7 +397,16 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                         color: 'rgba(200,60,40,0.95)'
                     }
                 };
-                try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
+                // The result opens in the same panel as the label's "?" (baja/bio/decor-help.js) rather
+                // than a canvas message that is gone in a few seconds. A sweep over many tracks
+                // (runAllTracks) does not open one per track: each keeps its "?" to reopen it.
+                if (showPanel && curve.decor && curve.decor.help) {
+                    try { graph.setMessage(' '); } catch (e) { }
+                    try { await exec('baja/bio/decor-help.js', curve, graph); }
+                    catch (e) { try { graph.setResultMessage(__msg); } catch (e2) { graph.setMessage(__msg); } }
+                } else {
+                    try { graph.setMessage(__msg); } catch (e) { }
+                }
                 // The caveats travel with the result rather than living only in the docs,
                 // because a tall peak on a retained protein looks exactly like a secreted one.
                 try { if (notes.length) log(notes.join('  ')); } catch (e) { }
@@ -429,7 +438,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    try { if (await runOnTrack(all[i], ownRange(all[i]))) done++; } catch (e) { }
+                    try { if (await runOnTrack(all[i], ownRange(all[i]), false)) done++; } catch (e) { }
                 }
                 try {
                     window.__workStatus = '';
