@@ -194,9 +194,44 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 // gets a y-axis (TrackLayer.__drawDecor), so nothing is drawn over the sequence.
                 // Annotations left by earlier runs of this layer are removed.
                 try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'RnaProteinCoupling'); } catch (e) { }
+                const src = data.source === 'full'
+                    ? 'full model (ESM-2 + protein + mRNA features), precomputed for this annotated protein'
+                    : 'protein-feature fallback (this exact protein is not an annotated GENCODE protein)';
+                // Behind the label's "?" (baja/bio/decor-help.js): what each part means, with this
+                // protein's own numbers.
+                const pctWord = (p) => ord(p) + ' of human proteins';
+                const help = {
+                    title: 'RNA–protein coupling: how far this protein follows its mRNA',
+                    rows: [
+                        ['mRNA→protein ' + tv.toFixed(2) + '×',
+                            'Predicted TRANSFER: how much the protein changes when its mRNA changes, relative to a typical gene (= 1.0). '
+                            + 'At ' + tv.toFixed(2) + '×, a change in this mRNA moves the protein about ' + Math.round(tv * 100)
+                            + '% as much as it would for a typical gene (80% range ' + (+transfer.interval_80[0]).toFixed(2) + '–'
+                            + (+transfer.interval_80[1]).toFixed(2) + '). The bar height and the right-hand axis show it.'],
+                        [transfer.call,
+                            'Buffered = moves less than typical, typical, or responsive = moves more; thirds of all human proteins. '
+                            + 'This one is at the ' + pctWord(transfer.percentile) + '.'],
+                        ['ρ ' + (+rhoP.value).toFixed(2),
+                            'Predicted RELIABILITY: how consistently the protein follows its mRNA across samples (0 = unrelated, '
+                            + '1 = lockstep); ' + pctWord(rhoP.percentile) + '. Transfer says how much, ρ how dependably.'],
+                        ['measured', mtv != null
+                            ? (measured.n_studies + ' of 7 paired mRNA/protein studies measured this gene: transfer ' + mtv.toFixed(2)
+                                + '×' + (measured.rho != null ? (', ρ ' + (+measured.rho).toFixed(2)) : '')
+                                + '. Where a measurement exists, trust it over the prediction. It is the black line on the track.')
+                            : 'No study measured this protein, so only the prediction is available.'],
+                        ['mRNA t½', half
+                            ? ('mRNA half-life ' + (half.hela_hours != null ? ((+half.hela_hours).toFixed(1) + ' h in HeLa, ') : '')
+                                + ord(half.percentile) + ' of genes. Longer-lived mRNAs make more protein per mRNA, but half-life '
+                                + 'does not change how closely protein follows mRNA; it is context.')
+                            : 'No measured mRNA half-life for this gene.']
+                    ],
+                    note: 'Source: ' + src + '. Transfer is relative to the typical gene, not an absolute fold change, and '
+                        + 'it depends on the samples: flat mRNA cannot move protein, and cell lines can differ from tumours.'
+                };
                 bar.decor = {
                     axis: { ticks: [0, 1, 2], labels: ['0', '1', '2'], title: 'transfer (1 = typical)' },
-                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' }
+                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' },
+                    help: help
                 };
 
                 if (bar.setTimedHighlight) bar.setTimedHighlight(8000);
@@ -204,9 +239,6 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 if (graph.wake) graph.wake();
 
                 const how = { buffered: 'changes LESS than', typical: 'changes about as much as', responsive: 'changes MORE than' }[transfer.call];
-                const src = data.source === 'full'
-                    ? 'full model (ESM-2 + protein + mRNA features), precomputed for this annotated protein'
-                    : 'protein-feature fallback (this exact protein is not an annotated GENCODE protein)';
                 const perStudy = (measured && measured.studies) ? Object.keys(measured.studies)
                     .map((k) => k + ' ' + (+measured.studies[k][0]).toFixed(2)).join(', ') : '';
                 const msg = ' mRNA→protein transfer on ' + who + ' from ' + got.source + ': ' + tv.toFixed(2)

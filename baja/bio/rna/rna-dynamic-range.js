@@ -185,9 +185,28 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
                 // gets a y-axis (TrackLayer.__drawDecor), so nothing is drawn over the sequence.
                 // Annotations left by earlier runs of this layer are removed.
                 try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'RnaDynamicRange'); } catch (e) { }
+                const help = {
+                    title: 'RNA dynamic range: how widely this mRNA varies in ' + tlabel,
+                    rows: [
+                        [lowExpr ? 'barely expressed' : fold(t.fold_5_95),
+                            lowExpr ? ('Even the highest-expressing samples of ' + tlabel + ' barely express this gene, so its spread is noise.')
+                                : ('MEASURED 5–95% spread of this mRNA across ' + (t.samples || '') + ' samples of ' + tlabel
+                                    + ': the top 5% of samples have about ' + fold(t.fold_5_95) + ' the mRNA of the bottom 5%.')],
+                        [lowExpr ? 'rank' : ord(rank), 'Where that spread ranks among protein-coding genes in this tissue (100 = most variable); '
+                            + 'the bar height and the right-hand axis show it.' + (!lowExpr ? (' Expression level: ' + ord(t.level_pct) + '.') : '')],
+                        ['protein', prank != null
+                            ? ('The protein\'s PREDICTED range here: ' + fold(pt.fold_5_95) + ', ' + ord(prank) + ' (black line). Bar well above '
+                                + 'the line = the protein is buffered against its mRNA\'s swings; line near the bar = it follows them.')
+                            : 'No protein range for this gene here (non-coding, or not expressed enough).'],
+                        ['widest in', widest || 'n/a']
+                    ],
+                    note: 'mRNA spreads are measured, not modelled (CPTAC tumours, DepMap cell lines, GTEx healthy tissues). Tumour '
+                        + 'ranges include the surrounding normal tissue, which varies from sample to sample.'
+                };
                 bar.decor = {
                     axis: { ticks: [0, 50, 100], labels: ['0', '50', '100'], title: 'mRNA range rank' },
-                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' }
+                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' },
+                    help: help
                 };
 
                 if (bar.setTimedHighlight) bar.setTimedHighlight(8000);

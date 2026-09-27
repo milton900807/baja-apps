@@ -942,8 +942,10 @@ return new Promise(async (resolve, reject) => {
         //
         //   this.decor = {
         //     axis:    { ticks: [0, 1, 2], labels: ['0', '1 typical', '2'], title: 'transfer' },
-        //     callout: { text: '...', x0: <world x>, x1: <world x>, color: 'rgba(...)' }
+        //     callout: { text: '...', x0: <world x>, x1: <world x>, color: 'rgba(...)' },
+        //     help:    { title: '...', rows: [['term', 'what it means'], ...], note: '...' }
         //   }
+        // With `help`, a round "?" follows the label; pressing it opens the explanation.
         //
         // Plain data, so it survives JSON save / reload and copyTrackLayer (Object.assign onto a
         // new TrackLayer). Several decorated layers on one track stack their labels upwards,
@@ -1022,7 +1024,9 @@ return new Promise(async (resolve, reject) => {
                         const tipX = (vis0 + vis1) / 2;
                         ctx.font = '11px Arial';
                         const tw = ctx.measureText(c.text).width;
-                        const lx = Math.max(4, Math.min(tipX - tw / 2, W - tw - 4));
+                        // room for the round "?" after the text when the layer carries help
+                        const HELP_R = 6, helpW = d.help ? (HELP_R * 2 + 6) : 0;
+                        const lx = Math.max(4, Math.min(tipX - (tw + helpW) / 2, W - tw - helpW - 4));
                         // bracket over the feature's visible span, then the arrow from the label
                         ctx.strokeStyle = color;
                         ctx.fillStyle = color;
@@ -1049,6 +1053,26 @@ return new Promise(async (resolve, reject) => {
                         ctx.textAlign = 'left';
                         ctx.textBaseline = 'middle';
                         ctx.fillText(c.text, lx, labelY);
+                        // "?" button: opens decor.help (baja/bio/decor-help.js). Its screen position
+                        // is stamped every frame; the editor's press handler only honours stamps
+                        // from the latest frame, so a scrolled-away label cannot catch a click.
+                        if (d.help) {
+                            const hx = lx + tw + 6 + HELP_R, hy = labelY;
+                            ctx.beginPath();
+                            ctx.arc(hx, hy, HELP_R, 0, 2 * Math.PI);
+                            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                            ctx.fill();
+                            ctx.lineWidth = 1.2;
+                            ctx.strokeStyle = color;
+                            ctx.stroke();
+                            ctx.fillStyle = color;
+                            ctx.font = 'bold 9px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('?', hx, hy + 0.5);
+                            const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+                            this.__helpRect = { x: hx, y: hy, r: HELP_R, t: now };
+                            try { window.__decorHelpLastDraw = now; } catch (e) { }
+                        }
                     }
                 }
             } finally {
@@ -1057,6 +1081,7 @@ return new Promise(async (resolve, reject) => {
         }
 
         async draw(parentTrack, graph, __track) {
+            this.__helpRect = null;     // re-stamped by __drawDecor if the "?" is drawn this frame
             if (!this.visible) {
                 return;
             }

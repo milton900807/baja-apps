@@ -179,9 +179,31 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
                 // gets a y-axis (TrackLayer.__drawDecor), so nothing is drawn over the sequence.
                 // Annotations left by earlier runs of this layer are removed.
                 try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'ProteinDynamicRange'); } catch (e) { }
+                const help = {
+                    title: 'Protein dynamic range: how widely this protein varies in ' + tlabel,
+                    rows: [
+                        [lowExpr ? 'barely expressed' : ((+t.fold_5_95).toFixed(1) + '×'),
+                            lowExpr ? ('The mRNA is barely expressed in ' + tlabel + ', so there is no meaningful protein range to predict there.')
+                                : ('Predicted 5–95% spread of this protein between samples of ' + tlabel + ': the most-expressing 5% of samples '
+                                    + 'have about ' + (+t.fold_5_95).toFixed(1) + '× the protein of the least-expressing 5%.')],
+                        [lowExpr ? 'rank' : ord(rank), 'Where that spread ranks among all proteins in this tissue (100 = most variable). '
+                            + 'The bar height and the right-hand axis show it.'],
+                        ['measured', mrank != null
+                            ? ('Measured variability rank, averaged over ' + mvals.length + ' proteomics stud' + (mvals.length === 1 ? 'y' : 'ies')
+                                + ': ' + ord(mrank) + '. It is the black line.')
+                            : 'No proteomics study measured this protein\'s variability.'],
+                        ['most variable in', most || 'n/a'],
+                        ['how', 'Predicted from mRNA: a model learned protein range from mRNA range across 7 paired mRNA/protein studies. '
+                            + (kind === 'normal' ? 'This is a healthy (GTEx) tissue: NOT validated, as no matched proteomics exists here.'
+                                : 'Validated for tumour types and cell lines on held-out data.')]
+                    ],
+                    note: 'Folds are on a DIA mass-spec scale, which compresses protein ratios; compare ranks across genes and '
+                        + 'tissues rather than reading the fold literally.'
+                };
                 bar.decor = {
                     axis: { ticks: [0, 50, 100], labels: ['0', '50', '100'], title: 'range rank' },
-                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' }
+                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' },
+                    help: help
                 };
 
                 if (bar.setTimedHighlight) bar.setTimedHighlight(8000);

@@ -369,8 +369,26 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 // Axis on the curve and the label ABOVE the track (TrackLayer.__drawDecor), with its
                 // arrow on the predicted signal region, or on the whole ORF when there is none.
                 const orfLo = Math.min(...got.posMap), orfHi = Math.max(...got.posMap) + 2;
+                const help = {
+                    title: 'Secretion profile: is this protein secreted?',
+                    rows: [
+                        ['Secretion ' + pw, 'The model\'s probability that the WHOLE protein is secreted, from its sequence alone.'],
+                        [verdict, 'Relative to ' + (+th).toFixed(2) + ', the score at which held-out predictions were right 90% of the time.'],
+                        ['signal region', sigResidues
+                            ? ('Residues ' + sigResidues[0] + '–' + sigResidues[1] + ': where the curve says a secretory signal sits (the '
+                                + 'bracket; the region is also kept as an annotation). A predicted region, not a cleavage-site call.')
+                            : 'No stretch scored high enough to call a signal region.'],
+                        ['peak', (peak && peak.value != null) ? ('The curve peaks at ' + (+peak.value).toFixed(2) + ', residue ' + peak.residue
+                            + '. The curve asks "if the protein began here, would it look secreted?", so it rises over signal peptides.') : 'n/a'],
+                        ['axis', 'P(secreted), 0–1, for the window starting at each residue.']
+                    ],
+                    note: 'The curve shows secretory-signal strength, not the final destination: ER- and membrane-retained proteins '
+                        + 'carry the same N-terminal signal and score as high, and proteins exported without a signal peptide '
+                        + '(Hsp70, ALIX, gasdermin-D) score near zero.'
+                };
                 curve.decor = {
                     axis: { ticks: [0, 0.5, 1], labels: ['0', '0.5', '1'], title: 'P(secreted)' },
+                    help: help,
                     callout: {
                         text: 'Secretion ' + pw + ' · ' + verdict
                             + (sigResidues ? (' · signal region, residues ' + sigResidues[0] + '–' + sigResidues[1]) : ' · no signal region')
