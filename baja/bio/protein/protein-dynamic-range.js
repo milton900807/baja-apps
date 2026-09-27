@@ -175,15 +175,14 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
                     + (lowExpr ? 'barely expressed' : ((+t.fold_5_95).toFixed(1) + '× · ' + ord(rank)))
                     + (kind === 'normal' ? ' (healthy, not validated)' : '')
                     + (most ? (' · most variable in ' + most) : '');
-                try {
-                    const Annotation = await exec('flexigraph/annotation.js');
-                    try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'ProteinDynamicRange'); } catch (e) { }
-                    const an = new Annotation('ProteinDynamicRange', label, spans[0][0], spans[spans.length - 1][1]);
-                    an.color = COL + '0.95)';
-                    an.labelY = 3.2;
-                    try { track.add(an); } catch (e) { (track.annotations || []).push(an); }
-                    try { if (track.fitYAxis) track.fitYAxis(); } catch (e) { }
-                } catch (e) { try { log('[protein-range] annotation failed: ' + e); } catch (e2) { } }
+                // The label goes ABOVE the track with an arrow down to the feature, and the bar
+                // gets a y-axis (TrackLayer.__drawDecor), so nothing is drawn over the sequence.
+                // Annotations left by earlier runs of this layer are removed.
+                try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'ProteinDynamicRange'); } catch (e) { }
+                bar.decor = {
+                    axis: { ticks: [0, 50, 100], labels: ['0', '50', '100'], title: 'range rank' },
+                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' }
+                };
 
                 if (bar.setTimedHighlight) bar.setTimedHighlight(8000);
                 setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 8100);

@@ -937,6 +937,125 @@ return new Promise(async (resolve, reject) => {
             } catch (e) { return false; }
         }
 
+        // DECORATION: a y-axis for the layer's values and a label ABOVE the track with an arrow
+        // down to the feature it describes, so the label never sits on the sequence.
+        //
+        //   this.decor = {
+        //     axis:    { ticks: [0, 1, 2], labels: ['0', '1 typical', '2'], title: 'transfer' },
+        //     callout: { text: '...', x0: <world x>, x1: <world x>, color: 'rgba(...)' }
+        //   }
+        //
+        // Plain data, so it survives JSON save / reload and copyTrackLayer (Object.assign onto a
+        // new TrackLayer). Several decorated layers on one track stack their labels upwards,
+        // one row each, and put their axes side by side at the track's right edge, instead of
+        // drawing on top of one another.
+        __drawDecor(ctx, graph, __track) {
+            const d = this.decor || {};
+            const tg = this.tgraph;
+            const W = (graph && graph.grid && graph.grid.width) || (ctx.canvas && ctx.canvas.width) || 0;
+            const yLo = tg.Y(tg.ymin != null ? tg.ymin : 0), yHi = tg.Y(tg.ymax != null ? tg.ymax : 1);
+            const top = Math.min(yLo, yHi), bottom = Math.max(yLo, yHi);
+            const leftWorld = Math.min(tg.X(tg.xmin != null ? tg.xmin : 0), tg.X(tg.xmax != null ? tg.xmax : 0));
+            const rightWorld = Math.max(tg.X(tg.xmin != null ? tg.xmin : 0), tg.X(tg.xmax != null ? tg.xmax : 0));
+            const color = (d.callout && d.callout.color) || this.color || 'rgba(60,60,60,0.9)';
+            ctx.save();
+            try {
+                // ---- y-axis at the RIGHT edge of the part of the track that is on screen -------
+                // (the left edge carries the track's name tab). Several decorated layers on one
+                // track each get their own axis, side by side, 46 px apart.
+                const decorated = ((__track && __track.track_layers) || []).filter((l) => l && l.decor && l.visible !== false);
+                if (d.axis && Array.isArray(d.axis.ticks) && d.axis.ticks.length && bottom - top >= 12) {
+                    const k = Math.max(0, decorated.filter((l) => l.decor.axis).indexOf(this));
+                    const ax = Math.min(rightWorld, W) - 3 - k * 46;
+                    if (ax > Math.max(leftWorld, 0) + 40) {
+                        ctx.strokeStyle = 'rgba(70,70,70,0.75)';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(ax + 0.5, top);
+                        ctx.lineTo(ax + 0.5, bottom);
+                        ctx.stroke();
+                        ctx.font = '9px Arial';
+                        ctx.textAlign = 'right';
+                        ctx.textBaseline = 'middle';
+                        const labels = d.axis.labels || d.axis.ticks.map(String);
+                        let lastY = null;
+                        d.axis.ticks.forEach((v, i) => {
+                            const y = tg.Y(v);
+                            if (y < top - 1 || y > bottom + 1) return;
+                            ctx.strokeStyle = color;
+                            ctx.beginPath();
+                            ctx.moveTo(ax - 4, y + 0.5);
+                            ctx.lineTo(ax, y + 0.5);
+                            ctx.stroke();
+                            if (lastY == null || Math.abs(y - lastY) >= 10) {
+                                ctx.fillStyle = color;
+                                ctx.fillText(labels[i], ax - 6, Math.min(Math.max(y, top + 5), bottom - 5));
+                                lastY = y;
+                            }
+                        });
+                        if (d.axis.title && bottom - top >= 40) {
+                            ctx.save();
+                            ctx.translate(ax + 3, (top + bottom) / 2);
+                            ctx.rotate(Math.PI / 2);
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            ctx.fillStyle = color;
+                            ctx.fillText(d.axis.title, 0, 0);
+                            ctx.restore();
+                        }
+                    }
+                }
+                // ---- label above the track, arrow down to the feature --------------------------
+                const c = d.callout;
+                if (c && c.text) {
+                    // which row: this layer's position among the decorated layers of the track
+                    // Layers draw in track_layers order, so the LAST decorated layer takes the
+                    // lowest row: its label plate is painted after the longer arrows of the rows
+                    // above and covers them, and the arrows read as passing behind it.
+                    const withCallout = decorated.filter((l) => l.decor.callout);
+                    const row = Math.max(0, withCallout.length - 1 - withCallout.indexOf(this));
+                    const ROW = 14, GAP = 10;
+                    const labelY = top - GAP - row * ROW;
+                    const fx0 = tg.X(Math.min(c.x0, c.x1)), fx1 = tg.X(Math.max(c.x0, c.x1));
+                    const vis0 = Math.max(fx0, 0), vis1 = Math.min(fx1, W);
+                    if (vis1 > vis0 && labelY > 4) {
+                        const tipX = (vis0 + vis1) / 2;
+                        ctx.font = '11px Arial';
+                        const tw = ctx.measureText(c.text).width;
+                        const lx = Math.max(4, Math.min(tipX - tw / 2, W - tw - 4));
+                        // bracket over the feature's visible span, then the arrow from the label
+                        ctx.strokeStyle = color;
+                        ctx.fillStyle = color;
+                        ctx.lineWidth = 1.2;
+                        const bracketY = top - 3;
+                        ctx.beginPath();
+                        ctx.moveTo(vis0, bracketY + 2); ctx.lineTo(vis0, bracketY);
+                        ctx.lineTo(vis1, bracketY); ctx.lineTo(vis1, bracketY + 2);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(tipX, labelY + 5);
+                        ctx.lineTo(tipX, bracketY - 1);
+                        ctx.stroke();
+                        ctx.beginPath();                      // arrowhead
+                        ctx.moveTo(tipX, bracketY);
+                        ctx.lineTo(tipX - 3.5, bracketY - 5);
+                        ctx.lineTo(tipX + 3.5, bracketY - 5);
+                        ctx.closePath();
+                        ctx.fill();
+                        // the label on a light plate so it reads over whatever is above the track
+                        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+                        ctx.fillRect(lx - 3, labelY - 7, tw + 6, 13);
+                        ctx.fillStyle = color;
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(c.text, lx, labelY);
+                    }
+                }
+            } finally {
+                ctx.restore();
+            }
+        }
+
         async draw(parentTrack, graph, __track) {
             if (!this.visible) {
                 return;
@@ -1073,6 +1192,11 @@ return new Promise(async (resolve, reject) => {
                             ctx.stroke();
                         }
                     })();
+                }
+                // Optional y-axis and callout label (see __drawDecor). Off unless a layer
+                // carries `decor`, so every existing layer draws exactly as before.
+                if (this.decor) {
+                    try { this.__drawDecor(ctx, graph, __track); } catch (e) { }
                 }
 
                 ctx.lineWidth = 4;

@@ -190,15 +190,14 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     + (mtv != null ? (' (measured ' + mtv.toFixed(2) + '×, ' + measured.n_studies + ' stud'
                         + (measured.n_studies === 1 ? 'y' : 'ies') + ')') : '')
                     + (hlShort ? (' · ' + hlShort) : '');
-                try {
-                    const Annotation = await exec('flexigraph/annotation.js');
-                    try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'RnaProteinCoupling'); } catch (e) { }
-                    const an = new Annotation('RnaProteinCoupling', label, spans[0][0], spans[spans.length - 1][1]);
-                    an.color = COL + '0.95)';
-                    an.labelY = 2.2;
-                    try { track.add(an); } catch (e) { (track.annotations || []).push(an); }
-                    try { if (track.fitYAxis) track.fitYAxis(); } catch (e) { }
-                } catch (e) { try { log('[rna-protein] annotation failed: ' + e); } catch (e2) { } }
+                // The label goes ABOVE the track with an arrow down to the feature, and the bar
+                // gets a y-axis (TrackLayer.__drawDecor), so nothing is drawn over the sequence.
+                // Annotations left by earlier runs of this layer are removed.
+                try { track.annotations = (track.annotations || []).filter((a) => !a || a.type !== 'RnaProteinCoupling'); } catch (e) { }
+                bar.decor = {
+                    axis: { ticks: [0, 1, 2], labels: ['0', '1', '2'], title: 'transfer (1 = typical)' },
+                    callout: { text: label, x0: spans[0][0], x1: spans[spans.length - 1][1], color: COL + '0.95)' }
+                };
 
                 if (bar.setTimedHighlight) bar.setTimedHighlight(8000);
                 setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 8100);
