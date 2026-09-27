@@ -21,13 +21,13 @@ with the other studies.
 
 ## Model
 
-ESM-2 650M embedding → ridge, then LightGBM over that plus 45 protein features and 78 mRNA
+ESM-2 3B embedding → ridge (penalty 3e5; 3B beat 650M once the penalty was tuned), then LightGBM over that plus 45 protein features and 78 mRNA
 features (UTR lengths and GC, codon usage and CAI, uORFs, Kozak, AU-rich / Pumilio /
 polyA elements). Accuracy with whole homology clusters held out (Spearman):
 
 | | transfer | rho |
 |---|---|---|
-| full model (served by lookup) | 0.49 | 0.52 |
+| full model (served by lookup) | 0.51 | 0.55 |
 | protein-feature fallback (live) | 0.33 | 0.34 |
 
 ## Files
@@ -46,9 +46,9 @@ polyA elements). Accuracy with whole homology clusters held out (Spearman):
 Rebuild from `~/ml/rna-to-protein-correlation`:
 
 ```bash
-src/final_v2.py
-src/precompute_v2.py
-src/export_baja_v2.py
+src/final_v2.py --esm esm3b
+src/precompute_v2.py --esm esm3b
+src/export_baja_v2.py --esm esm3b
 ```
 
 `export_baja_v2.py` refuses to write unless:
