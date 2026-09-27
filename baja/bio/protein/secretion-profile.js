@@ -413,7 +413,13 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 resetModelsToolbar();
                 try { exec('baja/lib/work-status.js', null); } catch (e) { }
                 restoreHover();
-                return true;
+                // What the sweep summary (runAllTracks) lists for this track.
+                return {
+                    name: track.name || 'track', pw: pw, th: th,
+                    above: !!(data && data.p_whole != null && +data.p_whole >= th),
+                    scored: !!(data && data.p_whole != null),
+                    sig: sigResidues, peak: peak
+                };
             } catch (e) {
                 done('Secretion model error: ' + e);
             }
@@ -432,13 +438,17 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
             try { graph.pushOntoHistory(); } catch (e) { }
             (async () => {
                 let done = 0;
+                const results = [];
                 for (let i = 0; i < all.length; i++) {
                     try {
                         window.__workStatus = 'Secretion · ' + ((all[i] && all[i].name) || ('track ' + (i + 1)))
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    try { if (await runOnTrack(all[i], ownRange(all[i]), false)) done++; } catch (e) { }
+                    let r = null;
+                    try { r = await runOnTrack(all[i], ownRange(all[i]), false); } catch (e) { }
+                    if (r) done++;
+                    results.push({ name: (all[i] && all[i].name) || ('track ' + (i + 1)), r: r });
                 }
                 try {
                     window.__workStatus = '';
@@ -446,7 +456,42 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 } catch (e) { }
                 const __msg = ' Secretion profile applied to ' + done + ' of ' + all.length
                     + ' track' + (all.length === 1 ? '' : 's') + '. ';
-                try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
+                // The summary opens in the same panel as a label's "?" (baja/bio/decor-help.js),
+                // one row per track, instead of a canvas message that is gone in a few seconds.
+                // Each track's own label keeps its "?" for the full explanation.
+                const ok = results.filter((x) => x.r && typeof x.r === 'object');
+                const th = ok.length ? ok[0].r.th : null;
+                const nAbove = ok.filter((x) => x.r.above).length;
+                const nSig = ok.filter((x) => x.r.sig).length;
+                const rows = results.map((x) => {
+                    const r = x.r;
+                    if (!r || typeof r !== 'object') return [x.name, 'Not scored: no protein-coding sequence could be read from this track, or the model call failed.'];
+                    if (!r.scored) return [x.name, 'No score came back for this track.'];
+                    return [x.name + ' · ' + r.pw,
+                        (r.above ? 'Above' : 'Below') + ' the ' + (+r.th).toFixed(2) + ' high-confidence cut. '
+                        + (r.sig ? ('Signal region at residues ' + r.sig[0] + '–' + r.sig[1] + '. ') : 'No signal region. ')
+                        + ((r.peak && r.peak.value != null) ? ('Peak ' + (+r.peak.value).toFixed(2) + ' at residue ' + r.peak.residue + '.') : '')];
+                });
+                const help = {
+                    title: 'Secretion profile: ' + done + ' of ' + all.length + ' track' + (all.length === 1 ? '' : 's'),
+                    rows: [['summary', nAbove + ' of ' + ok.length + ' scored above the '
+                        + (th != null ? (+th).toFixed(2) + ' ' : '') + 'high-confidence cut; '
+                        + nSig + ' with a predicted signal region.']].concat(rows).concat([
+                        ['score', 'The model\'s probability that the WHOLE protein is secreted, from its sequence alone. The cut is '
+                            + 'the score at which held-out predictions were right 90% of the time.'],
+                        ['on each track', 'A P(secreted) curve with its label above the track; press that label\'s "?" for the '
+                            + 'full explanation of one protein.']]),
+                    note: 'The curve shows secretory-signal strength, not the final destination: ER- and membrane-retained proteins '
+                        + 'carry the same N-terminal signal and score as high, and proteins exported without a signal peptide '
+                        + '(Hsp70, ALIX, gasdermin-D) score near zero.'
+                };
+                if (ok.length) {
+                    try { graph.setMessage(' '); } catch (e) { }
+                    try { await exec('baja/bio/decor-help.js', { decor: { help: help } }, graph); }
+                    catch (e) { try { graph.setResultMessage(__msg); } catch (e2) { graph.setMessage(__msg); } }
+                } else {
+                    try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
+                }
             })();
         };
 

@@ -68,6 +68,22 @@ function (graph, genegraph_panel_layout) {
             }
             return null;
         };
+        // A menu DRAWN ON THE CANVAS owns the press. The side menu (the track's Layers menu, the
+        // model menus...) and the centre menu are painted onto this same canvas, so the element
+        // test below sees only the canvas; a menu item lying over a layer row or a label's "?"
+        // was taken here first and never acted. (HTML menus are left alone by that test already.)
+        const overCanvasMenu = (g, p) => {
+            try { if (g.menuVisible && g.menuVisible()) return true; } catch (e) { }
+            try {
+                const m = g.side_menu;
+                if (m && m.__bounds) {
+                    const b = m.__bounds(g.graph || g);
+                    const x = p.x + (m.xoffset || 0), y = p.y + (m.yoffset || 0);
+                    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return true;
+                }
+            } catch (e) { }
+            return false;
+        };
         const describe = (el) => el ? ((el.nodeName || '') + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : '')) : null;
         let lastHandledAt = 0;
 
@@ -90,6 +106,7 @@ function (graph, genegraph_panel_layout) {
                 if (!(top === el || (box && top && box.contains(top) && !top.closest('[role="menu"],[role="dialog"],#baja-layer-popup')))) return;
                 const p = toCanvas(e, el);
                 rec.at_canvas_px = { x: Math.round(p.x), y: Math.round(p.y) };
+                if (overCanvasMenu(g, p)) { rec.menu = true; return; }
                 // The "?" after a layer's label: its explanation (baja/bio/decor-help.js).
                 const helpLayer = helpAt(g, p);
                 if (helpLayer) {
