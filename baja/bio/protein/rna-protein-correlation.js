@@ -267,7 +267,16 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     if (notes.length) log('[rna-protein] ' + notes.join('  '));
                 } catch (e) { }
                 clearWork(); restoreHover();
-                return true;
+                // One row of the sweep summary (runAllTracks → baja/bio/sweep-summary.js).
+                return {
+                    layer: bar, call: transfer.call, measured: mtv != null,
+                    term: who + ' · ' + tv.toFixed(2) + '×',
+                    text: transfer.call.charAt(0).toUpperCase() + transfer.call.slice(1) + ' (' + ord(transfer.percentile) + '); '
+                        + 'reliability ρ ' + (+rhoP.value).toFixed(2) + '. '
+                        + (mtv != null ? ('Measured ' + mtv.toFixed(2) + '× in ' + measured.n_studies + ' stud'
+                            + (measured.n_studies === 1 ? 'y' : 'ies') + '.') : 'Not measured: prediction only.')
+                        + (data.source === 'full' ? '' : ' Protein-feature fallback.')
+                };
             } catch (e) {
                 done('RNA–protein coupling error on ' + who + ': ' + e);
             }
@@ -281,16 +290,37 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             try { graph.pushOntoHistory(); } catch (e) { }
             (async () => {
                 let ok = 0;
+                const results = [];
                 for (let i = 0; i < all.length; i++) {
                     try {
                         window.__workStatus = 'RNA–protein coupling · ' + ((all[i] && all[i].name) || ('track ' + (i + 1)))
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    try { if (await runOnTrack(all[i], ownRange(all[i]), false)) ok++; } catch (e) { }
+                    let r = null;
+                    try { r = await runOnTrack(all[i], ownRange(all[i]), false); } catch (e) { }
+                    if (r) ok++;
+                    results.push({ name: (all[i] && all[i].name) || ('track ' + (i + 1)), r: r });
                 }
                 try { window.__workStatus = ''; if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh(); } catch (e) { }
-                if (all.length > 1) done('RNA–protein coupling added to ' + ok + ' of ' + all.length + ' tracks.');
+                // The summary opens in the help panel, one row per track (baja/bio/sweep-summary.js).
+                const n = (c) => (rs) => rs.filter((r) => r.call === c).length;
+                try {
+                    await exec('baja/bio/sweep-summary.js', graph, {
+                        title: 'RNA–protein coupling: ' + ok + ' of ' + all.length + ' track' + (all.length === 1 ? '' : 's'),
+                        results: results,
+                        summary: (rs) => n('buffered')(rs) + ' buffered, ' + n('typical')(rs) + ' typical, ' + n('responsive')(rs)
+                            + ' responsive; ' + rs.filter((r) => r.measured).length + ' of ' + rs.length + ' measured in at least one study.',
+                        about: [
+                            ['transfer (×)', 'How much the protein changes when its mRNA changes, relative to a typical gene (= 1.0).'],
+                            ['buffered / typical / responsive', 'Moves less than, about as much as, or more than the typical protein; thirds of all human proteins.'],
+                            ['ρ', 'Reliability: how consistently the protein follows its mRNA across samples (0 = unrelated, 1 = lockstep).']
+                        ],
+                        note: 'Where a measurement exists, trust it over the prediction. Transfer is relative to the typical gene, not an '
+                            + 'absolute fold change, and depends on the samples: flat mRNA cannot move protein.',
+                        fallback: ' RNA–protein coupling added to ' + ok + ' of ' + all.length + ' tracks. '
+                    });
+                } catch (e) { done('RNA–protein coupling added to ' + ok + ' of ' + all.length + ' tracks.'); }
             })();
         };
 

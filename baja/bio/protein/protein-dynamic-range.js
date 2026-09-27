@@ -231,7 +231,15 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
                 }
                 try { if (notes.length) log('[protein-range] ' + notes.join('  ')); } catch (e) { }
                 clearWork(); restoreHover();
-                return true;
+                // One row of the sweep summary (runAllTracks → baja/bio/sweep-summary.js).
+                return {
+                    layer: bar, low: !!lowExpr, rank: lowExpr ? null : rank, gene: data.gene || who, tissue: tlabel, normal: kind === 'normal',
+                    term: (data.gene || who) + ' · ' + (lowExpr ? 'barely expressed' : ((+t.fold_5_95).toFixed(1) + '×')),
+                    text: lowExpr ? ('The mRNA is barely expressed in ' + tlabel + ', so there is no meaningful protein range.')
+                        : (ord(rank) + ' of proteins in ' + tlabel + '.'
+                            + (mrank != null ? (' Measured rank ' + ord(mrank) + '.') : ' Not measured.')
+                            + (most ? (' Most variable in ' + most + '.') : ''))
+                };
             } catch (e) {
                 done('Protein dynamic range error on ' + who + ': ' + e);
             }
@@ -245,10 +253,36 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
             try { graph.pushOntoHistory(); } catch (e) { }
             (async () => {
                 let ok = 0;
+                const results = [];
                 for (let i = 0; i < all.length; i++) {
-                    try { if (await runOnTrack(all[i], ownRange(all[i]), false)) ok++; } catch (e) { }
+                    let r = null;
+                    try { r = await runOnTrack(all[i], ownRange(all[i]), false); } catch (e) { }
+                    if (r) ok++;
+                    results.push({ name: (all[i] && all[i].name) || ('track ' + (i + 1)), r: r });
                 }
-                if (all.length > 1) done('Protein dynamic range added to ' + ok + ' of ' + all.length + ' tracks.');
+                // The summary opens in the help panel, one row per track (baja/bio/sweep-summary.js).
+                try {
+                    await exec('baja/bio/sweep-summary.js', graph, {
+                        title: 'Protein dynamic range: ' + ok + ' of ' + all.length + ' track' + (all.length === 1 ? '' : 's'),
+                        results: results,
+                        summary: (rs) => {
+                            const ranked = rs.filter((r) => r.rank != null).sort((a, b) => b.rank - a.rank);
+                            const low = rs.filter((r) => r.low).length;
+                            return (rs[0] && rs[0].tissue ? ('In ' + rs[0].tissue + ': ') : '')
+                                + (ranked.length ? ('most variable ' + ranked[0].gene + ' (' + ord(ranked[0].rank) + ')'
+                                    + (ranked.length > 1 ? (', least ' + ranked[ranked.length - 1].gene + ' (' + ord(ranked[ranked.length - 1].rank) + ')') : '')) : 'none ranked')
+                                + (low ? ('; ' + low + ' barely expressed there') : '') + '.'
+                                + (rs.some((r) => r.normal) ? ' Healthy tissue: not validated.' : '');
+                        },
+                        about: [
+                            ['fold (×)', 'Predicted 5–95% spread of the protein between samples: the top 5% of samples have that many times the protein of the bottom 5%.'],
+                            ['percentile', 'Where that spread ranks among all proteins in this tissue (100 = most variable).']
+                        ],
+                        note: 'Folds are on a DIA mass-spec scale, which compresses protein ratios; compare ranks across genes and '
+                            + 'tissues rather than reading the fold literally.',
+                        fallback: ' Protein dynamic range added to ' + ok + ' of ' + all.length + ' tracks. '
+                    });
+                } catch (e) { done('Protein dynamic range added to ' + ok + ' of ' + all.length + ' tracks.'); }
             })();
         };
 

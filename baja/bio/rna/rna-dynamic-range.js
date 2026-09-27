@@ -237,7 +237,18 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
                 }
                 try { if (notes.length) log('[rna-range] ' + notes.join('  ')); } catch (e) { }
                 clearWork(); restoreHover();
-                return true;
+                // One row of the sweep summary (runAllTracks → baja/bio/sweep-summary.js).
+                const rel = (prank == null || lowExpr) ? null
+                    : (rank - prank >= 20 ? 'buffered' : (prank - rank >= 20 ? 'amplified' : 'follows'));
+                return {
+                    layer: bar, low: !!lowExpr, rank: lowExpr ? null : rank, rel: rel, gene: data.gene || who, tissue: tlabel,
+                    term: (data.gene || who) + ' · ' + (lowExpr ? 'barely expressed' : fold(t.fold_5_95)),
+                    text: lowExpr ? ('Barely expressed in ' + tlabel + ', so its spread is noise.')
+                        : (ord(rank) + ' of protein-coding genes; expression level ' + ord(t.level_pct) + '.'
+                            + (prank != null ? (' Protein ' + fold(pt.fold_5_95) + ' (' + ord(prank) + '): '
+                                + ({ buffered: 'buffered against the mRNA\'s swings.', amplified: 'varies more than the mRNA rank suggests.',
+                                    follows: 'follows the mRNA\'s range.' }[rel] || '')) : ''))
+                };
             } catch (e) {
                 done('RNA dynamic range error on ' + who + ': ' + e);
             }
@@ -251,10 +262,37 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
             try { graph.pushOntoHistory(); } catch (e) { }
             (async () => {
                 let ok = 0;
+                const results = [];
                 for (let i = 0; i < all.length; i++) {
-                    try { if (await runOnTrack(all[i], ownRange(all[i]), false)) ok++; } catch (e) { }
+                    let r = null;
+                    try { r = await runOnTrack(all[i], ownRange(all[i]), false); } catch (e) { }
+                    if (r) ok++;
+                    results.push({ name: (all[i] && all[i].name) || ('track ' + (i + 1)), r: r });
                 }
-                if (all.length > 1) done('RNA dynamic range added to ' + ok + ' of ' + all.length + ' tracks.');
+                // The summary opens in the help panel, one row per track (baja/bio/sweep-summary.js).
+                try {
+                    await exec('baja/bio/sweep-summary.js', graph, {
+                        title: 'RNA dynamic range: ' + ok + ' of ' + all.length + ' track' + (all.length === 1 ? '' : 's'),
+                        results: results,
+                        summary: (rs) => {
+                            const ranked = rs.filter((r) => r.rank != null).sort((a, b) => b.rank - a.rank);
+                            const c = (k) => rs.filter((r) => r.rel === k).length;
+                            const low = rs.filter((r) => r.low).length;
+                            return (rs[0] && rs[0].tissue ? ('In ' + rs[0].tissue + ': ') : '')
+                                + (ranked.length ? ('widest ' + ranked[0].gene + ' (' + ord(ranked[0].rank) + ')'
+                                    + (ranked.length > 1 ? (', narrowest ' + ranked[ranked.length - 1].gene + ' (' + ord(ranked[ranked.length - 1].rank) + ')') : '')) : 'none ranked')
+                                + '. Protein vs mRNA: ' + c('buffered') + ' buffered, ' + c('follows') + ' following, ' + c('amplified') + ' amplified'
+                                + (low ? ('; ' + low + ' barely expressed') : '') + '.';
+                        },
+                        about: [
+                            ['fold (×)', 'MEASURED 5–95% spread of the mRNA between samples of this tissue.'],
+                            ['buffered / follows', 'Compares the mRNA\'s range rank with the protein\'s predicted rank: 20 points or more lower = buffered, higher = amplified.']
+                        ],
+                        note: 'mRNA spreads are measured, not modelled (CPTAC tumours, DepMap cell lines, GTEx healthy tissues). Tumour '
+                            + 'ranges include the surrounding normal tissue, which varies from sample to sample.',
+                        fallback: ' RNA dynamic range added to ' + ok + ' of ' + all.length + ' tracks. '
+                    });
+                } catch (e) { done('RNA dynamic range added to ' + ok + ' of ' + all.length + ' tracks.'); }
             })();
         };
 
