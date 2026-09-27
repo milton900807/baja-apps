@@ -3,60 +3,80 @@ function (layer, graph, sx, sy) {
     //
     //   exec('baja/bio/decor-help.js', layer, graph, screenX, screenY)
     //
-    // Shows layer.decor.help = { title, rows: [[term, meaning], ...], note } in a small panel
-    // next to the button. sx / sy are canvas pixels (graph.__downScreen); they are turned into
-    // page position through the canvas element's box, so a scaled canvas still lines up.
-    // Closes on Esc, on the x, or on any press outside the panel. Opening another replaces it.
+    // Shows layer.decor.help = { title, rows: [[term, meaning], ...], note }: centred over a
+    // dimmed backdrop on desktop, filling the window on phone-sized screens (large x to leave).
+    // Closes on Esc, on the x, or on a press on the backdrop. Opening another replaces it.
+    // sx / sy (where the "?" was pressed) are accepted for compatibility and not needed.
     return new Promise((resolve) => {
         const help = layer && layer.decor && layer.decor.help;
         if (!help) { resolve(false); return; }
         const ID = 'baja-decor-help';
         try { const old = document.getElementById(ID); if (old) old.__close(); } catch (e) { }
 
-        let left = 80, top = 80;
-        try {
-            const cv = graph.canvas.getCTX().canvas;
-            const r = cv.getBoundingClientRect();
-            left = r.left + sx * (r.width / cv.width);
-            top = r.top + sy * (r.height / cv.height);
-        } catch (e) { }
+        // Desktop: a centred panel over a dimmed backdrop. Phone-sized screens: the panel fills
+        // the window, with a large x to leave it (a touch target at least 44 px square).
+        const mobile = (() => {
+            try { return window.matchMedia('(max-width: 700px), (pointer: coarse) and (max-width: 1024px)').matches; }
+            catch (e) { return (window.innerWidth || 1000) <= 700; }
+        })();
 
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const back = document.createElement('div');
+        back.id = ID;
+        back.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;'
+            + (mobile ? 'background:#fff;' : 'background:rgba(15,25,40,.28);padding:16px;');
         const box = document.createElement('div');
-        box.id = ID;
         box.setAttribute('role', 'dialog');
-        box.style.cssText = 'position:fixed;z-index:100000;max-width:440px;background:#fff;color:#1f2933;'
-            + 'border:1px solid #c9d2dc;border-radius:8px;box-shadow:0 8px 28px rgba(15,30,50,.22);'
-            + 'font:12.5px/1.45 Arial,sans-serif;padding:12px 14px 12px 14px;';
+        box.setAttribute('aria-modal', 'true');
+        box.style.cssText = mobile
+            ? 'position:relative;width:100%;height:100%;overflow:auto;background:#fff;color:#1f2933;'
+                + 'font:15px/1.5 Arial,sans-serif;padding:14px 16px 28px 16px;box-sizing:border-box;'
+            : 'position:relative;width:min(480px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#fff;'
+                + 'color:#1f2933;border:1px solid #c9d2dc;border-radius:10px;box-shadow:0 12px 40px rgba(15,30,50,.28);'
+                + 'font:12.5px/1.45 Arial,sans-serif;padding:14px 16px;box-sizing:border-box;';
+        const closeCss = mobile
+            ? 'flex:none;width:44px;height:44px;margin:-6px -8px 0 0;border:0;border-radius:22px;background:#eef1f4;'
+                + 'font-size:24px;line-height:44px;cursor:pointer;color:#3d4a57;padding:0'
+            : 'flex:none;border:0;background:none;font-size:18px;line-height:1;cursor:pointer;color:#5b6773;padding:0 2px';
+        const rowCss = mobile
+            ? 'padding:10px 0;border-top:1px solid #eef1f4'
+            : 'display:grid;grid-template-columns:minmax(90px,34%) 1fr;gap:10px;padding:6px 0;border-top:1px solid #eef1f4';
         box.innerHTML =
-            '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px">'
-            + '<div style="font-weight:700;font-size:13px;flex:1">' + esc(help.title || 'What this means') + '</div>'
-            + '<button type="button" aria-label="Close" style="border:0;background:none;font-size:16px;line-height:1;'
-            + 'cursor:pointer;color:#5b6773;padding:0 2px">×</button></div>'
+            '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px' + (mobile ? ';position:sticky;top:-14px;background:#fff;padding-top:14px;margin-top:-14px' : '') + '">'
+            + '<div style="font-weight:700;font-size:' + (mobile ? '17px' : '14px') + ';flex:1">' + esc(help.title || 'What this means') + '</div>'
+            + '<button type="button" aria-label="Close" style="' + closeCss + '">×</button></div>'
             + (help.rows || []).map((r) =>
-                '<div style="display:grid;grid-template-columns:minmax(90px,34%) 1fr;gap:8px;padding:5px 0;'
-                + 'border-top:1px solid #eef1f4"><div style="font-weight:600;color:#3d4a57">' + esc(r[0]) + '</div>'
-                + '<div>' + esc(r[1]) + '</div></div>').join('')
-            + (help.note ? ('<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eef1f4;color:#4b5866">'
+                '<div style="' + rowCss + '"><div style="font-weight:600;color:#3d4a57' + (mobile ? ';margin-bottom:3px' : '') + '">'
+                + esc(r[0]) + '</div><div>' + esc(r[1]) + '</div></div>').join('')
+            + (help.note ? ('<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef1f4;color:#4b5866">'
                 + esc(help.note) + '</div>') : '');
-        document.body.appendChild(box);
-
-        // keep it on screen: prefer below-right of the button, flip where it would overflow
-        const bw = box.offsetWidth, bh = box.offsetHeight;
-        let x = left + 10, y = top + 12;
-        if (x + bw > window.innerWidth - 8) x = Math.max(8, left - bw - 10);
-        if (y + bh > window.innerHeight - 8) y = Math.max(8, top - bh - 12);
-        box.style.left = x + 'px';
-        box.style.top = y + 'px';
+        back.appendChild(box);
+        document.body.appendChild(back);
+        // Cover the VISUAL viewport - the part of the page actually on screen - not the layout
+        // viewport: a canvas wider than a phone makes the page wider than the screen, and
+        // inset:0 then spans the whole page, pushing the panel and its x off the side.
+        // Follows pinch-zoom and scrolling while open.
+        const fit = () => {
+            const vv = window.visualViewport;
+            if (!vv) return;
+            back.style.inset = 'auto';
+            back.style.left = vv.offsetLeft + 'px';
+            back.style.top = vv.offsetTop + 'px';
+            back.style.width = vv.width + 'px';
+            back.style.height = vv.height + 'px';
+        };
+        fit();
+        try { window.visualViewport.addEventListener('resize', fit); window.visualViewport.addEventListener('scroll', fit); } catch (e) { }
 
         const onKey = (e) => { if (e.key === 'Escape') close(); };
-        const onDown = (e) => { if (!box.contains(e.target)) close(); };
+        const onDown = (e) => { if (!box.contains(e.target)) close(); };   // the backdrop (desktop)
         const close = () => {
             try { document.removeEventListener('keydown', onKey, true); } catch (e) { }
             try { document.removeEventListener('mousedown', onDown, true); } catch (e) { }
-            try { box.remove(); } catch (e) { }
+            try { window.visualViewport.removeEventListener('resize', fit); window.visualViewport.removeEventListener('scroll', fit); } catch (e) { }
+            try { back.remove(); } catch (e) { }
         };
-        box.__close = close;
+        back.__close = close;
         box.querySelector('button').addEventListener('click', close);
         document.addEventListener('keydown', onKey, true);
         // armed on the next tick, so the press that opened it does not close it
