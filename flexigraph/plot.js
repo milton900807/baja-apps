@@ -14549,10 +14549,22 @@ function (MGrid) {
                         const showMonths = pxPerMonth >= 45;
                         const showYears = pxPerYear >= 10;
 
-                        // Not maximized: the points, and above all the range arrows, are clipped to the
-                        // timeline's frame, so a range that runs past the visible window stops at the
-                        // border instead of shooting across the canvas. Maximized, the frame IS the view.
-                        const __clipFrame = !this.__maximizedView;
+                        // THE POINTS ARE CLIPPED TO THE TIMELINE'S FRAME, always. A range that
+                        // runs past the visible window stops at the border instead of shooting
+                        // across the canvas, and a milestone whose pill or label falls outside
+                        // the timeline is cut at the edge rather than drawn on the board.
+                        //
+                        // This used to be skipped while MAXIMIZED, on the grounds that the
+                        // frame was then the view: a maximized timeline was stretched to fill
+                        // the window in both directions, so there was nothing outside it to
+                        // draw on. That is no longer true. A maximized timeline now keeps its
+                        // own scale and sits on the bottom (plate-track.js maximizeObject), so
+                        // the room above it is empty canvas -- and unclipped, the pills and
+                        // their labels drew up into it, outside the object they belong to.
+                        //
+                        // The 2px allowance is for the frame's own border stroke, not for
+                        // content: it lets a line drawn ON the boundary keep its width.
+                        const __clipFrame = true;
                         if (__clipFrame) { ctx.save(); ctx.beginPath(); ctx.rect(grid.xi - 2, grid.yi - 2, grid.width + 4, grid.height + 4); ctx.clip(); }
                         try {
                         for (const point of sortedPoints) {
@@ -15516,6 +15528,26 @@ function (MGrid) {
                                                 w: nameBox.w, h: boxHeight,
                                                 stemX: x, axis
                                             };
+                                            // A PILL THE CLIP CUT AWAY IS NOT CLICKABLE EITHER.
+                                            //
+                                            // The box above is the geometry the pill WOULD have;
+                                            // the canvas clip decides what is actually painted.
+                                            // Left as it is, a milestone whose pill lies outside
+                                            // the timeline's frame is invisible and still answers
+                                            // __msHit -- a menu opening from blank canvas, which
+                                            // is worse than the overdraw the clip was added for.
+                                            // Wholly outside: no box. Partly outside is kept, so
+                                            // the visible half of an edge pill still takes a press.
+                                            try {
+                                                const __fx0 = grid.xi - 2, __fx1 = grid.xi + grid.width + 2;
+                                                const __fy0 = grid.yi - 2, __fy1 = grid.yi + grid.height + 2;
+                                                const __b = point.__tlBox;
+                                                if (__b.x + __b.w < __fx0 || __b.x > __fx1
+                                                    || __b.y + __b.h < __fy0 || __b.y > __fy1) {
+                                                    point.__tlBox = null;
+                                                    point.isInside = () => false;
+                                                }
+                                            } catch (e) { }
 
                                             behindLabels.push(() => {
                                                 ctx.save();
