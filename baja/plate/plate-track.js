@@ -4578,6 +4578,17 @@ function (progress) {
                 // the point's menu -- a note stuck over the timeline, and a second click
                 // before anything happened. The menu opens straight away instead.
                 setTimeout(() => {
+                    // NOT IF THE MILESTONE MENU ALREADY ANSWERED THIS CLICK. A press on a
+                    // timeline pill opens its own menu (Move / Data / Delete point, then the
+                    // point's own options) on the release; plot.js then calls this for the
+                    // same point, and this menu appeared over that one a moment later. Two
+                    // menus for one click, the second hiding the first and offering less.
+                    //
+                    // The stamp is set in mouseUp at the moment of the click, so this holds
+                    // however long the other menu takes to build.
+                    if (this.__msMenuAt && (Date.now() - this.__msMenuAt) < 1500) return;
+                    // And never two menus at once, whatever opened the first.
+                    if (this.menu && this.menu_vis) return;
                     this.clearActionGlyphs();
                     this.menu = new Menu(m, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
                         this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 2)
@@ -9363,7 +9374,21 @@ function (progress) {
                 // until an item is chosen or the next click lands outside it.
                 if (this.__msMenuPress) {
                     const mp = this.__msMenuPress; this.__msMenuPress = null;
-                    if (Math.abs(x - mp.x) + Math.abs(y - mp.y) < 8) { try { this.__msOpenMenu(mp.o, mp.p, x, y); } catch (e) { console.warn('milestone menu', e); } }
+                    if (Math.abs(x - mp.x) + Math.abs(y - mp.y) < 8) {
+                        // THIS CLICK IS ANSWERED, and it is stamped BEFORE the menu is built
+                        // rather than after. A click on a milestone reaches two openers: this
+                        // one, and setPointSelected() -- which flexigraph/plot.js calls from
+                        // its own mouseUpListener for any point, and which opens a second menu
+                        // 300 ms later, centred on the canvas, over the top of this one.
+                        //
+                        // Stamped first because __msOpenMenu awaits the point's own options
+                        // before it sets this.menu: on a slow answer the 300 ms timer fires
+                        // while this.menu is still null, and a "is a menu already open?" test
+                        // would let the second one through exactly when it is slowest to
+                        // notice. A timestamp taken at the click cannot lose that race.
+                        this.__msMenuAt = Date.now();
+                        try { this.__msOpenMenu(mp.o, mp.p, x, y); } catch (e) { console.warn('milestone menu', e); }
+                    }
                     return;
                 }
                 if (this.__readOnly) {
@@ -10505,6 +10530,9 @@ function (progress) {
                 const MIN_CELL_W_PX = 40, MIN_CELL_H_PX = 10;
                 let hscroll = false;
                 let tlFill = false;   // a timeline fills both axes: x and y ranges are set independently
+                // ...and this one pins the object to the BOTTOM of the room rather than the
+                // top, which is where a timeline belongs once it no longer fills the height.
+                let tlBottom = false;
                 if (!(typeof obj.drawPlot === 'function') && !isDoc && obj.grid && obj.wells) {
                     const rows = Math.max(1, (obj.grid.ymax - obj.grid.ymin) || (obj.wells[0] ? obj.wells[0].length : 1));
                     const cols = Math.max(1, (obj.grid.xmax - obj.grid.xmin) || obj.wells.length || 1);
@@ -10572,13 +10600,37 @@ function (progress) {
                 // shown whole between the title bar and the bottom chrome (the free-plan
                 // banner included), with a buffer, rather than fitted to the width and
                 // scrolled. A table keeps the width fit and scrolls: it can be any height.
-                if (this.__tlIs(obj) || isDoc) {
-                    // A maximized timeline (and a document) fills the window in BOTH directions rather than
-                    // being fitted to one and letting the other run short. MGrid scales x and
-                    // y independently, and the timeline sizes its markers from grid.xscale
-                    // alone, so stretching y costs no distortion: x is fitted to the
-                    // timeline's own width, y to whatever height is left between the title bar
-                    // and the bottom chrome.
+                if (this.__tlIs(obj) && !isDoc) {
+                    // A TIMELINE KEEPS ITS SCALE AND SITS ON THE BOTTOM.
+                    //
+                    // It used to fill the window in both directions: x fitted to its own
+                    // width, y stretched to whatever height was left. A timeline is a band --
+                    // an axis with markers on it -- so stretching y does not show more of it,
+                    // it just makes the same band tall. Maximizing turned a timeline into a
+                    // bar the height of the screen with its milestones swimming in the middle.
+                    //
+                    // The scale is now the width fit alone and y follows it, which is the
+                    // square fit every other object gets: the timeline comes out at its own
+                    // proportions, as large as the width allows and no larger. Since it is
+                    // then shorter than the room, WHERE it sits has to be decided, and the
+                    // bottom is the answer -- a timeline is a baseline, and the space belongs
+                    // above it where the milestone labels and any stacked rows go.
+                    //
+                    // tlFill stays FALSE on purpose: it means "x and y were set independently,
+                    // do not re-derive y from x", and here y IS derived from x, every frame.
+                    xRange = width * (1 + 2 * sideFrac);
+                    yRange = xRange * (ch / cw);
+                    hscroll = false;
+                    tlFill = false;
+                    tlBottom = true;
+                } else if (isDoc) {
+                    // A DOCUMENT fills the window in BOTH directions rather than being fitted
+                    // to one and letting the other run short. MGrid scales x and y
+                    // independently, and a document lays its text out in SCREEN pixels, so
+                    // stretching the view over it distorts nothing: x is fitted to the
+                    // document's own width, y to whatever height is left between the title bar
+                    // and the bottom chrome. (A timeline used to share this branch and no
+                    // longer does -- stretching a band does not show more of it.)
                     //
                     // The allowances here are the same ones __maxEnforceView() clamps
                     // against. That matters: with any other pair the two disagree, the object
@@ -10611,8 +10663,18 @@ function (progress) {
                 const centerX = (b.x0 + b.x1) / 2;
                 const xmin = hscroll ? (b.x0 - width * sideFrac) : ((xRange > width * (1 + 2 * sideFrac)) ? (centerX - xRange / 2) : (b.x0 - width * sideFrac));
                 const xmax = xmin + xRange;
-                const ymax = b.yTop + yRange * (HEADER / ch), ymin = ymax - yRange;
-                this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b, hscroll, sideFrac, tlFill };
+                // Top-anchored by default: the object's top sits HEADER px below the top of
+                // the window. Bottom-anchored for a timeline: its baseline sits the bottom
+                // chrome's height above the bottom, and the room left over is above it.
+                let ymax, ymin;
+                if (tlBottom) {
+                    ymin = b.yBot - yRange * (this.__maxBottomPx(obj) / ch);
+                    ymax = ymin + yRange;
+                } else {
+                    ymax = b.yTop + yRange * (HEADER / ch);
+                    ymin = ymax - yRange;
+                }
+                this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b, hscroll, sideFrac, tlFill, tlBottom };
                 AnimateGrid.INTERUPT = true;
                 try { new AnimateGrid(this.grid).animateTo(xmin, xmax, ymin, ymax, 18); } catch (e) {
                     this.grid.xmin = xmin; this.grid.xmax = xmax; this.grid.ymin = ymin; this.grid.ymax = ymax; this.grid.rescale();
@@ -13101,7 +13163,14 @@ function (progress) {
                         this.__maxLastWell = null;
                     }
                 } catch (e) { }
-                if (topLimit - bottomLimit <= yRange) { ymax = topLimit; ymin = ymax - yRange; }
+                if (topLimit - bottomLimit <= yRange) {
+                    // Fits in the view, so it is pinned rather than scrolled -- to the BOTTOM
+                    // for a timeline (see maximizeObject), to the top for everything else.
+                    // Without this the frame after the animation put it back at the top and
+                    // the timeline jumped there.
+                    if (this.__maxBounds.tlBottom) { ymin = bottomLimit; ymax = ymin + yRange; }
+                    else { ymax = topLimit; ymin = ymax - yRange; }
+                }
                 else {
                     if (ymax > topLimit) { ymax = topLimit; ymin = ymax - yRange; }
                     if (ymin < bottomLimit) { ymin = bottomLimit; ymax = ymin + yRange; }
@@ -26715,7 +26784,7 @@ function (progress) {
                         // finish inside the swipe window, and the view slid away under them.
                         if (this.__solidDrag || this.__solidResize || this.__docSel || this.__docScroll || this.__msDrag || (Date.now() - (this.__gestureEndedAt || 0)) < 500) return;
 
-                        this.panGridSlide(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
+                        // this.panGridSlide(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
                         setTimeout(() => {
 
                             let obj = this.getNextObjectInDirection(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
