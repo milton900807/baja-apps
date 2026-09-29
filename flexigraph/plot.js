@@ -5331,6 +5331,28 @@ function (MGrid) {
 
                         const tool = {
                             id: 'tl-pick-range' + Math.random(),
+                            // ESCAPE CANCELS, which the message above promises. Without it the
+                            // only way out was to complete a range.
+                            keydown: (ev) => {
+                                if (ev && ev.key === 'Escape') {
+                                    disarm();
+                                    try { pt.setMessage('Range cancelled.', 2); } catch (e) { }
+                                }
+                            },
+                            // AND ANYTHING THAT REPLACES THIS WORKBENCH DISARMS IT. wb() calls
+                            // close() on the outgoing tool, so this is the one hook that fires
+                            // however the pointer is taken away -- another tool, a menu, a
+                            // teardown from somewhere that knows nothing about timelines.
+                            //
+                            // It matters more than it looks: __tlDrawing now holds the canvas
+                            // hover off (plate-track.mouseMove), so a tool that goes away
+                            // without clearing it would leave the whole board unresponsive to
+                            // hover until something else happened to reset it.
+                            close: () => {
+                                armed = false; drag = null;
+                                try { pt.__tlDrawing = false; } catch (e) { }
+                                try { plot.__date = ''; } catch (e) { }
+                            },
                             mouseMoveListener: (x, y) => {
                                 if (!armed) return;
                                 try {
@@ -5419,7 +5441,20 @@ function (MGrid) {
                             } catch (e) { }
                             }
                         };
-                        pt.wb(tool);
+                        // INSTALLED AFTER THIS CLICK IS OVER, not during it.
+                        //
+                        // The press that chose this menu item is still in flight: its RELEASE
+                        // reaches plate-track.mouseUp, which calls wb(null) when the release
+                        // lands anywhere that is not a plate -- and the menu is not a plate.
+                        // Installing the tool synchronously therefore armed it and had it torn
+                        // down again within the same click, which is why the ordinary
+                        // mouse-over highlight was still running afterwards: wb(null) restores
+                        // drag-navigate.
+                        //
+                        // The same 300ms the menu itself waits on when it opens a submenu
+                        // (__open, below), for the same reason. The budgeted-milestone tool
+                        // never hit this because it awaits a modal before it arms.
+                        setTimeout(() => { try { if (armed) pt.wb(tool); } catch (e) { } }, 320);
                     },
                     move: () => { }
                 });

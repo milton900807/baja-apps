@@ -9516,7 +9516,9 @@ function (progress) {
                 const mmy = this.grid.Ywc(y)
                 let new_selected = this.getPlate(mmx, mmy)
                 if (!new_selected && this.__no_widgets_zone) {
-                    this.wb(null)
+                    // Not while a timeline tool is armed: this is the release that chose the
+                    // tool from the menu, and wb(null) here is what disarmed it.
+                    if (!this.__tlDrawing) this.wb(null)
                     this.showMenu(null)
                     this.deselectAll()
 
@@ -10110,10 +10112,17 @@ function (progress) {
                     if (this.wb) { try { this.wb(null); } catch (e) { } }
                     return;
                 }
+                // A TIMELINE TOOL OWNS THE POINTER while it is armed, and the hover must not
+                // take it back. Both teardowns below call wb(null), which does not merely
+                // stop a highlight -- it uninstalls the current workbench and restores
+                // drag-navigate, so an armed tool died on the first pointer move that crossed
+                // a bar or left a timeline. __tlDrawing is the flag those tools already set,
+                // and that mouseDown already honours for the same reason.
+                const __toolArmed = !!this.__tlDrawing;
                 // Hovering the bar lights it, so it reads as something you can take hold of.
                 try {
                     const hb = this.__plateBarAt(x, y);
-                    if (hb !== (this.__hoverBar || null)) { this.__hoverBar = hb; try { this.wb(null); } catch (e) { } }
+                    if (hb !== (this.__hoverBar || null)) { this.__hoverBar = hb; if (!__toolArmed) { try { this.wb(null); } catch (e) { } } }
                 } catch (e) { }
                 // LEAVING A TIMELINE PUTS THE HIGHLIGHT BACK. While the pointer is over one,
                 // the timeline owns the hover -- its own pills light up. Step off it in any
@@ -10138,7 +10147,7 @@ function (progress) {
                         // is none of this code's business.
                         try { for (const pnt of ((left.scatterData && left.scatterData.points) || [])) pnt.highlight = false; } catch (e) { }
                         try { left.___hover = null; } catch (e) { }
-                        try { this.wb(null); } catch (e) { }
+                        if (!__toolArmed) { try { this.wb(null); } catch (e) { } }
                     }
                     this.__hoverTl = over;
                 } catch (e) { }
