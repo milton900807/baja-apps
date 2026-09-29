@@ -14117,27 +14117,28 @@ function (MGrid) {
                 grid.rescale();
                 graph.rescale();
 
-                // A TIMELINE GROWS TO FIT ITS LABELS. Milestone panels stack upward from the
-                // axis; with enough of them the top ones sat above the frame. Last frame's
-                // topmost panel (recorded below, in the milestone branch) is compared with the
-                // frame's top edge: the shortfall, plus a margin, is added to the height at
-                // the TOP (y up, h up; the axis at the bottom stays put). Only ever grows,
-                // capped at four times the height it started with, so it cannot run away.
-                if (!isFixed && this.type === 'timeline' && Number.isFinite(this.__tlTopmostPx)) {
-                    const shortfall = (grid.yi + 8) - this.__tlTopmostPx;
-                    if (shortfall > 1) {
-                        if (!Number.isFinite(this.__tlBaseH)) this.__tlBaseH = this.h;
-                        const dy = graph.worldHeight(shortfall + 12);
-                        const maxH = this.__tlBaseH * 4;
-                        if (Number.isFinite(dy) && dy > 0 && this.h + dy <= maxH) {
-                            this.y += dy;
-                            this.h += dy;
-                            grid.yi = graph.Y(this.y);
-                            grid.height = graph.screenHeight(this.h) + 10;
-                            grid.rescale();
-                        }
-                    }
-                }
+                // THE TIMELINE'S FRAME IS THE SIZE IT WAS GIVEN. It used to GROW UPWARD to fit
+                // its labels -- milestone panels stack up from the axis, and when the top ones
+                // rose above the frame the shortfall was added to the height at the top
+                // (this.y += dy; this.h += dy), leaving the axis at the bottom put.
+                //
+                // The top of the window moved, which is the thing a resized window must not
+                // do: an object the user sized to a band re-sized itself from underneath them
+                // whenever a label stacked one row higher.
+                //
+                // It also crept. The shortfall was measured in SCREEN px and converted to
+                // world (graph.worldHeight), the height was written back through
+                // graph.screenHeight -- and then a bare `+ 10` SCREEN px was added to the
+                // result. Mixing the two units in one expression means the box that comes out
+                // is not the box that was asked for, so the next frame measured a fresh
+                // shortfall against it and grew again: the top drifted up frame after frame
+                // rather than settling. The cap at four times the starting height bounded how
+                // far it went, not whether it moved.
+                //
+                // Nothing needs to grow now. The block immediately below already SHRINKS the
+                // labels to the room between the axis and the top of the frame, which is the
+                // right answer to "too many labels" for a fixed frame, and anything still
+                // outside is clipped to the frame when the points are drawn.
                 this.__tlTopmostPx = Infinity;
 
                 // MILESTONE LABELS SHRINK TO FIT THE PLOT. Their pills are laid out in screen
