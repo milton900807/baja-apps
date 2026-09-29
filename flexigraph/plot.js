@@ -9722,7 +9722,13 @@ function (MGrid) {
                     ['Goto time', 'Go to a date…'],
                     ['Set start time', 'Set start date…'],
                     ['Set Time Range', 'Set date range…'],
-                    ['Extend timeline', 'Extend the range…']
+                    ['Extend timeline', 'Extend the range…'],
+                    // ANYTHING THIS GROUPING DOES NOT NAME IS SWEPT INTO "More", which is where
+                    // the range tool landed when it was only pushed onto the flat list: present,
+                    // two levels down, and effectively invisible. Named here so it sits with the
+                    // other date tools, and worded to say how it is used -- "Set date range"
+                    // above it sets the AXIS, this one marks a span on the timeline.
+                    ['Select a time range', 'Select a range by dragging…']
                 );
                 const __edit = __pick(
                     ['Select', 'Select…'],
