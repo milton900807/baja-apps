@@ -5256,6 +5256,174 @@ function (MGrid) {
                         move: () => {
                         }
                     });
+
+                // ---- Select a time range, by dragging across the timeline -----------------
+                //
+                // The timeline already had a range gesture, but only MAXIMIZED and only as a
+                // hold-then-tap: press and keep still for 550ms to open it, tap again to
+                // close. Nothing says it is there, it does not work on the canvas, and a
+                // press-and-drag -- which is what everyone tries first -- panned the window
+                // through time instead. This is the same range, reachable from the menu and
+                // drawn with the dates on it while you make it.
+                //
+                // The readout is the point of the exercise: a timeline axis is labelled in
+                // whatever units fit the zoom, so the date under the pointer is otherwise a
+                // thing you estimate between two ticks. It follows the pointer from the
+                // moment the tool is armed, before anything is pressed.
+                menuList.push({
+                    label: 'Select a time range\u2026',
+                    __date: '',
+                    click: async () => {
+                        if (!pt) return;
+                        const plot = this;
+                        let armed = true;
+                        let drag = null;            // { x0, xu0, y } once the press lands
+                        const disarm = () => {
+                            armed = false; drag = null;
+                            try { pt.__tlDrawing = false; } catch (e) { }
+                            try { plot.__date = ''; } catch (e) { }
+                            try { pt.wb(null); } catch (e) { }
+                            try { if (typeof pt.__rehover === 'function') pt.__rehover(); } catch (e) { }
+                        };
+                        const msAt = (x) => {
+                            try {
+                                const xu = (typeof pt.__tlXUnitsAt === 'function')
+                                    ? pt.__tlXUnitsAt(plot, x) : plot.grid.Xwc(x - plot.grid.xi * 2);
+                                return { xu, ms: pt.__tlXToMs(plot, xu) };
+                            } catch (e) { return { xu: NaN, ms: NaN }; }
+                        };
+                        // THE DATE **AND THE TIME**. pt.__tlFmt is date-only
+                        // (toLocaleDateString with year/month/day), so a range picked inside a
+                        // single day read as the same string at both ends. This is what the
+                        // readout was asked for, so it carries the clock as well -- and drops
+                        // it again once the range is wide enough that minutes are noise.
+                        const fmtDT = (ms, withTime) => {
+                            const d = new Date(ms);
+                            if (isNaN(d.getTime())) return '';
+                            const day = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                            if (!withTime) return day;
+                            const hm = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                            return day + '  ' + hm;
+                        };
+                        // Minutes matter when the view is inside a few days; past that the
+                        // clock on a timeline label is precision nobody asked for.
+                        const clockWorthIt = () => {
+                            try {
+                                const g = plot.grid;
+                                const a = pt.__tlXToMs(plot, g.xmin), b = pt.__tlXToMs(plot, g.xmax);
+                                return Number.isFinite(a) && Number.isFinite(b) && Math.abs(b - a) <= 14 * 864e5;
+                            } catch (e) { return true; }
+                        };
+                        // Its own span, said the way a person would: a range over an afternoon
+                        // is not usefully "0.2 days", and one over three years is not 1,095 of
+                        // anything anyone counts.
+                        const spanText = (ms) => {
+                            const a = Math.abs(ms);
+                            const m = a / 60000, h = a / 3600000, d = a / 864e5;
+                            if (m < 90) return Math.round(m) + ' min';
+                            if (h < 48) return (h < 10 ? h.toFixed(1) : Math.round(h)) + ' h';
+                            if (d < 70) return (d < 10 ? d.toFixed(1) : Math.round(d)) + ' days';
+                            if (d < 730) return (d / 30.44).toFixed(1) + ' months';
+                            return (d / 365.25).toFixed(1) + ' years';
+                        };
+                        try { pt.setMessage('Drag across the timeline to pick a range. Escape cancels.', 6); } catch (e) { }
+                        try { pt.__tlDrawing = true; } catch (e) { }
+
+                        const tool = {
+                            id: 'tl-pick-range' + Math.random(),
+                            mouseMoveListener: (x, y) => {
+                                if (!armed) return;
+                                try {
+                                    plot.grid.rescale();
+                                    plot.__scx_ = x; plot.__scy_ = y;
+                                    const tx = plot.grid.Xwc(x - plot.grid.xi * 2);
+                                    plot.__date = formatTime(tx, plot.grid.xmin, plot.grid.xmax, plot.startDate, plot.endDate);
+                                } catch (e) { }
+                            },
+                            mouseDownListener: (x, y) => {
+                                if (!armed) return;
+                                const a = msAt(x);
+                                if (!Number.isFinite(a.ms)) { try { pt.setMessage('No date under the pointer there.', 3); } catch (e) { } return; }
+                                let yu = 0.5;
+                                try { if (typeof pt.__tlYUnitsAt === 'function') yu = pt.__tlYUnitsAt(plot, y); } catch (e) { }
+                                drag = { x0: x, xu0: a.xu, ms0: a.ms, y: yu };
+                            },
+                            mouseUpListener: async (x, y) => {
+                                if (!armed || !drag) return;
+                                const d = drag; drag = null;
+                                // A press that did not travel is not a range. Kept armed, so a
+                                // mis-click costs the gesture and not the tool.
+                                if (Math.abs(x - d.x0) < 4) {
+                                    try { pt.setMessage('Drag further to make a range.', 3); } catch (e) { }
+                                    return;
+                                }
+                                disarm();
+                                // __tlAddRange takes the START in its r, the END from the x it
+                                // is handed, orders the two itself and asks for the name.
+                                try { await pt.__tlAddRange(plot, { startX: d.xu0, y: d.y }, x, y); }
+                                catch (e) { try { pt.setMessage('Could not add that range: ' + (e && e.message ? e.message : e), 4); } catch (e2) { } }
+                            },
+                            // THE READOUT, and the band while one is being dragged. A lasso
+                            // paints its own overlay, so this is the only thing that draws
+                            // either -- the same reason the budgeted-milestone tool carries
+                            // its own draw. `drag` is read live from the closure, so the band
+                            // follows the pointer without the tool being rebuilt.
+                            draw: (_grid, ctx) => {
+                                if (!armed || !ctx) return;
+                            try {
+                                const x = plot.__scx_, y = plot.__scy_;
+                                if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                                const g = plot.grid;
+                                const top = Math.min(g.yi, g.yi + g.height);
+                                const hgt = Math.abs(g.height);
+
+                                ctx.save();
+                                if (drag) {
+                                    const x0 = g.X(drag.xu0);
+                                    ctx.fillStyle = 'rgba(26,163,189,0.22)';
+                                    ctx.fillRect(Math.min(x0, x), top, Math.max(2, Math.abs(x - x0)), hgt);
+                                    ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 2;
+                                    ctx.beginPath(); ctx.moveTo(x0, top); ctx.lineTo(x0, top + hgt); ctx.stroke();
+                                }
+                                // The tick at the pointer, then the pill beside it.
+                                ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 2;
+                                ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + hgt); ctx.stroke();
+
+                                let label = '';
+                                const here = msAt(x);
+                                const withTime = clockWorthIt();
+                                if (Number.isFinite(here.ms)) label = fmtDT(here.ms, withTime);
+                                if (drag && Number.isFinite(here.ms) && Number.isFinite(drag.ms0)) {
+                                    const a = Math.min(drag.ms0, here.ms), b = Math.max(drag.ms0, here.ms);
+                                    // Inside one day the clock is the only thing that differs
+                                    // between the two ends, so it is shown whatever the zoom.
+                                    const t = withTime || (b - a) < 2 * 864e5;
+                                    label = fmtDT(a, t) + '  \u2192  ' + fmtDT(b, t) + '   (' + spanText(b - a) + ')';
+                                }
+                                if (!label) { ctx.restore(); return; }
+
+                                ctx.font = '13px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+                                ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                                const w = ctx.measureText(label).width + 22, h = 26;
+                                // Beside the pointer, and flipped to its left near the right
+                                // edge so the pill is not written off the canvas.
+                                let bx = x + 16;
+                                try { if (bx + w > ctx.canvas.width - 8) bx = x - 16 - w; } catch (e) { }
+                                const by = Math.max(top + h / 2 + 2, y - 30);
+                                ctx.beginPath();
+                                if (ctx.roundRect) ctx.roundRect(bx, by - h / 2, w, h, 7);
+                                else ctx.rect(bx, by - h / 2, w, h);
+                                ctx.fillStyle = 'rgba(17,24,39,0.88)'; ctx.fill();
+                                ctx.fillStyle = '#FFFFFF'; ctx.fillText(label, bx + 11, by);
+                                ctx.restore();
+                            } catch (e) { }
+                            }
+                        };
+                        pt.wb(tool);
+                    },
+                    move: () => { }
+                });
+
                 // ---- Download: the picture, or the events as a table ----------------------
                 // PNG is the plot itself (toPNG renders it off-screen at 1500px rather than
                 // grabbing the canvas, so it does not come out at whatever the window
