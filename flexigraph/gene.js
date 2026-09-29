@@ -11760,12 +11760,25 @@ pattern, GGGG | Required`
                                         this, tks, { kind: kind, match: match })).catch(() => { });
                                 } catch (e) { this.setMessage(' Could not compare these tracks: ' + e + ' '); }
                             };
+                            const compareSeq = (mode) => {
+                                close();
+                                const tks = picks.map((p) => p.track || p.ref).filter(Boolean);
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/compare-track-sequences.js',
+                                        this, tks, { mode: mode })).catch((e) => { this.setMessage(' Could not compare the sequences: ' + e + ' '); });
+                                } catch (e) { this.setMessage(' Could not compare the sequences: ' + e + ' '); }
+                            };
                             const openCompare = () => show([
                                 { label: 'Mutations — same position and change', click: () => compare('variants', 'position'), move: () => { } },
                                 { label: 'Mutations — same rs number or protein change', click: () => compare('variants', 'change'), move: () => { } },
                                 { label: 'Annotations — same name', click: () => compare('annotations', 'name'), move: () => { } },
                                 { label: 'Oligos — same name', click: () => compare('oligos', 'name'), move: () => { } },
                                 { label: 'Oligos — same sequence', click: () => compare('oligos', 'sequence'), move: () => { } },
+                                // SEQUENCE: align every pair of the selected tracks and report identity,
+                                // similarity and coverage in the help panel (compare-track-sequences.js).
+                                // By alignment, not position, so different genes compare too.
+                                { label: 'Sequences — protein, align every pair', click: () => compareSeq('protein'), move: () => { } },
+                                { label: 'Sequences — nucleotide, align every pair', click: () => compareSeq('nucleotide'), move: () => { } },
                                 {
                                     label: 'Clear the comparison', click: () => {
                                         close();

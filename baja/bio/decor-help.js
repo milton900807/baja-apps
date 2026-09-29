@@ -31,7 +31,7 @@ function (layer, graph, sx, sy) {
         box.style.cssText = mobile
             ? 'position:relative;width:100%;height:100%;overflow:auto;background:#fff;color:#1f2933;'
                 + 'font:15px/1.5 Arial,sans-serif;padding:14px 16px 28px 16px;box-sizing:border-box;'
-            : 'position:relative;width:min(480px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#fff;'
+            : 'position:relative;width:min(' + ((help.table || (help.details && help.details.length)) ? 760 : 480) + 'px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#fff;'
                 + 'color:#1f2933;border:1px solid #c9d2dc;border-radius:10px;box-shadow:0 12px 40px rgba(15,30,50,.28);'
                 + 'font:12.5px/1.45 Arial,sans-serif;padding:14px 16px;box-sizing:border-box;';
         const closeCss = mobile
@@ -45,9 +45,24 @@ function (layer, graph, sx, sy) {
             '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px' + (mobile ? ';position:sticky;top:-14px;background:#fff;padding-top:14px;margin-top:-14px' : '') + '">'
             + '<div style="font-weight:700;font-size:' + (mobile ? '17px' : '14px') + ';flex:1">' + esc(help.title || 'What this means') + '</div>'
             + '<button type="button" aria-label="Close" style="' + closeCss + '">×</button></div>'
+            // optional table: { caption, cols: [...], rows: [[...]] } (a cell may hold a line break)
+            + (help.table && help.table.rows && help.table.rows.length
+                ? ('<div style="overflow-x:auto;margin:2px 0 10px 0">'
+                    + (help.table.caption ? ('<div style="color:#4b5866;margin-bottom:4px">' + esc(help.table.caption) + '</div>') : '')
+                    + '<table style="border-collapse:collapse;font-size:' + (mobile ? '13px' : '11.5px') + ';white-space:nowrap">'
+                    + (help.table.cols ? ('<tr>' + help.table.cols.map((c) => '<th style="text-align:center;padding:4px 8px;border-bottom:1px solid #c9d2dc;color:#3d4a57">' + esc(c) + '</th>').join('') + '</tr>') : '')
+                    + help.table.rows.map((r) => '<tr>' + r.map((c, i) => '<td style="padding:4px 8px;border-bottom:1px solid #eef1f4;text-align:' + (i ? 'center' : 'left')
+                        + (i ? '' : ';font-weight:600;color:#3d4a57') + '">' + esc(c).replace(/\n/g, '<br><span style="color:#7b8794;font-size:.9em">') + (('' + c).indexOf('\n') >= 0 ? '</span>' : '') + '</td>').join('') + '</tr>').join('')
+                    + '</table></div>')
+                : '')
             + (help.rows || []).map((r) =>
                 '<div style="' + rowCss + '"><div style="font-weight:600;color:#3d4a57' + (mobile ? ';margin-bottom:3px' : '') + '">'
                 + esc(r[0]) + '</div><div>' + esc(r[1]) + '</div></div>').join('')
+            // optional expandable blocks: [{ summary, pre }] (monospace, e.g. an alignment)
+            + (help.details || []).map((d) => '<details style="margin-top:8px;border-top:1px solid #eef1f4;padding-top:6px">'
+                + '<summary style="cursor:pointer;font-weight:600;color:#3d4a57">' + esc(d.summary) + '</summary>'
+                + '<pre style="margin:6px 0 0 0;overflow-x:auto;font:11px/1.35 Menlo,Consolas,monospace;background:#f6f8fa;padding:8px;border-radius:6px">'
+                + esc(d.pre) + '</pre></details>').join('')
             + (help.note ? ('<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef1f4;color:#4b5866">'
                 + esc(help.note) + '</div>') : '');
         back.appendChild(box);
