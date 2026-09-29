@@ -11779,6 +11779,8 @@ pattern, GGGG | Required`
                                 // By alignment, not position, so different genes compare too.
                                 { label: 'Sequences — protein, align every pair', click: () => compareSeq('protein'), move: () => { } },
                                 { label: 'Sequences — nucleotide, align every pair', click: () => compareSeq('nucleotide'), move: () => { } },
+                                // Coding sequences only: peptides aligned, codons laid under them, both identities side by side.
+                                { label: 'Sequences — coding only, peptide and nucleotide', click: () => compareSeq('coding'), move: () => { } },
                                 {
                                     label: 'Clear the comparison', click: () => {
                                         close();
