@@ -14182,7 +14182,13 @@ function (MGrid) {
                             // pixels by the draw above (graph.screenHeight(this.h)); ymin/ymax
                             // are the plot's own 0..1 units and mean nothing to the canvas
                             // grid, so converting them with graph.Y gives a nonsense number.
-                            let roomPx = Number(this.grid && this.grid.height) || 0;
+                            // ABSOLUTE. grid.height is signed, and the fallback below already
+                            // took Math.abs of its own answer while this line did not -- so on a
+                            // plot whose height came out negative roomPx was negative, the
+                            // "does it fit?" test below (roomPx > 0) was false, and the labels
+                            // were never shrunk at all. They then stacked out of the frame,
+                            // which is the overflow this block exists to prevent.
+                            let roomPx = Math.abs(Number(this.grid && this.grid.height) || 0);
                             if (!roomPx && typeof graph.screenHeight === 'function') {
                                 roomPx = Math.abs(graph.screenHeight(this.h) || 0);
                             }
@@ -14566,7 +14572,32 @@ function (MGrid) {
                         // The 2px allowance is for the frame's own border stroke, not for
                         // content: it lets a line drawn ON the boundary keep its width.
                         const __clipFrame = true;
-                        if (__clipFrame) { ctx.save(); ctx.beginPath(); ctx.rect(grid.xi - 2, grid.yi - 2, grid.width + 4, grid.height + 4); ctx.clip(); }
+                        if (__clipFrame) {
+                            // NORMALISED, because grid.width and grid.height are signed. A plot
+                            // whose height comes out negative (screenHeight of a world height on
+                            // an inverted axis) gave ctx.rect a negative extent, and the clip
+                            // region was then the band ABOVE the frame instead of the frame --
+                            // which is how pills came to be clipped INTO the toolbar rather than
+                            // away from it. normalizedRect is what the rest of this file already
+                            // uses for the same reason.
+                            const __cr = normalizedRect(grid.xi, grid.yi, grid.width, grid.height);
+                            let __top = __cr.y - 2;
+                            const __bot = __cr.y + __cr.h + 2;
+                            // AND NOT PAST THE TOP TOOLBAR. The object's bar is drawn in the
+                            // strip immediately above its frame (plate-track __plotBar:
+                            // y = frameTop - barHeight), and it carries the buttons. Pills stack
+                            // upward, so the 2px of slack above the frame put them on it. The
+                            // clip's top edge stops at the bottom of the bar when one is drawn.
+                            try {
+                                const __bb = this.__barRect;
+                                if (this.__barDrawn && __bb && Number.isFinite(__bb.y) && Number.isFinite(__bb.h)) {
+                                    __top = Math.max(__top, __bb.y + __bb.h);
+                                }
+                            } catch (e) { }
+                            ctx.save(); ctx.beginPath();
+                            ctx.rect(__cr.x - 2, __top, __cr.w + 4, Math.max(1, __bot - __top));
+                            ctx.clip();
+                        }
                         try {
                         for (const point of sortedPoints) {
                             if (point.y > this.grid.ymax) {
@@ -15540,8 +15571,19 @@ function (MGrid) {
                                             // Wholly outside: no box. Partly outside is kept, so
                                             // the visible half of an edge pill still takes a press.
                                             try {
-                                                const __fx0 = grid.xi - 2, __fx1 = grid.xi + grid.width + 2;
-                                                const __fy0 = grid.yi - 2, __fy1 = grid.yi + grid.height + 2;
+                                                // Signed again: the frame has to be normalised
+                                                // here for the same reason the clip does, or the
+                                                // test runs against a box above the plot.
+                                                const __nr = normalizedRect(grid.xi, grid.yi, grid.width, grid.height);
+                                                const __fx0 = __nr.x - 2, __fx1 = __nr.x + __nr.w + 2;
+                                                let __fy0 = __nr.y - 2;
+                                                const __fy1 = __nr.y + __nr.h + 2;
+                                                try {
+                                                    const __bb2 = this.__barRect;
+                                                    if (this.__barDrawn && __bb2 && Number.isFinite(__bb2.y) && Number.isFinite(__bb2.h)) {
+                                                        __fy0 = Math.max(__fy0, __bb2.y + __bb2.h);
+                                                    }
+                                                } catch (e) { }
                                                 const __b = point.__tlBox;
                                                 if (__b.x + __b.w < __fx0 || __b.x > __fx1
                                                     || __b.y + __b.h < __fy0 || __b.y > __fy1) {
