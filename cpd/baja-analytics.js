@@ -2668,8 +2668,21 @@ function (path, config) {
                 // into a packed block, piece by piece, where none sits on another. Live on the
                 // canvas, and one Undo puts everything back. Pressing it again while the
                 // pieces are falling starts over from where they are.
+                //
+                // AND THEN EVERY TABLE IS OPTIMIZED. Laying the canvas out answers where the
+                // tables go; it does not answer whether anything in them can be read, and a
+                // tidy canvas of truncated columns is not what the button was pressed for.
+                // topt follows the layout rather than leading it, for the reason the comment
+                // on the optimize button gives: the layout decides the room, this decides how
+                // each table spends it.
+                //
+                // Safe in that order because toptAll defaults to columnsOnly -- it
+                // redistributes the width WITHIN each table and leaves the boxes where the
+                // layout put them, so it cannot reintroduce the overlaps the layout just
+                // removed. The separate optimize button stays, for optimizing without moving
+                // anything.
                 {
-                    icon: 'view_quilt', color: '#ffffff', tooltip: 'Tetris layout: same-size cells, no overlaps, dropped into place',
+                    icon: 'view_quilt', color: '#ffffff', tooltip: 'Tetris layout: same-size cells, no overlaps, then fit every table\u2019s columns',
                     ionfunction: createIonFunction(async () => {
                         const pt = pm.plateTrack;
                         try {
@@ -2678,7 +2691,23 @@ function (path, config) {
                             if (!count) { pt.setMessage('Nothing on the canvas to lay out yet.', 2); return; }
                             pt.wb(null);
                             const done = await pt.layoutCompactTetris({ style: 'tetris', undoable: true });
-                            if (done) pt.setMessage(count + (count === 1 ? ' object' : ' objects') + ' laid out. Undo puts them back.', 2);
+                            if (!done) return;
+
+                            // One message for the one press. Two toasts in a row for a single
+                            // button read as two things having happened to the canvas.
+                            let tail = '';
+                            try {
+                                if (typeof pt.toptAll === 'function') {
+                                    const r = await pt.toptAll();
+                                    if (r && r.tables) {
+                                        const whole = Math.max(0, (r.cells || 0) - (r.truncated || 0));
+                                        tail = ' \u2014 ' + r.tables + (r.tables === 1 ? ' table' : ' tables')
+                                            + ' optimized, ' + whole + ' of ' + (r.cells || 0) + ' cells read in full';
+                                    }
+                                }
+                            } catch (e) { console.warn('topt after layout', e); }
+                            pt.setMessage(count + (count === 1 ? ' object' : ' objects') + ' laid out' + tail
+                                + '. Undo puts them back.', 3);
                         } catch (e) { console.warn('tetris layout', e); }
                     })
                 },
