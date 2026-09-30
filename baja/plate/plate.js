@@ -15722,10 +15722,21 @@ function () {
                                 const t = w.__displayText ? w.__displayText() : w.value;
                                 const numeric = typeof w.value === 'number' || NUMERIC.test(('' + (t == null ? '' : t)).trim());
                                 // A CUT NUMBER IS A WRONG NUMBER, so a column of numbers that
-                                // will not fit steps down together until they all do. A label
-                                // that will not fit is shortened with an ellipsis instead --
-                                // it stays at the column's size, because shrinking one label
-                                // to fit is exactly the ragged column this is preventing.
+                                // will not fit steps down TOGETHER until they all do: one
+                                // number set smaller than the rest reads as a different kind
+                                // of quantity, so the whole column moves or none of it does.
+                                //
+                                // A LABEL IS NOT HELD TO THAT. It used to be -- it stayed at
+                                // the column's size and was cut with an ellipsis, on the
+                                // grounds that shrinking one label is the ragged column this
+                                // is preventing. That trade was wrong: a cell reading
+                                // "Addressable patients…" has lost the thing it exists to say,
+                                // and a point of size difference costs far less than the words.
+                                // A text cell that does not fit now steps down on its own at
+                                // draw time (baja/plate/well.js, the __colFontPx branch),
+                                // starting FROM the column's size -- so a column whose size
+                                // was already right is untouched and stays uniform, and only
+                                // the cells that would have been cut differ.
                                 if (!numeric) continue;
                                 const f = w.fitFontPx(ctx);
                                 if (f != null) px = Math.min(px, f);

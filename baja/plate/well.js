@@ -1273,9 +1273,32 @@ function () {
                     const maxHeight = screen_height * 0.85;
 
                     // The column's shared size (the largest at which every cell's text in the
-                    // column fits, computed by the table) wins over the per-cell fit below.
+                    // column fits, computed by the table) wins over the per-cell fit below --
+                    // BUT ONLY WHILE IT ACTUALLY FITS THIS CELL.
+                    //
+                    // It was applied blind. When the column's size was too large for one
+                    // cell's text -- the column measured before a resize, a row shorter than
+                    // its neighbours, a value that grew since -- the text was drawn at that
+                    // size, overflowed, and truncateTextCached below cut it with an ellipsis.
+                    // A cell showing "Addressable patients…" when it could have shown the whole
+                    // phrase a point smaller is the column's uniformity costing the reader the
+                    // thing the cell is for.
+                    //
+                    // So the column size is the STARTING point and it steps down from there
+                    // until the text fits, exactly as the per-cell branch below does. A column
+                    // whose size was right is untouched (the first measure passes and the loop
+                    // does not run), so the shared look is kept wherever it was real; only the
+                    // cells that would have been cut differ, and they differ by being readable.
                     if (Number.isFinite(this.__colFontPx) && this.__colFontPx > 0) {
-                        applyFontSize(this.__colFontPx);
+                        let px = Math.max(6, this.__colFontPx);
+                        applyFontSize(px);
+                        const __fits = () => {
+                            const m = ctx.measureText(displayValue);
+                            const ascent = m.actualBoundingBoxAscent ?? px;
+                            const descent = m.actualBoundingBoxDescent ?? (px * 0.25);
+                            return m.width <= maxWidth && (ascent + descent) <= maxHeight;
+                        };
+                        while (px > 6 && !__fits()) { px -= 1; applyFontSize(px); }
                     } else
                     while (true) {
                         applyFontSize(testFontSize);
