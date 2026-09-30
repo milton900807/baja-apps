@@ -86,8 +86,12 @@ function (graph, items, screenX, screenY, opts) {
         // ---- where it goes ---------------------------------------------------------------
         // Canvas pixels to page pixels, through the canvas's own rect and CSS scale, then
         // flipped or clamped so the whole of it is on screen.
-        let cv = null;
-        try { const fg = graph.graph || graph; cv = fg.canvas.canvas.nativeElement; } catch (e) { cv = null; }
+        // THE CANVAS THE COORDINATES BELONG TO. A caller that already holds it says so --
+        // the plate canvas is reached a different way from the editor's, and without this the
+        // lookup below falls through to the window and the menu is placed as though the canvas
+        // began at the top left of the page.
+        let cv = (o.canvas && o.canvas.getBoundingClientRect) ? o.canvas : null;
+        if (!cv) { try { const fg = graph.graph || graph; cv = fg.canvas.canvas.nativeElement; } catch (e) { cv = null; } }
         if (!cv) { try { cv = graph.canvas.getCTX().canvas; } catch (e) { cv = null; } }
         if (!cv) { try { cv = (graph.graph || graph).canvas.getCTX().canvas; } catch (e) { cv = null; } }
         const r = cv ? cv.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };

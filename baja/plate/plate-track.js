@@ -20820,6 +20820,50 @@ function (progress) {
 
             setMenu(_menu) {
                 if (this.__viewer) return;   // the viewer shows no menu, whatever asks for one
+
+                // THE SAME MENU THE REST OF THE APP USES. Every table menu on the canvas comes
+                // through here -- the M button, each of its submenus, the cell menus -- and
+                // every one of them was drawn as a canvas Menu centred on the middle of the
+                // object, whatever you had actually clicked. The editor's menus stopped doing
+                // that: popup-menu.js puts a small panel at the pointer, in the app's own
+                // navy, and hands a phone back to the full-screen list.
+                //
+                // Routed at setMenu rather than at each caller because there are forty of
+                // them across big-menu-for-plates.js alone, and a submenu that opened in a
+                // different style from its parent is worse than either style on its own.
+                //
+                // Anything that fails here falls through to the canvas Menu below, so a menu
+                // shape this does not understand still opens the way it always did.
+                if (!isMobile()) {
+                    try {
+                        // CLOSING IS A MENU TOO. showMenu(null) is how everything dismisses
+                        // one, and the popup is a DOM panel rather than something the canvas
+                        // repaints away -- without this it stayed on screen after the thing
+                        // that opened it had gone.
+                        if (!_menu) {
+                            try { if (window.__bajaPopupMenu && window.__bajaPopupMenu.destroy) window.__bajaPopupMenu.destroy(); } catch (e) { }
+                        }
+                        const items = Array.isArray(_menu) ? _menu
+                            : (_menu && Array.isArray(_menu.list) ? _menu.list : null);
+                        if (items && items.length) {
+                            const g = CurrentLayout.getStashed('graph');
+                            if (g) {
+                                // At the pointer. __ptrX/__ptrY are kept by mouseMove on every
+                                // move, so they are where the press that opened this menu was
+                                // -- the button on the bar, or the cell.
+                                const sx = Number.isFinite(this.__ptrX) ? this.__ptrX : 40;
+                                const sy = Number.isFinite(this.__ptrY) ? this.__ptrY : 40;
+                                const title = (_menu && _menu.title)
+                                    || (this.selectedPlate && this.selectedPlate.name) || '';
+                                this.menu = null; this.menu_vis = false;
+                                exec('baja/manchester/menu/popup-menu.js', g, items, sx, sy,
+                                    { title: title, canvas: this.__canvas__ });
+                                return;
+                            }
+                        }
+                    } catch (e) { console.warn('[plate menu]', e); }
+                }
+
                 if (isMobile()) {
                     if (_menu.list && _menu.list.length > 0) {
                         exec('flexigraph/show-mobile-menu-no-reset.js', _menu.list)
