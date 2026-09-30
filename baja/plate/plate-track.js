@@ -27177,6 +27177,51 @@ function (progress) {
                             // Cell connection arrows: faint and thin, so they hint without intruding.
                             this.drawFormulaDependencyArrows(obj, ctx, this.grid);
                             this.drawFormulaReverseDependencyArrows(obj, ctx, this.grid)
+
+                            // EVERY TABLE ARRIVES OPTIMIZED. "Optimize this table" on the menu
+                            // is pt.topt(table); a table that needs it pressed before it can be
+                            // read should simply have had it done. Once per table per load.
+                            //
+                            // AFTER the draw, not before. topt measures the cells' screen
+                            // geometry, and on the first pass that geometry does not exist yet
+                            // -- the wells are measured BY drawing. Run before, it would size
+                            // the table from zeros.
+                            //
+                            // ...and off this frame. Changing a table's size and columns in
+                            // the middle of the paint that is drawing it tears the frame; the
+                            // timer lets this one finish and wakes the canvas for the next.
+                            //
+                            // __toptOnce is deliberately underscored: the document strips
+                            // `_`-prefixed keys when it saves, so the flag lasts for this load
+                            // and no longer. A table is optimized when it is first drawn, which
+                            // is what that phrase means, rather than once ever.
+                            try {
+                                if (!obj.__toptOnce && !obj.__toptPending && obj.fit !== false
+                                    && !this.__maximized && obj.wells
+                                    && obj.plateType !== 'package' && obj.plateType !== 'annotation'
+                                    && obj.plateType !== 'document') {
+                                    obj.__toptPending = true;
+                                    setTimeout(() => {
+                                        obj.__toptPending = false;
+                                        // MARKED DONE ONLY IF IT WORKED. topt answers
+                                        // {ok:false,why} rather than throwing, and on an early
+                                        // frame the answer is "nothing to measure with yet" --
+                                        // the canvas it measures through is not up. Setting the
+                                        // flag before the call would have spent the one attempt
+                                        // on the frame least likely to succeed and left the
+                                        // table unoptimized for the rest of the session.
+                                        //
+                                        // A few frames of retry, then it stops: a table that
+                                        // cannot be optimized must not ask again every frame
+                                        // for as long as the board is open.
+                                        let ok = false;
+                                        try { const r = this.topt(obj); ok = !!(r && r.ok !== false); } catch (e) { ok = false; }
+                                        obj.__toptTries = (obj.__toptTries || 0) + 1;
+                                        if (ok || obj.__toptTries >= 8) obj.__toptOnce = true;
+                                        if (ok) { try { if (this.wake) this.wake(); } catch (e) { } }
+                                    }, 0);
+                                }
+                            } catch (e) { }
                         }
                     };
 
