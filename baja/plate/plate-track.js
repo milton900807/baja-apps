@@ -4248,8 +4248,23 @@ function (progress) {
                     // folder keeps whatever arrangement it was left in. Started on the next
                     // tick so the swapped canvas has been drawn once to drop from.
                     const depth = this.folderDepth;
-                    setTimeout(() => {
+                    setTimeout(async () => {
                         if (this.folderDepth !== depth || this.folderVisited) return;   // already left
+                        // THE SAME TWO STEPS THE TOOLBAR BUTTON DOES, in the same order:
+                        // optimize every table, then pack them. Opening a folder laid the
+                        // tables out without ever fitting their columns, so a folder came up
+                        // tidy and unreadable -- and pressing the layout button afterwards was
+                        // the only way to get the result the open should have given.
+                        //
+                        // Optimize FIRST because a full topt changes the size a table needs,
+                        // and the packing has to measure what the tables have become or they
+                        // grow into each other afterwards. zoom: false because the layout
+                        // frames the canvas when it finishes; a camera move here would be
+                        // aimed at the pre-layout positions.
+                        try {
+                            if (typeof this.toptAll === 'function') await this.toptAll({ columnsOnly: false, zoom: false });
+                        } catch (e) { console.warn('[folder] optimize', e); }
+                        if (this.folderDepth !== depth || this.folderVisited) return;
                         try { this.layoutCompactTetris({ style: 'tetris' }); } catch (e) { console.warn('[folder] layout', e); }
                     }, 0);
                 }
@@ -27196,7 +27211,28 @@ function (progress) {
                             // and no longer. A table is optimized when it is first drawn, which
                             // is what that phrase means, rather than once ever.
                             try {
-                                if (!obj.__toptOnce && !obj.__toptPending && obj.fit !== false
+                                // ONLY ONCE THE TABLE HAS STOPPED MOVING.
+                                //
+                                // Opening a folder frames the canvas: the camera animates and
+                                // the layout settles the tables over many frames. topt measures
+                                // in SCREEN pixels, so run during that it measured a size the
+                                // table was passing through -- succeeded, marked itself done,
+                                // and left the answer it had computed for a box that no longer
+                                // existed. Which is exactly the report: open a folder and the
+                                // tables are not optimized, press the layout button once they
+                                // have settled and they are.
+                                //
+                                // Settled means three things at once: the camera is not
+                                // animating (MGrid.animating, set by its own animateTo), no
+                                // layout animation is running (__layoutAnim), and this table's
+                                // screen box is the same as it was on the previous frame.
+                                const __bw = Math.round(Math.abs(this.grid.screenWidth(obj.grid ? obj.grid.width : 0)));
+                                const __bh = Math.round(Math.abs(this.grid.screenHeight(obj.grid ? obj.grid.height : 0)));
+                                const __boxKey = __bw + 'x' + __bh;
+                                const __stable = (obj.__toptBox === __boxKey) && __bw > 8 && __bh > 8
+                                    && !this.grid.animating && !this.__layoutAnim;
+                                obj.__toptBox = __boxKey;
+                                if (__stable && !obj.__toptOnce && !obj.__toptPending && obj.fit !== false
                                     && !this.__maximized && obj.wells
                                     && obj.plateType !== 'package' && obj.plateType !== 'annotation'
                                     && obj.plateType !== 'document') {
