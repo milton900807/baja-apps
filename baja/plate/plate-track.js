@@ -27214,8 +27214,16 @@ function (progress) {
                                         // A few frames of retry, then it stops: a table that
                                         // cannot be optimized must not ask again every frame
                                         // for as long as the board is open.
+                                        // COLUMNS ONLY ON FIRST DRAW. A full topt sizes the
+                                        // table to what its content needs, and nothing runs
+                                        // after this to pack the board -- so a table that grew
+                                        // ran straight over its neighbour. The columns are the
+                                        // half that makes it readable; the box is the half that
+                                        // needs a layout to follow it, and on load there is
+                                        // none. The toolbar's layout button does the full one,
+                                        // and packs the result.
                                         let ok = false;
-                                        try { const r = this.topt(obj); ok = !!(r && r.ok !== false); } catch (e) { ok = false; }
+                                        try { const r = this.topt(obj, { columnsOnly: true }); ok = !!(r && r.ok !== false); } catch (e) { ok = false; }
                                         obj.__toptTries = (obj.__toptTries || 0) + 1;
                                         if (ok || obj.__toptTries >= 8) obj.__toptOnce = true;
                                         if (ok) { try { if (this.wake) this.wake(); } catch (e) { } }

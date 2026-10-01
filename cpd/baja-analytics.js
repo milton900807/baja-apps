@@ -2690,22 +2690,44 @@ function (path, config) {
                             const count = (pt.root || []).filter(p => p && !p.hidden).length + (pt.m_plots || []).length;
                             if (!count) { pt.setMessage('Nothing on the canvas to lay out yet.', 2); return; }
                             pt.wb(null);
-                            const done = await pt.layoutCompactTetris({ style: 'tetris', undoable: true });
-                            if (!done) return;
 
-                            // One message for the one press. Two toasts in a row for a single
-                            // button read as two things having happened to the canvas.
+                            // THE SNAPSHOT GOES FIRST, before anything changes. The layout
+                            // takes its own when it is given undoable, but it does that at the
+                            // START of the layout -- which, now that the optimize runs ahead
+                            // of it, would capture the already-resized tables and leave one
+                            // Undo restoring the positions while keeping the new sizes. One
+                            // press, one snapshot, one Undo back to where the canvas was; the
+                            // layout is told not to take a second.
+                            try { pt.pushUndoSnapshot && pt.pushUndoSnapshot(); } catch (e) { }
+
+                            // OPTIMIZE FIRST, THEN LAY OUT. The other way round left tables
+                            // running past the room the layout had just given them: a full
+                            // topt sizes the table to what its content needs, so anything that
+                            // grows after the packing grows into its neighbour. Sized first,
+                            // the layout measures what the tables have BECOME and packs those,
+                            // and the canvas it leaves has no overlaps in it.
+                            //
+                            // zoom: false because toptAll frames the result when it is the
+                            // last thing to run, and here it is not -- the layout moves
+                            // everything afterwards, so a camera move now is wasted and
+                            // lands on the pre-layout positions.
                             let tail = '';
                             try {
                                 if (typeof pt.toptAll === 'function') {
-                                    const r = await pt.toptAll();
+                                    const r = await pt.toptAll({ columnsOnly: false, zoom: false });
                                     if (r && r.tables) {
                                         const whole = Math.max(0, (r.cells || 0) - (r.truncated || 0));
                                         tail = ' \u2014 ' + r.tables + (r.tables === 1 ? ' table' : ' tables')
                                             + ' optimized, ' + whole + ' of ' + (r.cells || 0) + ' cells read in full';
                                     }
                                 }
-                            } catch (e) { console.warn('topt after layout', e); }
+                            } catch (e) { console.warn('topt before layout', e); }
+
+                            const done = await pt.layoutCompactTetris({ style: 'tetris', undoable: false });
+                            if (!done) return;
+
+                            // One message for the one press. Two toasts in a row for a single
+                            // button read as two things having happened to the canvas.
                             pt.setMessage(count + (count === 1 ? ' object' : ' objects') + ' laid out' + tail
                                 + '. Undo puts them back.', 3);
                         } catch (e) { console.warn('tetris layout', e); }
