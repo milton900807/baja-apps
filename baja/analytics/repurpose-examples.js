@@ -20,6 +20,11 @@ function () {
     //                    and plain sections are represented), which is a bare indication --
     //                    a complete Repurpose prompt on its own, exactly as the panel's
     //                    existing 'Idiopathic pulmonary fibrosis' example already was.
+    //                    That sample was taken when the indication pool spanned all of
+    //                    medicine. It has since been narrowed to genetic CNS disease for the
+    //                    Therapeutic Area tool, so the copy below is no longer a sample of it
+    //                    -- it is Repurpose's own broad list now, which is what Repurpose
+    //                    wants: a repurposing candidate can come from any area.
     const examples = [
         'ABL1',
         'ACC',

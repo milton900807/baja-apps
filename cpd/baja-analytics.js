@@ -4461,6 +4461,14 @@ function (path, config) {
                         // value tables: <X>_Market, <X>_Expansion, <X>_Sources, <X>_Market_Summary.
                         // Every figure keeps its source, and sources the search never returned are
                         // marked "no - verify" so they are checked before going into a forecast.
+                        //
+                        // THE AREA IS GENETIC DISEASE OF THE CENTRAL NERVOUS SYSTEM -- an inherited or
+                        // de novo cause, and a burden on brain, spinal cord or motor neurons. An
+                        // indication typed in from outside the area is still sized, because it is the
+                        // user's question; what stays inside the area is the expansion indications,
+                        // since those are the programmes the team could actually run. The definition
+                        // lives in py/analytics/indication-market.py's SYSTEM prompt and the example
+                        // pool is drawn from the same area.
                         const pt = pm.plateTrack;
                         let sequenceTextEditor;
                         let descHook = createIonFunction((p) => {
@@ -4468,7 +4476,7 @@ function (path, config) {
                         });
                         // A different worked prompt each time the panel opens (baja/analytics/
                         // indication-examples.js), never the same one twice in a row.
-                        let txt = 'Transthyretin amyloidosis (polyneuropathy and cardiomyopathy), siRNA against TTR, United States';
+                        let txt = 'Huntington\'s disease, intrathecal antisense oligonucleotide lowering HTT, United States and EU5';
                         try {
                             const pool = await exec('baja/analytics/indication-examples.js');
                             if (Array.isArray(pool) && pool.length) {
@@ -4955,8 +4963,11 @@ function (path, config) {
                                                 data: `
                                                 <H4>
                                                       <font color="navy">
-                                                Name a disease or a list of indications. Add the target, mechanism or modality and a region if you have them:
+                                                Name a genetic CNS disease, or a list of them. Add the target, mechanism or modality and a region if you have them:
                                                 </font> </h4>
+                                                <h5> <font color="gray">
+                                                Expansion indications stay inside the area: inherited or de novo cause, burden on brain, spinal cord or motor neurons, and a route that reaches the CNS.
+                                                </font> </h5>
                                                 `
                                             }
                                         },
