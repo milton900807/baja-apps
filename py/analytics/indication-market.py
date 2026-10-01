@@ -66,6 +66,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 try:
@@ -1115,14 +1116,42 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
         step = (HISTORY_LANE_HIGH - HISTORY_LANE_LOW) / (len(present) - 1)
         lanes = {k: HISTORY_LANE_LOW + i * step for i, k in enumerate(present)}
 
-    # The axis runs from the first event to a little past the last, so the newest band is
-    # not flush against the right edge.
+    # THE WINDOW AND THE AXIS HAVE TO BE THE SAME INTERVAL. flexigraph/plot.js carries two
+    # conversions between axis units and dates and uses both on the same timeline: the
+    # ruler reads an axis value as ABSOLUTE hours after startDate
+    # (drawXAxisTimeTicks: _grid.X((ms - startMs) / hourToMs)), while normalizeTimePoints,
+    # formatTime and __tlUnitsToDate read it as a FRACTION of the axis mapped onto
+    # [startDate, endDate]. Those two agree on exactly one condition:
+    #
+    #     axis.min == 0  AND  axis.max == (endDate - startDate) in hours
+    #
+    # Every other timeline in the app satisfies it by construction -- py/openai/timeline.py
+    # measures x as hours from window.start and flexigraph/gantt-factory.js then zooms to
+    # min(startX)..max(x), which is 0..the full span. This builder used to break it: it
+    # padded the AXIS by a tenth at each end but left the WINDOW at the first and last
+    # event, so one convention read a position as a year and the other read it as a
+    # different year, scaled by (span + 2*pad)/span and shifted by the pad. That is what
+    # put a 1987 milestone over the 1956 tick.
+    #
+    # So the padding goes into the window instead of the axis. The window is widened by
+    # whole years at each end -- the same visual room, since a pill is drawn centred on its
+    # year and the outermost events would otherwise hang over the edges of the frame -- and
+    # the axis then runs 0 .. the full padded span, which is what both conventions expect.
     first, last = events[0][0], events[-1][0]
     span_end = max(last + 1, first + 2)
-    pad = max(2.0, (span_end - first) * 0.10)
-    start_dt = f"{first:04d}-01-01T00:00:00"
-    end_dt = f"{span_end:04d}-01-01T00:00:00"
-    HOURS_PER_YEAR = 365.2425 * 24
+    pad_years = max(2, int(round((span_end - first) * 0.10)))
+    win_first = max(1, first - pad_years)        # year 1 is as far back as a date goes
+    win_end = span_end + pad_years
+    start_at = datetime(win_first, 1, 1)
+    end_at = datetime(win_end, 1, 1)
+    start_dt = start_at.isoformat()
+    end_dt = end_at.isoformat()
+
+    def _hours_from_start(year: int) -> float:
+        # Real elapsed hours, not year * 365.2425 * 24. The ruler steps by calendar years,
+        # so a mean-year approximation drifts a milestone off its own tick by a day or so
+        # per leap cycle -- invisible on a century, wrong on a decade.
+        return (datetime(year, 1, 1) - start_at).total_seconds() / 3600.0
 
     intervals: List[Dict[str, Any]] = []
     seen: set = set()
@@ -1136,7 +1165,7 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
         # A MILESTONE, not an interval. These are dated events, not durations: as one-year
         # bands on an axis spanning a century they came out as specks too small to carry
         # their own name. A milestone is a point with a pill, which is what a date wants.
-        at = (y - first) * HOURS_PER_YEAR
+        at = _hours_from_start(y)
         intervals.append({
             "type": "milestone",
             "name": label,
@@ -1155,11 +1184,11 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
         "name": f"{prefix}_History",
         "intervals": intervals,
         "window": {"start": start_dt, "end": end_dt},
-        # The axis is padded a tenth of the span at each end. Without it the first and
-        # last pills hang over the edges of the frame, since a pill is drawn centred on
-        # its year and the outermost years sit exactly at the ends.
-        "axis": {"min": -pad * HOURS_PER_YEAR,
-                 "max": (span_end - first + pad) * HOURS_PER_YEAR},
+        # 0 .. the full window, in hours: the invariant above. The padding is already in
+        # the window, so there is nothing to add here and nothing that can drift out of
+        # step with it.
+        "axis": {"min": 0.0,
+                 "max": (end_at - start_at).total_seconds() / 3600.0},
         "span": {"first_year": first, "last_year": last},
     }
 
