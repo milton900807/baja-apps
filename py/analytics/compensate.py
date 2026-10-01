@@ -506,6 +506,22 @@ def _usable_strategies(found: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Lis
 
 # ---------------- the canvas's tables ----------------
 
+# NODE NAMES ARE MATCHED ON A CANONICAL FORM, NOT ON THE STRING.
+#
+# The nodes, the strategies and the evidence are three lists that refer to each other by name,
+# and the model does not spell a name the same way in all three: a real SMN1 run returned
+# "NCALD (neurocalcin delta)" in nodes and plain "NCALD" in strategies. Matching on the string
+# then dropped NCALD and CHP1 -- two of the best-evidenced modifiers in the literature -- out of
+# the table as having no antisense route, while their strategy rows stayed behind pointing at a
+# node that was no longer listed. The gloss in brackets is the usual difference, so it goes,
+# along with case and punctuation.
+def _nkey(name: Any) -> str:
+    t = _s(name).lower()
+    t = re.sub(r"\([^)]*\)", " ", t)
+    t = re.sub(r"[^a-z0-9]+", " ", t).strip()
+    return t
+
+
 def _prefix(subject: Dict[str, Any], prompt: str) -> str:
     base = _s(subject.get("gene")) or _s(prompt)[:40] or "Compensate"
     base = re.sub(r"[^A-Za-z0-9]+", "_", base).strip("_")
@@ -604,12 +620,12 @@ def _compensation_svg(subject: Dict[str, Any], node_rows: List[Dict[str, Any]],
     # One row per node. The arrow carries the modality, because that is the actionable part.
     by_node: Dict[str, List[Dict[str, Any]]] = {}
     for s in strats:
-        by_node.setdefault(_s(s.get("node")), []).append(s)
+        by_node.setdefault(_nkey(s.get("node")), []).append(s)
 
     for i, r in enumerate(rows):
         y = TOP + i * ROW_H + ROW_H / 2
         name = _s(r.get("Node"))
-        mods = [_s(s.get("modality")).lower() for s in by_node.get(name, [])]
+        mods = [_s(s.get("modality")).lower() for s in by_node.get(_nkey(name), [])]
         mods = [m for m in mods if m in MODALITIES]
         lead = mods[0] if mods else "upregulation"
         col = MODALITY_COLOUR.get(lead, "#1aa3bd")
@@ -688,7 +704,7 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
     # route no evidence row supports.
     by_node_routes: Dict[str, set] = {}
     for e in evid:
-        n = _s(e.get("node"))
+        n = _nkey(e.get("node"))
         r = _s(e.get("route")).lower()
         if n and r in ROUTES and _s(e.get("direction")).lower() != "against":
             by_node_routes.setdefault(n, set()).add(r)
@@ -696,9 +712,13 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
     # A node with no surviving strategy is not an answer to this question, whatever its
     # biology: the whole ask was what ANTISENSE could do about it. Those nodes are counted and
     # named in the notes rather than listed as if they were actionable.
-    strat_nodes = {_s(s.get("node")) for s in strats if _s(s.get("node"))}
-    actionable = [n for n in nodes if _s(n.get("node")) in strat_nodes]
-    unreachable = [n for n in nodes if _s(n.get("node")) not in strat_nodes]
+    strat_nodes = {_nkey(s.get("node")) for s in strats if _nkey(s.get("node"))}
+    actionable = [n for n in nodes if _nkey(n.get("node")) in strat_nodes]
+    unreachable = [n for n in nodes if _nkey(n.get("node")) not in strat_nodes]
+    # The node list's spelling is the one the whole report uses, so the Strategies and Evidence
+    # tables name the same thing the Nodes table does.
+    display = {_nkey(n.get("node")): _s(n.get("node")) for n in nodes if _nkey(n.get("node"))}
+    shown_of = lambda v: display.get(_nkey(v)) or _s(v)
 
     source_rows: List[Dict[str, Any]] = []
 
@@ -715,10 +735,11 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
     node_rows = []
     for n in actionable:
         name = _s(n.get("node")) or "(unnamed)"
+        key = _nkey(name)
         claimed = {_s(r).lower() for r in (n.get("routes") or []) if _s(r).lower() in ROUTES}
-        backed = by_node_routes.get(name, set())
+        backed = by_node_routes.get(key, set())
         shown = sorted(claimed & backed) or sorted(backed)
-        mods = sorted({_s(s.get("modality")).lower() for s in strats if _s(s.get("node")) == name})
+        mods = sorted({_s(s.get("modality")).lower() for s in strats if _nkey(s.get("node")) == key})
         node_rows.append({
             "Node": name,
             "Relation": _s(n.get("relation")),
@@ -736,9 +757,9 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
 
     strat_rows = []
     for s in strats:
-        label = _s(s.get("node")) + " — " + _s(s.get("approach"))
+        label = shown_of(s.get("node")) + " \u2014 " + _s(s.get("approach"))
         strat_rows.append({
-            "Node": _s(s.get("node")),
+            "Node": shown_of(s.get("node")),
             "Modality": MODALITY_LABEL.get(_s(s.get("modality")).lower(), _s(s.get("modality"))),
             "Approach": _s(s.get("approach")),
             "Transcript": _s(s.get("transcript")),
@@ -753,10 +774,10 @@ def build_tables(found: Dict[str, Any], blocks: List[Dict[str, Any]], prompt: st
 
     ev_rows = []
     for e in evid:
-        if _s(e.get("node")) not in strat_nodes:
+        if _nkey(e.get("node")) not in strat_nodes:
             continue
         ev_rows.append({
-            "Node": _s(e.get("node")),
+            "Node": shown_of(e.get("node")),
             "Route": ROUTE_LABEL.get(_s(e.get("route")).lower(), _s(e.get("route"))),
             "Finding": _s(e.get("finding")),
             "Data": _s(e.get("data")),
