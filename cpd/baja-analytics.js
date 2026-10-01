@@ -2583,7 +2583,7 @@ function (path, config) {
             // Market is the CATCH-ALL: anything not named in BUILD_GROUPS lands there. The
             // groups after it are named explicitly (TAIL_GROUPS) so a new builder does not
             // silently fall into Market instead.
-            const TAIL_GROUPS = [['Therapeutics', ['Repurpose']]];
+            const TAIL_GROUPS = [['Therapeutics', ['Repurpose', 'Compensate']]];
             const buildLibraryLive = BUILD_GROUPS.map(([title]) => ({ label: title, items: [] }))
                 .concat([{ label: 'Market', items: [] }])
                 .concat(TAIL_GROUPS.map(([title]) => ({ label: title, items: [] })));
@@ -5411,6 +5411,361 @@ function (path, config) {
                                                             CurrentLayout.reset('mainPanel');
                                                             if (prompt.length < 2) {
                                                                 pt.setMessage('Name an indication, a mechanism or a target.', 1.1);
+                                                                return;
+                                                            }
+                                                            await run(prompt, { fresh: true });
+                                                        })
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                ]]
+                            }
+                        };
+                        CurrentLayout.setComponent('mainPanel', sequence_input);
+                    })
+                });
+
+                ai_create_file_items.push({
+                    // Therapeutics ▸ Compensate. Name a GENE. The tool assumes it has lost
+                    // function AT THE RNA LEVEL -- no transcript, a truncated one, one eaten by
+                    // NMD, or simply too little -- and asks what ELSE could carry the load, by
+                    // four separate routes of evidence (paralogue, systems, genetic rescue,
+                    // human), because a node with one route is a hypothesis and a node with
+                    // three is worth a programme.
+                    //
+                    // AND IT ANSWERS ONLY IN ANTISENSE. Upregulation, knockdown, splicing --
+                    // what an oligonucleotide can do to RNA the cell already makes. Editing,
+                    // gene replacement, viral vectors and delivered mRNA are excluded by the
+                    // question, so py/analytics/compensate.py drops any strategy that reaches
+                    // for one and the report says which were dropped and why: the absence of
+                    // the obvious answer should read as a constraint, not as an oversight.
+                    //
+                    // Returns finished tables, the same shape Repurpose does:
+                    // <GENE>_Compensate_Nodes / _Strategies / _Evidence / _Sources / _Summary.
+                    'label': 'Compensate', 'ionfunction': createIonFunction(async () => {
+                        const pt = pm.plateTrack;
+                        let sequenceTextEditor;
+                        let descHook = createIonFunction((p) => { sequenceTextEditor = p; });
+                        // A different worked example each time the panel opens, from
+                        // baja/analytics/compensate-examples.js (420 entries: a bare symbol, a
+                        // gene in its disease, a gene in its tissue). Naming the tissue is the
+                        // useful shape: whether a paralogue is expressed where the loss hurts
+                        // is what usually decides whether a compensation hypothesis survives.
+                        let examples = [
+                            'STXBP1',
+                            'SCN1A in Dravet syndrome',
+                            'MECP2 in cortical neurons',
+                            'GRN in frontotemporal dementia',
+                            'SMN1 in motor neurons',
+                            'NF1',
+                            'CFTR in airway epithelium',
+                            'SYNGAP1 haploinsufficiency'
+                        ];
+                        try {
+                            const pool = await exec('baja/analytics/compensate-examples.js');
+                            if (Array.isArray(pool) && pool.length) examples = pool;
+                        } catch (e) { }
+                        let k = Math.floor(Math.random() * examples.length);
+                        if (examples.length > 1 && k === window.__bajaCompensateLast) k = (k + 1) % examples.length;
+                        window.__bajaCompensateLast = k;
+                        let txt = examples[k];
+                        let initalText = true;
+                        setTimeout(() => {
+                            let i = 0, currentText = '';
+                            const interval = setInterval(() => {
+                                currentText += txt[i];
+                                if (!initalText) { sequenceTextEditor?.setContent(''); clearInterval(interval); return; }
+                                sequenceTextEditor?.setContent(currentText);
+                                i++;
+                                if (i >= txt.length) clearInterval(interval);
+                            }, 10);
+                        }, 150);
+
+                        const run = async (prompt, opts) => {
+                            pt.setMessage('Looking for what could compensate… this takes a few minutes', 5);
+                            // Its own progress history, kept apart from Repurpose's: the two
+                            // runs are different lengths, and a shared history would make each
+                            // of them wrong about the other.
+                            const Learner = await exec('baja/analytics/progress-learner.js');
+                            const track = Learner.begin('compensate', {
+                                label: 'Compensate',
+                                variant: 'auto',
+                                // A run answered from the store comes back in seconds where a
+                                // researched one takes minutes. Both open with "Checking earlier
+                                // research", so that phase says nothing about which this is: it
+                                // stays undecided until the tool says which path it took, and
+                                // while undecided the learner assumes the long one.
+                                variantFrom: (marks) => (marks.search != null || marks.start != null) ? 'fresh'
+                                    : (marks.reuse != null ? 'cached' : ''),
+                                priorSeconds: { fresh: 180, cached: 8, auto: 150, default: 150 },
+                                phases: [
+                                    { id: 'check', label: 'Checking earlier research', match: /^Checking earlier/i, at: 0.02 },
+                                    { id: 'start', label: 'Looking for compensatory pathways', match: /Looking for compensatory/i, at: 0.06 },
+                                    { id: 'search', label: 'Searching the literature', match: /^Searching:/i, at: 0.12, repeat: true, expect: 12 },
+                                    { id: 'organise', label: 'Working out the antisense routes', match: /^Organising/i, at: 0.85 },
+                                    // Last on purpose: phases only go forward, and the gap the
+                                    // bar interpolates runs to the NEXT phase in this array, so
+                                    // a reuse phase placed early would have a researched run
+                                    // creeping towards 0.55 while it was still opening.
+                                    { id: 'reuse', label: 'Found earlier research', match: /^Found earlier research/i, at: 0.55 }
+                                ]
+                            });
+                            const paint = () => {
+                                try {
+                                    const st = track.state();
+                                    pt.setTaskProgress({ label: st.label, detail: st.detail, fraction: st.fraction, eta: st.eta, basis: st.basis });
+                                } catch (e) { }
+                            };
+                            paint();
+                            const ticker = setInterval(paint, 250);
+                            const stop = (ok) => {
+                                clearInterval(ticker);
+                                try { track.finish(ok); } catch (e) { }
+                                try { pt.clearTaskProgress(); } catch (e) { }
+                            };
+                            const em = new EngineMonitor((msg) => { track.message(msg); paint(); pt.updateSprite(msg); });
+                            try { em.addProgressListener((p) => { track.progress(p); paint(); }); } catch (e) { }
+
+                            let result;
+                            try {
+                                result = await exec('py/analytics/compensate.py', em, prompt, opts || {});
+                            } catch (e) {
+                                stop(false); pt.killSprite();
+                                pt.setMessage('Compensate failed: ' + (e && e.message ? e.message : e), 1.1);
+                                return;
+                            }
+                            stop(!!(result && result.status === 'ok'));
+                            pt.killSprite();
+                            if (!result || result.status !== 'ok') {
+                                pt.setMessage((result && result.error) || 'Compensate failed', 1.1);
+                                if (result && result.detail) console.warn('[compensate]', result.detail);
+                                return;
+                            }
+
+                            // The canvas fills behind a curtain with the camera off it, exactly
+                            // as Repurpose and the market build do.
+                            try { pt.curtainUp(); } catch (e) { }
+                            const camera = (() => {
+                                let saved = null, timer = 0;
+                                return {
+                                    away() {
+                                        try {
+                                            if (saved) return;
+                                            const g = pt.grid; g.rescale();
+                                            saved = { x0: g.getxmin(), x1: g.getxmax(), y0: g.getymin(), y1: g.getymax() };
+                                            const dx = Math.abs(saved.x1 - saved.x0) * 60 || 1e5;
+                                            g.zoom(saved.x0 + dx, saved.x1 + dx, saved.y0, saved.y1);
+                                            timer = setTimeout(() => { try { camera.back(); } catch (e) { } }, 120000);
+                                        } catch (e) { }
+                                    },
+                                    back() {
+                                        try {
+                                            clearTimeout(timer);
+                                            if (!saved) return;
+                                            pt.grid.zoom(saved.x0, saved.x1, saved.y0, saved.y1);
+                                            saved = null; pt.grid.rescale();
+                                        } catch (e) { }
+                                    }
+                                };
+                            })();
+                            camera.away();
+
+                            const drawn = [];
+                            for (const spec of (result.tables || [])) drawn.push(await drawValueTable(pt, spec));
+                            try { if (drawn.filter(Boolean).length > 1) pt.normalizeTableCellSizes(drawn.filter(Boolean)); } catch (e) { }
+                            try {
+                                for (const d of (result.documents || [])) {
+                                    if (d && d.html) await pt.addDocument(d.name || 'Notes', d.html, { width: 560, height: 560 });
+                                }
+                            } catch (e) { console.warn('[compensate] document', e); }
+
+                            // EVERY TABLE INTO A FOLDER OF ITS OWN GROUP -- Nodes, Strategies,
+                            // Evidence, Sources. The notes stay out: they carry what was dropped
+                            // and why, and putting that behind a card would be hiding it.
+                            try {
+                                const byGroup = new Map();
+                                for (const t of (result.tables || [])) {
+                                    if (!t || !t.name || !t.group) continue;
+                                    if (!byGroup.has(t.group)) byGroup.set(t.group, new Set());
+                                    byGroup.get(t.group).add(t.name);
+                                }
+                                if (byGroup.size) {
+                                    const HM = await exec('baja/history/HM');
+                                    const Plate = await exec('baja/plate/plate.js');
+                                    for (const [name, names] of byGroup) {
+                                        try {
+                                            const inside = (pt.root || []).filter(p => p && names.has(p.name));
+                                            if (!inside.length) continue;
+                                            const keep = { root: pt.root, plots: pt.m_plots, glyphs: pt.glyphs };
+                                            let payload = null;
+                                            try {
+                                                pt.root = inside; pt.m_plots = []; pt.glyphs = [];
+                                                payload = compressbinaryData(compressString(HM(pt)));
+                                            } finally { pt.root = keep.root; pt.m_plots = keep.plots; pt.glyphs = keep.glyphs; }
+                                            if (!payload) continue;
+                                            for (const c of inside) { try { pt.removePlate(c); } catch (e) { } }
+                                            const prev = (pt.root || []).find(p => p && p.name === name && p.plateType === 'package');
+                                            if (prev) { try { pt.removePlate(prev); } catch (e) { } }
+                                            const pack = new Plate(name, 1, 1);
+                                            pack.plateType = 'package';
+                                            pack.completeNullValues();
+                                            pack.setWellValue(0, 0, name);
+                                            pack.wells[0][0].properties['package'] = payload;
+                                            pack.setWellType(0, 0, 'PACKAGE');
+                                            pack.grid.width = pt.grid.worldWidth(200);
+                                            pack.grid.height = pt.grid.worldHeight(100);
+                                            try { pt.addNextAvailableX(pack); } catch (e) { pt.root.push(pack); }
+                                            if ((pt.root || []).indexOf(pack) < 0) pt.root.push(pack);
+                                        } catch (e) { console.warn('[compensate] folder ' + name, e); }
+                                    }
+                                }
+                            } catch (e) { console.warn('[compensate] folders', e); }
+
+                            await new Promise((r) => setTimeout(r, 0));
+                            camera.back();
+                            try { await pt.cameraSettled(); } catch (e) { }
+                            let __fade = Promise.resolve();
+                            try {
+                                const __laid = pt.layoutCompactTetris({
+                                    style: 'tetris',
+                                    audit: 'compensate build',
+                                    noOverlap: true,
+                                    dropRank: (b) => {
+                                        const pkg = !!(b && b.ref && ('' + (b.ref.plateType || '')).indexOf('package') === 0);
+                                        return pkg ? 0 : 1;
+                                    }
+                                });
+                                try { __fade = pt.blurIn(1800); } catch (e) { }
+                                try { pt.curtainDown(2600); } catch (e) { }
+                                await __laid;
+                            } catch (e) { }
+                            try { pt.curtainDown(0); } catch (e) { }
+                            try { await __fade; } catch (e) { }
+
+                            // THE COMPENSATION MAP, after the packing: it is not one of the
+                            // objects the arrangement is made of, so it should neither push the
+                            // tables around nor land on them. No node means no picture.
+                            try {
+                                for (const s of (result.svgs || [])) {
+                                    if (s && s.svg) await exec('baja/analytics/place-svg.js', pt, s.svg, { name: s.title || s.name, widthFrac: 0.45 });
+                                }
+                            } catch (e) { console.warn('[compensate] map', e); }
+
+                            try { await pt.zoomtfit(); } catch (e) { }
+
+                            const d = result.detection || {};
+                            const mods = d.by_modality || {};
+                            const modTxt = ['upregulation', 'knockdown', 'splicing']
+                                .filter(m => mods[m]).map(m => mods[m] + ' ' + m).join(', ');
+                            pt.setMessage(`${d.subject || prompt}${d.context ? ' in ' + d.context : ''}: `
+                                + `${d.nodes || 0} compensatory node${d.nodes === 1 ? '' : 's'}`
+                                + (d.multi_route ? `, ${d.multi_route} with two or more routes of evidence` : ', none with more than one route')
+                                + `, ${d.strategies || 0} antisense strateg${d.strategies === 1 ? 'y' : 'ies'}`
+                                + (modTxt ? ' (' + modTxt + ')' : ''), 1.1);
+                            if (Object.keys(d.by_route || {}).length) {
+                                pt.setMessage('Evidence — ' + Object.keys(d.by_route).map(k => k + ': ' + d.by_route[k]).join(', '), 2);
+                            }
+                            for (const n of (result.notes || [])) pt.setMessage(n, 3);
+                            // Answered from earlier research: say so, with its date. A
+                            // compensation list goes into a programme discussion, so how old it
+                            // is matters. Researching again is a button on the panel that
+                            // started the run, not an interruption at the end of it.
+                            try {
+                                const c = result.cache;
+                                if (c && c.hit) {
+                                    let when = '';
+                                    try { when = new Date(c.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch (e) { when = ''; }
+                                    const age = Number.isFinite(c.age_days) ? (c.age_days === 0 ? 'today' : c.age_days === 1 ? 'yesterday' : c.age_days + ' days ago') : '';
+                                    pt.setMessage('Loaded from earlier research' + (when ? ' (' + when + (age ? ', ' + age : '') + ')' : '') + '. ' + (c.reason || ''), 3);
+                                }
+                            } catch (e) { console.warn('[compensate] earlier research notice', e); }
+                            try { const g = CurrentLayout.getStashed('graph'); if (g) g.touchMe(); } catch (e) { }
+                        };
+
+                        let sequence_input = {
+                            wid: 'card',
+                            "height": "300px",
+                            data: {
+                                "style.padding-top": '1px',
+                                "style.border": '1px',
+                                "style.height": "200px",
+                                cards: [[
+                                    {
+                                        'width': '100%',
+                                        'component': {
+                                            wid: 'html',
+                                            data: `
+                                                <H4>
+                                                      <font color="navy">
+                                                A gene. It assumes the gene has lost function at the RNA level and looks for what else could carry the load — paralogue, systems, genetic rescue and human evidence — then says how antisense would do it: upregulation, knockdown or splicing. No editing, no gene therapy. Add the disease or tissue to narrow it:
+                                                </font> </h4>
+                                                `
+                                        }
+                                    },
+                                    {
+                                        'width': '100%',
+                                        'component': {
+                                            wid: 'text-editor',
+                                            refCallback: descHook,
+                                            data: {
+                                                height: "300px",
+                                                showButton: false,
+                                                editorOptions: {
+                                                    value: '',
+                                                    language: 'text', automaticLayout: true, fontSize: 24, lineNumbers: "off",
+                                                    suggestOnTriggerCharacters: false,
+                                                    quickSuggestions: false,
+                                                    parameterHints: { enabled: false },
+                                                    minimap: { enabled: false },
+                                                    fontFamily: "Courier New, monospace",
+                                                    placeholder: "",
+                                                    cursorStyle: "block"
+                                                },
+                                                onDidFocusEditorWidget: createIon(() => {
+                                                    if (initalText) sequenceTextEditor?.setContent("");
+                                                    initalText = false;
+                                                }),
+                                                keybinding: {
+                                                    'Ctrl+Enter': createIonFunction((content, lineNumber, col) => { })
+                                                }
+                                            }
+                                        }
+                                    },
+                                    { 'width': '100%', 'component': { wid: 'html', data: '<hr>' } },
+                                    {
+                                        'component': {
+                                            wid: 'mt-button', data: {
+                                                buttons: [
+                                                    {
+                                                        label: 'Cancel', ionFunction: createIonFunction(async () => {
+                                                            hideAllModal();
+                                                            CurrentLayout.reset('mainPanel');
+                                                        })
+                                                    },
+                                                    {
+                                                        label: 'Find compensation', ionFunction: createIonFunction(async () => {
+                                                            const prompt = (initalText ? txt : sequenceTextEditor.getContent() || '').trim();
+                                                            hideAllModal();
+                                                            CurrentLayout.reset('mainPanel');
+                                                            if (prompt.length < 2) {
+                                                                pt.setMessage('Name a gene.', 1.1);
+                                                                return;
+                                                            }
+                                                            await run(prompt);
+                                                        })
+                                                    },
+                                                    {
+                                                        // Find compensation takes earlier research when it answers
+                                                        // the same question. This is how you say no to that, beside
+                                                        // the prompt rather than in a menu after the tables are built.
+                                                        label: 'Research again', ionFunction: createIonFunction(async () => {
+                                                            const prompt = (initalText ? txt : sequenceTextEditor.getContent() || '').trim();
+                                                            hideAllModal();
+                                                            CurrentLayout.reset('mainPanel');
+                                                            if (prompt.length < 2) {
+                                                                pt.setMessage('Name a gene.', 1.1);
                                                                 return;
                                                             }
                                                             await run(prompt, { fresh: true });
