@@ -326,28 +326,60 @@ function (MGrid) {
             return ms / (365.2425 * 24 * 3600 * 1000);
         }
 
+        // THE ONE CONVERSION BETWEEN A TIMELINE'S AXIS AND DATES: an axis value is HOURS
+        // AFTER startDate. Nothing else -- not the width of the axis, not where the axis
+        // happens to be scrolled to -- enters into it.
+        //
+        // This is what the ruler draws. drawXAxisTimeTicks puts the pill for a year at
+        // _grid.X((ms - startMs) / hourToMs), and drawXAxisTimeTicks_HEIGHT does the same,
+        // so the ruler is the absolute reading of the axis and it is what the user is
+        // looking at when they compare a milestone to a year.
+        //
+        // These functions used to read an axis value the other way: as a FRACTION of
+        // [xMin, xMax] mapped onto [startDate, endDate]. The two agree on exactly one
+        // condition --
+        //
+        //     xMin === 0  AND  xMax === (endDate - startDate) in hours
+        //
+        // -- which holds for a timeline as built (py/openai/timeline.py measures x as hours
+        // from window.start and gantt-factory.js zooms to 0..the full span) and STOPS
+        // HOLDING THE MOMENT ANYONE ZOOMS, because xMin and xMax then move and startDate
+        // and endDate do not. Every date the fractional reading produced after a zoom was
+        // wrong by the ratio of the two ranges while the ruler beside it stayed right: the
+        // date under the cursor, the range the drag tool reported, the dates written into
+        // the timeline report, and -- through normalizeTimePoints, which rewrites a point's
+        // x from its date on every frame -- the positions of the points themselves, which
+        // were re-spread to fill whatever window you had zoomed to, so zooming in never
+        // showed fewer events.
+        //
+        // xMin and xMax stay in these signatures because some sixty call sites pass them
+        // and a parameter list is not worth a sixty-line diff. They are not read.
+        const TL_HOUR_MS = 3600 * 1000;
+
+        function tlDateFromX(x, start) {
+            const s = toMillis(start);
+            const h = Number(x);
+            if (!isFinite(s) || !isFinite(h)) return new Date(NaN);
+            return new Date(s + h * TL_HOUR_MS);
+        }
+
+        function tlXFromDate(when, start) {
+            const s = toMillis(start);
+            const t = toMillis(when);
+            if (!isFinite(s) || !isFinite(t)) return NaN;
+            return (t - s) / TL_HOUR_MS;
+        }
+
         function formatTimeLabel(x, xMin, xMax, start, end) {
             return formatTime(x, xMin, xMax, start, end)
         }
 
         function formatTime(x, xMin, xMax, start, end) {
-            const startMs = toMillis(start);
-            const endMs = toMillis(end);
-            const totalCanvasRange = xMax - xMin;
-            const totalTimeRange = endMs - startMs;
-            const normalizedX = (x - xMin) / totalCanvasRange;
-            const t = startMs + normalizedX * totalTimeRange;
-            return new Date(t);
+            return tlDateFromX(x, start);
         }
 
         function timeToX(time, xMin, xMax, start, end) {
-            const totalCanvasRange = xMax - xMin;
-            const startMs = toMillis(start);
-            const endMs = toMillis(end);
-            const totalTimeRange = endMs - startMs;
-            const t = toMillis(time);
-            const normalized = (t - startMs) / totalTimeRange;
-            return xMin + normalized * totalCanvasRange;
+            return tlXFromDate(time, start);
         }
 
         const integerAxis = (ctx, _grid, minVal, maxVal) => {
@@ -643,12 +675,8 @@ function (MGrid) {
         }
 
         function getXFromDate(date, xMin, xMax, start, end) {
-            const totalCanvasRange = xMax - xMin;
-            const totalTimeRange = end.getTime() - start.getTime();
-            const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-            const normalizedTime = timeSinceStart / totalTimeRange;
-            return xMin + normalizedTime * totalCanvasRange;
+            // Hours after start -- the same reading as the ruler (see tlXFromDate).
+            return tlXFromDate(date, start);
         }
 
         function distanceFromPointToHorizontalSegment(px, x1, x2) {
@@ -5039,39 +5067,54 @@ function (MGrid) {
                 this.unhighlight();
             }
 
-            // Axis units -> Date on a timeline (the inverse of normalizeTimePoints' mapping).
+            // Axis units -> Date on a timeline: hours after startDate, the same reading the
+            // ruler draws (see tlDateFromX). Returns null rather than an invalid Date,
+            // because its callers test the result before using it.
             __tlUnitsToDate(xu) {
-                if (!this.startDate || !this.endDate || !this.grid) return null;
-                const s = toMillis(this.startDate), e = toMillis(this.endDate);
-                const xmin = this.grid.xmin, xmax = this.grid.xmax;
-                if (!isFinite(s) || !isFinite(e) || !(xmax > xmin)) return null;
-                const d = new Date(s + (xu - xmin) / (xmax - xmin) * (e - s));
+                if (!this.startDate) return null;
+                const d = tlDateFromX(xu, this.startDate);
                 return isNaN(d.getTime()) ? null : d;
             }
+            // Move the time origin without moving anything against the dates it stands for.
+            // An axis value is hours after startDate, so changing startDate on its own would
+            // slide every point and every tick by the size of the change; the shift has to
+            // come out of the values at the same moment it goes into the origin.
+            __tlReorigin(newStart) {
+                const shift = tlXFromDate(newStart, this.startDate);   // hours; negative when earlier
+                if (!Number.isFinite(shift) || shift === 0) return false;
+                const pts = (this.scatterData && Array.isArray(this.scatterData.points)) ? this.scatterData.points : [];
+                for (const p of pts) {
+                    if (!p) continue;
+                    if (Number.isFinite(p.x)) p.x -= shift;
+                    if (Number.isFinite(p.startX)) p.startX -= shift;
+                }
+                if (this.grid) {
+                    if (Number.isFinite(this.grid.xmin)) this.grid.xmin -= shift;
+                    if (Number.isFinite(this.grid.xmax)) this.grid.xmax -= shift;
+                }
+                this.startDate = (newStart instanceof Date) ? newStart : new Date(toMillis(newStart));
+                return true;
+            }
+            // A point that carries a date is placed BY that date, every frame, so a drag or
+            // an edit that changes the date moves the point. The position is hours after
+            // startDate and nothing else.
+            //
+            // It used to be a fraction of the axis: the points were spread across
+            // [grid.xmin, grid.xmax] in proportion to where their dates fell between
+            // startDate and endDate. On an unzoomed, well-formed timeline that is the same
+            // number -- but zoom the axis and the points were re-spread to fill the new
+            // window, so zooming in never showed fewer events, and every point drifted off
+            // the year the ruler had it standing on.
             normalizeTimePoints(graph) {
-                const screen_ = 200;
-                let xwm = graph.worldWidth(this.grid.worldWidth(screen_))
-
-                const xMin = this.grid.xmin;
-                const xMax = this.grid.xmax;
-
-                const totalCanvasRange = xMax - xMin;
-
-                const startMs = toMillis(this.startDate);
-                const endMs = toMillis(this.endDate);
-                const totalTimeRange = endMs - startMs;
-
-                if (!isFinite(totalCanvasRange) || totalCanvasRange === 0) return;
-                if (!isFinite(totalTimeRange) || totalTimeRange === 0) return;
+                if (!this.startDate || !this.scatterData || !Array.isArray(this.scatterData.points)) return;
 
                 for (const p of this.scatterData.points) {
                     if (!p || !p.date) continue;
 
-                    const t = toMillis(p.date);
-                    if (!isFinite(t)) continue;
+                    const x = tlXFromDate(p.date, this.startDate);
+                    if (!isFinite(x)) continue;
 
-                    const normalized = (t - startMs) / totalTimeRange;
-                    p.x = xMin + normalized * totalCanvasRange;
+                    p.x = x;
                 }
             }
 
@@ -6223,19 +6266,12 @@ function (MGrid) {
                                             return result;
                                         }
                                         function dateFromX(x, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const normalizedX = (x - xMin) / totalCanvasRange;
-                                            const date = new Date(start.getTime() + normalizedX * totalTimeRange);
-                                            return date;
-                                        }
+     // Hours after start -- the same reading as the ruler (see tlDateFromX).
+     return tlDateFromX(x, start);
+ }
                                         function getXFromDate(date, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-                                            const normalizedTime = timeSinceStart / totalTimeRange;
-                                            return xMin + normalizedTime * totalCanvasRange;
+                                            // Hours after start -- the same reading as the ruler (see tlXFromDate).
+                                            return tlXFromDate(date, start);
                                         }
                                         function convertToTimelinePoints(events, xMin, xMax, startDate, endDate, currentY) {
                                             if (events.length === 0) return [];
@@ -6459,19 +6495,12 @@ function (MGrid) {
                                         }
 
                                         function dateFromX(x, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const normalizedX = (x - xMin) / totalCanvasRange;
-                                            const date = new Date(start.getTime() + normalizedX * totalTimeRange);
-                                            return date;
-                                        }
+     // Hours after start -- the same reading as the ruler (see tlDateFromX).
+     return tlDateFromX(x, start);
+ }
                                         function getXFromDate(date, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-                                            const normalizedTime = timeSinceStart / totalTimeRange;
-                                            return xMin + normalizedTime * totalCanvasRange;
+                                            // Hours after start -- the same reading as the ruler (see tlXFromDate).
+                                            return tlXFromDate(date, start);
                                         }
 
                                         function convertToTimelinePoints(events, xMin, xMax, startDate, endDate, currentY) {
@@ -7241,19 +7270,12 @@ function (MGrid) {
                             }
 
                             function dateFromX(x, xMin, xMax, start, end) {
-                                const totalCanvasRange = xMax - xMin;
-                                const totalTimeRange = end.getTime() - start.getTime();
-                                const normalizedX = (x - xMin) / totalCanvasRange;
-                                const date = new Date(start.getTime() + normalizedX * totalTimeRange);
-                                return date;
-                            }
+     // Hours after start -- the same reading as the ruler (see tlDateFromX).
+     return tlDateFromX(x, start);
+ }
                             function getXFromDate(date, xMin, xMax, start, end) {
-                                const totalCanvasRange = xMax - xMin;
-                                const totalTimeRange = end.getTime() - start.getTime();
-                                const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-                                const normalizedTime = timeSinceStart / totalTimeRange;
-                                return xMin + normalizedTime * totalCanvasRange;
+                                // Hours after start -- the same reading as the ruler (see tlXFromDate).
+                                return tlXFromDate(date, start);
                             }
 
                             function convertToTimelinePoints(events, xMin, xMax, startDate, endDate, currentY) {
@@ -9413,12 +9435,12 @@ function (MGrid) {
                                             let model = await exec('py/openai/adjust-start-time.py', m, this.endDate)
                                             if (model && model.datetime) {
                                                 let d = new Date(model.datetime)
-                                                const totalCanvasRange = this.grid.xmax - this.grid.xmin;
-                                                const totalTimeRange = this.endDate.getTime() - this.startDate.getTime();
-                                                const normalizedTime = (d - this.startDate.getTime()) / totalTimeRange;
-                                                const x = this.grid.xmin + normalizedTime * totalCanvasRange;
-                                                this.grid.xmax = x;
-                                                this.endDate = d
+                                                // The axis end is just where d falls on it: hours after startDate.
+                                                const x = tlXFromDate(d, this.startDate);
+                                                if (Number.isFinite(x)) {
+                                                    this.grid.xmax = x;
+                                                    this.endDate = d
+                                                }
 
                                             } else {
                                                 infoPrompt(" I could not determine the time from your text. ")
@@ -9435,12 +9457,11 @@ function (MGrid) {
                                             let model = await exec('py/openai/adjust-start-time.py', m, this.endDate)
                                             if (model && model.datetime) {
                                                 let d = new Date(model.datetime)
-                                                const totalCanvasRange = this.grid.xmax - this.grid.xmin;
-                                                const totalTimeRange = this.endDate.getTime() - this.startDate.getTime();
-                                                const normalizedTime = (d - this.startDate.getTime()) / totalTimeRange;
-                                                const x = this.grid.xmin + normalizedTime * totalCanvasRange;
-                                                this.grid.xmin = x;
-                                                this.startDate = d
+                                                // Extending backwards moves the origin, so the points and the axis are
+                                                // shifted with it and the axis then starts at the new origin. Setting
+                                                // startDate alone would slide the whole timeline later by the size of
+                                                // the extension.
+                                                if (this.__tlReorigin(d)) this.grid.xmin = 0;
 
                                             } else {
                                                 infoPrompt(" I could not determine the time from your text. ")
