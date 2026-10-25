@@ -11950,6 +11950,118 @@ function (path, config) {
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Loss of heterozygosity',
                 subtitle: 'Which one is the normal? Choosing starts the scan.', graph: graph, books: lohPickerBooks() });
         };
+        // ---- ANALYSES OF ONE LOH TRACT -------------------------------------------------------
+        // The variants inside a tract that the tumor carries and NO other loaded sample does:
+        // the normal, and any further sample in the file or on the other side. These are the
+        // tumor's own changes in that stretch, the ones a design can aim at without touching a
+        // normal cell. Counted from the genotypes already in memory; only their consequences
+        // (gene, effect) are asked of the server, and only for the first DMM_MAX of them.
+        const HL_TUMOR_ONLY = 54;
+        HL_COLOR[HL_TUMOR_ONLY] = '#f43f5e'; HL_NAME[HL_TUMOR_ONLY] = 'carried by the tumor and no other sample';
+        let tractOnlyLast = null;
+        const tractTumorOnly = (t, spec) => {
+            const d = vdata[t.ci], recs = [];
+            if (!d || !d.n) return { recs: recs, others: [], scanned: 0 };
+            let a = 0, z = d.n;
+            while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < t.lo) a = m + 1; else z = m; }
+            const others = spec.kind === 'sample'
+                ? SAMPLES.map((nm, i) => i).filter((i) => i !== spec.tumor).map((i) => SAMPLES[i])
+                : [spec.labelN];
+            let scanned = 0;
+            if (spec.kind === 'sample') {
+                const w = d.gtw || 0;
+                for (let k = a; k < d.n && d.pos[k] <= t.hi; k++) {
+                    scanned++;
+                    if (gtOf(d, k, spec.tumor) < GT_HET) continue;
+                    let elsewhere = false;
+                    for (let si = 0; si < w; si++) if (si !== spec.tumor && gtOf(d, k, si) >= GT_HET) { elsewhere = true; break; }
+                    if (elsewhere) continue;
+                    const ab = allelesAt(t.ci, k);
+                    recs.push({ key: t.ci + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1], ci: t.ci, k: k, pos: d.pos[k], ref: ab[0], alt: ab[1] });
+                }
+            } else {
+                const other = new Set();
+                for (let k = a; k < d.n && d.pos[k] <= t.hi; k++) {
+                    if ((d.side ? d.side[k] : 0) === spec.normal) { const ab = allelesAt(t.ci, k); other.add(d.pos[k] + ':' + ab[0] + ':' + ab[1]); }
+                }
+                for (let k = a; k < d.n && d.pos[k] <= t.hi; k++) {
+                    scanned++;
+                    if ((d.side ? d.side[k] : 0) !== spec.tumor) continue;
+                    if (d.gtw && gtOfSide(d, k, spec.tumor) === GT_REF) continue;
+                    const ab = allelesAt(t.ci, k);
+                    if (other.has(d.pos[k] + ':' + ab[0] + ':' + ab[1])) continue;
+                    recs.push({ key: t.ci + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1], ci: t.ci, k: k, pos: d.pos[k], ref: ab[0], alt: ab[1] });
+                }
+            }
+            return { recs: recs, others: others, scanned: scanned };
+        };
+        const tractOnlyRun = async (t, backTo) => {
+            const R = lohResult;
+            if (!R) return;
+            const label = bandSpan(t.c, t.lo, t.hi) || t.c.name;
+            const say = (m) => graph.setMessage(' ' + m + ' ');
+            say('Finding what the tumor carries in ' + label + ' that no other sample does…');
+            await new Promise((res) => setTimeout(res, 0));
+            const found = tractTumorOnly(t, R.spec);
+            let capped = false;
+            try { capped = await dmmConsequences(found.recs, new EngineMonitor((m) => { try { log(m); } catch (e) { } }), say); }
+            catch (e) { step('tract consequences: ' + e); }
+            const rows = found.recs.map((v) => {
+                const e = dmmEffCache.get(v.key);
+                return Object.assign({}, v, e ? { gene: e.gene, effect: e.effect, hgvs: e.hgvs_p || e.hgvs_c || '' } : { gene: '', effect: dmmEffCache.has(v.key) ? 'outside a gene' : 'not read', hgvs: '' });
+            });
+            const prot = rows.filter((v) => DMM_PROTEIN.has(v.effect));
+            const lof = rows.filter((v) => DMM_LOF.has(v.effect));
+            const inGene = rows.filter((v) => v.gene);
+            tractOnlyLast = { t: t, rows: rows };
+            const books = [];
+            books.push({ section: 'Tumor-specific', note: true, mono: true, title:
+                  'region          ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + '  (' + label + ', ' + fmtSpan(t.len) + ')\n'
+                + 'carried by      ' + R.spec.labelT + ' (tumor)\n'
+                + 'absent from     ' + (Array.from(found.others).join(', ') || 'no other sample') + '\n'
+                + 'sites read      ' + found.scanned.toLocaleString() + '\n'
+                + 'tumor-specific  ' + rows.length.toLocaleString() + '\n'
+                + 'in a gene       ' + inGene.length.toLocaleString() + '\n'
+                + 'protein-altering ' + prot.length.toLocaleString() + '\n'
+                + 'loss of function ' + lof.length.toLocaleString() });
+            if (capped) books.push({ section: 'Tumor-specific', note: true, title: 'There are more than ' + DMM_MAX.toLocaleString() + ' of them; the gene and effect are read for the first ' + DMM_MAX.toLocaleString() + ' only. The CSV has every one.' });
+            books.push({ section: 'Act on them', accent: 'run', title: 'Mark them on the genome', badge: rows.length.toLocaleString(), icon: 'my_location', ready: rows.length > 0, readyNote: 'none to mark',
+                blurb: 'Light every one of these and grey the rest.',
+                open: () => {
+                    clearWorking();
+                    const byChr = new Map();
+                    for (const v of rows) { if (!byChr.has(v.ci)) byChr.set(v.ci, []); byChr.get(v.ci).push(v.k); }
+                    for (const [ci, ks] of byChr) { markIndices(ci, ks, HL_TUMOR_ONLY); }
+                    qcMarkAndShow(HL_TUMOR_ONLY);
+                    graph.setMessage(' ' + rows.length.toLocaleString() + ' tumor-specific variant' + (rows.length === 1 ? '' : 's') + ' marked in ' + label + '. ');
+                } });
+            books.push({ section: 'Act on them', title: 'Download them as CSV', badge: 'csv', icon: 'file_download', ready: rows.length > 0, readyNote: 'none to download',
+                blurb: 'Position, alleles, gene, effect and the genotype of every sample.',
+                open: () => {
+                    try {
+                        const out = rows.map((v) => { const row = { chrom: t.c.name, pos: v.pos, ref: v.ref, alt: v.alt, gene: v.gene, effect: v.effect, change: v.hgvs };
+                            genotypesOf(vdata[v.ci], v.k).forEach((g) => { row['GT_' + g[0]] = GT_TEXT[g[1]] || ''; }); return row; });
+                        dlSaveText(dlToCSV(out), dlSafe(dlSpecies() + '_' + label + '_tumor_specific') + '.csv', 'text/csv');
+                        dlMsg('Downloaded.');
+                    } catch (e) { dlErr('Could not build the CSV: ' + e); }
+                } });
+            const showRows = prot.concat(rows.filter((v) => !DMM_PROTEIN.has(v.effect) && v.gene)).slice(0, 150);
+            if (showRows.length) books.push({ section: 'In genes, protein-altering first', note: true, title: showRows.length + ' shown' + (inGene.length > showRows.length ? ' of ' + inGene.length.toLocaleString() : '') + '.' });
+            showRows.forEach((v) => {
+                books.push({ section: 'In genes, protein-altering first', title: v.gene + '  ' + (v.hgvs || (v.ref + '>' + v.alt)), ready: true,
+                    badge: dmmWord(v.effect), swatch: DMM_LOF.has(v.effect) ? '#dc2626' : DMM_PROTEIN.has(v.effect) ? '#f97316' : '#94a3b8',
+                    blurb: t.c.name + ':' + human(v.pos) + '  ' + v.ref + ' > ' + v.alt,
+                    books: () => [
+                        { title: 'Zoom into it', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame it on ' + t.c.name + '.',
+                            open: () => { try { const pad = 4000 / MB; goView({ x0: barLeft(v.ci) - 0.5 * SLOT, x1: barRight(v.ci) + 0.5 * SLOT, y0: wy(v.pos) - pad, y1: wy(v.pos) + pad }); } catch (e) { } } },
+                        { title: 'Open in oligo editor', badge: 'editor', icon: 'edit', accent: 'design', ready: true, blurb: 'Load ' + v.gene + ' with its variants and go to this one.',
+                            open: async () => { await openRange(v.ci, Math.max(0, v.pos - 1), Math.min(t.c.length, v.pos + 1), v.pos, { focus: { chr: t.c.name.replace(/^chr/, ''), pos: v.pos } }); } },
+                    ] });
+            });
+            books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The tracts.', open: () => lohMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Tumor-specific in ' + label,
+                subtitle: rows.length.toLocaleString() + ' carried by ' + R.spec.labelT + ' alone', graph: graph, books: books });
+        };
         const lohMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!lohResult) { analysisMenu(); return; }
@@ -12086,6 +12198,9 @@ function (path, config) {
                                 { title: 'Load in the oligo editor', badge: 'editor', icon: 'edit', accent: 'design', ready: true,
                                     blurb: 'The transcripts in this region, with the variants inside it' + (t.len > 20e6 ? ' (a long tract: the first genes found are offered)' : '') + '.',
                                     open: async () => { await openRange(t.ci, t.lo, t.hi); } },
+                                { section: 'Analyse this region', accent: 'run', title: 'Tumor-specific variants here', badge: 'not in any other sample', icon: 'person_search', ready: true,
+                                    blurb: 'Every variant in this stretch that ' + R.spec.labelT + ' carries and no other loaded sample does, with its gene and effect.',
+                                    open: () => { tractOnlyRun(t); } },
                                 { section: 'What kind of loss', note: true, mono: true, title:
                                       'region        ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + '  (' + fmtSpan(t.len) + ')\n'
                                     + 'cytobands     ' + label + '\n'
