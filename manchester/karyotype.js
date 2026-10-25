@@ -5712,6 +5712,16 @@ function (path, config) {
                     const more = input.files ? Array.prototype.slice.call(input.files, 1) : [];
                     try { document.body.removeChild(input); } catch (e) { }
                     if (!file) return;
+                    await readPicked(file, more, side, false);
+                };
+                input.click();
+            } catch (e) { graph.setMessage(' The file picker could not be opened: ' + e + ' '); }
+        };
+        // A file in hand, from the computer or from My Files: read it onto the genome, and
+        // keep a copy in My Files unless it came from there.
+        const readPicked = async (file, more, side, alreadyInMyFiles) => {
+            {
+                {
                     step('file: ' + file.name + ' ' + file.size + ' bytes ' + (file.type || ''));
                     let outcome = '';
                     loadSide = side ? 1 : 0;
@@ -5736,6 +5746,10 @@ function (path, config) {
                         graph.setMessage(' ' + (outcome || readFailure || file.name + ' was not read.') + ' ');
                         return;
                     }
+                    if (alreadyInMyFiles) {
+                        graph.setMessage(' ' + (outcome || file.name + ' was not read.') + ' ');
+                        return;
+                    }
                     const quietSave = /\.vcf(\.b?gz)?$/i.test(file.name);
                     if (!quietSave) graph.setMessage(' Saving ' + file.name + ' to My Files… ');
                     const up = await uploadToMyFiles(file, (pct) => {
@@ -5751,9 +5765,34 @@ function (path, config) {
                             + file.name + (readFailure ? ' was still saved to My Files. ' : ' saved to My Files. '));
                         step('upload ok: ' + file.name + (readFailure ? ' (read failed: ' + readFailure + ')' : ''));
                     }
-                };
-                input.click();
-            } catch (e) { graph.setMessage(' The file picker could not be opened: ' + e + ' '); }
+                }
+            }
+        };
+        // A VCF ALREADY IN MY FILES: fetched whole from the server (/user-file) and handed to
+        // the same reader a picked file goes to, as a File. Nothing is uploaded again.
+        const VCF_FROM_FILES_MAX = 4e9;
+        const loadVcfFromMyFiles = async (element, side) => {
+            const name = ('' + ((element && element.name) || '')).trim() || baseName('' + ((element && element.path) || ''));
+            const path2 = ('' + ((element && element.path) || '')).trim();
+            if (!path2) { graph.setMessage(' That file has no path. '); return; }
+            if (!/\.vcf(\.b?gz)?$/i.test(name) && !/\.(gz|bgz)$/i.test(name)) {
+                graph.setMessage(' ' + name + ' is not a VCF (.vcf, .vcf.gz or .vcf.bgz). Pick another from My Files. ');
+                return;
+            }
+            try {
+                graph.setMessage(' Fetching ' + name + ' from My Files… ');
+                const r2 = await fetch(window['env']['apiUrl'] + '/user-file?user=' + encodeURIComponent(getUser()) + '&path=' + encodeURIComponent(path2));
+                if (!r2.ok) throw new Error(r2.status === 404 ? 'it is no longer there' : 'the server answered ' + r2.status);
+                const len = +r2.headers.get('Content-Length') || 0;
+                if (len > VCF_FROM_FILES_MAX) throw new Error('it is ' + fmtBytes(len) + ', too large to fetch here; upload it from the computer instead');
+                const blob = await r2.blob();
+                const file = new File([blob], name, { type: 'application/octet-stream' });
+                await readPicked(file, [], side, true);
+            } catch (e) {
+                loadSide = 0;
+                graph.setMessage(' ' + name + ' could not be fetched from My Files: ' + (e && e.message ? e.message : e) + ' ');
+                step('my files fetch failed: ' + e);
+            }
         };
 
         // The canvas has no text field of its own, so a paste is for the view. Anything that
@@ -18347,7 +18386,7 @@ function (path, config) {
             // marks have always gone. Once something is there, a second VCF can go on the
             // right beside it or on the left opposite it -- a tumor against its normal, a
             // second caller against the first -- and the card asks.
-            const sideBooks = () => [
+            const sideBooksFor = (go) => [
                 { section: 'Side', note: true, title: 'The genome already carries ' + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
                     + (nLeft ? ', ' + nLeft.toLocaleString() + ' of them on the left' : ', all on the right') + '. Choose where this file\'s marks go.' },
                 // Left before right, as on the chromosome: the card's place in the row says
@@ -18358,13 +18397,13 @@ function (path, config) {
                     blurb: (sideFile[1] ? 'The left gutter already holds ' + shortFile(sideFile[1]) + '; this file joins it there. '
                         : 'Opposite what is already there: the marks take the left gutter, so the two sets read against each other down the same bar.')
                         + (sideFile[0] ? 'It will read against ' + shortFile(sideFile[0]) + ' on the right.' : ''),
-                    open: () => pickFile(VCF_ACCEPT, 1) },
+                    open: () => go(1) },
                 { section: 'Side', accent: 'choose', title: 'Right side' + (sideFile[0] ? '  \u00b7  ' + shortFile(sideFile[0]) : ''),
                     badge: sideFile[0] ? 'joins ' + shortFile(sideFile[0]) : 'default', icon: 'east', ready: true,
                     blurb: (sideFile[0] ? 'The right gutter already holds ' + shortFile(sideFile[0]) + '; this file joins it there. '
                         : 'Beside what is already there: the marks share the right gutter of every chromosome.')
                         + (sideFile[1] ? 'It will read against ' + shortFile(sideFile[1]) + ' on the left.' : ''),
-                    open: () => pickFile(VCF_ACCEPT, 0) },
+                    open: () => go(0) },
             ];
             // EVERY CARD HERE ASKS FOR A FILE, AND NOW SAYS SO.
             //
@@ -18381,7 +18420,19 @@ function (path, config) {
                     + 'Sample and phase columns are read too, and color the marks.'
                     + (vtotal ? ' With variants already loaded, it asks which side of the chromosomes to draw on.' : ''),
             };
-            if (vtotal) vcfCard.books = sideBooks; else vcfCard.open = () => pickFile(VCF_ACCEPT, 0);
+            // WHERE THE VCF COMES FROM: this computer, or a file already in My Files.
+            const fromComputer = (sd) => pickFile(VCF_ACCEPT, sd);
+            const fromMyFiles = (sd) => openJson(false, (el) => loadVcfFromMyFiles(el, sd));
+            vcfCard.accent = undefined;
+            vcfCard.badge = 'computer \u00b7 My Files';
+            vcfCard.books = () => [
+                Object.assign({ section: 'Where is the VCF', accent: 'choose', icon: 'upload_file', title: 'From this computer', badge: 'upload',
+                    blurb: 'Pick a VCF on this computer. It is read here and a copy is kept in My Files.', ready: true },
+                    vtotal ? { books: () => sideBooksFor(fromComputer) } : { open: () => fromComputer(0) }),
+                Object.assign({ section: 'Where is the VCF', accent: 'choose', icon: 'folder_open', title: 'From My Files', badge: 'already uploaded',
+                    blurb: 'Browse the files already in your space and load a VCF from there. Nothing is uploaded again.', ready: true },
+                    vtotal ? { books: () => sideBooksFor(fromMyFiles) } : { open: () => fromMyFiles(0) }),
+            ];
             try {
                 exec('baja/lib/shelf.js', {
                     id: 'baja-karyo-upload',
@@ -18818,7 +18869,7 @@ function (path, config) {
         // `deleting`: the same browser, but a click removes the file instead of opening
         // it. One panel rather than two, because a second copy of a hundred lines of file
         // browser is a second copy to keep in step.
-        const openJson = async (deleting) => {
+        const openJson = async (deleting, onPick) => {
             const host_ = window['env']['apiUrl'];
             // Same two things save-obj.js does and this did not: refresh the browser once it
             // exists, and root it at '/' + user. Without the refresh the search box draws over
@@ -18869,6 +18920,7 @@ function (path, config) {
                             return;
                         }
                         try { if (openRestore) openRestore(); } catch (e) { }
+                        if (onPick) { try { await onPick(element); } catch (e) { graph.setMessage(' ' + e + ' '); } return; }
                         // A .baja IS NOT A KARYOTYPE. It is a saved editor screen -- tracks,
                         // compounds, annotations -- and reading it here got as far as
                         // "That file is not a saved karyotype", which is true and useless:
@@ -18966,11 +19018,11 @@ function (path, config) {
                                             // the real buttons in this bar are.
                                             static: true,
                                             label: deleting ? 'Click a file to REMOVE it'
-                                                : 'Click a file to open it',
+                                                : onPick ? 'Click a VCF to load it' : 'Click a file to open it',
                                             icon: deleting ? 'delete' : 'folder_open',
                                             tooltip: deleting
                                                 ? 'Removing is permanent. Leave without removing anything with Done.'
-                                                : 'Open a saved genome',
+                                                : onPick ? 'Load a VCF already in My Files' : 'Open a saved genome',
                                             ionFunction: createIonFunction(() => { })
                                         },
                                     ]
