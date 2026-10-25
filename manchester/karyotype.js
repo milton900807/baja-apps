@@ -12056,6 +12056,42 @@ function (path, config) {
                         ] });
                 });
             }
+            // THE TRACTS, EACH WITH WHAT IT IS: pressing a card asks what to do with that stretch.
+            {
+                const tl = lohTractList(R).sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
+                if (tl.length) {
+                    books.push({ section: 'Tracts', note: true, title: tl.length + ' tract' + (tl.length === 1 ? '' : 's') + ', largest first. '
+                        + 'Press one to zoom to it, open it in the oligo editor, or read what kind of loss it is.' });
+                    tl.slice(0, 200).forEach((t) => {
+                        const label = bandSpan(t.c, t.lo, t.hi) || t.c.name;
+                        const kindWord = t.cn ? copyWord(t.cn) : 'copy number not assessed';
+                        const geneList = (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi);
+                        books.push({ section: 'Tracts', title: label + ' \u00b7 ' + t.ext.word, badge: kindWord, swatch: copyColor(t.cn), ready: true,
+                            blurb: t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + ' \u00b7 ' + fmtSpan(t.len) + ' \u00b7 ' + t.n.toLocaleString() + ' sites lost an allele'
+                                + (t.cn && t.cn.ratio != null ? ' \u00b7 depth ' + t.cn.ratio.toFixed(2) + 'x the normal\'s' : ''),
+                            books: () => [
+                                { title: 'Zoom to this region', badge: 'view', icon: 'zoom_in', ready: true,
+                                    blurb: 'Frame ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + ' on the genome.',
+                                    open: () => { try { const pad = Math.max(0.5, (t.len / MB) * 0.08); goView({ x0: barLeft(t.ci) - 0.5 * SLOT, x1: barRight(t.ci) + 0.5 * SLOT, y0: wy(t.hi) - pad, y1: wy(t.lo) + pad }); } catch (e) { } } },
+                                { title: 'Load in the oligo editor', badge: 'editor', icon: 'edit', accent: 'design', ready: true,
+                                    blurb: 'The transcripts in this region, with the variants inside it' + (t.len > 20e6 ? ' (a long tract: the first genes found are offered)' : '') + '.',
+                                    open: async () => { await openRange(t.ci, t.lo, t.hi); } },
+                                { section: 'What kind of loss', note: true, mono: true, title:
+                                      'region        ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + '  (' + fmtSpan(t.len) + ')\n'
+                                    + 'cytobands     ' + label + '\n'
+                                    + 'extent        ' + t.ext.word + '\n'
+                                    + 'kind          ' + kindWord + (t.cn && t.cn.ratio != null ? '  (tumor/normal depth ' + t.cn.ratio.toFixed(2) + 'x)' : '') + '\n'
+                                    + 'sites lost    ' + t.n.toLocaleString() + ' heterozygous sites went to one allele\n'
+                                    + 'genes         ' + (R.genes ? geneList.length.toLocaleString() + ' protein-coding' : 'not read yet') },
+                                { note: true, title: copyWhy(t.cn) + (t.cn && t.cn.kind === 'neutral'
+                                    ? ' Both alleles were once present; the tumor now holds two copies of the same one, so nothing is missing from the dosage.'
+                                    : t.cn && (t.cn.kind === 'deletion' || t.cn.kind === 'probable')
+                                        ? ' The genes here are on a single copy, so a hit on the remaining one finishes them.' : '') },
+                            ] });
+                    });
+                    if (tl.length > 200) books.push({ section: 'Tracts', note: true, title: (tl.length - 200) + ' smaller tracts are in the CSV.' });
+                }
+            }
             books.push({ section: 'By chromosome', note: true, title: 'Most affected first. A chromosome near 100% has lost one copy across its whole length; the genome\'s long homozygous stretches are these.' });
             R.chroms.forEach((c2) => books.push({ section: 'By chromosome', title: c2.name, badge: pct(c2.frac) + ' LOH',
                 swatch: c2.frac >= 0.7 ? '#a855f7' : (c2.frac >= 0.3 ? '#f97316' : '#94a3b8'), ready: true,
