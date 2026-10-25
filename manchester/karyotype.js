@@ -6404,12 +6404,16 @@ function (path, config) {
             const out = stateDocMeta();
             const __hasGt = !!out.hasGt;
             let n = 0, sides = '', anyLeft = false;
+            // PAST THE CAP, THIN EVENLY. Stopping at the cap cut off whatever chromosome came last,
+            // so a reload showed the end of the genome empty; keeping every Nth variant keeps all of it.
+            let __acc = 0; const __thin = vtotal > SAVE_CAP;
             for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
                 const d = vdata[ci];
                 if (!d.n) continue;
                 const bare = drawn[ci].name.replace(/^chr/, '');
                 const gw = d.gtw || 0;
                 for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
+                    if (__thin) { __acc += SAVE_CAP; if (__acc < vtotal) continue; __acc -= vtotal; }
                     if (d.side && d.side[k]) { sides += '1'; anyLeft = true; } else sides += '0';
                     const ab = allelesAt(ci, k);
                     const cls = d.cls[k] || 0;
@@ -6466,6 +6470,7 @@ function (path, config) {
             parts.push(head.slice(0, head.length - 1));      // drop the closing brace
             parts.push(',"variants":[');
             let buf = '', n = 0, anyLeft = false;
+            let __acc = 0; const __thin = vtotal > SAVE_CAP;   // see stateDoc: thin evenly, never cut the tail
             const sideParts = [];
             let sideBuf = '';
             const flush = () => { if (buf) { parts.push(buf); buf = ''; } };
@@ -6475,6 +6480,7 @@ function (path, config) {
                 const bare = drawn[ci].name.replace(/^chr/, '');
                 const gw = d.gtw || 0;
                 for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
+                    if (__thin) { __acc += SAVE_CAP; if (__acc < vtotal) continue; __acc -= vtotal; }
                     if (d.side && d.side[k]) { sideBuf += '1'; anyLeft = true; } else sideBuf += '0';
                     if (sideBuf.length >= PART_TARGET) { sideParts.push(sideBuf); sideBuf = ''; }
                     const ab = allelesAt(ci, k);
@@ -6680,7 +6686,11 @@ function (path, config) {
                     if (doc.lossHlScope === 'background' || doc.lossHlScope === 'all') lossHlScope = doc.lossHlScope;
                     clearLossFilters();
                     if (doc.lossFilters && typeof doc.lossFilters === 'object') for (const grp of FILTER_GROUPS) for (const o of (doc.lossFilters[grp.key] || [])) lossFilters[grp.key].add(o);
-                    applyLossHighlights(false);
+                    // ONLY IF IT WAS ON. A genome saved with no highlight still carries its loss
+                    // matrix, and re-applying the highlight regardless greyed out every variant but
+                    // the loss-of-function genes, so a reload looked like most of the file was missing.
+                    // A save with no highlight field at all is an older one, which always did this.
+                    if (doc.highlight == null || doc.highlight === HL_LOF) applyLossHighlights(false);
                 } catch (e) { }
             }
             if (doc.diffLoss && doc.diffLoss.A && doc.diffLoss.B) { try { diffResult = doc.diffLoss; } catch (e) { } }
@@ -18655,8 +18665,7 @@ function (path, config) {
                 return mb >= 1 ? (' (about ' + (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + ' MB)') : '';
             };
             const note = (vtotal > SAVE_CAP)
-                ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
-                    + SAVE_CAP.toLocaleString() + ' are written. If the file came in through '
+                ? ('Holding ' + vtotal.toLocaleString() + ' variants; ' + SAVE_CAP.toLocaleString() + ' of them, spread evenly across the whole genome, are written. If the file came in through '
                     + 'Upload, all of it is already in My Files.')
                 : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
                     + ' will be written' + sizeHint(vtotal) + '.'
