@@ -7015,6 +7015,21 @@ function (path, config) {
             return { sig: CV_SIG[I.sig[i]] || '', short: CV_SHORT[I.sig[i]] || '', low: !!I.lp[i], vid: I.vid[i], stars: I.star[i],
                 gene: I.genes[I.g[i]] || '', mc: ('' + (I.mcs[I.mc[i]] || '')).replace(/_/g, ' '), cond: I.conds[I.cn[i]] || '' };
         };
+        // The LOH tract a ClinVar variant lies in, if a scan has been run, with the same
+        // deletion / copy-neutral reading the tract itself carries: whether the other copy
+        // of a pathogenic allele is gone with the chromosome stretch or still there.
+        const cvLohAt = (ci, pos) => {
+            if (!lohResult) return null;
+            for (const c2 of (lohResult.chroms || [])) {
+                if (c2.ci !== ci) continue;
+                for (const t of (c2.runs || [])) if (pos >= t.lo && pos <= t.hi) {
+                    const c = drawn[ci];
+                    return { band: bandSpan(c, t.lo, t.hi) || c.name, extent: tractExtent(c, t.lo, t.hi).word, cn: t.cn || null, word: copyWord(t.cn || null) };
+                }
+            }
+            return null;
+        };
+        const cvLohText = (L) => !L ? '' : L.band + ' (' + L.extent + '), ' + L.word + (L.cn && L.cn.ratio != null ? ', depth ' + L.cn.ratio.toFixed(2) + 'x' : '');
         const cvLine = (R) => 'ClinVar: ' + R.sig + (R.low ? ' (low penetrance)' : '') + '   ·   ' + cvStars(R.stars)
             + (R.gene ? '   ·   ' + R.gene + (R.mc ? ' ' + R.mc : '') : '') + (R.cond ? '   ·   ' + R.cond : '')
             + (R.vid ? '   ·   VariationID ' + R.vid : '');
@@ -7151,6 +7166,7 @@ function (path, config) {
                     + 'pathogenic/likely pathogenic   ' + tally[2].toLocaleString() + '\n'
                     + 'likely pathogenic              ' + tally[3].toLocaleString() + '\n'
                     + 'genes                          ' + byGene.size.toLocaleString()
+                    + (lohResult ? (() => { let d = 0, nu = 0; for (const m of M) { const L = cvLohAt(m[0], vdata[m[0]].pos[m[1]]); if (!L || !L.cn) continue; if (L.cn.kind === 'deletion' || L.cn.kind === 'probable') d++; else if (L.cn.kind === 'neutral') nu++; } return '\nin a deleted stretch            ' + d.toLocaleString() + '\nin copy-neutral LOH            ' + nu.toLocaleString(); })() : '')
                     + (cvLast && cvLast.differ ? '\nthe file’s own CLNSIG differs  ' + cvLast.differ.toLocaleString() : '') });
                 books.push({ section: 'Act on them', accent: 'run', title: 'Mark them on the genome', badge: M.length.toLocaleString(), icon: 'my_location', ready: true,
                     blurb: 'Every match glows; everything else is greyed out.', open: () => cvMarkAll() });
@@ -7163,6 +7179,7 @@ function (path, config) {
                                 const row = { chrom: drawn[m[0]].name, pos: d.pos[m[1]], ref: ab[0], alt: ab[1], gene: R.gene,
                                     clinvar_significance: R.sig + (R.low ? ' (low penetrance)' : ''), review_stars: R.stars,
                                     consequence: R.mc, condition: R.cond, clinvar_variation_id: R.vid };
+                                { const L = cvLohAt(m[0], d.pos[m[1]]); row.loh_tract = L ? L.band + ' (' + L.extent + ')' : ''; row.loh_kind = L ? L.word : ''; row.tumor_depth_ratio = L && L.cn && L.cn.ratio != null ? L.cn.ratio : ''; }
                                 genotypesOf(d, m[1]).forEach((g) => { row['GT_' + g[0]] = GT_TEXT[g[1]] || ''; });
                                 return row;
                             });
@@ -7178,7 +7195,8 @@ function (path, config) {
                         badge: vs.length === 1 ? top.R.short : vs.length + ' variants',
                         blurb: vs.slice(0, 3).map((v) => (v.R.mc || 'variant') + ' ' + v.R.short
                             + (v.k >= 0 && vdata[v.ci].gtw ? ' ' + genotypesOf(vdata[v.ci], v.k).filter((g) => g[1] >= GT_HET).map((g) => GT_TEXT[g[1]]).join('/') : '')).join('  ·  ')
-                            + (top.R.cond ? '. ' + top.R.cond : ''),
+                            + (top.R.cond ? '. ' + top.R.cond : '')
+                            + (() => { const L = cvLohAt(top.ci, vdata[top.ci].pos[top.k]); return L ? '  ·  ' + L.word : ''; })(),
                         books: () => {
                             const sub = [];
                             vs.forEach((v) => {
@@ -7189,6 +7207,7 @@ function (path, config) {
                                     + '  ClinVar   ' + v.R.sig + (v.R.low ? ' (low penetrance)' : '') + '  ' + cvStars(v.R.stars) + '\n'
                                     + '  effect    ' + (v.R.mc || 'not stated') + '\n'
                                     + '  condition ' + (v.R.cond || 'not stated') + '\n'
+                                    + (cvLohAt(v.ci, pos) ? '  LOH       ' + cvLohText(cvLohAt(v.ci, pos)) + '\n' : '')
                                     + (gts.length ? '  genotype  ' + gts.map((g) => (SAMPLES.length > 1 ? g[0] + ' ' : '') + (GT_TEXT[g[1]] || '')).join(', ') + '\n' : '')
                                     + '  VariationID ' + v.R.vid });
                                 sub.push({ title: 'Open in oligo editor', badge: 'editor', icon: 'open_in_new', ready: true,
