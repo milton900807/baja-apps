@@ -144,6 +144,7 @@ function () {
         h += section('Tracts', 'Largest first, with the protein-coding genes inside each.',
             tr.length ? tr.map((t, i) => card('<span style="font:700 13.5px Arial;">' + esc(t.bands || t.chr) + '</span> '
                 + chip(t.extent, t.rank <= 1 ? '#a855f7' : t.rank === 2 ? '#f97316' : '#94a3b8')
+                + (t.copy ? ' <span title="' + esc(t.copy.why || '') + '">' + chip(t.copy.word || '', ({ deletion: '#ef4444', probable: '#f59e0b', neutral: '#38bdf8', gain: '#22c55e' })[t.copy.kind] || '#94a3b8') + '</span>' : '')
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:4px;">' + esc(t.chr + ':' + (+t.lo).toLocaleString() + '-' + (+t.hi).toLocaleString())
                 + ' &middot; ' + mb(t.len || 0) + ' &middot; ' + (t.n || 0).toLocaleString() + ' sites lost</div>'
                 + ((t.genes && t.genes.length) ? '<details style="margin-top:6px;font:12px Arial;color:#cfe0f5;"><summary style="cursor:pointer;color:#8ab4ff;">'

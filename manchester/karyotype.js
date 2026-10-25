@@ -4334,6 +4334,33 @@ function (path, config) {
         };
         const sexWord = (res) => !res ? '' : res.call + (res.confidence ? ' (' + res.confidence + ' confidence)' : '')
             + (res.karyotype && res.karyotype !== 'XY' && res.karyotype !== 'XX' ? ', ' + res.karyotype : '');
+        // READ DEPTH, COARSELY, TO TELL A DELETION FROM COPY-NEUTRAL LOH. Both leave one
+        // allele where the germline had two, so the allele fractions cannot separate them; the
+        // depth can: a lost copy takes the tumor's reads over that stretch down against the
+        // normal's, a copy-neutral loss (the other copy duplicated over it) leaves them level.
+        // Kept as a sum and a count per 1 Mb bin per sample and side, not per site.
+        const DEPTH_BIN = 1e6;
+        const depthBins = new Map();
+        let copyRefCache = null;
+        const depthKey = (ci, side, si, bin) => (((ci * 2 + side) * 32 + si) * 4096) + bin;
+        const depthAdd = (ci, side, si, pos, dp) => {
+            const k = depthKey(ci, side, si, Math.min(4095, Math.floor(pos / DEPTH_BIN)));
+            let e = depthBins.get(k);
+            if (!e) { e = [0, 0]; depthBins.set(k, e); }
+            e[0] += dp; e[1]++;
+            copyRefCache = null;
+        };
+        // Mean depth of one sample over one bin: side null sums both sides, si null tries each slot.
+        const depthAt = (ci, bin, side, slots) => {
+            let sum = 0, n = 0;
+            for (const sd of (side == null ? [0, 1] : [side])) {
+                for (const si of slots) {
+                    const e = depthBins.get(depthKey(ci, sd, si, bin));
+                    if (e) { sum += e[0]; n += e[1]; }
+                }
+            }
+            return { sum: sum, n: n };
+        };
         const genotypesOfRow = (f, count, altIdx) => {
             if (f.length < 10) return null;
             if (!count.cols) {
@@ -4353,6 +4380,15 @@ function (path, config) {
                 gtRow[si] = code;
                 cfRow[si] = code ? sampleTierOf(cell, ix, altIdx, rowT) : 0;
                 bfRow[si] = code ? bafCode(cell, ix, altIdx) : 0;
+                if (code && (ix.dp >= 0 || ix.ad >= 0)) {
+                    try {
+                        const pr = cell.split(':');
+                        let dp = ix.dp >= 0 ? +pr[ix.dp] : NaN;
+                        if (!(dp >= 0) && ix.ad >= 0 && pr[ix.ad]) dp = pr[ix.ad].split(',').reduce((a, x) => a + (+x || 0), 0);
+                        let dci = chromIndex[f[0]]; if (dci == null) dci = chromIndex['chr' + f[0]];
+                        if (dp >= 0 && dci != null && +f[1] > 0) depthAdd(dci, loadSide, si, +f[1], dp);
+                    } catch (e) { }
+                }
                 if (code) { const psv = psCode(cell, ix); psRow[si] = psv; if (psv) count.anyPS = true; }
                 if (code) { any = true; known++; }
                 if (code >= GT_HET) carriers++;
@@ -8309,6 +8345,55 @@ function (path, config) {
             }
             return specs;
         };
+        // THE COPY STATE OF ONE TRACT: tumor depth over normal depth across the tract, set
+        // against the same ratio across the whole genome so that a library-size difference
+        // between the two files cancels. Around 0.5 is one copy left (a deletion), around 1 is
+        // two copies with one allele (copy-neutral LOH), above 1.25 is a gain on top of the LOH.
+        // A tumor that is not pure pulls a deletion toward 1, so the middle is called
+        // "probable deletion" rather than guessed either way.
+        const COPY_DEL = 0.78, COPY_NEUTRAL = 0.9, COPY_GAIN = 1.25, COPY_MIN_SITES = 8;
+        const lohDepthSlots = (spec) => {
+            if (spec.kind === 'sample') return { n: { side: null, slots: [spec.normal] }, t: { side: null, slots: [spec.tumor] } };
+            const all = []; for (let i = 0; i < GT_MAX; i++) all.push(i);
+            const sl = (sd) => (sideSlots[sd] && sideSlots[sd].length) ? sideSlots[sd] : all;
+            return { n: { side: spec.normal, slots: sl(spec.normal) }, t: { side: spec.tumor, slots: sl(spec.tumor) } };
+        };
+        const binRatio = (ci, bin, S) => {
+            const a = depthAt(ci, bin, S.t.side, S.t.slots), b = depthAt(ci, bin, S.n.side, S.n.slots);
+            if (a.n < COPY_MIN_SITES || b.n < COPY_MIN_SITES || !(b.sum > 0)) return null;
+            return (a.sum / a.n) / (b.sum / b.n);
+        };
+        const medianOf = (xs) => { if (!xs.length) return null; const v = xs.slice().sort((a, b) => a - b); const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+        const copyRef = (spec, S) => {
+            if (copyRefCache && copyRefCache.spec === spec) return copyRefCache.v;
+            const rs = [];
+            for (let ci = 0; ci < drawn.length; ci++) {
+                if (!vdata[ci] || !vdata[ci].n) continue;
+                const nb = Math.min(4095, Math.floor(drawn[ci].length / DEPTH_BIN));
+                for (let b = 0; b <= nb; b++) { const r = binRatio(ci, b, S); if (r != null) rs.push(r); }
+            }
+            const v = rs.length >= 20 ? medianOf(rs) : null;
+            copyRefCache = { spec: spec, v: v };
+            return v;
+        };
+        const tractCopyState = (spec, ci, lo, hi) => {
+            if (!depthBins.size) return { kind: 'unknown', ratio: null, bins: 0 };
+            const S = lohDepthSlots(spec), ref = copyRef(spec, S);
+            if (!(ref > 0)) return { kind: 'unknown', ratio: null, bins: 0 };
+            const rs = [];
+            for (let b = Math.floor(lo / DEPTH_BIN); b <= Math.min(4095, Math.floor(hi / DEPTH_BIN)); b++) { const r = binRatio(ci, b, S); if (r != null) rs.push(r); }
+            if (rs.length < 1 || (rs.length < 2 && hi - lo > 3 * DEPTH_BIN)) return { kind: 'unknown', ratio: null, bins: rs.length };
+            const ratio = Math.round(medianOf(rs) / ref * 100) / 100;
+            const kind = ratio <= COPY_DEL ? 'deletion' : ratio >= COPY_GAIN ? 'gain' : ratio >= COPY_NEUTRAL ? 'neutral' : 'probable';
+            return { kind: kind, ratio: ratio, bins: rs.length };
+        };
+        const copyColor = (cn) => !cn ? '#94a3b8' : cn.kind === 'deletion' ? '#ef4444' : cn.kind === 'probable' ? '#f59e0b' : cn.kind === 'neutral' ? '#38bdf8' : cn.kind === 'gain' ? '#22c55e' : '#94a3b8';
+        const copyWord = (cn) => !cn ? '' : cn.kind === 'deletion' ? 'deletion' : cn.kind === 'neutral' ? 'copy-neutral LOH'
+            : cn.kind === 'gain' ? 'LOH with copy gain' : cn.kind === 'probable' ? 'probable deletion' : 'copy number not assessed';
+        const copyWhy = (cn) => !cn || cn.kind === 'unknown' ? 'No read depth in the file for this stretch, so a deletion cannot be told from a copy-neutral loss.'
+            : 'Tumor read depth is ' + cn.ratio.toFixed(2) + 'x the normal\'s here against the genome-wide level (' + cn.bins + ' Mb read): '
+            + (cn.kind === 'deletion' ? 'one copy is gone.' : cn.kind === 'neutral' ? 'two copies are still present, one allele duplicated over the other.'
+            : cn.kind === 'gain' ? 'more than two copies, with one allele.' : 'between one and two copies; a tumor that is not pure makes a deletion look like this.');
         const computeLOH = async (spec) => {
             if (lohBusy) { graph.setMessage(' The scan is still running. '); return; }
             lohBusy = true;
@@ -8380,6 +8465,7 @@ function (path, config) {
                             runs[r2 - 1].n += runs[r2].n;
                             runs.splice(r2, 1);
                         }
+                        for (const r3 of runs) { try { r3.cn = tractCopyState(spec, ci, r3.lo, r3.hi); } catch (e) { r3.cn = { kind: 'unknown', ratio: null, bins: 0 }; } }
                     }
                     if (het) {
                         chroms.push({ ci: ci, name: drawn[ci].name, het: het, loh: loh, kept: kept, uncalled: uncalled,
@@ -8935,7 +9021,7 @@ function (path, config) {
             const out = [];
             for (const c2 of ((R && R.chroms) || [])) for (const t of (c2.runs || [])) {
                 const c = drawn[c2.ci];
-                if (c) out.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: tractExtent(c, t.lo, t.hi) });
+                if (c) out.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: tractExtent(c, t.lo, t.hi), cn: t.cn || null });
             }
             return out;
         };
@@ -9204,7 +9290,7 @@ function (path, config) {
                     const ext = tractExtent(c, t.lo, t.hi);
                     const inside = tsgs.filter((g) => g.ci === c2.ci && g.end >= t.lo && g.start <= t.hi);
                     const nGenes = genes.filter((g) => g.ci === c2.ci && g.end >= t.lo && g.start <= t.hi).length;
-                    tracts.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: ext, tsg: inside, nGenes: nGenes });
+                    tracts.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: ext, cn: t.cn || null, tsg: inside, nGenes: nGenes });
                 }
                 tracts.sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
                 const scannedLen = R.chroms.reduce((s, c2) => s + (drawn[c2.ci].length || 0), 0);
@@ -9232,6 +9318,8 @@ function (path, config) {
                     + 'across ' + tracts.length + ' tract' + (tracts.length === 1 ? '' : 's') + ' covering ' + mb(lohLen) + ' (' + pct(scannedLen ? lohLen / scannedLen : 0) + ' of the chromosomes with informative sites).');
                 if (nWhole || nArm) lines.push((nWhole ? nWhole + ' whole-chromosome' : '') + (nWhole && nArm ? ' and ' : '') + (nArm ? nArm + ' arm-level' : '') + ' loss'
                     + ((nWhole + nArm) === 1 ? '' : 'es') + ': ' + tracts.filter((t) => t.ext.rank <= 1).map((t) => chrShort(t.c.name) + t.ext.arms).join(', ') + '.');
+                { const nDel = tracts.filter((t) => t.cn && (t.cn.kind === 'deletion' || t.cn.kind === 'probable')).length, nNeu = tracts.filter((t) => t.cn && t.cn.kind === 'neutral').length;
+                  if (nDel || nNeu) lines.push('By read depth, ' + nDel + ' of the ' + tracts.length + ' tracts ' + (nDel === 1 ? 'is a deletion' : 'are deletions') + ' (a copy is gone) and ' + nNeu + ' ' + (nNeu === 1 ? 'is' : 'are') + ' copy-neutral LOH (two copies, one allele).'); }
                 if (biallelic.length) lines.push('Biallelic inactivation of ' + biallelic.map((g) => g.gene).join(', ') + ': LOH together with a damaging change on the remaining copy.');
                 if (tsgs.length) lines.push(tsgs.length + ' tumor suppressor' + (tsgs.length === 1 ? ' is' : 's are') + ' inside a tract (' + tsgs.map((g) => g.gene).join(', ') + ')'
                     + (tsgs.length - biallelic.length ? '; ' + (tsgs.length - biallelic.length) + ' of them ' + ((tsgs.length - biallelic.length) === 1 ? 'is' : 'are') + ' down to one copy with no second hit seen' : '') + '.');
@@ -9285,6 +9373,7 @@ function (path, config) {
                     'Region': t.c.name + ':' + human(t.lo) + '-' + human(t.hi),
                     'Cytobands': bandSpan(t.c, t.lo, t.hi),
                     'Extent': t.ext.word,
+                    'Kind of loss': copyWord(t.cn) + (t.cn && t.cn.ratio != null ? ' (depth ' + t.cn.ratio.toFixed(2) + 'x)' : ''),
                     'Length': mb(t.len) + ' (' + pct(t.len / Math.max(1, t.c.length)) + ' of ' + t.c.name + ')',
                     'Sites that lost an allele': t.n.toLocaleString(),
                     'Protein-coding genes': t.nGenes ? t.nGenes.toLocaleString() : '',
@@ -10011,6 +10100,7 @@ function (path, config) {
                     tr.length ? tr.slice(0, 40).map((t, i) => card('<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
                         + '<div style="flex:1;min-width:0;"><span style="font:700 13.5px Arial;">' + esc(bandSpan(t.c, t.lo, t.hi) || t.c.name) + '</span> '
                         + chip(t.ext.word, t.ext.rank <= 1 ? '#a855f7' : t.ext.rank === 2 ? '#f97316' : '#94a3b8')
+                        + (t.cn ? ' <span title="' + esc(copyWhy(t.cn)) + '">' + chip(copyWord(t.cn), copyColor(t.cn)) + '</span>' : '')
                         + '<div style="font:12px Arial;color:#9fb3c8;margin-top:4px;">' + esc(t.c.name + ':' + human(t.lo) + '-' + human(t.hi)) + ' &middot; ' + mb(t.len)
                         + ' &middot; ' + t.n.toLocaleString() + ' sites lost</div></div>'
                         + '<button class="lu-tract" data-t="' + i + '" data-a="genes" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Genes</button>'
@@ -10177,7 +10267,7 @@ function (path, config) {
                         gofHomozygous: ((GOF && GOF.list) || []).filter((x) => x.inLoh && x.state === 'retained' && x.level !== 'possible').length,
                         essential: ESS ? ESS.candidates.length : null },
                     figure: fig,
-                    tracts: trs.map((t) => ({ chr: t.c.name, lo: t.lo, hi: t.hi, bands: bandSpan(t.c, t.lo, t.hi), extent: t.ext.word, rank: t.ext.rank,
+                    tracts: trs.map((t) => ({ chr: t.c.name, lo: t.lo, hi: t.hi, bands: bandSpan(t.c, t.lo, t.hi), extent: t.ext.word, rank: t.ext.rank, copy: t.cn ? { kind: t.cn.kind, ratio: t.cn.ratio, word: copyWord(t.cn), why: copyWhy(t.cn) } : null,
                         len: t.len, n: t.n, genes: (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi).map((g) => g.gene).slice(0, 400) })),
                     // GTEx TPM of the tract genes, compact: tissue labels once, values per gene.
                     tractTpm: (() => {
@@ -17495,7 +17585,7 @@ function (path, config) {
                 d.ref = new Uint8Array(0); d.alt = new Uint8Array(0);
                 d.cplx = new Map(); d.names = []; d.snps = [];
                 d.gts = null; d.gtw = 0; d.baf = null; d.hl = new Uint8Array(0); d.hlIdx = [];
-                d.side = new Uint8Array(0); d.nL = 0; d.histL = null;
+                d.side = new Uint8Array(0); d.nL = 0; d.histL = null; depthBins.clear(); copyRefCache = null;
                 d.hist = new Uint32Array(HIST_BINS); d.histBy = null;
             }
             vtotal = 0; vobjects = 0;
