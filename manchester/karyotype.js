@@ -19048,7 +19048,20 @@ function (path, config) {
         // the entire origin. Over the limit the variants are trimmed rather than the transfer
         // failing, and the editor is told how many were left behind.
         const HANDOFF_MAX_CHARS = 3_500_000;
+        // The LOH tracts, in the form the editor reads them (baja/manchester/menu/loh-label.js).
+        const lohTractsForEditor = () => {
+            if (!lohResult) return null;
+            const out = [];
+            for (const c2 of (lohResult.chroms || [])) for (const t of (c2.runs || [])) {
+                const c = drawn[c2.ci];
+                if (!c) continue;
+                out.push({ chr: c.name, lo: t.lo, hi: t.hi, band: bandSpan(c, t.lo, t.hi), extent: tractExtent(c, t.lo, t.hi).word,
+                    kind: t.cn ? t.cn.kind : 'unknown', ratio: t.cn ? t.cn.ratio : null, word: t.cn ? copyWord(t.cn) : 'LOH, copy number not assessed' });
+            }
+            return out.length ? out : null;
+        };
         const handToEditor = async (ids, inRange, focus) => {
+            try { window.__bajaLohTracts = lohTractsForEditor(); } catch (e) { }
             try { window.__bajaHandoffNewTab = false; } catch (e) { }
             const list = (ids || []).filter(Boolean);
             if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
@@ -19073,6 +19086,7 @@ function (path, config) {
                     v: 1, from: 'karyotype', at: Date.now(),
                     species: (r && r.species) || 'human',
                     list: list, focus: focus || null, variants: (inRange || []),
+                    loh: (() => { try { return lohTractsForEditor(); } catch (e) { return null; } })(),
                 };
                 let text = JSON.stringify(payload);
                 if (text.length > HANDOFF_MAX_CHARS && payload.variants.length) {

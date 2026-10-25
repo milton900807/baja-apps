@@ -3674,6 +3674,7 @@ function (path, config) {
                         } catch (e) { }
                         if (__raw) {
                             const H = JSON.parse(__raw);
+                            try { window.__bajaLohTracts = (H && H.loh) || null; } catch (e) { }
                             const __ids = (H && H.list) || [], __vars = (H && H.variants) || [];
                             if (__ids.length) {
                                 setTimeout(async () => {
