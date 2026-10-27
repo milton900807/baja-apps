@@ -2569,7 +2569,7 @@ function (path, config) {
             // lands under "More", so a new builder is never lost.
             const BUILD_GROUPS = [
                 ['Timelines', ['Historical Milestones', 'Scientific Publications Timeline', 'Gantt Chart']],
-                ['Financial models', ['P&L With Capital', 'Project', 'Milestone Budget', 'Product Assumptions', 'Budget Assumptions']],
+                ['Financial models', ['P&L With Capital', 'Simple P&L With Capital', 'Project', 'Milestone Budget', 'Product Assumptions', 'Budget Assumptions']],
                 ['Analysis', ['\u0394\u0394Ct analysis', 'Build Analytics', 'Draw connections']],
                 ['Oligo & molecule design', ['Molecule', 'siRNA', 'ssASO', 'ssASO - Chirality', 'Morpholino', 'SMILEs']],
                 ['Figures', ['SVG', 'High res SVG', 'Molecular mechanism', 'Draw genetic pathways']],
@@ -4045,6 +4045,53 @@ function (path, config) {
                         }
                         CurrentLayout.setComponent('mainPanel', sequence_input)
 
+                    })
+                })
+
+                ai_create_file_items.push({
+                    // The short version of P&L With Capital: one description, ONE model call for the
+                    // numbers (py/openai/simple-pnl-capital.py), and four small tables whose formulas
+                    // are written in code -- assumptions, first-year P&L, a five-year view, and the
+                    // capital required. No ten-year table, no waterfall, no chain of follow-up calls.
+                    'label': 'Simple P&L With Capital', 'ionfunction': createIonFunction(async () => {
+                        const pt = pm.plateTrack;
+                        let content = '';
+                        try {
+                            content = await exec('baja/lib/prompt-text.js', {
+                                title: 'Simple P&L with capital',
+                                message: 'Describe the business in a sentence or two: what it sells, roughly how much, and what it needs to get started. You get four tables: assumptions, a first-year P&L, a five-year view and the capital required.',
+                                placeholder: 'A small therapeutics company with two commercial products for rare disease indications, a lab and a team of twenty…',
+                                action: 'Build the model',
+                                historyKey: 'simple-pnl-capital'   // the last 10 descriptions, offered back
+                            });
+                        } catch (e) { content = ''; }
+                        if (!content) return;
+                        pt.setMessage('Estimating the key numbers…', 5);
+                        let model = null;
+                        try { model = await exec('py/openai/simple-pnl-capital.py', content); } catch (e) { model = { error: '' + (e && e.message || e) }; }
+                        if (!model || model.error || !model.tables) {
+                            try { pt.killSprite(); } catch (e) { }
+                            pt.setMessage('The model could not be built: ' + ((model && model.error) || 'no answer'), 3);
+                            return;
+                        }
+                        const before = new Set((pt.root || []).map(x => x && x.name));
+                        let report = null;
+                        try {
+                            report = await exec('baja/draw/data-model-to-tables-gpt', pt, model);
+                        } catch (e) { try { pt.killSprite(); } catch (e2) { } pt.setMessage('The tables could not be placed: ' + (e && e.message || e), 3); return; }
+                        const made = (pt.root || []).filter(x => x && !before.has(x.name)).map(x => x.name);
+                        try {
+                            const rep = report && report.report ? report.report : null;
+                            console.log('[simple P&L] tables:', made, 'report:', rep);
+                            const errs = rep ? [].concat(rep.errors || [], rep.missingValues || []) : [];
+                            if (errs.length) pt.setMessage('Tables built (' + made.length + '), but ' + errs.length + ' formula cell(s) did not resolve; see the console.', 3);
+                            else pt.setMessage('Simple P&L built. Edit the assumptions or the capital items; everything else follows.', 2);
+                        } catch (e) { }
+                        try { pt.updateCalculations(); } catch (e) { }
+                        try { pt.killSprite(); } catch (e) { }
+                        try { await pt.layoutCompactTetris(); } catch (e) { }
+                        try { await pt.zoomtfit(); } catch (e) { }
+                        try { pt.updateCalculations(); } catch (e) { }
                     })
                 })
 
