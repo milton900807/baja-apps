@@ -9,6 +9,8 @@
 # wording is reviewed like any other text in the interface -- rather than data
 # somebody's run produced, which is what the rule above is for.
 !py/tutorials/seed/*.json
+# The Baja Analytics template catalog and its generated index ship with the app too.
+!baja/analytics-templates/*.json
 *.sdf
 *.screen
 *__pycache__*

@@ -1,4 +1,8 @@
-function (platetrack, type, type_path, _name, callback) {
+function (platetrack, type, type_path, _name, callback, preloaded) {
+
+    // preloaded (optional): a template already fetched, { rule_value } as /get-script returns it.
+    // The template library passes it for templates that live in a user's own folder, which
+    // /get-script cannot reach; otherwise the table is loaded from type_path/_name as before.
 
     return new Promise(async (resolve, reject) => {
         let Plate = await exec('baja/plate/plate.js');
@@ -17,21 +21,24 @@ function (platetrack, type, type_path, _name, callback) {
             let rs = await POSTJSON(jsonobj, host_ + '/get-script');
             return rs;
         };
-        if (_name && type_path) {
+        if ((_name && type_path) || (preloaded && preloaded.rule_value)) {
             if (type_path === _name) {
                 type_path = ''
             }
             const rectWidth = platetrack.grid.width - (platetrack.grid.width * 0.2);
             const rectHeight = 800
-            const lf = await load_file(type_path, _name)
+            const lf = (preloaded && preloaded.rule_value) ? preloaded : await load_file(type_path, _name)
             if (lf && lf.rule_value) {
                 const ts = __decompress(lf.rule_value);
                 const pl = Plate.buildPlateFromJSON(ts)
                 pl.uid = uuid();
 
-                if (!pl.name && pl.name === 'data') {
+                // An unnamed table, or one still called 'data' (the default), gets a name before it
+                // lands: two tables cannot share a name on one canvas. This read `!pl.name && pl.name
+                // === 'data'`, which is never true, so the prompt never showed.
+                if (!pl.name || pl.name === 'data') {
 
-                    let va = await prompt("Table name", ["Name"], { "Name": '' }, 300, 300)
+                    let va = (await prompt("Table name", ["Name"], { "Name": '' }, 300, 300)) || {}
                     let m = va['Name']
                     if (!m || m.length <= 0) {
                         m = generateNautName();

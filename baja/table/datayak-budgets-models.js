@@ -104,11 +104,12 @@ function (pm) {
                     children: node.children.map(buildNode),
                     click: () => { }
                 };
-            } else if (node.type === 'file' && node.name.endsWith('.bjb')) {
+            } else if (node.type === 'file' && (node.name.endsWith('.bjb') || node.name.endsWith('.ljl'))) {
+                // .bjb is what Publish writes now; the shipped workbooks are .ljl and were never listed.
                 let dir = node.path.split('/').slice(0, -1).join('/').replace(/\\/g, '/');
                 pm.plateTrack.setMessage(" Loading model... ")
                 return {
-                    label: node.name.replace('.bjb', ''),
+                    label: node.name.replace(/\.(bjb|ljl)$/, ''),
                     path: node.path,
                     click: async () => {
                         if (dir.length > 0 && !dir.startsWith('/')) {

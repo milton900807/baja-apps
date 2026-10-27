@@ -1,4 +1,6 @@
-function (platetrack, type, type_path, _name) {
+function (platetrack, type, type_path, _name, preloaded) {
+
+    // preloaded (optional): a timeline template already fetched, { rule_value }; see place-table.js.
 
     return new Promise(async (resolve, reject) => {
         const Plot = await exec('flexigraph/plot');
@@ -17,11 +19,11 @@ function (platetrack, type, type_path, _name) {
             let rs = await POSTJSON(jsonobj, host_ + '/get-script');
             return rs;
         };
-        if (_name && type_path) {
+        if ((_name && type_path) || (preloaded && preloaded.rule_value)) {
             if (type_path === _name) {
                 type_path = ''
             }
-            const lf = await load_file(type_path, _name)
+            const lf = (preloaded && preloaded.rule_value) ? preloaded : await load_file(type_path, _name)
             if (lf && lf.rule_value) {
                 const ts = __decompress(lf.rule_value);
                 const pl = Plot.fromJSON(ts)

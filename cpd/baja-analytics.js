@@ -7865,6 +7865,13 @@ function (path, config) {
                         'label': 'Templates', 'ionfunction': createIonFunction(async () => {
                             const templates = [
                                 {
+                                    // Every built-in template with a description and preview, plus the
+                                    // user's own. Tables and Models below are the older folder menus.
+                                    label: 'Template library', click: (async () => {
+                                        await exec('baja/analytics/templates/browser', pm, graph);
+                                    })
+                                },
+                                {
                                     label: 'Tables', click: (async () => {
 
                                         try {
