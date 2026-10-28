@@ -909,6 +909,45 @@ function () {
                                 })
                             },
                             {
+                                // What skipping this exon would do, before doing it: coding or UTR, in frame or
+                                // a frameshift, where the stop falls, and whether that mRNA is an NMD target
+                                // or is predicted to make protein. Read-only; Remove exon applies the same
+                                // analysis (baja/bio/orfs/exon-removal-impact.js), so the two agree.
+                                label: 'Predict effect of removing',
+                                click: async (xwc, ywc) => {
+                                    try { graph.showSideMenu(null); } catch (e) { }
+                                    if (!selectedTrack) { graph.setMessage(" No track selected "); return; }
+                                    const esc = (t) => ('' + t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+                                    let r = null;
+                                    try { r = await exec('baja/bio/orfs/exon-removal-impact.js', selectedTrack, annotation); } catch (e) { r = null; }
+                                    if (!r || !r.ok) {
+                                        infoPrompt('<b>Effect of removing ' + esc(annotation.name || 'this exon') + '</b><br><br>'
+                                            + esc((r && r.reason) || 'Could not assess this exon.'), 520);
+                                        return;
+                                    }
+                                    const verdict = {
+                                        'nmd': ['#c0392b', 'PTC \u2192 NMD predicted'],
+                                        'nmd-maybe-escape': ['#d97706', 'PTC \u2192 NMD likely, may be incomplete'],
+                                        'nonstop': ['#c0392b', 'No stop \u2192 non-stop decay'],
+                                        'escapes': ['#15803d', 'Escapes NMD \u2192 protein expected'],
+                                        'as-original': ['#2563eb', 'In frame \u2192 NMD status as the original']
+                                    }[r.nmd] || (r.outcome === 'unchanged' ? ['#475569', 'Protein unchanged']
+                                        : (r.outcome === 'start-lost' ? ['#c0392b', 'Start codon lost'] : ['#475569', 'See notes']));
+                                    const chip = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + verdict[0]
+                                        + ';color:#fff;font-size:12px;font-weight:600">' + esc(verdict[1]) + '</span>';
+                                    const lens = (r.outcome !== 'start-lost' && r.oldLength)
+                                        ? '<div style="margin:6px 0;opacity:.85">Protein: ' + r.oldLength + ' aa \u2192 ' + (r.newLength || 0) + ' aa</div>' : '';
+                                    infoPrompt('<b>Effect of removing ' + esc(annotation.name || 'this exon') + '</b> ' + chip
+                                        + '<div style="margin:10px 0 6px">' + esc(r.headline) + '</div>' + lens
+                                        + '<ul style="margin:6px 0 4px 18px;padding:0">' + r.lines.map((l) => '<li style="margin:3px 0">' + esc(l) + '</li>').join('') + '</ul>'
+                                        + '<div style="margin-top:8px;font-size:11px;opacity:.7">Translation from the annotated start codon to the first in-frame stop over the remaining exons. '
+                                        + 'NMD: 50\u201355 nt rule, with start-proximal and long-exon exceptions. A prediction, not a measurement.</div>', 560);
+                                },
+                                move: () => {
+                                    log('')
+                                }
+                            },
+                            {
                                 label: 'Remove exon',
                                 click: async (xwc, ywc) => {
 
