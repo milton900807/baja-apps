@@ -716,8 +716,12 @@ function () {
                             },
 
                             {
+                                // Opens its list at once, not on a timer: a floating menu (the one a click on
+                                // the exon opens) ends its session ~80 ms after an item's click returns unless
+                                // that item opened another menu, so a list opened 100 ms later landed in the
+                                // side panel instead of in place.
                                 'label': 'AI Models', click: (async () => {
-                                    setTimeout(async () => {
+                                    {
 
                                         async function runCrypticExonFinder({ graph, selectedTrack, annotation, exec, infoPrompt, scriptPath }) {
                                             if (!selectedTrack) {
@@ -752,15 +756,54 @@ function () {
 
                                         const models = [
                                             {
-                                                label: 'LJSplice v2',
+                                                // The BajaSplice models (py/bajasplice-lib, py/bajair-lib), run on THIS
+                                                // exon, in place of the old LJSplice v2 window. Each entry hands the track
+                                                // and the exon to the same script the Models library runs, so nothing asks
+                                                // for a second click on the track.
+                                                label: 'BajaSplice \u25b8',
                                                 click: async (xwc, ywc) => {
                                                     if (!selectedTrack) {
                                                         graph.setMessage(" No track selected ");
                                                         return;
                                                     }
-                                                    graph.setMouseMode('none');
-                                                    graph.setMessage("Click on a track to plot attributes");
-                                                    await exec('baja/bio/splicing/splicing-on-exon.js', graph, selectedTrack, annotation);
+                                                    const lo = Math.min(+annotation.xi, +annotation.xf);
+                                                    const hi = Math.max(+annotation.xi, +annotation.xf);
+                                                    // Which end is which flips with the strand (the same rule cis-attribution.js uses).
+                                                    const plus = +selectedTrack.strand >= 0;
+                                                    const acceptorAt = Math.round(plus ? +annotation.xi : +annotation.xf);
+                                                    const donorAt = Math.round(plus ? +annotation.xf : +annotation.xi);
+                                                    const run = (path, ...args) => {
+                                                        try { graph.showSideMenu(null); } catch (e) { }
+                                                        Promise.resolve(exec(path, graph, genegraph_panel_layout, selectedTrack, ...args))
+                                                            .catch((e) => { try { graph.setMessage(' BajaSplice: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } });
+                                                    };
+                                                    graph.showSideMenu([
+                                                        {
+                                                            label: 'Splice-site strength (SpliceNet)',
+                                                            click: () => run('baja/bio/splicing/splicing-profile.js', { start: lo, end: hi }, 'sites'),
+                                                            move: () => log('')
+                                                        },
+                                                        {
+                                                            label: 'Exon inclusion, PSI (PSINet)',
+                                                            click: () => run('baja/bio/splicing/splicing-profile.js', null, 'psi'),
+                                                            move: () => log('')
+                                                        },
+                                                        {
+                                                            label: 'Cis-regulatory windows at the acceptor',
+                                                            click: () => run('baja/bio/splicing/cis-attribution.js', { site: acceptorAt, which: 'acceptor' }),
+                                                            move: () => log('')
+                                                        },
+                                                        {
+                                                            label: 'Cis-regulatory windows at the donor',
+                                                            click: () => run('baja/bio/splicing/cis-attribution.js', { site: donorAt, which: 'donor' }),
+                                                            move: () => log('')
+                                                        },
+                                                        {
+                                                            label: 'Intron retention (BajaIR)',
+                                                            click: () => run('baja/bio/splicing/intron-retention.js'),
+                                                            move: () => log('')
+                                                        }
+                                                    ]);
                                                 },
                                                 move: () => log('')
                                             },
@@ -861,7 +904,7 @@ function () {
 
                                         graph.showSideMenu(models);
 
-                                    }, 100)
+                                    }
 
                                 })
                             },
