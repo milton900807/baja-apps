@@ -1,14 +1,7 @@
-function (kind, strategy) {
+function (kind) {
 
     // The rules a DEFAULT design run will apply, as a document.
     //   const html = await exec('baja/manchester/menu/design-rules-doc.js', 'gapmer');
-    //   const html = await exec('baja/manchester/menu/design-rules-doc.js', 'gapmer', 'tile');
-    //
-    // `strategy` is 'rules' (the default) or 'tile'. It changes ONE sentence -- which
-    // candidates come back -- because that is the only thing tiling changes. Everything else
-    // in here, the candidate space and every scoring term, applies to a tiling exactly as it
-    // applies to a ranked design: a tile is still the best-scoring layout that starts where
-    // it starts.
     //
     // Default mode takes every parameter out of the user's hands, which is the point of it --
     // and left them with no way to find out what it chose. The Advanced tab at least showed
@@ -67,11 +60,7 @@ function (kind, strategy) {
         return H('What runs')
             + P('<b>py_ssaso_design</b> — an RNase&nbsp;H1 gapmer designer. It scans every start '
                 + 'position on the sequence at each length and gap size, scores all of them, and '
-                + (('' + (strategy || 'rules')).toLowerCase() === 'tile'
-                    ? 'returns the best one starting at each step along the target, in order '
-                        + 'along it. The scores come with them; they are not what decides which '
-                        + 'sites are in the answer.'
-                    : 'returns the best non-overlapping sites.'))
+                + 'returns the best non-overlapping sites.')
             + H('The candidate space')
             + UL([
                 'Lengths <b>16, 17, 18, 19, 20</b> nt',
@@ -114,12 +103,7 @@ function (kind, strategy) {
         return H('What runs')
             + P('<b>py_ssaso_design-steric-blocking</b> — a fully modified single strand that '
                 + 'occupies its site rather than triggering cleavage. No DNA gap, so no '
-                + 'RNase&nbsp;H1 and no degradation of the transcript. '
-                + (('' + (strategy || 'rules')).toLowerCase() === 'tile'
-                    ? 'It scores every start position and returns the best one starting at each '
-                        + 'step along the target, in order along it. The scores come with them; '
-                        + 'they are not what decides which sites are in the answer.'
-                    : 'It scores every start position and returns the best non-overlapping sites.'))
+                + 'RNase&nbsp;H1 and no degradation of the transcript.')
             + H('The candidate space')
             + UL([
                 'Lengths <b>18, 19, 20</b> nt',
@@ -151,13 +135,7 @@ function (kind, strategy) {
 
     return H('What runs')
         + P('<b>py_sirna_design</b> — an siRNA duplex designer. It slides across the whole '
-            + 'sequence, scores every candidate window, and '
-            + (('' + (strategy || 'rules')).toLowerCase() === 'tile'
-                ? 'returns the best one starting at each step along the target, in order along '
-                    + 'it. The scores come with them; they are not what decides which sites are '
-                    + 'in the answer.'
-                : 'ranks them. There is no non-overlapping pass, so the top of that ranking can '
-                    + 'be one site at several offsets.'))
+            + 'sequence, scores every candidate window, and ranks them.')
         + H('The candidate space')
         + UL([
             'Duplex cores of <b>21, 22, 23</b> nt',

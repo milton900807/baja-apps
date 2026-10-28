@@ -2362,25 +2362,10 @@ function (progress, options) {
                 this._autoLoadDomains(newTrack);
             }
 
-            // When a coding track is loaded, automatically map its protein domains (CDD) onto it,
-            // AS A LAYER. Fire-and-forget + once-per-track; skips tracks with no protein and ones
-            // that already carry the layer.
-            //
-            // This used to call baja/manchester/menu/protein-domains.js, which writes the domains
-            // into the track's own ANNOTATIONS. Two things were wrong with that as the DEFAULT.
-            // They cannot be turned off without turning off real annotations, cannot be cleared
-            // without deleting them one at a time, and are saved into the document as though
-            // someone had drawn them by hand -- none of which anyone chose, because this runs on
-            // its own. And once the same domains were also available as a layer, a track carried
-            // both and drew each domain twice.
-            //
-            // baja/bio/protein/cdd-domain-layer.js puts them in <track>_domains and <track>_sites
-            // instead: the layer menu already knows how to hide, reorder and delete them, and the
-            // track's annotations stay the track's own. It is quiet on this path and it re-checks
-            // coding itself, so it only ever adds layers where they belong.
-            //
-            // protein-domains.js is unchanged and still reachable from its menus, for anyone who
-            // wants the annotations.
+            // When a coding track is loaded, automatically map its protein domains (CDD) onto it.
+            // Fire-and-forget + once-per-track; skips tracks with no ORF/CDS and ones that already
+            // carry protein-domain annotations. protein-domains.js re-verifies coding and no-ops
+            // on non-coding transcripts, so this only ever adds domains where they belong.
             _autoLoadDomains(t) {
                 try {
                     if (!t || t.__domainsAutoTried) return;
@@ -2390,17 +2375,12 @@ function (progress, options) {
                     if (this.__suppressAutoDomains) return;
                     t.__domainsAutoTried = true;
                     const anns = Array.isArray(t.annotations) ? t.annotations : [];
-                    // Already carrying domains, in either form: the layer this now makes, or the
-                    // annotations an older document was saved with.
-                    if ((t.track_layers || []).some(l => l && ('' + l.data_type) === 'CDD')) return;
-                    if (anns.some(a => a && ('' + a.type) === 'ProteinDomain')) return;
+                    if (anns.some(a => a && ('' + a.type) === 'ProteinDomain')) return;   // already has domains
                     const codingish = anns.some(a => a && (('' + a.type) === 'Exon' || ('' + a.type) === 'CDS'))
                         || (typeof t.getCDS === 'function') || (typeof t.generateORF === 'function');
                     if (!codingish) return;
                     setTimeout(() => {
-                        try {
-                            exec('baja/bio/protein/cdd-domain-layer.js', this, this.genegraph_panel_layout, [t], { quiet: true });
-                        } catch (e) { }
+                        try { exec('baja/manchester/menu/protein-domains.js', this, this.genegraph_panel_layout, t); } catch (e) { }
                     }, 400);
                 } catch (e) { }
             }
@@ -11760,27 +11740,12 @@ pattern, GGGG | Required`
                                         this, tks, { kind: kind, match: match })).catch(() => { });
                                 } catch (e) { this.setMessage(' Could not compare these tracks: ' + e + ' '); }
                             };
-                            const compareSeq = (mode) => {
-                                close();
-                                const tks = picks.map((p) => p.track || p.ref).filter(Boolean);
-                                try {
-                                    Promise.resolve(exec('baja/manchester/menu/compare-track-sequences.js',
-                                        this, tks, { mode: mode })).catch((e) => { this.setMessage(' Could not compare the sequences: ' + e + ' '); });
-                                } catch (e) { this.setMessage(' Could not compare the sequences: ' + e + ' '); }
-                            };
                             const openCompare = () => show([
                                 { label: 'Mutations — same position and change', click: () => compare('variants', 'position'), move: () => { } },
                                 { label: 'Mutations — same rs number or protein change', click: () => compare('variants', 'change'), move: () => { } },
                                 { label: 'Annotations — same name', click: () => compare('annotations', 'name'), move: () => { } },
                                 { label: 'Oligos — same name', click: () => compare('oligos', 'name'), move: () => { } },
                                 { label: 'Oligos — same sequence', click: () => compare('oligos', 'sequence'), move: () => { } },
-                                // SEQUENCE: align every pair of the selected tracks and report identity,
-                                // similarity and coverage in the help panel (compare-track-sequences.js).
-                                // By alignment, not position, so different genes compare too.
-                                { label: 'Sequences — protein, align every pair', click: () => compareSeq('protein'), move: () => { } },
-                                { label: 'Sequences — nucleotide, align every pair', click: () => compareSeq('nucleotide'), move: () => { } },
-                                // Coding sequences only: peptides aligned, codons laid under them, both identities side by side.
-                                { label: 'Sequences — coding only, peptide and nucleotide', click: () => compareSeq('coding'), move: () => { } },
                                 {
                                     label: 'Clear the comparison', click: () => {
                                         close();

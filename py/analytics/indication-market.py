@@ -6,14 +6,7 @@ Indication market sizing for the Analytics canvas.
 A user names a disease, or a series of indications, and optionally the therapeutic
 approach (target, mechanism, modality). Claude researches the patient population for
 each indication with live web search, then proposes further indications the same
-approach could expand into, with their populations.
-
-The therapeutic area is GENETIC DISEASE OF THE CENTRAL NERVOUS SYSTEM: inherited or
-de novo variants whose burden falls on brain, spinal cord or motor neurons. An
-indication the user names is always sized, even from outside the area -- it is their
-question -- but the expansion indications Claude proposes stay inside it, because
-those are the programmes the team could actually run. The example prompts the panel
-offers (baja/analytics/indication-examples.js) are drawn from the same area. The result comes back as finished
+approach could expand into, with their populations. The result comes back as finished
 value tables for the canvas, every figure tied to the source it came from.
 
 Ion Works params
@@ -66,7 +59,6 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 try:
@@ -110,10 +102,6 @@ MAX_RESUMES = 4
 
 SYSTEM = """You are researching market size for a therapeutics team. They name a disease, or several indications, and sometimes the therapeutic approach (a target, mechanism or modality). Your findings are drawn as tables on a spreadsheet canvas where the team builds patient forecasts and revenue models on top of them, so the numbers will be reused in calculations by people who will not re-read your reasoning. That makes three things matter more than polish: each figure has to be a plain number, it has to say exactly what it counts, and it has to be traceable to where it came from.
 
-THE TEAM WORKS IN ONE THERAPEUTIC AREA: genetic disease of the central nervous system. An indication is inside the area when both halves are true -- it is caused by an inherited or de novo variant in a known gene or locus, AND its principal burden falls on the central nervous system: brain, spinal cord, or the motor neurons, cranial nerves and retina that belong to it. A multisystem genetic disease is inside the area when CNS involvement is what drives the need to treat it -- neuronopathic lysosomal disease, the leukodystrophies, mitochondrial encephalopathies, the neurodevelopmental syndromes. Acquired neurology is outside it however large: stroke, multiple sclerosis, migraine, head injury, and idiopathic psychiatric illness are not genetic CNS disease. Genetic disease that spares the CNS is also outside it: the cardiac-only variants, the liver glycogenoses, the haemoglobinopathies, the pure myopathies.
-
-Read that area as the frame for the whole answer, not as a filter you apply at the end. If the user names an indication that falls outside it, size the indication they asked for -- it is their question -- and say in one sentence in the approach field that it sits outside the team's area, so the forecast is read knowing that. What the area does constrain absolutely is the expansion indications: those are yours to propose, and every one must be a genetic CNS indication.
-
 What to find, for every indication the user named:
 - Prevalence (people living with the condition) and annual incidence (new cases per year) in the primary region, and global prevalence where it is reported. The primary region is the one the user names; otherwise use the default given in the request.
 - The addressable population in the primary region: the patients a new therapy could realistically reach. Start from prevalence and narrow it by whatever applies and is documented, such as the diagnosed fraction, the genetic or biomarker subtype the approach needs, the age or severity range, or the line of therapy. State the narrowing in one sentence. If nothing supports narrowing, use prevalence and say so.
@@ -135,7 +123,7 @@ Also give the GENETICS of the primary indication: the genes it is caused by or s
 
 Also estimate what it costs to take one program of this approach to market, from published benchmarks for the modality and therapeutic area where they exist: the cost and duration of preclinical work, Phase I, Phase II, Phase III and regulatory review, the cost of launch, and the probability of moving from Phase I to Phase II, Phase II to Phase III, Phase III to filing, and filing to approval. Spend at most two searches on this, and put the figures in the development object with their sources. Use null for any figure you cannot support; the canvas fills gaps with clearly marked defaults.
 
-Then propose expansion indications: other conditions where the same therapeutic approach could plausibly work, which would enlarge the market. EVERY ONE MUST BE A GENETIC CNS INDICATION as defined above -- that is the team's area, and an expansion outside it is a programme they cannot run, however good the biology looks. Good candidates share the causal gene, the pathway, the repeat or splice mechanism, or the affected neuronal population with a named indication, or follow a precedent where an approved drug with a similar mechanism expanded its label across neurogenetic diseases. Two tests beyond the biology, both of which belong in the link sentence: the variant class has to suit the modality (an exon-skipping oligonucleotide needs a skippable exon, a knockdown needs a gain-of-function or toxic transcript, a replacement needs a loss-of-function gene small enough to deliver), and the approach has to REACH THE CNS in that disease -- intrathecal or intracerebroventricular delivery, a capsid that crosses the blood-brain barrier, or a small molecule with brain penetration. Say which. An expansion whose target is expressed in the brain but whose modality has never reached it is a weaker candidate than a smaller disease the same route already treats, and should be ordered below it or left out. If the user gave a target, mechanism or modality, anchor on it. If they did not, reason from shared pathophysiology and record that assumption in the approach field. Order them from most to least plausible, give the same population figures for each, and explain the link in one sentence. Leave out an indication when the only connection is that it is large; a short list the team can defend is worth more than a long one.
+Then propose expansion indications: other conditions where the same therapeutic approach could plausibly work, which would enlarge the market. Good candidates share the target, pathway, causal genetics or affected tissue with a named indication, or follow a precedent where an approved drug with a similar mechanism expanded its label. If the user gave a target, mechanism or modality, anchor on it. If they did not, reason from shared pathophysiology and record that assumption in the approach field. Order them from most to least plausible, give the same population figures for each, and explain the link in one sentence. Leave out an indication when the only connection is that it is large; a short list the team can defend is worth more than a long one.
 
 Use web search to find the figures. Searches are limited, so spread them across every indication rather than exhausting them on the first one; one good epidemiology source per indication is enough. Prefer primary and authoritative sources: peer-reviewed epidemiology, CDC, NIH, NCI SEER, GARD, Orphanet, WHO, GLOBOCAN, patient registries, and regulator or company filings. Avoid market-research vendor landing pages, which often quote numbers without a method. When sources disagree, take the most recent credible one and mention the range in the basis.
 
@@ -1116,42 +1104,14 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
         step = (HISTORY_LANE_HIGH - HISTORY_LANE_LOW) / (len(present) - 1)
         lanes = {k: HISTORY_LANE_LOW + i * step for i, k in enumerate(present)}
 
-    # THE WINDOW AND THE AXIS HAVE TO BE THE SAME INTERVAL. flexigraph/plot.js carries two
-    # conversions between axis units and dates and uses both on the same timeline: the
-    # ruler reads an axis value as ABSOLUTE hours after startDate
-    # (drawXAxisTimeTicks: _grid.X((ms - startMs) / hourToMs)), while normalizeTimePoints,
-    # formatTime and __tlUnitsToDate read it as a FRACTION of the axis mapped onto
-    # [startDate, endDate]. Those two agree on exactly one condition:
-    #
-    #     axis.min == 0  AND  axis.max == (endDate - startDate) in hours
-    #
-    # Every other timeline in the app satisfies it by construction -- py/openai/timeline.py
-    # measures x as hours from window.start and flexigraph/gantt-factory.js then zooms to
-    # min(startX)..max(x), which is 0..the full span. This builder used to break it: it
-    # padded the AXIS by a tenth at each end but left the WINDOW at the first and last
-    # event, so one convention read a position as a year and the other read it as a
-    # different year, scaled by (span + 2*pad)/span and shifted by the pad. That is what
-    # put a 1987 milestone over the 1956 tick.
-    #
-    # So the padding goes into the window instead of the axis. The window is widened by
-    # whole years at each end -- the same visual room, since a pill is drawn centred on its
-    # year and the outermost events would otherwise hang over the edges of the frame -- and
-    # the axis then runs 0 .. the full padded span, which is what both conventions expect.
+    # The axis runs from the first event to a little past the last, so the newest band is
+    # not flush against the right edge.
     first, last = events[0][0], events[-1][0]
     span_end = max(last + 1, first + 2)
-    pad_years = max(2, int(round((span_end - first) * 0.10)))
-    win_first = max(1, first - pad_years)        # year 1 is as far back as a date goes
-    win_end = span_end + pad_years
-    start_at = datetime(win_first, 1, 1)
-    end_at = datetime(win_end, 1, 1)
-    start_dt = start_at.isoformat()
-    end_dt = end_at.isoformat()
-
-    def _hours_from_start(year: int) -> float:
-        # Real elapsed hours, not year * 365.2425 * 24. The ruler steps by calendar years,
-        # so a mean-year approximation drifts a milestone off its own tick by a day or so
-        # per leap cycle -- invisible on a century, wrong on a decade.
-        return (datetime(year, 1, 1) - start_at).total_seconds() / 3600.0
+    pad = max(2.0, (span_end - first) * 0.10)
+    start_dt = f"{first:04d}-01-01T00:00:00"
+    end_dt = f"{span_end:04d}-01-01T00:00:00"
+    HOURS_PER_YEAR = 365.2425 * 24
 
     intervals: List[Dict[str, Any]] = []
     seen: set = set()
@@ -1165,7 +1125,7 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
         # A MILESTONE, not an interval. These are dated events, not durations: as one-year
         # bands on an axis spanning a century they came out as specks too small to carry
         # their own name. A milestone is a point with a pill, which is what a date wants.
-        at = _hours_from_start(y)
+        at = (y - first) * HOURS_PER_YEAR
         intervals.append({
             "type": "milestone",
             "name": label,
@@ -1184,11 +1144,11 @@ def build_history(prefix: str, findings: Dict[str, Any]) -> Optional[Dict[str, A
         "name": f"{prefix}_History",
         "intervals": intervals,
         "window": {"start": start_dt, "end": end_dt},
-        # 0 .. the full window, in hours: the invariant above. The padding is already in
-        # the window, so there is nothing to add here and nothing that can drift out of
-        # step with it.
-        "axis": {"min": 0.0,
-                 "max": (end_at - start_at).total_seconds() / 3600.0},
+        # The axis is padded a tenth of the span at each end. Without it the first and
+        # last pills hang over the edges of the frame, since a pill is drawn centred on
+        # its year and the outermost years sit exactly at the ends.
+        "axis": {"min": -pad * HOURS_PER_YEAR,
+                 "max": (span_end - first + pad) * HOURS_PER_YEAR},
         "span": {"first_year": first, "last_year": last},
     }
 

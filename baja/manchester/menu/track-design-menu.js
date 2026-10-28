@@ -445,34 +445,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 + '<button id="sd-default" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Default</button>'
                                 + '<button id="sd-advanced" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Advanced</button>'
                                 + '</div>'
-                                // HOW THE ANSWER IS CHOSEN, which is a different question from
-                                // how it is scored. Rule-based returns the best duplexes by
-                                // score, wherever on the target they sit -- and this designer
-                                // has no non-overlapping pass, so that can be one good site at
-                                // a dozen offsets. Tiling walks the target instead.
-                                + '<label style="' + lbl + '">Design strategy</label>'
-                                + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
-                                + '<button id="sd-strat-rules" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Rule-based</button>'
-                                + '<button id="sd-strat-tile" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Tiling</button>'
-                                + '</div>'
-                                + '<div id="sd-strat-note" style="font:11.5px Arial;color:#9fb3c8;margin-top:6px;">Every candidate window is scored and the best are returned, best first.</div>'
-                                + '<div id="sd-tilewrap" style="display:none;margin-top:12px;">'
-                                + '<label style="font:600 11px Arial;color:#9fb3c8;">Step along the target</label>'
-                                + '<select id="sd-tilestep" style="' + inp + '">'
-                                + '<option value="1">Every base (1 nt)</option>'
-                                + '<option value="3">Every 3 bases</option>'
-                                + '<option value="5">Every 5 bases</option>'
-                                + '<option value="10">Every 10 bases</option>'
-                                + '<option value="0" selected>End to end (no overlap, no gap)</option>'
-                                + '<option value="custom">Custom…</option>'
-                                + '</select>'
-                                + '<div id="sd-tilecustomwrap" style="display:none;margin-top:8px;">'
-                                + '<label style="font:600 11px Arial;color:#9fb3c8;">Custom step (bases)</label>'
-                                + '<input id="sd-tilecustom" type="number" min="1" max="500" value="7" style="' + inp + '"/></div>'
-                                + '<div id="sd-tileest" style="font:11.5px Arial;color:#9fb3c8;margin-top:8px;"></div>'
-                                + '</div>'
-                                + '<label style="' + lbl + '" id="sd-topn-label">Maximum candidates</label>'
-                                + '<input id="sd-topn" type="number" min="1" max="20000" value="100" style="' + inp + '"/>'
+                                + '<label style="' + lbl + '">Maximum candidates</label>'
+                                + '<input id="sd-topn" type="number" min="1" max="1000" value="100" style="' + inp + '"/>'
                                 + '<label style="' + lbl + '">Template chemistry</label>'
                                 + '<select id="sd-chem" style="' + inp + '">'
                                 + '<option value="standard">2\'-F / 2\'-OMe (standard)</option>'
@@ -504,77 +478,12 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             document.body.appendChild(panel);
                             const q = (id) => panel.querySelector(id);
                             let mode = 'default';
-                            let strategy = 'rules';
-                            // Cached PER STRATEGY: the document's selection sentence differs
-                            // between them, and one cache would have shown whichever was
-                            // asked for first.
-                            const sdDoc = {};
+                            let sdDoc = null;
                             const fillSirnaDoc = async () => {
                                 try {
-                                    const key = (strategy === 'tile') ? 'tile' : 'rules';
-                                    if (sdDoc[key] == null) sdDoc[key] = await exec('baja/manchester/menu/design-rules-doc.js', 'sirna', key);
-                                    q('#sd-doc').innerHTML = sdDoc[key] || '';
+                                    if (sdDoc == null) sdDoc = await exec('baja/manchester/menu/design-rules-doc.js', 'sirna');
+                                    q('#sd-doc').innerHTML = sdDoc || '';
                                 } catch (e) { try { q('#sd-doc').innerHTML = ''; } catch (e2) { } }
-                            };
-                            let __sdTargetLen = 0;
-                            try { __sdTargetLen = (__wholeTrackSequence() || '').length; } catch (e) { __sdTargetLen = 0; }
-                            const sdTileStep = () => {
-                                const sel = q('#sd-tilestep');
-                                if (!sel) return 0;
-                                if (sel.value === 'custom') {
-                                    const v = parseInt(q('#sd-tilecustom') ? q('#sd-tilecustom').value : '', 10);
-                                    return (Number.isFinite(v) && v > 0) ? Math.min(500, v) : 1;
-                                }
-                                return Math.max(0, parseInt(sel.value, 10) || 0);
-                            };
-                            const sdTileEstimate = () => {
-                                const el = q('#sd-tileest'); if (!el) return;
-                                const step = sdTileStep();
-                                const ls = [];
-                                if (q('#sd-l21') && q('#sd-l21').checked) ls.push(21);
-                                if (q('#sd-l22') && q('#sd-l22').checked) ls.push(22);
-                                if (q('#sd-l23') && q('#sd-l23').checked) ls.push(23);
-                                const len = ls.length ? Math.max.apply(null, ls) : 23;
-                                if (!__sdTargetLen) {
-                                    el.textContent = step > 0
-                                        ? ('One duplex every ' + step + ' base' + (step === 1 ? '' : 's') + ' along the target.')
-                                        : 'Each duplex starts one base after the previous one ends, so the target is covered once.';
-                                    return;
-                                }
-                                const per = step > 0 ? step : len;
-                                const n = Math.max(1, Math.floor((__sdTargetLen - len) / per) + 1);
-                                const big = n > 500;
-                                el.innerHTML = 'About <b>' + n.toLocaleString() + '</b> duplex' + (n === 1 ? '' : 'es')
-                                    + ' across ' + __sdTargetLen.toLocaleString() + ' nt'
-                                    + (step > 0 ? (', one every ' + step + ' base' + (step === 1 ? '' : 's')) : ', end to end')
-                                    + '. Raise the maximum below if you want all of them.'
-                                    + (big ? ('<br><span style="color:#fbbf24;">That is a large panel to put on a single '
-                                        + 'track, and it will take a while to design and to draw. A wider step, or a '
-                                        + 'selected region rather than the whole transcript, is the usual first pass.</span>') : '');
-                            };
-                            const setStrategy = (v) => {
-                                strategy = v;
-                                const tiling = (v === 'tile');
-                                const on = q('#sd-strat-tile'), off = q('#sd-strat-rules');
-                                if (on && off) {
-                                    on.style.background = tiling ? '#22c55e' : 'transparent';
-                                    on.style.color = tiling ? '#04210f' : '#fff';
-                                    off.style.background = tiling ? 'transparent' : '#22c55e';
-                                    off.style.color = tiling ? '#fff' : '#04210f';
-                                }
-                                const wrap = q('#sd-tilewrap'); if (wrap) wrap.style.display = tiling ? 'block' : 'none';
-                                const note = q('#sd-strat-note');
-                                if (note) {
-                                    note.textContent = tiling
-                                        ? 'One duplex at every step along the target, each the best length that starts there. The scores come back with them, to read rather than to select on — this is the walk you order to test a transcript, not the shortlist you order to pick a compound.'
-                                        : 'Every candidate window is scored and the best are returned, best first. There is no non-overlapping pass here, so the top of that list can be one site at several offsets.';
-                                }
-                                const lab = q('#sd-topn-label'), topn = q('#sd-topn');
-                                if (lab) lab.textContent = tiling ? 'Maximum tiles' : 'Maximum candidates';
-                                if (topn && tiling && (parseInt(topn.value, 10) || 0) <= 100) topn.value = '2000';
-                                if (topn && !tiling && (parseInt(topn.value, 10) || 0) > 1000) topn.value = '100';
-                                if (tiling) sdTileEstimate();
-                                if (mode === 'default') fillSirnaDoc();
                             };
                             const setMode = (m) => {
                                 mode = m;
@@ -586,19 +495,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 q('#sd-advanced').style.background = (m === 'advanced') ? '#22c55e' : 'transparent';
                                 q('#sd-advanced').style.color = (m === 'advanced') ? '#04210f' : '#fff';
                             };
-                            if (q('#sd-strat-rules')) {
-                                q('#sd-strat-rules').onclick = () => setStrategy('rules');
-                                q('#sd-strat-tile').onclick = () => setStrategy('tile');
-                                q('#sd-tilestep').onchange = () => {
-                                    const custom = q('#sd-tilestep').value === 'custom';
-                                    q('#sd-tilecustomwrap').style.display = custom ? 'block' : 'none';
-                                    sdTileEstimate();
-                                };
-                                if (q('#sd-tilecustom')) q('#sd-tilecustom').addEventListener('input', sdTileEstimate);
-                                for (const id of ['#sd-l21', '#sd-l22', '#sd-l23']) {
-                                    if (q(id)) q(id).addEventListener('change', sdTileEstimate);
-                                }
-                            }
                             fillSirnaDoc();
                             q('#sd-default').onclick = () => setMode('default');
                             q('#sd-advanced').onclick = () => setMode('advanced');
@@ -608,11 +504,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 // Clicking Run design dismisses any on-canvas menus (side + center).
                                 try { if (graph && graph.showSideMenu) graph.showSideMenu(null); } catch (e) { }
                                 try { if (graph) { graph.menu = null; if (graph.graph) graph.graph.menu = null; if (graph.wake) graph.wake(); } } catch (e) { }
-                                const tiling = (strategy === 'tile');
-                                const topn = Math.max(1, Math.min(tiling ? 20000 : 1000, parseInt(q('#sd-topn').value, 10) || 100));
-                                const strat = tiling
-                                    ? { design_mode: 'tile', tile_step: sdTileStep() }   // 0 = end to end
-                                    : { design_mode: 'rules' };
+                                const topn = Math.max(1, Math.min(1000, parseInt(q('#sd-topn').value, 10) || 100));
                                 let params;
                                 if (mode === 'advanced') {
                                     const lengths = [];
@@ -622,8 +514,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                     const num = (id, d) => { const v = parseFloat(q(id).value); return Number.isFinite(v) ? v : d; };
                                     params = {
                                         top_n: topn,
-                                        design_mode: strat.design_mode,
-                                        tile_step: strat.tile_step,
                                         lengths: lengths.length ? lengths : [21, 22, 23],
                                         output_alphabet: q('#sd-alpha').value || 'DNA',
                                         senseOverhang: q('#sd-soh').value || '',
@@ -636,7 +526,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                         }
                                     };
                                 } else {
-                                    params = { top_n: topn, design_mode: strat.design_mode, tile_step: strat.tile_step, lengths: [21, 22, 23], output_alphabet: 'DNA', senseOverhang: 'dTdT', antisenseOverhang: '', chemistry_template: (q('#sd-chem') ? q('#sd-chem').value : 'standard'), weights: {} };
+                                    params = { top_n: topn, lengths: [21, 22, 23], output_alphabet: 'DNA', senseOverhang: 'dTdT', antisenseOverhang: '', chemistry_template: (q('#sd-chem') ? q('#sd-chem').value : 'standard'), weights: {} };
                                 }
                                 close(); resolve(params);
                             };
@@ -660,15 +550,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         overhangs: { sense: __p.senseOverhang, antisense: __p.antisenseOverhang },
                         output_alphabet: __p.output_alphabet,
                         chemistry_template: __p.chemistry_template,
-                        weights: __p.weights,
-
-                        // RULE-BASED or TILED, as for the two ASO designers: the first returns
-                        // the best duplexes by score wherever they sit, the second walks the
-                        // target and returns one at every step along it. tile_step is the
-                        // increment in bases, 0 meaning end to end. Absent, py/sirna/design.py
-                        // behaves exactly as it did before either existed.
-                        design_mode: __p.design_mode || "rules",
-                        tile_step: (__p.tile_step != null ? __p.tile_step : 0)
+                        weights: __p.weights
                     }
 
 
@@ -846,13 +728,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     let Oligo = await exec('flexigraph/oligo.js');
                     const str = `py/ssaso/design.py`;
                     // Default / Advanced design dialog — the LAST interface before the design runs.
-                    // The target's length goes in with it so the Tiling strategy can say what a
-                    // step costs in compounds BEFORE it is run: "every 3 bases" over a 3 kb
-                    // transcript is a thousand ASOs, and that is worth knowing at the moment
-                    // the step is chosen rather than when the results land.
-                    let __targetLen = 0;
-                    try { __targetLen = (__wholeTrackSequence() || '').length; } catch (e) { __targetLen = 0; }
-                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer', __targetLen);
+                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer');
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();
                     let va = parseInt(__p.top_n) || 100;
@@ -908,15 +784,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // good site fill the top of the list. The dialog's Advanced tab can still
                         // ask for those variants explicitly.
                         "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
-
-                        // RULE-BASED or TILED. The first ranks every candidate and returns the
-                        // best sites anywhere in the target; the second walks the target and
-                        // returns one at every step along it, each still the best layout that
-                        // starts there. tile_step is the increment in bases, 0 meaning end to
-                        // end. Absent, design.py behaves exactly as it did before either
-                        // existed. See the selection step in py/ssaso/design.py.
-                        "design_mode": __p.design_mode || "rules",
-                        "tile_step": (__p.tile_step != null ? __p.tile_step : 0),
 
                         // NO off-target screen during design. py/ssaso/design.py can run one --
                         // pass offtarget_index and it weights every site by the other genes it
@@ -1187,11 +1054,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     const str = `py/ssaso/design-steric-blocking.py`;
 
                     // Default / Advanced design dialog — the LAST interface before the design runs.
-                    // The target's length goes with it so the Tiling strategy can say what a
-                    // step costs in compounds before the run (see the gapmer call above).
-                    let __targetLenS = 0;
-                    try { __targetLenS = (__wholeTrackSequence() || '').length; } catch (e) { __targetLenS = 0; }
-                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric', __targetLenS);
+                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric');
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();
                     let _sequence = __wholeTrackSequence();
@@ -1244,14 +1107,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // which returns the length variants of a few good sites rather than a
                         // design spread across the transcript.
                         enforce_non_overlapping: (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
-
-                        // RULE-BASED or TILED, as for the gapmer: the first returns the best
-                        // sites anywhere in the target, the second walks the target and returns
-                        // one at every step along it. tile_step is the increment in bases, 0
-                        // meaning end to end. Absent, the designer behaves as it did before
-                        // either existed.
-                        design_mode: __p.design_mode || "rules",
-                        tile_step: (__p.tile_step != null ? __p.tile_step : 0),
 
                         // No off-target screen here either -- see the note in the gapmer
                         // request above.
@@ -1320,14 +1175,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 // Dense over a short sequence: the regions are a few hundred
                                 // bases, so this covers them without a large payload.
                                 enforce_non_overlapping: false,
-                                // ALWAYS RULE-BASED HERE, whatever the dialog asked for. This
-                                // path has a selection of its own -- design densely over the
-                                // model's windows, drop what straddles a join or sits on a
-                                // splice site, then rank what is left by window impact -- and
-                                // it needs a dense set to do it with. A walk would hand it a
-                                // sparse one and the filters would take most of that away.
-                                // Tiling still means tiling on the plain steric run below.
-                                design_mode: 'rules',
                                 top_n: Math.max(400, wantN * 4)
                             }));
                         } catch (e) { rr = null; }   // __runDesign already reported it
@@ -1746,6 +1593,19 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 }
             },
         ];
+
+        // Preset modality (e.g. from the tile-oligos entry): skip the Design menu and open that
+        // therapeutic designer directly — its own Default/Advanced dialog + py design run from here.
+        if (presetModality) {
+            const __k = ('' + presetModality).toLowerCase();
+            const __idx = (__k.indexOf('sirna') >= 0 || __k.indexOf('si-rna') >= 0) ? 0
+                : (__k.indexOf('gap') >= 0 ? 1
+                    : (__k.indexOf('steric') >= 0 ? 2 : -1));
+            if (__idx >= 0 && therapeutics[__idx] && typeof therapeutics[__idx].click === 'function') {
+                try { await therapeutics[__idx].click(); } catch (e) { }
+                return;
+            }
+        }
 
         // Off-target count for an oligo — matches the on-canvas badge: distinct off-target
         // GENES, else the offtargetsymbols count, else the raw Levenshtein hit count.
@@ -2605,33 +2465,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 open: () => exec('manchester/clinical-library.js', graph, genegraph_panel_layout)
             }
         ];
-
-        // PRESET MODALITY (the tile-oligos entry, and anything else that names one): skip the
-        // Design library and open that therapeutic designer directly -- its own
-        // Default/Advanced dialog, then the python run, from here.
-        //
-        // THIS RUNS AT THE END, not beside the therapeutics array where it used to. The click
-        // handlers close over helpers declared further down this function -- __wholeTrackSequence
-        // is one, and it is the first thing the gapmer and steric handlers call after their
-        // dialog -- so dispatching before those declarations put every one of them in the
-        // temporal dead zone. The handler threw on the line after the dialog closed, the throw
-        // was swallowed by the catch here, and the design silently did nothing: dialog, Run
-        // design, no compounds, no error. Nothing is dispatched until the body has finished.
-        if (presetModality) {
-            const __k = ('' + presetModality).toLowerCase();
-            const __idx = (__k.indexOf('sirna') >= 0 || __k.indexOf('si-rna') >= 0) ? 0
-                : (__k.indexOf('gap') >= 0 ? 1
-                    : (__k.indexOf('steric') >= 0 ? 2 : -1));
-            if (__idx >= 0 && therapeutics[__idx] && typeof therapeutics[__idx].click === 'function') {
-                // Reported rather than swallowed: a designer that fails should say so.
-                try { await therapeutics[__idx].click(); }
-                catch (e) {
-                    console.warn('[design] ' + __k + ' designer failed', e);
-                    try { graph.setMessage(' The ' + __k + ' designer could not run: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
-                }
-                return;
-            }
-        }
 
         await exec('baja/lib/shelf.js', {
             id: 'baja-design-library',

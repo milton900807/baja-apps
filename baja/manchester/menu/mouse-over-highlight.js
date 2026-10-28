@@ -13,6 +13,17 @@ function (graph, genegraph_panel_layout) {
     // swallowed it first. Installs once per canvas; calling it again just refreshes the graph.
     try { Promise.resolve(exec('baja/manchester/menu/layer-row-press.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
 
+    // A press on one monomer of a zoomed-in compound opens its chemistry menu. Same
+    // treatment and for the same reasons as the layer rows above: the graph's mouse-down
+    // chain does not run while a menu or the selection window is up, which is precisely
+    // when a user clicks a compound they have just selected.
+    try { Promise.resolve(exec('baja/chem/ui/chem-part-press.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
+
+    // Ctrl+C / Ctrl+V for the selected compounds. Also a window listener, and for the same
+    // reason: compounds are selected precisely when the selection window is up, which is
+    // when the graph's own key handling does not run.
+    try { Promise.resolve(exec('baja/manchester/compound-clipboard.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
+
     // Ask the folding host whether it is up, now, in the background. The Fold item is only
     // drawn when it is, and finding that out costs a round trip -- done here, once, the answer
     // is already cached by the time anyone opens a track menu, so no menu ever waits on it.
@@ -1903,19 +1914,28 @@ function (graph, genegraph_panel_layout) {
                         let xw = track.tgraph.Xwc(x - track.tgraph.xi * 2);
                         let yw = (track.tgraph.Ywc(y - track.tgraph.yi * 2))
                         let annotations = track.getAnnotationsInRange(xw - 1, xw + 1);
+                        // WHAT THE HOVER LIT IS WHAT THE CLICK ACTS ON. The hover highlight
+                        // (mouse-move, above) picks annotations with its own test, in world
+                        // units, and that test is looser than the 10 px one below -- so an exon
+                        // could be lit under the pointer and the click on it still miss. Read
+                        // the hover's answer before the deselect below wipes it.
+                        const hovered = new Set((track.annotations || []).filter((a) => a && (a.highlighted || (a.isSelected && a.isSelected()))));
                         for (let str of track.annotations) {
                             str.deselect();
                         }
                         const HIT_Y_PX = 10;
                         const mergedMenu = { title: "Annotations", items: [] };
+                        const annHits = [];
                         for (let an of annotations) {
                             if (!an) continue;
                             const dy = Math.abs(graph.Y(track.tgraph.Y(an.y)) - graph.Y(y));
-                            if (dy > HIT_Y_PX) continue;
+                            if (dy > HIT_Y_PX && !hovered.has(an)) continue;
                             an.select();
-                            // Build the annotation's type-specific menu (e.g. an exon
-                            // menu) and stash it in the selection box instead of popping
-                            // it up here — it's shown from selection box → Annotations.
+                            // Build the annotation's type-specific menu (e.g. an exon menu).
+                            // It goes to the selection box, as before, AND opens where the click
+                            // was (below), the way a variant's and an oligo's menus do: stashing
+                            // it in the selection box alone meant a click on an exon showed
+                            // nothing at all.
                             let annMenu = [];
                             try {
                                 const mfToken = MenuFactory?.[an.type];
@@ -1928,6 +1948,18 @@ function (graph, genegraph_panel_layout) {
                                 }
                             } catch (e) { }
                             try { if (graph.addAnnotationToSelection) graph.addAnnotationToSelection(an, track, annMenu); } catch (e) { }
+                            if (annMenu.length) annHits.push({ an: an, items: annMenu.filter(Boolean) });
+                        }
+                        // The clicked annotations' menus, each under its own name when more than
+                        // one sits under the pointer (an exon and a CDS overlapping, say).
+                        const annName = (a) => '' + (a.name || a.type || 'Annotation');
+                        if (annHits.length === 1) {
+                            mergedMenu.items = annHits[0].items;
+                        } else if (annHits.length > 1) {
+                            for (const h of annHits) {
+                                if (mergedMenu.items.length) mergedMenu.items.push({ type: 'separator' });
+                                mergedMenu.items.push({ label: annName(h.an), header: true }, ...h.items);
+                            }
                         }
                         const xWorld = Math.round(
                             track.tgraph.Xwc(graph.mousex - track.tgraph.xi * 2)
@@ -1956,14 +1988,23 @@ function (graph, genegraph_panel_layout) {
                                     { label: '' + (snp.name || 'Variant'), header: true },
                                     ...orderMenu(snpItems),
                                     ...(mergedMenu.items.length ? [{ type: 'separator' }] : []),
-                                    ...orderMenu(mergedMenu.items)
+                                    // as built: re-ordering would lift every annotation's
+                                    // header above all of their items
+                                    ...mergedMenu.items
                                 ];
                             }
                         }
 
 
                         if (mergedMenu && mergedMenu.items && mergedMenu.items.length) {
-                            graph.showSideMenu(mergedMenu.items, x, y, ((snp && snp.name) ? ('' + snp.name) : 'Variant') + ' ▸');
+                            const __title = (snp && snp.name) ? ('' + snp.name)
+                                : (annHits.length === 1 ? annName(annHits[0].an) : (snp ? 'Variant' : 'Annotations'));
+                            // At the pointer, like the variant and oligo menus; the side panel
+                            // only where a floating menu cannot open (mobile).
+                            const ds = graph.__downScreen || { x: graph.X(x), y: graph.Y(y) };
+                            let floated = false;
+                            try { floated = !!(graph.openFloatingMenu && graph.openFloatingMenu(mergedMenu.items, ds.x, ds.y, __title)); } catch (e) { floated = false; }
+                            if (!floated) graph.showSideMenu(mergedMenu.items, x, y, __title + ' ▸');
                         }
                     }
                 }
@@ -5531,6 +5572,9 @@ function (graph, genegraph_panel_layout) {
             // A floating menu session (see gene.js openFloatingMenu) that is armed but has no menu on screen
             // is over: this press is a new gesture, and a side menu opened by it must be a side menu.
             try { if (graph.__floatAt && !window.__bajaFloatingMenu) graph.__floatAt = null; } catch (e) { }
+            // ...and so is the remembered place of one that was closed a moment ago (showSideMenu's
+            // __floatMemo): it only ever means "the next level of the handoff already in progress".
+            try { graph.__floatMemo = null; } catch (e) { }
 
             // A menu is open — the click is landing on the menu. Record it so the
             // matching mouse-up also skips (the engine may clear side_menu before
@@ -5595,6 +5639,12 @@ function (graph, genegraph_panel_layout) {
                     }
                 }
             } catch (e) { }
+
+            // (The monomer press is handled at the window in the capture phase by
+            // baja/chem/ui/chem-part-press.js, installed at the top of this file. It cannot
+            // live here: graph.__downScreen is undefined in this file, and this listener
+            // chain does not run while a menu or the selection window is up -- which is
+            // exactly when a selected compound gets clicked.)
 
             // Press on a LAYER ROW under a track name → its floating menu. Same rectangles
             // the track draws, kept on the track each frame. Handled here, like the

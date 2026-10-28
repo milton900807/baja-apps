@@ -710,7 +710,6 @@ function () {
                 return {
                     _highlight: this._highlight ?? false,
                     name: this.name ?? "",
-                    zorder: this.zorder,        // where it sits in the stack, so a reload keeps it
                     action: compressedAction,
                     txt: this.txt ?? "",
                     uid: this.uid ?? crypto.randomUUID?.() ?? String(Date.now()),

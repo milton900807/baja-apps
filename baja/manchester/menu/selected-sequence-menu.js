@@ -1,15 +1,7 @@
 function (graph, selectedTrack, genegraph_panel_layout) {
 
-    // "Selected Sequence" menu — the counterpart to the selected-TRACK menu, opened by
-    // clicking inside an existing selection.
-    //
-    // SHOWN IN PLACE, beside the selection. This used to go to showSideMenu, which collapses
-    // to an orange chip in the top-left corner -- so the options for a stretch of sequence
-    // down at the track appeared as far from it as the window allows, behind a second click.
-    // The full-screen list (showWindowMenu) is no better on a desktop: it covers the very
-    // sequence the menu is about. So it is a small panel at the pointer, in the editor's own
-    // navy, and popup-menu.js hands a PHONE back to the full-screen list where a thumb wants
-    // it. Same shape (Layers / Data / Models / Design /
+    // "Selected Sequence" side menu — the counterpart to the selected-TRACK menu, opened by
+    // clicking inside an existing selection. Same shape (Layers / Data / Models / Design /
     // Sequence / Export), but every operation is scoped to markstart..markend instead of the
     // whole track: layers cover only the selected span, models are run on the selected
     // sub-sequence, and oligo design uses the selected range as its target.
@@ -33,61 +25,8 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             } catch (e) { say(' Could not copy: ' + e + ' '); }
         };
 
-        // HOW MANY RESIDUES THE SELECTION HOLDS, or 0 if it holds none. Worked out here so the
-        // Fold entry can say the count in its label and be left out entirely when the span
-        // carries no coding bases -- an entry whose only answer is "that is outside the ORF"
-        // is a worse answer than not being there.
-        //
-        // Read off the ORF, not off the bases: a selection is a span of NUCLEOTIDES, and
-        // whatever three-frame translation falls out of it is not the protein the track
-        // draws. getPeptideFromORF walks orf.cdsi, so the residues are the track's own.
-        // ...and only when the folding host is actually up. Same cached verdict the track menu
-        // reads; unknown counts as down.
-        let __afUp = false;
-        try {
-            const __af = await exec('baja/manchester/menu/alphafold-available.js', graph, { waitMs: 1200 });
-            __afUp = !!(__af && __af.up === true);
-        } catch (e) { __afUp = false; }
-        const __foldAa = !__afUp ? 0 : (() => {
-            try {
-                if (!(t.orf && t.orf.cdsi && t.orf.cdsi.length)) return 0;
-                const r = (typeof t.selectedRange === 'function') ? t.selectedRange() : null;
-                if (!r) return 0;
-                return ('' + (t.getPeptideFromORF(r.start, r.end) || '')).trim().length;
-            } catch (e) { return 0; }
-        })();
-
         // Every leaf closes the side menu first, then runs, and reports its own failure rather
         // than throwing out of the menu handler and leaving the canvas half-configured.
-        // Where the menu opens: beside the selection rather than in a corner. Worked out
-        // once, from the marks, and reused by every level so a submenu does not jump.
-        const __where = () => {
-            try {
-                const g = graph.graph || graph;
-                const mid = (t.markstart + t.markend) / 2;
-                const sx = (typeof g.X === 'function') ? g.X(t.tgraph ? t.tgraph.X(mid) : mid) : null;
-                const sy = (typeof g.Y === 'function') ? g.Y(t.tgraph ? t.tgraph.Y(0) : 0) : null;
-                if (Number.isFinite(sx) && Number.isFinite(sy)) return { x: Math.round(sx), y: Math.round(sy) };
-            } catch (e) { }
-            return { x: 120, y: 140 };
-        };
-        const show = (list, sx, sy) => {
-            const at = (Number.isFinite(sx) && Number.isFinite(sy)) ? { x: sx, y: sy } : __where();
-            try { graph.showSideMenu(null); } catch (e) { }      // never two menus at once
-            // In place, beside the selection. popup-menu.js hands a PHONE back to the
-            // full-screen list, which is the right shape for a thumb and the wrong one for a
-            // pointer -- on a desktop the full-screen list covers the sequence the menu is
-            // about.
-            try {
-                Promise.resolve(exec('baja/manchester/menu/popup-menu.js', graph, list, at.x, at.y, {
-                    title: (t.name || 'Sequence'),
-                    subtitle: len.toLocaleString() + ' nt selected'
-                })).catch(() => { try { graph.showWindowMenu(list, at.x, at.y, 260); } catch (e) { } });
-            } catch (e) {
-                try { graph.showWindowMenu(list, at.x, at.y, 260); } catch (e2) { }
-            }
-        };
-
         const go = (label, fn) => ({
             label: label, move: () => { },
             click: async () => {
@@ -98,7 +37,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         });
         const sub = (label, items) => ({
             label: label, move: () => { },
-            click: async (sx, sy) => { show(items, sx, sy); }
+            click: async (sx, sy) => { try { graph.showSideMenu(items, sx, sy); } catch (e) { } }
         });
 
         // ---- Navigate -----------------------------------------------------------------
@@ -230,32 +169,6 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                     say(' Removed ' + gone + ' layer' + (gone === 1 ? '' : 's') + ' over ' + start + '–' + end + '. ');
                 })
             ]),
-            // MODIFY. Say what should happen to the selected span -- "delete the ATG", "insert
-            // a stop codon after the third codon", "make this a Kozak sequence" -- and it is
-            // rewritten in place. The description is the interface; what works it out is not
-            // the user's problem and is not mentioned.
-            //
-            // In place, with the change pushed onto the history stack first, so one Undo puts
-            // the sequence back. A length change shifts every annotation downstream of the
-            // selection, the same way the repeat expansion does -- an exon the edit sits
-            // inside gets longer or shorter, which is what an insertion or a deletion means.
-            // MODIFY. Say what should happen to the selected span -- "delete the ATG",
-            // "insert a stop codon after the third codon", "make this a Kozak sequence" --
-            // and it is rewritten in place. The description is the interface.
-            //
-            // The work is in modify-sequence-tool.js, which the TRACK menu uses too with no
-            // range at all, meaning the whole track. One implementation, so the two cannot
-            // drift: the same checks on what comes back, the same confirmation of what will
-            // change, the same single Undo.
-            go('Modify\u2026', async () => {
-                await exec('baja/manchester/menu/modify-sequence-tool.js', graph, t,
-                    { start: t.markstart, end: t.markend });
-            }),
-            // FOLD WHAT IS SELECTED. The same tool the track menu uses; it reads the
-            // selection off the track itself, so the two cannot disagree about which
-            // residues are meant. Only offered when the span actually holds some.
-            ...(__foldAa ? [go('Fold selected peptide (AlphaFold, ' + __foldAa + ' aa)\u2026', async () =>
-                exec('baja/manchester/menu/alphafold-track.js', graph, genegraph_panel_layout, t))] : []),
             sub('Sequence ▸', seqItems),
             go('Design ▸', async () => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout)),
             go('Off-targets...', async () => exec('baja/manchester/menu/run-off-targets.js', graph, genegraph_panel_layout)),
@@ -263,7 +176,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             go('Synthesis cost', async () => exec('baja/manchester/menu/synthesis-cost.js', graph, t, genegraph_panel_layout))
         ];
 
-        show(items);
+        try { graph.showSideMenu(items, null, selectedTrack.name); } catch (e) { }
         return graph;
     })();
 }

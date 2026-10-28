@@ -58,7 +58,6 @@ function (graph, genegraph_panel_layout, picks) {
                 type: o.type || '',
                 rsid: (/^rs\d+$/i.test('' + (o.id || '')) ? o.id : (/^rs\d+$/i.test('' + (o.name || '')) ? o.name : '')),
                 clinsig: o.clinsig || '',
-                loh: o.loh || '',
                 clindn: o.clindn || '',
                 consequence: o.structure || '',
                 annotations: Array.isArray(o.annotations) ? o.annotations.slice(0, 40) : '',
@@ -93,7 +92,7 @@ function (graph, genegraph_panel_layout, picks) {
             p.gene, p.transcript,
             (p.chr ? 'chr' + p.chr + ':' + p.pos.toLocaleString() : ''),
             (p.ref && p.alt ? p.ref + '>' + p.alt : ''),
-            p.rsid, p.clinsig, (p.loh ? 'LOH: ' + p.loh : ''),
+            p.rsid, p.clinsig,
         ].filter(Boolean).join('  ·  ');
 
         const card = (v) => {
