@@ -915,14 +915,24 @@ function () {
                                 // analysis (baja/bio/orfs/exon-removal-impact.js), so the two agree.
                                 label: 'Predict effect of removing',
                                 click: async (xwc, ywc) => {
-                                    try { graph.showSideMenu(null); } catch (e) { }
+                                    // The answer opens IN the menu's own panel, where the menu was (a floating
+                                    // menu session is still open while this item runs, so showSideMenu below
+                                    // draws there), with Remove exon / Back / Close under it. Where no floating
+                                    // menu is open (the selection box, a phone) the same list is a side menu.
                                     if (!selectedTrack) { graph.setMessage(" No track selected "); return; }
                                     const esc = (t) => ('' + t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+                                    // Plain-text labels of the result rows. The menu orderer (gene.js __orderMenu) moves
+                                    // any row whose label holds Back / Cancel / Close / Done to the bottom as navigation;
+                                    // a zero-width space inside those words keeps a sentence where it was written.
+                                    const plain = (t) => ('' + t).replace(/\b(back|cancel|close|done)\b/gi, (w) => w[0] + '\u200b' + w.slice(1));
                                     let r = null;
                                     try { r = await exec('baja/bio/orfs/exon-removal-impact.js', selectedTrack, annotation); } catch (e) { r = null; }
+                                    const title = 'Effect of removing ' + (annotation.name || 'this exon');
+                                    const back = { label: '\u2039 Back', click: () => { graph.showSideMenu(t); }, move: () => { } };
+                                    const close = { label: 'Close', click: () => { graph.showSideMenu(null); }, move: () => { } };
                                     if (!r || !r.ok) {
-                                        infoPrompt('<b>Effect of removing ' + esc(annotation.name || 'this exon') + '</b><br><br>'
-                                            + esc((r && r.reason) || 'Could not assess this exon.'), 520);
+                                        const why = (r && r.reason) || 'Could not assess this exon.';
+                                        graph.showSideMenu([{ type: 'html', label: plain(why), html: esc(why) }, { type: 'separator' }, back, close], null, title);
                                         return;
                                     }
                                     const verdict = {
@@ -933,15 +943,27 @@ function () {
                                         'as-original': ['#2563eb', 'In frame \u2192 NMD status as the original']
                                     }[r.nmd] || (r.outcome === 'unchanged' ? ['#475569', 'Protein unchanged']
                                         : (r.outcome === 'start-lost' ? ['#c0392b', 'Start codon lost'] : ['#475569', 'See notes']));
-                                    const chip = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + verdict[0]
-                                        + ';color:#fff;font-size:12px;font-weight:600">' + esc(verdict[1]) + '</span>';
+                                    const chip = '<span style="display:inline-block;padding:2px 9px;border-radius:10px;background:' + verdict[0]
+                                        + ';color:#fff;font-size:11.5px;font-weight:700">' + esc(verdict[1]) + '</span>';
                                     const lens = (r.outcome !== 'start-lost' && r.oldLength)
-                                        ? '<div style="margin:6px 0;opacity:.85">Protein: ' + r.oldLength + ' aa \u2192 ' + (r.newLength || 0) + ' aa</div>' : '';
-                                    infoPrompt('<b>Effect of removing ' + esc(annotation.name || 'this exon') + '</b> ' + chip
-                                        + '<div style="margin:10px 0 6px">' + esc(r.headline) + '</div>' + lens
-                                        + '<ul style="margin:6px 0 4px 18px;padding:0">' + r.lines.map((l) => '<li style="margin:3px 0">' + esc(l) + '</li>').join('') + '</ul>'
-                                        + '<div style="margin-top:8px;font-size:11px;opacity:.7">Translation from the annotated start codon to the first in-frame stop over the remaining exons. '
-                                        + 'NMD: 50\u201355 nt rule, with start-proximal and long-exon exceptions. A prediction, not a measurement.</div>', 560);
+                                        ? '<div style="margin-top:6px;color:#9fc4d4">Protein: ' + r.oldLength + ' aa \u2192 ' + (r.newLength || 0) + ' aa</div>' : '';
+                                    const body = chip
+                                        + '<div style="margin-top:8px;font-weight:600">' + esc(r.headline) + '</div>' + lens;
+                                    const notes = '<ul style="margin:0 0 0 16px;padding:0">'
+                                        + r.lines.map((l) => '<li style="margin:3px 0">' + esc(l) + '</li>').join('') + '</ul>';
+                                    const foot = '<div style="font-size:11px;color:#9fc4d4">Translation from the annotated start codon to the first in-frame stop over the remaining exons. '
+                                        + 'NMD by the 50\u201355 nt rule, with start-proximal and long-exon exceptions. A prediction, not a measurement.</div>';
+                                    const removeItem = (t || []).find((it) => it && it.label === 'Remove exon');
+                                    graph.showSideMenu([
+                                        { type: 'html', label: plain(verdict[1] + '. ' + r.headline), html: body },
+                                        { type: 'separator' },
+                                        { type: 'html', label: plain(r.lines.join(' ')), html: notes },
+                                        { type: 'html', label: 'A prediction, not a measurement.', html: foot },
+                                        { type: 'separator' },
+                                        ...(removeItem ? [{ label: 'Remove exon', emphasis: 'danger', click: removeItem.click, move: () => { } }] : []),
+                                        back,
+                                        close
+                                    ], null, title);
                                 },
                                 move: () => {
                                     log('')
