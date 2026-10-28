@@ -914,7 +914,18 @@ function () {
 
                                     let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to remove this?', async () => {
                                         selectedTrack.removeAnnotation(annotation);
-                                        selectedTrack.generateORF();
+                                        // Re-translate across the exons that remain. generateORF() alone
+                                        // rebuilt the old peptide: it splices the CDS annotations, and the
+                                        // CDS piece inside the removed exon was still there.
+                                        let r = null;
+                                        try { r = await exec('baja/bio/orfs/retranslate-after-exon-change.js', selectedTrack, annotation); } catch (e) { r = null; }
+                                        if (!r || !r.handled) {
+                                            try { selectedTrack.generateORF(); } catch (e) { }
+                                        }
+                                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                                        if (r && r.message) {
+                                            try { graph.setResultMessage ? graph.setResultMessage(' ' + r.message + ' ') : graph.setMessage(' ' + r.message + ' '); } catch (e) { }
+                                        }
                                     })
                                     await showModal(confirm)
 
