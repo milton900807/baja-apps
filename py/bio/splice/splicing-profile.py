@@ -37,6 +37,15 @@ Resolves { acceptor, donor, junctions, lostSites, mode, xi, strand, n, context,
 error }. Each junction is { d, a, dp, ap, mag, kind, annotated } (d/a in
 track-local coords). lostSites lists annotated splice sites the sequence no
 longer supports, as { x, kind, p }.
+
+PSI mode also puts each annotated splice site in COMPETITION with the AGs / GTs
+near it (within COMPETE_WIN nt): AltSSNet's predicted usage, weighed by
+SpliceNet's probability that each candidate is a site at all. The inclusion
+junction is divided between the edges accordingly, a competitor taking 1% or more
+gets its own arc (kind 'alt-acceptor' / 'alt-donor', with `shift` in nt and
+`share`), and `competition` lists every annotated edge that has a competitor as
+{ exon, site, x, p, share, method, alts: [{ x, p, share, shift, inFrame, codons }] }.
+A competitor within COMPETE_NEAR nt is always listed, however weak.
 """
 import os
 import sys
@@ -119,6 +128,22 @@ donor = []
 junctions = []
 # Annotated splice sites the sequence no longer supports (PSI mode).
 lost_sites = []
+# Competing splice sites at each annotated edge (PSI mode): see _compete.
+competition = []
+
+# How far either side of an annotated site to look for a competing AG / GT, in nt.
+COMPETE_WIN = 120
+# Always report a competitor this close, however weak: a 3-12 nt shift is exactly the
+# event a bulk assay cannot see, so "scored and negligible" is itself the answer.
+COMPETE_NEAR = 12
+# Report a farther competitor once it takes at least this share of the edge.
+COMPETE_REPORT = 0.01
+# Draw an arc for a competitor once it takes at least this share of the edge.
+COMPETE_ARC = 0.01
+# At most this many competitors reported per site.
+COMPETE_MAX = 4
+# Sites put to AltSSNet together, the annotated one included (its training group size).
+COMPETE_GROUP = 6
 n = 0
 context = 0
 err = None
@@ -334,6 +359,148 @@ else:
                             lost_sites.append({"x": tx2x(idx), "kind": what,
                                                "p": round(pv, 4)})
 
+            # AltSSNet: the bundled model trained on exactly this question -- given a
+            # group of competing 3' (or 5') sites that share one partner, what share of
+            # the junction reads does each take (GTEx usage). Loaded lazily, once.
+            _altss = {}
+
+            def _altss_model():
+                if "m" in _altss:
+                    return _altss["m"]
+                m = None
+                try:
+                    import torch.nn as nn
+                    from bajasplice.models import SpliceNet
+                    from bajasplice.scan import resolve_checkpoint
+
+                    class AltSSNet(nn.Module):
+                        # mirrors bajasplice/train/altss.py (kept here so serving does not
+                        # import the training stack)
+                        def __init__(self, context=2000, ch=32):
+                            super().__init__()
+                            self.trunk = SpliceNet(context=context, ch=ch)
+                            self.pool = nn.AdaptiveAvgPool1d(8)
+                            self.score = nn.Sequential(nn.Linear(ch * 8 + 2, 128), nn.ReLU(),
+                                                       nn.Dropout(0.1), nn.Linear(128, 1))
+
+                        def forward(self, x, feat):
+                            G = x.shape[0]
+                            h = self.pool(self.trunk.trunk(x)).reshape(G, -1)
+                            return self.score(torch.cat([h, feat], 1)).reshape(G)
+
+                    ck = torch.load(str(resolve_checkpoint(name="altss")), map_location="cpu",
+                                    weights_only=False)
+                    a = ck.get("args", {}) or {}
+                    net = AltSSNet(context=int(a.get("context", 2000)))
+                    net.load_state_dict(ck["model"])
+                    net = net.to(device).eval()
+                    m = (net, int(a.get("win", 200)) + int(a.get("context", 2000)))
+                except Exception as e:      # fall back to SpliceNet ratios, and say so
+                    _altss["error"] = str(e)
+                    m = None
+                _altss["m"] = m
+                return m
+
+            def _altss_shares(what, sites, partner):
+                """Usage share of each site in `sites` (transcript indices) at one edge."""
+                mm = _altss_model()
+                if not mm:
+                    return None
+                net, total = mm
+                half = total // 2
+                lo_off = -half + (1 if minus else 0)      # GenomeReader's window, in transcript order
+                xs, feats = [], []
+                for j in sites:
+                    w = np.zeros(total, np.int64)
+                    lo = j + lo_off
+                    a0, b0 = max(0, lo), min(n, lo + total)
+                    if b0 > a0:
+                        w[a0 - lo:b0 - lo] = codes[a0:b0]
+                    xs.append(one_hot(w))
+                    ilen = (j - partner + 1) if what == "acceptor" else (partner - j + 1)
+                    feats.append([np.log10(max(ilen, 1)), 1.0 if what == "acceptor" else 0.0])
+                with torch.no_grad():
+                    sc = net(torch.from_numpy(np.stack(xs)).float().to(device),
+                             torch.tensor(feats, dtype=torch.float32).to(device))
+                    return torch.softmax(sc.float(), 0).cpu().numpy().tolist()
+
+            def _compete(what, idx, k, first, last):
+                """Put the annotated site at transcript index `idx` in competition with the
+                AGs (acceptor) or GTs (donor) near it.
+
+                Site indices follow the training labels: an acceptor is the G of its AG (the
+                last intronic base), a donor the G of its GT (the first intronic base). The
+                candidates are every such dinucleotide within COMPETE_WIN nt; the group put to
+                AltSSNet is the annotated site, every candidate within COMPETE_NEAR nt, and
+                the strongest of the rest by SpliceNet, up to six in all (its training size).
+                Each one's share is AltSSNet's predicted usage, or, if that model cannot be
+                loaded, its SpliceNet probability over the group's sum. `shift` is the change
+                in exon length if that site is used instead: positive extends the exon into
+                the intron, negative eats into the exon; a multiple of 3 keeps the frame.
+                """
+                if not (0 <= idx < n):
+                    return None
+                arr = acc if what == "acceptor" else don
+                if what == "acceptor":
+                    partner = provided[k - 1][1] + 1                 # upstream donor
+                    lo = max(1, idx - COMPETE_WIN, partner + 20)
+                    hi = min(n - 1, idx + COMPETE_WIN, last - 3)
+                else:
+                    partner = provided[k + 1][0] - 1                 # downstream acceptor
+                    lo = max(0, idx - COMPETE_WIN, first + 3)
+                    hi = min(n - 2, idx + COMPETE_WIN, partner - 20)
+                cands = []
+                for j in range(lo, hi + 1):
+                    if j == idx:
+                        continue
+                    if what == "acceptor" and not (codes[j - 1] == 1 and codes[j] == 3):   # AG
+                        continue
+                    if what == "donor" and not (codes[j] == 3 and codes[j + 1] == 4):      # GT
+                        continue
+                    cands.append(j)
+                near = sorted([j for j in cands if abs(j - idx) <= COMPETE_NEAR],
+                              key=lambda j: -float(arr[j]))
+                far = sorted([j for j in cands if abs(j - idx) > COMPETE_NEAR],
+                             key=lambda j: -float(arr[j]))
+                group = [idx] + (near + far)[:COMPETE_GROUP - 1]
+                if len(group) < 2:
+                    return None
+                shares = None
+                try:
+                    shares = _altss_shares(what, group, partner)
+                except Exception as e:
+                    _altss["error"] = str(e)
+                # AltSSNet was trained only on groups whose every member is a REAL, used site,
+                # so it ranks sites on the assumption that each one is a site at all. Handed an
+                # arbitrary GT it still gives it a share (a GT the splice-site model scores at
+                # 0.0000 was taking 30% in testing). So its preference is weighed by SpliceNet's
+                # probability that each candidate is a site, and renormalised:
+                #     share_i  proportional to  AltSS_i * P_site(i)
+                # which leaves real competitors to AltSSNet and junk dinucleotides at ~0.
+                method = "AltSSNet x SpliceNet"
+                if shares:
+                    w = [float(sh) * max(float(arr[j]), 1e-6) for j, sh in zip(group, shares)]
+                    tw = sum(w)
+                    shares = [x / tw for x in w] if tw > 0 else None
+                if not shares:
+                    tot = sum(float(arr[j]) for j in group)
+                    if tot <= 0:
+                        return None
+                    shares = [float(arr[j]) / tot for j in group]
+                    method = "SpliceNet ratio"
+                alts = []
+                for j, sh in zip(group[1:], shares[1:]):
+                    shift = (idx - j) if what == "acceptor" else (j - idx)
+                    if abs(shift) <= COMPETE_NEAR or sh >= COMPETE_REPORT:
+                        alts.append({"x": tx2x(j), "p": round(float(arr[j]), 5),
+                                     "share": round(float(sh), 4), "shift": int(shift),
+                                     "inFrame": (shift % 3 == 0),
+                                     "codons": (int(shift // 3) if shift % 3 == 0 else None)})
+                alts.sort(key=lambda a: (-a["share"], abs(a["shift"])))
+                alts = alts[:COMPETE_MAX]
+                return {"exon": k + 1, "site": what, "x": tx2x(idx), "p": round(float(arr[idx]), 4),
+                        "share": round(float(shares[0]), 4), "method": method, "alts": alts}
+
             if events:
                 works.msg("Scoring exon inclusion (PSINet)…")
                 from bajasplice.scan import resolve_checkpoint
@@ -422,13 +589,61 @@ else:
                                       "mag": round(1.0 - ps, 4), "kind": "skip",
                                       "annotated": ann, "exon": exn,
                                       "exons": ([exn] if exn is not None else [])})
+                # COMPETITION BETWEEN NEARBY SITES. PSINet answers "is the exon in?", not
+                # "which AG (or GT) is its edge?". An exon whose acceptor has another AG a
+                # few nt away can be included at 96% and still be split between the two
+                # edges -- the NAGNAG-type event that removes or adds a couple of codons
+                # and is invisible to any assay not designed at single-nucleotide
+                # resolution. So each annotated site is put in competition with every
+                # same-kind dinucleotide near it, scored by SpliceNet, and the inclusion
+                # junction is divided between them by relative strength.
+                comp_share = {}          # track x of a site -> its share at that edge
+                alt_arcs = []
+                if provided:
+                    last_k = len(provided) - 1
+                    for k, (first, last) in enumerate(provided):
+                        sides = []
+                        if k > 0:
+                            sides.append(("acceptor", first - 1))
+                        if k < last_k:
+                            sides.append(("donor", last + 1))
+                        for what, idx in sides:
+                            r = _compete(what, idx, k, first, last)
+                            if not r:
+                                continue
+                            comp_share[tx2x(idx)] = r["share"]
+                            # the inclusion junction this edge belongs to
+                            if what == "acceptor":
+                                key = (tx2x(provided[k - 1][1] + 1), tx2x(idx))
+                            else:
+                                key = (tx2x(idx), tx2x(provided[k + 1][0] - 1))
+                            rec = incl.get(key)
+                            for alt in r["alts"]:
+                                if rec is None or alt["share"] < COMPETE_ARC:
+                                    continue
+                                base = min(rec["psis"])
+                                ax = alt["x"]
+                                alt_arcs.append({
+                                    "d": (key[0] if what == "acceptor" else ax),
+                                    "a": (ax if what == "acceptor" else key[1]),
+                                    "dp": (rec["dp"] if what == "acceptor" else alt["p"]),
+                                    "ap": (alt["p"] if what == "acceptor" else rec["ap"]),
+                                    "mag": round(base * alt["share"], 4),
+                                    "kind": "alt-" + what, "annotated": False,
+                                    "exon": k + 1, "exons": [k + 1], "shift": alt["shift"],
+                                    "share": alt["share"], "inFrame": alt["inFrame"]})
+                            if r["alts"]:
+                                competition.append(r)
                 for rec in incl.values():
+                    # the canonical edges keep only their share of the junction
+                    share = comp_share.get(rec["d"], 1.0) * comp_share.get(rec["a"], 1.0)
                     junctions.append({"d": rec["d"], "a": rec["a"],
                                       "dp": rec["dp"], "ap": rec["ap"],
-                                      "mag": round(min(rec["psis"]), 4), "kind": "inclusion",
+                                      "mag": round(min(rec["psis"]) * share, 4), "kind": "inclusion",
                                       "annotated": rec["annotated"],
                                       "exon": (rec["exons"][0] if rec["exons"] else None),
                                       "exons": sorted(rec["exons"])})
+                junctions.extend(alt_arcs)
         else:
             # sites mode: each confident donor joins its nearest downstream
             # acceptor, downstream meaning 3' in the transcript (lower track x
@@ -454,6 +669,7 @@ works.resolve({
     "donor": json.dumps(donor),
     "junctions": json.dumps(junctions),
     "lostSites": json.dumps(lost_sites),
+    "competition": json.dumps(competition),
     "mode": mode,
     "xi": xi,
     "strand": strand,

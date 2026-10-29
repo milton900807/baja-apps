@@ -206,12 +206,74 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                         // The exons this junction JOINS (one arc per junction now, so an
                         // inclusion arc borders two of them). The skip arc carries the one
                         // exon it skips.
-                        exons: Array.isArray(j.exons) ? j.exons.map(Number) : null
+                        exons: Array.isArray(j.exons) ? j.exons.map(Number) : null,
+                        // A competing splice site (kind 'alt-acceptor' / 'alt-donor'): how far
+                        // it moves the exon edge, in nt, and its share of that edge.
+                        shift: (j.shift == null ? null : +j.shift),
+                        share: (j.share == null ? null : +j.share)
                     };
                 });
+                // Competing sites at each annotated edge (PSI mode), kept with the layer so a
+                // later run on an edited copy of the transcript can be compared with this one.
+                let __comp = [];
+                try { __comp = JSON.parse((data && data.competition) || '[]') || []; } catch (e) { }
+                layer.competition = __comp;
                 track.addLayer(layer);
 
                 if (graph.wake) graph.wake();
+                // COMPETING SITES, in words. The arcs show where a competitor sits; this says
+                // what using it would do to the protein and how its share compares with the
+                // same edge on any other track already run (the unedited transcript, when this
+                // is an edited copy), which is the comparison a variant question turns on.
+                // Listed: every competitor that takes 1% or more, and the nearest ones (within
+                // 12 nt) whatever their share, since a few-nt shift is the event a bulk assay
+                // cannot see.
+                const __competitionSummary = (comp, trk) => {
+                    if (!Array.isArray(comp) || !comp.length) return '';
+                    const pct = (v) => { v = 100 * (+v || 0); return v >= 10 ? v.toFixed(0) + '%' : v >= 1 ? v.toFixed(1) + '%' : v >= 0.1 ? v.toFixed(2) + '%' : '<0.1%'; };
+                    // The same edge on another track's earlier PSI run, matched by exon, site and
+                    // the competitor's shift (tracks of one transcript share local coordinates
+                    // only when nothing was inserted, so shift is the safer key).
+                    const other = [];
+                    try {
+                        for (const t of (graph.track || [])) {
+                            if (t === trk) continue;
+                            for (const L of (t.track_layers || [])) {
+                                if (L && L.magnitudeMode === 'psi' && Array.isArray(L.competition) && L.competition.length)
+                                    other.push({ name: t.name || 'other track', comp: L.competition });
+                            }
+                        }
+                    } catch (e) { }
+                    const ref = other.length ? other[other.length - 1] : null;
+                    const refAlt = (c, a) => {
+                        if (!ref) return null;
+                        const e = ref.comp.find((r) => r.exon === c.exon && r.site === c.site);
+                        if (!e) return { share: 0, noSite: true };
+                        const m = (e.alts || []).find((x) => x.shift === a.shift);
+                        return m ? m : { share: null };
+                    };
+                    const rows = [];
+                    for (const c of comp) {
+                        for (const a of (c.alts || [])) {
+                            const word = (c.site === 'acceptor' ? 'AG' : 'GT');
+                            const sh = (a.shift > 0 ? '+' : '\u2212') + Math.abs(a.shift);
+                            const eff = a.inFrame
+                                ? 'in-frame, ' + (a.codons > 0 ? '+' : '\u2212') + Math.abs(a.codons) + ' codon' + (Math.abs(a.codons) === 1 ? '' : 's')
+                                : 'frameshift';
+                            const r = refAlt(c, a);
+                            const vs = (r && r.share != null) ? ' (' + ref.name + ': ' + pct(r.share) + ')' : '';
+                            rows.push({ s: +a.share || 0, near: Math.abs(a.shift) <= 12,
+                                text: 'e' + c.exon + ' ' + c.site + ' ' + word + ' ' + sh + ' nt (' + eff + ') ' + pct(a.share) + vs });
+                        }
+                    }
+                    if (!rows.length) return '';
+                    rows.sort((x, y) => (y.s - x.s));
+                    const shown = rows.filter((r) => r.s >= 0.01).slice(0, 4);
+                    for (const r of rows) if (shown.length < 6 && r.near && !shown.includes(r)) shown.push(r);
+                    const method = comp[0] && comp[0].method ? ' [' + comp[0].method + ']' : '';
+                    return 'Competing sites' + method + ': ' + shown.map((r) => r.text).join('; ')
+                        + (rows.length > shown.length ? ' (+' + (rows.length - shown.length) + ' weaker)' : '') + '. ';
+                };
                 const magLabel = (mode === 'psi') ? 'PSI inclusion' : 'site strength';
                 // A destroyed splice site is the thing the user most needs told, and it is
                 // not obvious from arcs that merely went quiet. The backend reports which
@@ -227,7 +289,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                         + (__lost.length === 1 ? '' : 's') + ' no longer scored above 0.10: '
                         + __lost.slice(0, 6).map((L) => L.kind + ' at ' + L.x
                             + ' (' + (+L.p).toFixed(2) + ')').join(', ')
-                        + (__lost.length > 6 ? ', …' : '') + '. ' : ''));
+                        + (__lost.length > 6 ? ', …' : '') + '. ' : '')
+                    + __competitionSummary(__comp, track));
                 // Model finished and the layer is added — bring the Models toolbar back.
                 resetModelsToolbar();
                 try { exec('baja/lib/work-status.js', null); } catch (e) { }

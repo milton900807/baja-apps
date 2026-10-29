@@ -954,6 +954,17 @@ return new Promise(async (resolve, reject) => {
                         + (chord > 60 ? (isSkip ? 'skip ' : '') : '')
                         + ((chord > 80 || __rep > 0) ? __ex : '')
                         + Math.round(__value * 100) + '%';
+                    // A COMPETING SITE at an annotated edge: say which edge and how far it moves
+                    // it, "e16 AG −6nt 3%", since the arc alone sits a few pixels from the
+                    // canonical one and reads as the same junction. Below 1% it shows one
+                    // decimal rather than a misleading 0%.
+                    if (j.kind === 'alt-acceptor' || j.kind === 'alt-donor') {
+                        const __sh = (j.shift == null) ? '' : ((j.shift > 0 ? '+' : '−') + Math.abs(j.shift) + 'nt ');
+                        const __p = __value * 100;
+                        label = (chord > 80 && j.exon != null ? 'e' + j.exon + ' ' : '')
+                            + (j.kind === 'alt-acceptor' ? 'AG ' : 'GT ') + __sh
+                            + (__p < 1 ? __p.toFixed(1) : Math.round(__p)) + '%';
+                    }
                     __show = chord > 12 && !isGhost;
                 } else {
                     label = __value.toFixed(2);
