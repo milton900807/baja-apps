@@ -21,11 +21,41 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     // clears the status when it is done.
     const tname = (track && track.name) || 'track';
     const fmt = (n) => (+n || 0).toLocaleString();
+    // Three places, because none of them alone is guaranteed to show: the shell's status line
+    // (only where the shell provides it), the canvas message bar (drawn on the canvas's next frame,
+    // so the canvas is woken), and a small panel of our own at the top of the window, which is
+    // plain DOM and paints whatever the canvas is doing.
+    const panel = () => {
+        let el = document.getElementById('baja-variants-progress');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'baja-variants-progress';
+            el.setAttribute('role', 'status');
+            el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2147483000;'
+                + 'display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:10px;'
+                + 'background:rgba(10,37,64,0.96);border:1px solid #1aa3bd;color:#eaf6f9;'
+                + 'font:13px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;box-shadow:0 10px 28px rgba(10,37,64,0.35);pointer-events:none;white-space:nowrap;';
+            el.innerHTML = '<span style="width:14px;height:14px;border:2px solid rgba(26,163,189,0.35);border-top-color:#1aa3bd;border-radius:50%;display:inline-block;animation:bajaVarSpin 0.8s linear infinite;"></span><span class="t"></span>';
+            if (!document.getElementById('baja-variants-progress-kf')) {
+                const st = document.createElement('style');
+                st.id = 'baja-variants-progress-kf';
+                st.textContent = '@keyframes bajaVarSpin{to{transform:rotate(360deg)}}';
+                document.head.appendChild(st);
+            }
+            document.body.appendChild(el);
+        }
+        return el;
+    };
     const status = (text) => {
         try { exec('baja/lib/work-status.js', 'Variants · ' + text); } catch (e) { }
-        try { graph.setMessage(' ' + text + ' '); } catch (e) { }
+        try { graph.setMessage(' ' + text + ' '); if (graph.wake) graph.wake(); } catch (e) { }
+        try { panel().querySelector('.t').textContent = text; } catch (e) { }
     };
-    const done = () => { try { exec('baja/lib/work-status.js', null); } catch (e) { } };
+    const done = () => {
+        try { exec('baja/lib/work-status.js', null); } catch (e) { }
+        try { const el = document.getElementById('baja-variants-progress'); if (el) el.remove(); } catch (e) { }
+        try { if (graph.wake) graph.wake(); } catch (e) { }
+    };
     // Yield until the browser has painted, so the status above is on screen before the work starts.
     const tick = () => new Promise((r) => {
         try { if (window.requestAnimationFrame) return requestAnimationFrame(() => setTimeout(r, 0)); } catch (e) { }
