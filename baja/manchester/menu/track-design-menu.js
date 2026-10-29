@@ -992,7 +992,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             if (__sel.length) __muts2 = __sel;
                         }
                         if (!__muts2.length) {
-                            try { graph.setResultMessage(' Allele-selective design needs a mutation to sit over, and this track has none inside the region being designed against. '); } catch (e) { }
+                            const __why = (__scope && __scope.mismatched)
+                                ? (__scope.mismatched + ' variant' + (__scope.mismatched === 1 ? '' : 's')
+                                    + ' could not be matched to the track sequence at their own position')
+                                : 'this track has none inside the region being designed against';
+                            try { graph.setResultMessage(' Allele-selective design needs a mutation to sit over: ' + __why + '. '); } catch (e) { }
                             try { if (progress && progress.stop) progress.stop(); } catch (e) { }
                             return;
                         }

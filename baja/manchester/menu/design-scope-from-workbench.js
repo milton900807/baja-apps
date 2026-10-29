@@ -70,6 +70,32 @@ function (graph, track, sequence, opts) {
             const len = Math.max(1, ref.length || 1);
             return { x: x, len: len, ref: ref.toUpperCase(), alt: alt.toUpperCase() };
         };
+        // WHICH WRITING OF THE ALLELE THIS TRACK USES. A variant carries its alleles twice:
+        // reference / alternate as they were loaded, and reference0 / alternate0 complemented
+        // for a minus-strand transcript. Which of the two matches the track's own string
+        // depends on how that track stores its sequence -- a genomic slice holds the plus
+        // strand, an mRNA track holds the transcript -- and guessing one of them is how an
+        // insertion on ACVR1 (a minus-strand gene, loaded as A>AT and labelled T>TA) came to
+        // disagree with the base under it and be dropped. So all the forms are offered and the
+        // one that matches the sequence at that position wins.
+        const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
+        const rc = (t) => ('' + t).toUpperCase().split('').reverse().map((c) => COMP[c] || c).join('');
+        const cmp = (t) => ('' + t).toUpperCase().split('').map((c) => COMP[c] || c).join('');
+        const alleleForms = (sv) => {
+            const clean = (v) => ('' + (v == null ? '' : v)).replace(/[^A-Za-z]/g, '').toUpperCase();
+            const r0 = clean(sv.reference0 != null ? sv.reference0 : sv.reference);
+            const a0 = clean(sv.alternate0 != null ? sv.alternate0 : sv.alternate);
+            const r1 = clean(sv.reference), a1 = clean(sv.alternate);
+            const forms = [[r0, a0], [r1, a1], [cmp(r1), cmp(a1)], [rc(r1), rc(a1)]];
+            const seen = {}, out2 = [];
+            for (const [r, a] of forms) {
+                if (!r || !a) continue;
+                const k = r + '>' + a;
+                if (seen[k]) continue;
+                seen[k] = 1; out2.push({ ref: r, alt: a });
+            }
+            return out2;
+        };
         const isSub = (f) => f && f.ref && f.alt && f.ref.length === f.alt.length
             && /^[ACGT]+$/.test(f.ref) && /^[ACGT]+$/.test(f.alt);
 
@@ -126,12 +152,19 @@ function (graph, track, sequence, opts) {
                     out.skippedIndels++;
                     continue;
                 }
-                if (!f.ref || !f.alt || !/^[ACGT]+$/.test(f.ref) || !/^[ACGT]+$/.test(f.alt)) { out.skippedIndels += sub ? 0 : 1; continue; }
-                if (i + f.ref.length > chars.length) { out.skippedIndels += sub ? 0 : 1; continue; }
-                if (!agreesAt(i, f.ref)) { out.mismatched = (out.mismatched || 0) + 1; continue; }
-                chars.splice(i, f.ref.length, ...f.alt.split('').map(asSeq));
-                applied.push({ i: i, ref: f.ref, alt: f.alt, sub: sub, v: own[n].v });
-                if (sub) out.appliedAlleles++; else out.appliedIndels = (out.appliedIndels || 0) + 1;
+                // The first writing of this variant whose reference reads the way the track
+                // does at that position (see alleleForms).
+                let use = null;
+                for (const cand of alleleForms(own[n].v)) {
+                    if (!/^[ACGT]+$/.test(cand.ref) || !/^[ACGT]+$/.test(cand.alt)) continue;
+                    if (i + cand.ref.length > chars.length) continue;
+                    if (agreesAt(i, cand.ref)) { use = cand; break; }
+                }
+                if (!use) { out.mismatched = (out.mismatched || 0) + 1; continue; }
+                const isSubNow = use.ref.length === use.alt.length;
+                chars.splice(i, use.ref.length, ...use.alt.split('').map(asSeq));
+                applied.push({ i: i, ref: use.ref, alt: use.alt, sub: isSubNow, v: own[n].v });
+                if (isSubNow) out.appliedAlleles++; else out.appliedIndels = (out.appliedIndels || 0) + 1;
             }
             seq = chars.join('');
             // Left to right now, accumulating the shift each earlier indel caused, to give each
@@ -227,7 +260,11 @@ function (graph, track, sequence, opts) {
 
         const bits = [];
         if (o.alleles) bits.push(out.appliedAlleles + ' of this track’s alleles applied'
-            + (out.skippedIndels ? (', ' + out.skippedIndels + ' indel' + (out.skippedIndels === 1 ? '' : 's') + ' left out and designed around') : ''));
+            + (out.appliedIndels ? (', ' + out.appliedIndels + ' indel' + (out.appliedIndels === 1 ? '' : 's') + ' applied') : '')
+            + (out.skippedIndels ? (', ' + out.skippedIndels + ' indel' + (out.skippedIndels === 1 ? '' : 's') + ' left out and designed around') : '')
+            // Silence here is what made a dropped variant hard to explain: say it.
+            + (out.mismatched ? (', ' + out.mismatched + ' variant' + (out.mismatched === 1 ? '' : 's')
+                + ' skipped — their reference allele does not match the track sequence there') : ''));
         if (o.avoidOthers) bits.push(out.excludedVariants
             ? (out.excludedVariants + ' variant' + (out.excludedVariants === 1 ? '' : 's') + ' on ' + out.otherTracks
                 + ' other track' + (out.otherTracks === 1 ? '' : 's') + ' avoided')
