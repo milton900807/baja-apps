@@ -45,7 +45,7 @@ function (graph, track, sequence, opts) {
         const out = {
             sequence: seq0, exclude_regions: [], note: '',
             appliedAlleles: 0, appliedIndels: 0, skippedIndels: 0, mismatched: 0,
-            excludedVariants: 0, otherTracks: 0,
+            excludedVariants: 0, otherTracks: 0, unmatched: [],
             // This track's own variants, as the designed sequence sees them: pos, the span a
             // candidate must cover whole to discriminate, type, and the label to report it by.
             mutations: [], shifts: [],
@@ -86,7 +86,13 @@ function (graph, track, sequence, opts) {
             const r0 = clean(sv.reference0 != null ? sv.reference0 : sv.reference);
             const a0 = clean(sv.alternate0 != null ? sv.alternate0 : sv.alternate);
             const r1 = clean(sv.reference), a1 = clean(sv.alternate);
-            const forms = [[r0, a0], [r1, a1], [cmp(r1), cmp(a1)], [rc(r1), rc(a1)]];
+            // The complemented readings are offered only where the variant says it came from
+            // the other strand (a minus-strand transcript, or a stored reference0 that differs
+            // from the loaded reference). Offering them always would let a plus-strand
+            // substitution match its own complement at a position it does not belong to.
+            const flipped = (+sv.transcriptStrand < 0) || (!!r0 && !!r1 && r0 !== r1);
+            const forms = flipped ? [[r0, a0], [r1, a1], [cmp(r1), cmp(a1)], [rc(r1), rc(a1)]]
+                : [[r0, a0], [r1, a1]];
             const seen = {}, out2 = [];
             for (const [r, a] of forms) {
                 if (!r || !a) continue;
@@ -144,7 +150,8 @@ function (graph, track, sequence, opts) {
             // change of everything to its LEFT, which is one pass the other way (below).
             const applied = [];
             for (let n = own.length - 1; n >= 0; n--) {
-                const { f, i } = own[n];
+                const f = own[n].f;
+                let i = own[n].i;
                 const sub = isSub(f);
                 if (!sub && !applyIndels) {
                     // Not applied: the design is kept off it instead.
@@ -154,13 +161,38 @@ function (graph, track, sequence, opts) {
                 }
                 // The first writing of this variant whose reference reads the way the track
                 // does at that position (see alleleForms).
-                let use = null;
-                for (const cand of alleleForms(own[n].v)) {
-                    if (!/^[ACGT]+$/.test(cand.ref) || !/^[ACGT]+$/.test(cand.alt)) continue;
-                    if (i + cand.ref.length > chars.length) continue;
-                    if (agreesAt(i, cand.ref)) { use = cand; break; }
+                //
+                // AN INDEL'S ANCHOR IS ALSO TRIED ONE BASE EITHER WAY. An anchored indel is
+                // written ref=<base before>+<changed bases>, and whether a loader stores its
+                // position at that anchor or at the first changed base is a convention, not a
+                // fact about the variant -- a VCF, a pasted HGVS and a hand-placed indel do not
+                // all agree. A substitution gets no such latitude: shifting one would write the
+                // right base in the wrong place, which is worse than not writing it at all.
+                let use = null, at = i;
+                const offsets = sub ? [0] : [0, -1, 1];
+                for (const d of offsets) {
+                    const j = i + d;
+                    if (j < 0 || j >= chars.length) continue;
+                    for (const cand of alleleForms(own[n].v)) {
+                        if (!/^[ACGT]+$/.test(cand.ref) || !/^[ACGT]+$/.test(cand.alt)) continue;
+                        if (j + cand.ref.length > chars.length) continue;
+                        // An anchored indel whose anchor agrees but whose changed bases do not
+                        // is not this variant at this position; agreesAt checks the whole ref.
+                        if (agreesAt(j, cand.ref)) { use = cand; at = j; break; }
+                    }
+                    if (use) break;
                 }
-                if (!use) { out.mismatched = (out.mismatched || 0) + 1; continue; }
+                if (!use) {
+                    out.mismatched = (out.mismatched || 0) + 1;
+                    // Say which one and what the track actually reads there, so a variant that
+                    // cannot be placed explains itself instead of just going missing.
+                    const sv = own[n].v, f2 = own[n].f;
+                    out.unmatched.push(('' + (sv.name || sv.id || (f2.ref + '>' + f2.alt)))
+                        + ' at ' + i + ': expected ' + f2.ref + ', track reads '
+                        + chars.slice(i, i + Math.max(1, f2.ref.length)).join(''));
+                    continue;
+                }
+                i = at;
                 const isSubNow = use.ref.length === use.alt.length;
                 chars.splice(i, use.ref.length, ...use.alt.split('').map(asSeq));
                 applied.push({ i: i, ref: use.ref, alt: use.alt, sub: isSubNow, v: own[n].v });
@@ -264,7 +296,8 @@ function (graph, track, sequence, opts) {
             + (out.skippedIndels ? (', ' + out.skippedIndels + ' indel' + (out.skippedIndels === 1 ? '' : 's') + ' left out and designed around') : '')
             // Silence here is what made a dropped variant hard to explain: say it.
             + (out.mismatched ? (', ' + out.mismatched + ' variant' + (out.mismatched === 1 ? '' : 's')
-                + ' skipped — their reference allele does not match the track sequence there') : ''));
+                + ' skipped (' + out.unmatched.slice(0, 3).join('; ')
+                + (out.unmatched.length > 3 ? '; …' : '') + ')') : ''));
         if (o.avoidOthers) bits.push(out.excludedVariants
             ? (out.excludedVariants + ' variant' + (out.excludedVariants === 1 ? '' : 's') + ' on ' + out.otherTracks
                 + ' other track' + (out.otherTracks === 1 ? '' : 's') + ' avoided')
