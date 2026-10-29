@@ -883,7 +883,9 @@ return new Promise(async (resolve, reject) => {
                 // of its acceptor, right of one that is right of it (minus strand), and the
                 // mirror for the acceptor. Labelled only when the arc is wide enough to keep the
                 // two numbers apart.
-                let __label = barLabels && chord > 40;
+                // A competing site sits a few nt from the canonical one, so its value would print
+                // on top of the canonical's; its share is on the arc label instead.
+                let __label = barLabels && chord > 40 && !(j.kind === 'alt-acceptor' || j.kind === 'alt-donor');
                 let __kd = 'd' + Math.round(x1), __ka = 'a' + Math.round(x2);
                 if (!__drawnBars.has(__kd)) {
                     __drawnBars.add(__kd);
@@ -988,6 +990,58 @@ return new Promise(async (resolve, reject) => {
                     ctx.strokeText(label, 0, 0);
                     ctx.fillStyle = labelColor;
                     ctx.fillText(label, 0, 0);
+                    ctx.restore();
+                }
+            }
+            // BRANCH POINTS. Each annotated acceptor's predicted branch-site A, drawn just under
+            // the baseline as a violet diamond joined by a dotted line to its AG, so the
+            // branch point, the polypyrimidine tract and the acceptor read as one unit. Filled
+            // when the splice-site model backs it (changing that A lowers the acceptor), hollow
+            // when it does not; a second candidate that keeps 20% or more is drawn small and
+            // hollow. Labelled "BP" when there is room, and with its motif and distance once
+            // zoomed in. layer.showBranchPoints = false hides them.
+            if (this.showBranchPoints !== false && Array.isArray(this.branchPoints)) {
+                const BPC = this.branchPointColor || '#7b3fa0';
+                const diamond = (x, y, r, fill) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath();
+                    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.stroke();
+                    ctx.lineWidth = 1.4; ctx.strokeStyle = BPC; ctx.stroke();
+                    if (fill) { ctx.fillStyle = BPC; ctx.fill(); }
+                };
+                for (const bp of this.branchPoints) {
+                    const B = bp && bp.best;
+                    if (!B || B.x == null || bp.acceptor == null) continue;
+                    const xb = graph.X(tgraph.X(B.x)), xa = graph.X(tgraph.X(bp.acceptor));
+                    if (Math.max(xb, xa) < 0 || Math.min(xb, xa) > w) continue;
+                    const y = baselineY + 8;
+                    ctx.save();
+                    ctx.globalAlpha = __stale ? 0.35 : 1;
+                    ctx.setLineDash([2, 2]);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = BPC;
+                    ctx.beginPath(); ctx.moveTo(xb, y); ctx.lineTo(xa, y); ctx.stroke();
+                    ctx.setLineDash([]);
+                    for (const o of (bp.others || [])) {
+                        if (!(o && o.prob >= 0.2 && o.x != null)) continue;
+                        diamond(graph.X(tgraph.X(o.x)), y, 3, false);
+                    }
+                    diamond(xb, y, 5, !(B.support != null && B.support < 0.2));
+                    const span = Math.abs(xa - xb);
+                    if (span > 10) {
+                        const txt = span > 110
+                            ? 'BP ' + (B.motif ? B.motif.slice(0, 3) + '[' + B.motif[3] + ']' + B.motif.slice(4) + ' ' : '') + '−' + B.dist
+                            : 'BP';
+                        ctx.font = 'bold 9px Arial';
+                        ctx.textAlign = (xb <= xa) ? 'right' : 'left';
+                        ctx.textBaseline = 'middle';
+                        const tx = xb + ((xb <= xa) ? -8 : 8);
+                        ctx.lineWidth = 3; ctx.lineJoin = 'round';
+                        ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                        ctx.strokeText(txt, tx, y);
+                        ctx.fillStyle = BPC;
+                        ctx.fillText(txt, tx, y);
+                    }
                     ctx.restore();
                 }
             }

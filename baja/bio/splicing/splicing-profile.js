@@ -218,6 +218,11 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                 let __comp = [];
                 try { __comp = JSON.parse((data && data.competition) || '[]') || []; } catch (e) { }
                 layer.competition = __comp;
+                // Predicted branch point of each annotated acceptor: drawn under the track as
+                // a marker joined to its AG, and kept for comparison with a later run.
+                let __bps = [];
+                try { __bps = JSON.parse((data && data.branchPoints) || '[]') || []; } catch (e) { }
+                layer.branchPoints = __bps;
                 track.addLayer(layer);
 
                 if (graph.wake) graph.wake();
@@ -274,6 +279,35 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                     return 'Competing sites' + method + ': ' + shown.map((r) => r.text).join('; ')
                         + (rows.length > shown.length ? ' (+' + (rows.length - shown.length) + ' weaker)' : '') + '. ';
                 };
+                // BRANCH POINTS, in words: only for the exons with something to say -- an edge
+                // that has a competitor, a branch point that moved since another track's run, or
+                // one the splice-site model gives little support -- so a 40-exon gene does not
+                // produce a 40-item message. Every branch point is drawn regardless.
+                const __branchSummary = (bps, comp, trk) => {
+                    if (!Array.isArray(bps) || !bps.length) return '';
+                    let refBps = null;
+                    try {
+                        for (const t of (graph.track || [])) {
+                            if (t === trk) continue;
+                            for (const L of (t.track_layers || []))
+                                if (L && L.magnitudeMode === 'psi' && Array.isArray(L.branchPoints) && L.branchPoints.length) refBps = { name: t.name || 'other track', bps: L.branchPoints };
+                        }
+                    } catch (e) { }
+                    const compExons = new Set((comp || []).filter((c) => c.site === 'acceptor' && (c.alts || []).length).map((c) => c.exon));
+                    const rows = [];
+                    for (const b of bps) {
+                        const B = b.best; if (!B) continue;
+                        const r = refBps ? refBps.bps.find((x) => x.exon === b.exon) : null;
+                        const moved = r && r.best && (r.best.dist !== B.dist || r.best.motif !== B.motif);
+                        const weak = (B.support != null && B.support < 0.2);
+                        if (!compExons.has(b.exon) && !moved && !weak) continue;
+                        rows.push('e' + b.exon + ' ' + B.motif.slice(0, 3) + '[' + B.motif[3] + ']' + B.motif.slice(4) + ' at \u2212' + B.dist + ' nt'
+                            + (B.support != null ? ', model support ' + (+B.support).toFixed(2) : '')
+                            + (B.agez ? ', AG in exclusion zone' : '')
+                            + (moved ? ' (' + refBps.name + ': ' + r.best.motif + ' at \u2212' + r.best.dist + ')' : ''));
+                    }
+                    return rows.length ? 'Branch point' + (rows.length === 1 ? '' : 's') + ': ' + rows.slice(0, 4).join('; ') + '. ' : '';
+                };
                 const magLabel = (mode === 'psi') ? 'PSI inclusion' : 'site strength';
                 // A destroyed splice site is the thing the user most needs told, and it is
                 // not obvious from arcs that merely went quiet. The backend reports which
@@ -290,7 +324,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                         + __lost.slice(0, 6).map((L) => L.kind + ' at ' + L.x
                             + ' (' + (+L.p).toFixed(2) + ')').join(', ')
                         + (__lost.length > 6 ? ', …' : '') + '. ' : '')
-                    + __competitionSummary(__comp, track));
+                    + __competitionSummary(__comp, track)
+                    + __branchSummary(__bps, __comp, track));
                 // Model finished and the layer is added — bring the Models toolbar back.
                 resetModelsToolbar();
                 try { exec('baja/lib/work-status.js', null); } catch (e) { }

@@ -46,6 +46,11 @@ gets its own arc (kind 'alt-acceptor' / 'alt-donor', with `shift` in nt and
 `share`), and `competition` lists every annotated edge that has a competitor as
 { exon, site, x, p, share, method, alts: [{ x, p, share, shift, inFrame, codons }] }.
 A competitor within COMPETE_NEAR nt is always listed, however weak.
+
+`branchPoints` gives each annotated acceptor's predicted branch point:
+{ exon, acceptor, best, others }, each candidate { x, dist, motif, score, prob,
+ppt, agez, support } where support is the drop in the acceptor's log-odds when
+that A is changed (the splice-site model's own vote).
 """
 import os
 import sys
@@ -130,6 +135,12 @@ junctions = []
 lost_sites = []
 # Competing splice sites at each annotated edge (PSI mode): see _compete.
 competition = []
+# Predicted branch point of each annotated acceptor (PSI mode): see _branch_points.
+branch_points = []
+# Branch A to the acceptor's G, in nt.
+BP_MIN, BP_MAX = 15, 50
+# Candidates per acceptor checked against the splice-site model.
+BP_CHECK = 3
 
 # How far either side of an annotated site to look for a competing AG / GT, in nt.
 COMPETE_WIN = 120
@@ -358,6 +369,96 @@ else:
                         if pv < SITE_THRESHOLD:
                             lost_sites.append({"x": tx2x(idx), "kind": what,
                                                "p": round(pv, 4)})
+
+            # yUnAy, positions -3..+1 around the branch A, as base probabilities (A, C, G, T).
+            # Mercer et al. 2015 (Genome Res 25:290) and Pineda & Bradley 2018 (Genes Dev
+            # 32:577): T at -2 is the strongest position after the A itself, then the
+            # pyrimidines at -3 and +1; -1 is nearly uninformative.
+            BP_PWM = {-3: (0.15, 0.35, 0.12, 0.38), -2: (0.05, 0.10, 0.05, 0.80),
+                      -1: (0.25, 0.30, 0.20, 0.25), 1: (0.15, 0.40, 0.10, 0.35)}
+
+            def _bp_window(seqc, center):
+                w = np.zeros(2 * c + 1, np.int64)
+                lo = center - c
+                a0, b0 = max(0, lo), min(len(seqc), center + c + 1)
+                if b0 > a0:
+                    w[a0 - lo:b0 - lo] = seqc[a0:b0]
+                return w
+
+            def _branch_points(idx, partner, k):
+                """Branch-point candidates for the acceptor whose AG ends at transcript index
+                idx (the G). Returns the best, with the runner-up, or None."""
+                if not (50 < idx < n):
+                    return None
+                cands = []
+                for d in range(BP_MIN, BP_MAX + 1):
+                    b = idx - d
+                    if b - 3 < max(0, partner + 10) or codes[b] != 1:          # an A, inside the intron
+                        continue
+                    sc = 0.0
+                    for off, pr in BP_PWM.items():
+                        base = int(codes[b + off])
+                        sc += np.log2(pr[base - 1] / 0.25) if base else 0.0
+                    # distance prior: flat across the usual 21-34, falling away outside it
+                    sc += -0.15 * max(0, 21 - d) - 0.12 * max(0, d - 34)
+                    # polypyrimidine tract between the branch point and the AG
+                    ppt = codes[b + 4: idx - 2]
+                    py = float(((ppt == 2) | (ppt == 4)).mean()) if len(ppt) else 0.0
+                    sc += 3.0 * (py - 0.5)
+                    # AG exclusion zone: an AG more than 12 nt past the branch point and before
+                    # the real one would be taken first, so this A is unlikely to be the one used
+                    agez = False
+                    for t in range(b + 12, idx - 2):
+                        if codes[t] == 1 and codes[t + 1] == 3:
+                            agez = True
+                            break
+                    if agez:
+                        sc -= 3.0
+                    cands.append([b, d, sc, py, agez])
+                if not cands:
+                    return None
+                cands.sort(key=lambda r: -r[2])
+                top = cands[:BP_CHECK]
+                # In silico check: A -> C at each candidate, acceptor log-odds rescored.
+                support = [None] * len(top)
+                try:
+                    wins = [_bp_window(codes, idx)]
+                    for b, *_r in top:
+                        mut = codes.copy()
+                        mut[b] = 2
+                        wins.append(_bp_window(mut, idx))
+                    xb = torch.from_numpy(np.stack([one_hot(w) for w in wins])).float().to(device)
+                    with torch.no_grad():
+                        pp = torch.softmax(model(xb).float(), 1).cpu().numpy()[:, 1, 0]
+                    lo_ = lambda v: float(np.log(max(v, 1e-6) / max(1 - v, 1e-6)))
+                    ref_lo = lo_(float(pp[0]))
+                    support = [round(ref_lo - lo_(float(v)), 3) for v in pp[1:]]
+                except Exception:
+                    pass
+                # Probability across the candidates from the motif score (log2 units).
+                ws = np.array([2.0 ** r[2] for r in cands])
+                ws = ws / ws.sum()
+                out = []
+                for i, (b, d, sc, py, agez) in enumerate(top):
+                    out.append({"x": tx2x(b), "dist": int(d), "score": round(float(sc), 2),
+                                "prob": round(float(ws[i]), 3), "ppt": round(py, 2), "agez": bool(agez),
+                                "motif": "".join("NACGT"[int(v)] for v in codes[b - 3:b + 2]),
+                                "support": support[i]})
+                return {"exon": k + 1, "acceptor": tx2x(idx), "best": out[0], "others": out[1:]}
+
+            # BRANCH POINTS. The branch-site A sits 18-44 nt upstream of the acceptor AG
+            # (most often 21-34), in the yUnAy consensus, with the polypyrimidine tract
+            # between it and the AG and, as a rule, no AG in between (the AG exclusion zone:
+            # the spliceosome takes the first AG it meets after the branch point). Each
+            # annotated acceptor's candidates are scored on those four things, and the best
+            # few are checked against the splice-site model: change the A and rescore the
+            # acceptor. A real branch point is one the acceptor depends on.
+            if provided:
+                works.msg("Scoring branch points…")
+                for k in range(1, len(provided)):
+                    r = _branch_points(provided[k][0] - 1, provided[k - 1][1] + 1, k)
+                    if r:
+                        branch_points.append(r)
 
             # AltSSNet: the bundled model trained on exactly this question -- given a
             # group of competing 3' (or 5') sites that share one partner, what share of
@@ -670,6 +771,7 @@ works.resolve({
     "junctions": json.dumps(junctions),
     "lostSites": json.dumps(lost_sites),
     "competition": json.dumps(competition),
+    "branchPoints": json.dumps(branch_points),
     "mode": mode,
     "xi": xi,
     "strand": strand,
