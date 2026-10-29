@@ -16,8 +16,14 @@ function (graph, track, sequence, opts) {
     // -- sites to keep OFF -- and are handled by design-scope-from-workbench.js.
     //
     // A substitution contributes the one base it changes. An indel contributes the bases it
-    // spans, so an oligo laid over any of them is over the junction. Coordinates follow the
-    // same convention as the scope module: index = round(variant.xi) - offset.
+    // spans, so an oligo laid over any of them is over the junction.
+    //
+    // COORDINATES. A variant's xi is in the track's own x, which starts at track.xi -- not at
+    // zero -- while `sequence` starts at `offset` bases into track.sequence (selectedOffset(),
+    // which is itself relative to track.xi). So the index of a variant in the handed-over
+    // sequence is x - track.xi - offset, and BOTH terms are needed: on a genomic track, whose
+    // xi is the gene's start, dropping track.xi puts every variant past the end of the
+    // sequence and the design sees none of them.
     return (async () => {
         const o = opts || {};
         const offset = Math.max(0, Math.round(+o.offset || 0));
@@ -26,6 +32,7 @@ function (graph, track, sequence, opts) {
         if (!track || !seq.length) return out;
 
         const num = (v) => { const n = +v; return isFinite(n) ? n : null; };
+        const base = Math.round(+track.xi || 0) + offset;
         const all = (track.snpindels || []).filter(Boolean);
         // A selection in the variant window means "these ones": designing around all of a
         // track's variants when five are selected answers a question nobody asked.
@@ -41,7 +48,7 @@ function (graph, track, sequence, opts) {
             const ref = ('' + (s.reference0 != null ? s.reference0 : (s.reference || ''))).replace(/[^A-Za-z]/g, '').toUpperCase();
             const alt = ('' + (s.alternate0 != null ? s.alternate0 : (s.alternate || ''))).replace(/[^A-Za-z]/g, '').toUpperCase();
             const span = Math.max(1, ref.length || 1);
-            const i0 = Math.round(x) - offset;
+            const i0 = Math.round(x) - base;
             let added = 0;
             for (let k = 0; k < span; k++) {
                 const i = i0 + k;

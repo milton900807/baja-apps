@@ -35,6 +35,12 @@ function (graph, track, sequence, opts) {
     return (async () => {
         const o = opts || {};
         const offset = Math.max(0, Math.round(+o.offset || 0));   // where `sequence` starts in the track
+        // A variant's xi is in the track's own x, which starts at TRACK.XI, while `offset` is
+        // relative to that (selectedOffset() = start - xi). Both have to come off to land in
+        // `sequence`. Without track.xi, every variant on a genomic track -- whose xi is the
+        // gene's start, not zero -- mapped past the end of the sequence and was skipped, so
+        // neither option did anything there: no allele was applied and no site was avoided.
+        const baseOf = (t) => Math.round(+(t && t.xi) || 0) + offset;
         const seq0 = '' + (sequence || '');
         const out = {
             sequence: seq0, exclude_regions: [], note: '',
@@ -70,7 +76,7 @@ function (graph, track, sequence, opts) {
             for (const s of (track.snpindels || [])) {
                 const f = footprint(s);
                 if (!f) continue;
-                const i = Math.round(f.x) - offset;
+                const i = Math.round(f.x) - baseOf(track);
                 if (i < 0 || i >= chars.length) continue;
                 if (!isSub(f)) {
                     // An indel is not applied; the design is kept off it instead.
@@ -118,7 +124,7 @@ function (graph, track, sequence, opts) {
                     if (gp == null) continue;
                     const lx = localOf(track, u.chr || track.chr, gp);
                     if (lx == null) continue;
-                    const i = Math.round(lx) - offset;
+                    const i = Math.round(lx) - baseOf(track);
                     const from = i - pad, to = i + f.len + pad;
                     if (to <= 0 || from >= seq.length) continue;   // outside what is designed
                     out.exclude_regions.push([Math.max(0, from), Math.min(seq.length, to)]);
