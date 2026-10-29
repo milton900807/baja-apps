@@ -3678,13 +3678,33 @@ function (graph, genegraph_panel_layout) {
 
                 ]
 
-                // Compound actions, only when this track HAS compounds -- three dead entries on
-                // an empty track is worse than none. They act on every compound on the track,
-                // which is what "the compounds" means from a track menu; the per-compound
-                // actions live under Compounds ▸.
+                // Compound actions, only when there ARE compounds -- three dead entries on an
+                // empty track is worse than none. With a sequence selected (markstart..markend)
+                // "the compounds" means the ones in that window, so a window with none shows no
+                // compound items at all (Synthesis cost and Draw > Highlight Compounds included,
+                // below); with no selection it means every compound on the track. The
+                // per-compound actions live under Compounds ▸.
+                const __selRange = (() => {
+                    try {
+                        const a = +selectedTrack.markstart, b = +selectedTrack.markend;
+                        if (isFinite(a) && isFinite(b) && a >= 0 && b > a) return { lo: Math.min(a, b), hi: Math.max(a, b) };
+                    } catch (e) { }
+                    return null;
+                })();
+                const __scopeCs = (() => {
+                    try {
+                        const all = (selectedTrack && Array.isArray(selectedTrack.oligos)) ? selectedTrack.oligos.filter(Boolean) : [];
+                        if (!__selRange) return all;
+                        return all.filter((o) => {
+                            const a = +o.xi, b = (o.xf != null ? +o.xf : +o.xi);
+                            if (!isFinite(a)) return false;
+                            const lo = Math.min(a, isFinite(b) ? b : a), hi = Math.max(a, isFinite(b) ? b : a);
+                            return hi >= __selRange.lo && lo <= __selRange.hi;
+                        });
+                    } catch (e) { return []; }
+                })();
                 try {
-                    const __cs = (selectedTrack && Array.isArray(selectedTrack.oligos))
-                        ? selectedTrack.oligos.filter(Boolean) : [];
+                    const __cs = __scopeCs;
                     if (__cs.length) {
                         golist.push({
                             label: 'Highlight compounds (' + __cs.length + ')',
@@ -4706,7 +4726,8 @@ function (graph, genegraph_panel_layout) {
 
                                     }
                                 },
-                                {
+                                // only when there are compounds (in the selected window, if any)
+                                ...(__scopeCs.length ? [{
                                     label: `Highlight Compounds`,
                                     click: async () => {
                                         graph.setMessage(" Highlight compounds ")
@@ -4715,7 +4736,7 @@ function (graph, genegraph_panel_layout) {
                                         }
                                         graph.showSideMenu(null);
                                     }
-                                }
+                                }] : [])
 
                             ];
 
@@ -4775,7 +4796,8 @@ function (graph, genegraph_panel_layout) {
                         },
                         move: () => { }
                     },
-                    {
+                    // Only when there are compounds to price (in the selected window, if any).
+                    ...(__scopeCs.length ? [{
                         label: 'Synthesis cost',
                         click: async () => {
                             // What the compounds on this track cost to make, priced per
@@ -4783,7 +4805,7 @@ function (graph, genegraph_panel_layout) {
                             await exec('baja/manchester/menu/synthesis-cost.js', graph, selectedTrack, genegraph_panel_layout);
                         },
                         move: () => { }
-                    },
+                    }] : []),
                     {
                         label: 'Layers ▸',
                         click: async (scx, scy) => {
