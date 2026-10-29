@@ -794,37 +794,56 @@ function () {
                 // these types, so skip this older per-base green overlay to avoid drawing the oligo
                 // sequence twice. Other types (amplicon, primer-probe, …) still use it.
                 //
-                // showTargetSequence opts back in, because the beads spell out the strand that is
-                // SYNTHESISED and there are designs whose point is the strand being TARGETED --
-                // an allele-selective oligo is built against one allele, and which allele that is
-                // can only be read off the target.
+                // WHICH STRAND A COMPOUND SPELLS OUT. The beads spell out the strand that is
+                // SYNTHESISED; what a reader needs most of the time is the strand being
+                // TARGETED -- it is the one that lines up with the track under it, and for an
+                // allele-selective oligo it is the only place the allele can be read.
                 //
-                // But only while the chemistry is not itself showing. Zoomed in far enough for
-                // the beads to spell out their bases, those letters ARE the synthesis strand and
-                // that is the right thing to be reading; a second row of letters underneath would
-                // be two sequences with nothing saying which is which. Zoomed out past that, the
-                // beads carry no letters and the target is what the compound has to show.
-                // screencell > 5 is the same threshold this file already uses for "zoomed in
-                // enough to draw base letters".
-                const wantsTarget = !!this.showTargetSequence;
-                if (!wantsTarget && (this.type === 'aso' || this.type === 'gapmer'
-                    || this.type === 'siRNA' || this.type === 'sirna')) return;
+                // So the target is the default, and the one case it steps aside for is the
+                // chemistry showing its own base letters: at that zoom those letters ARE the
+                // synthesis strand, and a second row underneath would be two sequences with
+                // nothing saying which is which. The threshold is the renderer's own
+                // (flexigraph/chem-draw.js: showBase = per >= 11), so the two cannot drift
+                // apart; below it the beads carry no letters and the target is what shows.
+                //
+                // showTargetSequence = false opts a compound out and restores the old
+                // behaviour: the beads only, nothing underneath.
+                const wantsTarget = (this.showTargetSequence !== false);
+                const isSS = (this.type === 'aso' || this.type === 'gapmer'
+                    || this.type === 'siRNA' || this.type === 'sirna');
+                if (!wantsTarget && isSS) return;
+                // The target site in track orientation, which is what lines up base-for-base
+                // with the sequence underneath. Falls back to the compound's own sequence for
+                // anything that has no target recorded (an imported oligo, a primer).
+                let __txt = this.sequence, __isTarget = false;
                 if (wantsTarget) {
-                    let __cell = 0;
-                    try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }
-                    if (__cell > 5) return;      // the chemistry is showing: its letters are the synthesis strand
-                    y = y - 0.14;                // sit above the body rather than on it
+                    const t = this.targetSequence || this.targetSite || this.targetSiteRna || '';
+                    if (t) { __txt = t; __isTarget = true; }
+                    else if (isSS) return;   // nothing but the synthesis strand to show, and the beads have that
+                    // Only the bead-rendered modalities stand aside for the chemistry: an
+                    // amplicon or a primer draws no base letters of its own at any zoom, so
+                    // suppressing its sequence there would hide it for nothing.
+                    if (isSS) {
+                        let __cell = 0;
+                        try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }
+                        const __lowDetail = !!(graph && graph.__lowDetail);
+                        if (__cell >= 11 && !__lowDetail) return;   // the chemistry is spelling out the synthesis strand
+                        y = y - 0.14;                               // sit above the body rather than on it
+                    }
                 }
 
                 let font = "11px Arial";
                 let seq_index = Math.round(x - this.xi);
 
-                if (this.sequence) {
-                    if (seq_index >= 0 && seq_index < this.sequence.length) {
+                if (__txt) {
+                    if (seq_index >= 0 && seq_index < __txt.length) {
+                        // Target letters in the track's own navy, so they read as the strand
+                        // below them rather than as another compound sequence; a compound's own
+                        // sequence keeps the green it has always had.
                         if (this.mismatch.includes(seq_index)) {
-                            graph.drawString(this.sequence[seq_index], tgraph.X(x), tgraph.Y(y), "red", "12px Arial");
+                            graph.drawString(__txt[seq_index], tgraph.X(x), tgraph.Y(y), "red", "12px Arial");
                         } else {
-                            graph.drawString(this.sequence[seq_index], tgraph.X(x), tgraph.Y(y), "darkGreen", font);
+                            graph.drawString(__txt[seq_index], tgraph.X(x), tgraph.Y(y), __isTarget ? "#0a2540" : "darkGreen", font);
                         }
                     }
                 }
