@@ -733,6 +733,30 @@ function () {
                 // synthesis sequence drawn as a pill above the body. Deliberately NOT behind
                 // graph.showOligoLabels -- it is an explicit "show me the sequence" the user
                 // just asked for, so it draws on demand, the way flagReason does.
+                // WHICH SEQUENCE THE LABEL CARRIES is decided here rather than by the menu that
+                // switched it on. A compound's label is read against the track under it, so the
+                // TARGET is what it shows -- except where the chemistry is already spelling out
+                // its own bases (chem-draw.js: showBase at 11 px per residue), and those letters
+                // are the synthesis strand. There the label carries the synthesis sequence, so
+                // the two rows never say the same thing twice or contradict each other.
+                //
+                // The menu's target / synthesis choice still sets the label up and switches it
+                // off; what it no longer does is fix the content at a zoom where the other
+                // strand is the useful one.
+                if (this.__seqDisp) {
+                    const __tgt = ('' + (this.targetSequence || this.targetSite || '')).toUpperCase();
+                    const __syn = ('' + (this.synthesisSequence || this.antisense || this.sequence || '')).toUpperCase();
+                    let __per0 = 0;
+                    try { __per0 = graph.X(tgraph.X(this.xi + 1)) - graph.X(tgraph.X(this.xi)); } catch (e) { __per0 = 0; }
+                    const __chemLetters = (__per0 >= 11) && !(graph && graph.__lowDetail);
+                    if (__chemLetters) {
+                        if (__syn) { this.__seqDisp = __syn; this.__seqDisp2 = ''; this.__seqDispColor = '#7c2d12'; }
+                    } else if (__tgt) {
+                        this.__seqDisp = __tgt; this.__seqDispColor = '#0b7285';
+                        // The target is about the pairing, so what will be made goes underneath it.
+                        if (__syn) this.__seqDisp2 = __syn;
+                    }
+                }
                 if (this.__seqDisp) {
                     // IN REGISTER WITH THE BASES, when there is room for a letter per base:
                     // the target across the top and what will be synthesised underneath it,
