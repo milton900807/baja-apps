@@ -14,6 +14,31 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     if (range && !pool.length) { graph.setMessage(' No SNPs in the selected region. '); return; }
     const M = pool.length;
 
+    // FEEDBACK WHILE IT WORKS. A track can carry tens of thousands of variants (ClinVar, gnomAD),
+    // and tallying, filtering or removing them runs on the main thread: the canvas stops and
+    // nothing said why. Every step now puts what it is doing in the status line (spinner) and the
+    // message bar FIRST, lets the browser paint that, works in chunks with a running count, and
+    // clears the status when it is done.
+    const tname = (track && track.name) || 'track';
+    const fmt = (n) => (+n || 0).toLocaleString();
+    const status = (text) => {
+        try { exec('baja/lib/work-status.js', 'Variants · ' + text); } catch (e) { }
+        try { graph.setMessage(' ' + text + ' '); } catch (e) { }
+    };
+    const done = () => { try { exec('baja/lib/work-status.js', null); } catch (e) { } };
+    // Yield until the browser has painted, so the status above is on screen before the work starts.
+    const tick = () => new Promise((r) => {
+        try { if (window.requestAnimationFrame) return requestAnimationFrame(() => setTimeout(r, 0)); } catch (e) { }
+        setTimeout(r, 16);
+    });
+    const busy = async (text, fn) => { status(text); await tick(); try { return await fn(); } finally { done(); } };
+    const CHUNK = 4000;
+
+    return (async () => {
+    status('Reading ' + fmt(M) + ' variants on ' + tname + '…');
+    await tick();
+    try {
+
     const F = track.__snpFilter || (track.__snpFilter = { type: null, source: null, clinsig: null, clinGroup: null, consequence: null, quality: null, phase: null, minAf: null });
 
     const readAf = (s) => {
@@ -67,7 +92,26 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
         if (F.minAf != null) { const af = readAf(s); if (af == null || af < F.minAf) return false; }
         return true;
     };
-    const apply = () => { let shown = 0; for (const s of snps) { s.hidden = !matches(s); if (!s.hidden) shown++; } track.showSnpIndels = true; if (graph.wake) graph.wake(); return shown; };
+    const apply = async (what) => {
+        const N = snps.length;
+        status((what || 'Filtering') + ' · ' + fmt(N) + ' variants on ' + tname + '…');
+        await tick();
+        let shown = 0;
+        try {
+            for (let i = 0; i < N; i++) {
+                const s = snps[i];
+                s.hidden = !matches(s);
+                if (!s.hidden) shown++;
+                if (i && i % CHUNK === 0) {
+                    status((what || 'Filtering') + ' · ' + fmt(i) + ' / ' + fmt(N) + ' variants on ' + tname + '…');
+                    await tick();
+                }
+            }
+            track.showSnpIndels = true;
+            if (graph.wake) graph.wake();
+        } finally { done(); }
+        return shown;
+    };
 
     const tally = (fn) => { const m = {}; for (const s of pool) { const ks = fn(s); (Array.isArray(ks) ? ks : [ks]).forEach((k) => { if (k == null || k === '') return; m[k] = (m[k] || 0) + 1; }); } return m; };
     const typeT = tally((s) => ('' + s.type).toLowerCase());
@@ -98,7 +142,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     const clinGroupMenu = () => {
         const items = [
             { label: '‹ back', move: () => { }, click: () => mainMenu() },
-            { label: 'Any / clear', move: () => { }, click: () => { F.clinGroup = null; F.clinsig = null; const n = apply(); graph.setMessage(' Clinical filter cleared — ' + n + ' shown. '); mainMenu(); } },
+            { label: 'Any / clear', move: () => { }, click: async () => { F.clinGroup = null; F.clinsig = null; const n = await apply(); graph.setMessage(' Clinical filter cleared — ' + n + ' shown. '); mainMenu(); } },
         ];
         // Grouped presets (only those with matches).
         const addGroup = (key, label) => {
@@ -106,7 +150,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
             if (!cnt) return;
             items.push({
                 label: (F.clinGroup === key ? '✓ ' : '') + label + '  (' + cnt + ')', move: () => { },
-                click: () => { F.clinGroup = key; F.clinsig = null; const n = apply(); graph.setMessage(' ' + label + ' — ' + n + ' of ' + M + ' shown. '); mainMenu(); }
+                click: async () => { F.clinGroup = key; F.clinsig = null; const n = await apply(); graph.setMessage(' ' + label + ' — ' + n + ' of ' + M + ' shown. '); mainMenu(); }
             });
         };
         addGroup('hasclin', 'Any clinical significance');
@@ -118,7 +162,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
         keys.forEach((k) => {
             items.push({
                 label: (F.clinsig === k ? '✓ ' : '') + k + '  (' + clinT[k] + ')', move: () => { },
-                click: () => { F.clinsig = k; F.clinGroup = null; const n = apply(); graph.setMessage(' clinsig = ' + k + ' — ' + n + ' of ' + M + ' shown. '); mainMenu(); }
+                click: async () => { F.clinsig = k; F.clinGroup = null; const n = await apply(); graph.setMessage(' clinsig = ' + k + ' — ' + n + ' of ' + M + ' shown. '); mainMenu(); }
             });
         });
         if (keys.length === 0 && items.length <= 2) {
@@ -132,8 +176,8 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
         const items = [
             { label: '‹ back', move: () => { }, click: () => mainMenu() },
             {
-                label: 'Any / clear', move: () => { }, click: () => {
-                    setFn(null); const n = apply();
+                label: 'Any / clear', move: () => { }, click: async () => {
+                    setFn(null); const n = await apply();
                     graph.setMessage(' ' + title + ' filter cleared — ' + n + ' of ' + M + ' shown. ');
                     mainMenu();
                 }
@@ -141,8 +185,8 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
         ];
         Object.keys(tallyObj).sort((a, b) => tallyObj[b] - tallyObj[a]).forEach((k) => {
             items.push({
-                label: (current === k ? '✓ ' : '') + k + '  (' + tallyObj[k] + ')', move: () => { }, click: () => {
-                    setFn(k); const n = apply();
+                label: (current === k ? '✓ ' : '') + k + '  (' + tallyObj[k] + ')', move: () => { }, click: async () => {
+                    setFn(k); const n = await apply();
                     graph.setMessage(' ' + title + ' = ' + k + ' — ' + n + ' of ' + M + ' shown. ');
                     mainMenu();
                 }
@@ -154,12 +198,12 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     const afMenu = () => {
         const items = [
             { label: '‹ back', move: () => { }, click: () => mainMenu() },
-            { label: 'Any / clear', move: () => { }, click: () => { F.minAf = null; const n = apply(); graph.setMessage(' AF filter cleared — ' + n + ' shown. '); mainMenu(); } },
+            { label: 'Any / clear', move: () => { }, click: async () => { F.minAf = null; const n = await apply(); graph.setMessage(' AF filter cleared — ' + n + ' shown. '); mainMenu(); } },
         ];
         [0.10, 0.05, 0.01, 0.001].forEach((th) => {
             items.push({
-                label: (F.minAf === th ? '✓ ' : '') + 'AF ≥ ' + th, move: () => { }, click: () => {
-                    F.minAf = th; const n = apply();
+                label: (F.minAf === th ? '✓ ' : '') + 'AF ≥ ' + th, move: () => { }, click: async () => {
+                    F.minAf = th; const n = await apply();
                     graph.setMessage(' AF ≥ ' + th + ' — ' + n + ' of ' + M + ' shown. ');
                     mainMenu();
                 }
@@ -184,9 +228,9 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
         items.push({ label: '─ active: ' + activeLabel(), move: () => { }, click: () => mainMenu() });
         items.push(
             {
-                label: 'Show all (clear filters)', move: () => { }, click: () => {
+                label: 'Show all (clear filters)', move: () => { }, click: async () => {
                     F.type = F.source = F.clinsig = F.clinGroup = F.consequence = F.quality = F.phase = null; F.minAf = null;
-                    apply();
+                    await apply('Clearing filters');
                     graph.setMessage(' Filters cleared — showing all ' + M + ' SNPs. ');
                     mainMenu();
                 }
@@ -195,7 +239,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                 label: 'Remove hidden', move: () => { }, click: async () => {
                     const hiddenCount = track.snpindels.filter((s) => s.hidden).length;
                     if (!hiddenCount) { graph.setMessage(' No hidden SNPs to remove. '); return; }
-                    const doRemove = () => {
+                    const doRemove = () => busy('Removing variants from ' + tname + '…', () => {
                         const before = track.snpindels.length;
                         track.snpindels = track.snpindels.filter((s) => !s.hidden);
                         const rm = before - track.snpindels.length;
@@ -205,7 +249,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                         graph.setMessage(' Removed ' + rm + ' hidden SNP' + (rm === 1 ? '' : 's')
                             + (childRm ? ' (+' + childRm + ' from child tracks)' : '') + '; ' + track.snpindels.length + ' remain. ');
                         if (graph.hideMenu) graph.hideMenu();
-                    };
+                    });
                     if (graph.hideMenu) graph.hideMenu();
                     try {
                         const c = await exec('baja/lib/confirm.js', 'Remove ' + hiddenCount + ' hidden (filtered-out) SNP' + (hiddenCount === 1 ? '' : 's') + '? This cannot be undone.', () => { doRemove(); });
@@ -220,7 +264,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                     const shown = snps.filter((s) => !s.hidden);
                     if (!shown.length) { graph.setMessage(' No matching SNPs to remove — set a filter first. '); return; }
                     const what = activeLabel() === '(none)' ? (range ? 'in selection' : 'on track') : activeLabel();
-                    const doRemove = () => {
+                    const doRemove = () => busy('Removing variants from ' + tname + '…', () => {
                         const before = track.snpindels.length;
                         track.snpindels = track.snpindels.filter((s) => s.hidden);   // keep hidden, drop the matching
                         const rm = before - track.snpindels.length;
@@ -230,7 +274,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                         graph.setMessage(' Removed ' + rm + ' matching SNP' + (rm === 1 ? '' : 's')
                             + (childRm ? ' (+' + childRm + ' from child tracks)' : '') + '; ' + track.snpindels.length + ' remain. ');
                         if (graph.hideMenu) graph.hideMenu();
-                    };
+                    });
                     if (graph.hideMenu) graph.hideMenu();
                     try {
                         const c = await exec('baja/lib/confirm.js', 'Remove ' + shown.length + ' matching SNP' + (shown.length === 1 ? '' : 's') + ' [' + what + ']? This cannot be undone.', () => { doRemove(); });
@@ -247,6 +291,9 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                 // it are ranked and removed, and everything outside it is left alone.
                 label: 'Remove uncommon variants (keep top 10)', move: () => { }, click: async () => {
                     const TOP = 10;
+                    status('Ranking ' + fmt(M) + ' variants on ' + tname + ' by how common they are…');
+                    await tick();
+                    done();
                     const keyOf = (s) => [s.xi, ('' + (s.reference ?? '')).toUpperCase(), ('' + (s.alternate ?? '')).toUpperCase(), s.type].join('|');
                     const groups = new Map();
                     for (const s of pool) {
@@ -272,7 +319,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                     const keep = new Set(ranked.slice(0, TOP).map((g) => g.key));
                     const doomed = new Set(pool.filter((s) => !keep.has(keyOf(s))));
                     const basis = anyAf ? 'allele frequency' + (anyRepeat ? ', then how often each occurs' : '') : 'how often each occurs on the track';
-                    const doRemove = () => {
+                    const doRemove = () => busy('Removing variants from ' + tname + '…', () => {
                         try { graph.pushOntoHistory(); } catch (e) { }
                         const before = track.snpindels.length;
                         track.snpindels = track.snpindels.filter((s) => !doomed.has(s));
@@ -285,7 +332,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                         graph.setMessage(' Kept the ' + TOP + ' most common variants (by ' + basis + '; top: ' + top + '); removed ' + rm
                             + (childRm ? ' (+' + childRm + ' from child tracks)' : '') + '. ' + track.snpindels.length + ' remain. ');
                         if (graph.hideMenu) graph.hideMenu();
-                    };
+                    });
                     if (graph.hideMenu) graph.hideMenu();
                     try {
                         const c = await exec('baja/lib/confirm.js', 'Keep the ' + TOP + ' most common variants ' + (range ? 'in the selection' : 'on this track')
@@ -295,7 +342,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                 }
             },
             {
-                label: 'Advanced (form)…', move: () => { }, click: () => {
+                label: 'Advanced (form)…', move: () => { }, click: async () => {
                     if (graph.hideMenu) graph.hideMenu();
                     exec('baja/manchester/menu/edit-snps-panel.js', graph, genegraph_panel_layout, track);
                 }
@@ -305,4 +352,6 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     };
 
     mainMenu();
+    } finally { done(); }
+    })();
 }
