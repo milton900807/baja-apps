@@ -5557,6 +5557,19 @@ function (graph, genegraph_panel_layout) {
                                     move: () => { },
                                     click: () => { pickOne(); }
                                 });
+                                // WHERE ARE THEY ALL. A minute of magenta twinkling, which is long
+                                // enough to pan and zoom around the track while they blink; the
+                                // five-second version on the Design library answers "did that
+                                // land" instead. Running it again, or Escape, stops it early.
+                                items.push({
+                                    label: (graph.__compoundPulse ? 'Stop highlighting' : ('Highlight compounds (' + cs.length + ')')),
+                                    move: () => { },
+                                    click: () => {
+                                        try { graph.showSideMenu(null); } catch (e) { }
+                                        Promise.resolve(exec('baja/manchester/menu/highlight-compounds-pulse.js',
+                                            graph, selectedTrack, { ms: 60000 })).catch(() => { });
+                                    }
+                                });
                                 items.push({
                                     label: 'Run off-targets…', move: () => { },
                                     click: () => {
