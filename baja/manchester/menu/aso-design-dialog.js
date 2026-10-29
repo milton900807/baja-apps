@@ -1,14 +1,25 @@
-function (kind, targetLength) {
+function (kind, targetLength, context) {
 
     // Default / Advanced design dialog for SINGLE-STRANDED ASOs — the last interface before the
     // design runs (mirrors the siRNA dialog). `kind` is 'gapmer' or 'steric'. Resolves with the
     // parameters to merge into the design's json_input, or null if the user cancels.
-    //   const p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer');
+    //   const p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer', len, ctx);
+    //
+    // `context` carries what the dialog cannot work out for itself:
+    //   mutations        how many of the track's variants fall in the designed region
+    //   mutationsAll     how many it carries in total
+    //   mutationsPicked  how many of those are selected
+    // They are only used to say what the Allele-selective strategy would cost, and to say so
+    // before it is chosen rather than after it has run.
     const K = ('' + (kind || 'gapmer')).toLowerCase();
     const isGapmer = K.indexOf('gap') >= 0;
     // How long the thing being designed against is, when the caller knows. Only used to say
     // what a step will cost in compounds before it is run.
     const TARGET_LEN = (Number.isFinite(+targetLength) && +targetLength > 0) ? Math.floor(+targetLength) : 0;
+    const CTX = context || {};
+    const MUT_IN = Math.max(0, Math.floor(+CTX.mutations || 0));          // in the designed region
+    const MUT_ALL = Math.max(0, Math.floor(+CTX.mutationsAll || 0));      // on the track
+    const MUT_SEL = Math.max(0, Math.floor(+CTX.mutationsPicked || 0));   // currently selected
     const title = isGapmer ? 'Gapmer ASO Design' : 'Steric-blocking ASO Design';
 
     return new Promise((resolve) => {
@@ -104,6 +115,13 @@ function (kind, targetLength) {
                         + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
                         + '<button id="ad-strat-rules" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Rule-based</button>'
                         + '<button id="ad-strat-tile" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Tiling</button>'
+                        // ALLELE-SELECTIVE is a third question again: not the best site in the
+                        // transcript and not a walk across it, but the registers that sit OVER a
+                        // mutation. An ASO that does not cover the changed base binds both alleles
+                        // equally, so this walks around the mutations and designs nowhere else.
+                        + '<button id="ad-strat-allele" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;"'
+                        + (MUT_IN ? '' : ' disabled title="This track has no variants inside the region being designed against."') + '>'
+                        + 'Allele-selective' + (MUT_IN ? ' (' + MUT_IN + ')' : '') + '</button>'
                         + '</div>'
                         + '<div id="ad-strat-note" style="font:11.5px Arial;color:#9fb3c8;margin-top:6px;">Every candidate is scored and the best non-overlapping sites across the target are returned, best first.</div>'
                         + '<div id="ad-tilewrap" style="display:none;margin-top:12px;">'
@@ -120,6 +138,22 @@ function (kind, targetLength) {
                         + '<label style="font:600 11px Arial;color:#9fb3c8;">Custom step (bases)</label>'
                         + '<input id="ad-tilecustom" type="number" min="1" max="500" value="7" style="' + inp + '"/></div>'
                         + '<div id="ad-tileest" style="font:11.5px Arial;color:#9fb3c8;margin-top:8px;"></div>'
+                        + '</div>'
+                        + '<div id="ad-allelewrap" style="display:none;margin-top:12px;">'
+                        + '<label style="font:600 11px Arial;color:#9fb3c8;">Mutations to design around</label>'
+                        + '<select id="ad-allele-which" style="' + inp + '">'
+                        + '<option value="all">Every mutation in the designed region' + (MUT_IN ? ' (' + MUT_IN + ')' : '') + '</option>'
+                        + '<option value="selected"' + (MUT_SEL ? '' : ' disabled') + '>Only the selected ones'
+                        + (MUT_SEL ? ' (' + MUT_SEL + ')' : ' (none selected)') + '</option>'
+                        + '</select>'
+                        + '<label style="font:600 11px Arial;color:#9fb3c8;display:block;margin-top:10px;">Registers over each mutation</label>'
+                        + '<select id="ad-allele-step" style="' + inp + '">'
+                        + '<option value="0" selected>Every register (1 nt apart)</option>'
+                        + '<option value="2">Every 2 bases</option>'
+                        + '<option value="3">Every 3 bases</option>'
+                        + '<option value="5">Every 5 bases</option>'
+                        + '</select>'
+                        + '<div id="ad-alleleest" style="font:11.5px Arial;color:#9fb3c8;margin-top:8px;"></div>'
                         + '</div>')
                     : '')
                 + '<label style="' + lbl + '" id="ad-topn-label">Maximum candidates</label>'
@@ -133,6 +167,7 @@ function (kind, targetLength) {
                 // sample, and an oligo that lands on one will behave differently in each.
                 + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-allele"/> Design against this track\'s alleles</label>'
                 + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">The track\'s own substitutions are applied to the sequence first, so the oligos match what this sample carries rather than the reference. Indels are left alone: they shift everything downstream and a design built on a guessed frame is worse than none.</div>'
+                + '<div id="ad-allele-forced" style="display:none;font:11.5px Arial;color:#fbbf24;margin:4px 0 0 26px;">Required by the Allele-selective strategy: an ASO built on the reference is complementary to the other allele at the very base that distinguishes them.</div>'
                 + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-avoid"/> Avoid sites carrying variants on other tracks</label>'
                 + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">Every variant on every other track of this workbench is mapped onto this one, and no candidate is allowed to overlap one. What comes back binds the same sequence in all of them.</div>'
 
@@ -326,19 +361,58 @@ function (kind, targetLength) {
                         + 'track, and it will take a while to design and to draw. A wider step, or a '
                         + 'selected region rather than the whole transcript, is the usual first pass.</span>') : '');
             };
+            // How many registers one mutation can be covered by: an oligo of length L covers a
+            // given base from L different starts, so the walk around one mutation is that many
+            // tiles at one-base steps, fewer at a wider step.
+            const alleleCount = () => {
+                const ls = lengthsNow();
+                const len = ls.length ? Math.max.apply(null, ls) : 20;
+                const step = Math.max(1, alleleStepNow() || 1);
+                const perMut = Math.max(1, Math.floor((len - 1) / step) + 1);
+                const which = q('#ad-allele-which');
+                const muts = (which && which.value === 'selected') ? MUT_SEL : MUT_IN;
+                return { muts: muts, perMut: perMut, total: muts * perMut, len: len, step: step };
+            };
+            const showAlleleEstimate = () => {
+                const el = q('#ad-alleleest');
+                if (!el) return;
+                const c = alleleCount();
+                if (!c.muts) { el.textContent = 'No mutations to design around.'; return; }
+                const cap = Math.max(1, parseInt(q('#ad-topn') ? q('#ad-topn').value : '', 10) || 0);
+                const cut = c.total > cap;
+                el.innerHTML = 'About <b>' + c.total.toLocaleString() + '</b> ASO' + (c.total === 1 ? '' : 's')
+                    + ': up to ' + c.perMut + ' register' + (c.perMut === 1 ? '' : 's')
+                    + ' over each of ' + c.muts + ' mutation' + (c.muts === 1 ? '' : 's') + '.'
+                    + (cut ? (' The maximum below stops it at ' + cap.toLocaleString()
+                        + ', taken one mutation at a time in turn, so every mutation is covered before any is covered twice.') : '');
+            };
             const setStrategy = (v) => {
                 strategy = v;
                 const tiling = (v === 'tile');
-                const on = q('#ad-strat-tile'), off = q('#ad-strat-rules');
-                if (on && off) {
-                    on.style.background = tiling ? '#22c55e' : 'transparent';
-                    on.style.color = tiling ? '#04210f' : '#fff';
-                    off.style.background = tiling ? 'transparent' : '#22c55e';
-                    off.style.color = tiling ? '#fff' : '#04210f';
-                }
+                const allele = (v === 'allele');
+                const paint = (el, on) => { if (!el) return; el.style.background = on ? '#22c55e' : 'transparent'; el.style.color = on ? '#04210f' : '#fff'; };
+                paint(q('#ad-strat-rules'), !tiling && !allele);
+                paint(q('#ad-strat-tile'), tiling);
+                paint(q('#ad-strat-allele'), allele);
                 const wrap = q('#ad-tilewrap'); if (wrap) wrap.style.display = tiling ? 'block' : 'none';
+                const awrap = q('#ad-allelewrap'); if (awrap) awrap.style.display = allele ? 'block' : 'none';
+                // DESIGNING AGAINST THE MUTANT ALLELE IS THE POINT. An oligo built on the
+                // reference is complementary to the allele this sample does NOT have at the one
+                // base that distinguishes them, so the checkbox is turned on and held there.
+                const alleleBox = q('#ad-allele');
+                if (alleleBox) {
+                    if (allele) { alleleBox.checked = true; alleleBox.disabled = true; }
+                    else if (alleleBox.disabled) { alleleBox.disabled = false; }
+                    if (alleleBox.parentElement) alleleBox.parentElement.style.opacity = allele ? '0.75' : '';
+                }
+                const forced = q('#ad-allele-forced');
+                if (forced) forced.style.display = allele ? 'block' : 'none';
                 const note = q('#ad-strat-note');
-                if (note) {
+                if (note && allele) {
+                    note.textContent = 'Only the registers that sit OVER a mutation are designed, so every ASO that '
+                        + 'comes back covers a changed base and can tell this sample\'s allele from the other one. '
+                        + 'The rest of the target is not designed against at all.';
+                } else if (note) {
                     note.textContent = tiling
                         ? ('One ASO at every step along the target, each the best layout that starts there. '
                             + 'The scores come back with them, to read rather than to select on — this is the walk '
@@ -349,22 +423,35 @@ function (kind, targetLength) {
                                     + 'which is a question about the whole of it rather than about its best few sites.'))
                         : 'Every candidate is scored and the best non-overlapping sites across the target are returned, best first.';
                 }
+                const lab2 = q('#ad-topn-label');
+                if (lab2 && allele) lab2.textContent = 'Maximum ASOs';
                 // A walk wants room. 100 is the right cap for a shortlist and the wrong one
                 // for a tiling, which is not a shortlist at all.
                 const lab = q('#ad-topn-label'), topn = q('#ad-topn');
-                if (lab) lab.textContent = tiling ? 'Maximum tiles' : 'Maximum candidates';
+                if (lab) lab.textContent = tiling ? 'Maximum tiles' : (allele ? 'Maximum ASOs' : 'Maximum candidates');
                 if (topn && tiling && (parseInt(topn.value, 10) || 0) <= 100) topn.value = '2000';
-                if (topn && !tiling && (parseInt(topn.value, 10) || 0) > 1000) topn.value = '100';
+                if (topn && !tiling && !allele && (parseInt(topn.value, 10) || 0) > 1000) topn.value = '100';
                 // Overlap between layouts of one site is the ranked design's question; the
                 // step is what decides overlap in a tiling.
                 const ov = q('#ad-overlap');
                 if (ov && ov.parentElement) ov.parentElement.style.display = tiling ? 'none' : '';
                 if (tiling) showTileEstimate();
+                if (allele) showAlleleEstimate();
                 if (mode === 'default') fillDoc();
+            };
+            const alleleStepNow = () => {
+                const sel = q('#ad-allele-step');
+                const v = sel ? parseInt(sel.value, 10) : 0;
+                return (Number.isFinite(v) && v > 0) ? v : 0;      // 0 = every register
             };
             if (q('#ad-strat-rules')) {
                 q('#ad-strat-rules').onclick = () => setStrategy('rules');
                 q('#ad-strat-tile').onclick = () => setStrategy('tile');
+                if (q('#ad-strat-allele')) q('#ad-strat-allele').onclick = () => { if (MUT_IN) setStrategy('allele'); };
+                if (q('#ad-allele-which')) q('#ad-allele-which').onchange = showAlleleEstimate;
+                if (q('#ad-allele-step')) q('#ad-allele-step').onchange = showAlleleEstimate;
+                if (q('#ad-topn')) q('#ad-topn').addEventListener('input', () => { if (strategy === 'allele') showAlleleEstimate(); });
+                if (q('#ad-lengths')) q('#ad-lengths').addEventListener('input', () => { if (strategy === 'allele') showAlleleEstimate(); });
                 q('#ad-tilestep').onchange = () => {
                     const custom = q('#ad-tilestep').value === 'custom';
                     q('#ad-tilecustomwrap').style.display = custom ? 'block' : 'none';
@@ -387,8 +474,16 @@ function (kind, targetLength) {
                     if (g) { try { if (g.showSideMenu) g.showSideMenu(null); } catch (e) { } g.menu = null; if (g.graph) g.graph.menu = null; if (g.wake) g.wake(); }
                 } catch (e) { }
                 const tiling = (strategy === 'tile');
-                const topn = Math.max(1, Math.min(tiling ? 20000 : 1000, parseInt(q('#ad-topn').value, 10) || 100));
-                let params = { top_n: topn, design_mode: tiling ? 'tile' : 'rules' };
+                const allele = (strategy === 'allele');
+                const topn = Math.max(1, Math.min((tiling || allele) ? 20000 : 1000, parseInt(q('#ad-topn').value, 10) || 100));
+                let params = { top_n: topn, design_mode: tiling ? 'tile' : (allele ? 'allele' : 'rules') };
+                if (allele) {
+                    // 0 = every register over the mutation. The caller turns these into the
+                    // cover_positions the designer requires; the dialog cannot see the variants.
+                    params.tile_step = alleleStepNow();
+                    params.allele_selected_only = !!(q('#ad-allele-which') && q('#ad-allele-which').value === 'selected');
+                    params.enforce_non_overlapping = false;
+                }
                 if (tiling) {
                     params.tile_step = tileStepNow();       // 0 = end to end
                     // The step decides the overlap in a tiling; the ranked design's
@@ -416,7 +511,7 @@ function (kind, targetLength) {
                 }
                 // Asked on both tabs: they are about the workbench, not about the chemistry,
                 // so a Default-tab run can use them without going through Advanced.
-                params.use_track_alleles = !!(q('#ad-allele') && q('#ad-allele').checked);
+                params.use_track_alleles = allele ? true : !!(q('#ad-allele') && q('#ad-allele').checked);
                 params.avoid_other_track_variants = !!(q('#ad-avoid') && q('#ad-avoid').checked);
                 close(); resolve(params);
             };

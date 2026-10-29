@@ -104,6 +104,16 @@ class GapmerCandidate:
     cleavage_motif_hits: List[str] = field(default_factory=list)
 
 
+def _normalize_design_mode(value: Any) -> str:
+    """"rules" (rank), "tile" (walk the target) or "allele" (walk around the mutations)."""
+    v = str(value or "rules").strip().lower()
+    if v.startswith("til"):
+        return "tile"
+    if v.startswith("allele") or v.startswith("as-") or v == "as":
+        return "allele"
+    return "rules"
+
+
 def clean_sequence(seq: str) -> str:
     seq = str(seq or "").strip()
     lines = seq.splitlines()
@@ -782,6 +792,94 @@ def select_tiled(
     return selected
 
 
+def select_allele_tiled(
+    candidates: List[GapmerCandidate],
+    cover_positions: Sequence[int],
+    step: int,
+    top_n: int = 0,
+) -> List[GapmerCandidate]:
+    """A WALK AROUND EACH MUTATION, rather than across the whole target.
+
+    Allele-selective design asks a different question from either of the other two modes: not
+    "which is the best ASO in this transcript" and not "what does this transcript do to an ASO
+    everywhere along it", but "which registers over THIS changed base discriminate the two
+    alleles". Only candidates covering a mutation exist by the time this runs (see
+    cover_positions in generate_gapmer_candidates), so what is left to decide is how they are
+    shared out.
+
+    They are taken ROUND-ROBIN across the mutations: one tile from the first, one from the
+    second, and so on, then round again. With a maximum below what the walk would produce,
+    every mutation is covered before any of them is covered twice -- which is the opposite of
+    what ranking does, since the registers over one strong site would otherwise fill the
+    answer and the other mutations would come back with nothing.
+
+    Within one mutation the walk is the same as select_tiled: the best layout at each start,
+    `step` bases apart (0 = every register, since a step wider than the oligo would leave the
+    mutation behind).
+    """
+    if not candidates:
+        return []
+    positions = sorted({int(p) for p in (cover_positions or [])})
+    best_at: Dict[int, GapmerCandidate] = {}
+    for cand in candidates:
+        cur = best_at.get(cand.start)
+        if cur is None or cand.score > cur.score:
+            best_at[cand.start] = cand
+    if not positions:
+        return select_tiled(list(best_at.values()), step=step, top_n=top_n)
+
+    # Each start belongs to the mutation it covers; a candidate spanning two of them is
+    # offered to the nearer one, so neither mutation's walk is thinned by the other's.
+    by_pos: Dict[int, List[int]] = {p: [] for p in positions}
+    for start, cand in best_at.items():
+        covered = [p for p in positions if start <= p < cand.end + 1]
+        if not covered:
+            continue
+        mid = (start + cand.end) / 2.0
+        home = min(covered, key=lambda p: (abs(p - mid), p))
+        by_pos[home].append(start)
+
+    # One walk per mutation, each a list of starts in order, stepped as select_tiled does.
+    walks: Dict[int, List[GapmerCandidate]] = {}
+    for p in positions:
+        starts = sorted(by_pos.get(p) or [])
+        picked: List[GapmerCandidate] = []
+        want = starts[0] if starts else 0
+        for st in starts:
+            if st < want:
+                continue
+            cand = best_at[st]
+            picked.append(cand)
+            want = (st + 1) if step <= 0 else (st + step)
+        walks[p] = picked
+
+    selected: List[GapmerCandidate] = []
+    seen = set()
+    depth = 0
+    while True:
+        added = 0
+        for p in positions:
+            w = walks.get(p) or []
+            if depth >= len(w):
+                continue
+            cand = w[depth]
+            if id(cand) in seen:
+                continue
+            seen.add(id(cand))
+            selected.append(cand)
+            added += 1
+            if top_n and len(selected) >= top_n:
+                break
+        if (top_n and len(selected) >= top_n) or added == 0:
+            break
+        depth += 1
+
+    selected.sort(key=lambda c: c.start)
+    for idx, candidate in enumerate(selected, start=1):
+        candidate.rank = idx
+    return selected
+
+
 def generate_gapmer_candidates(
     long_sequence: str,
     lengths: Iterable[int] = (16, 17, 18, 19, 20),
@@ -796,6 +894,7 @@ def generate_gapmer_candidates(
     endonuclease_motifs: Sequence[str] | None = None,
     exclude_gap_cleavage_motif_hits: bool = True,
     exclude_regions: Sequence[Sequence[int]] | None = None,
+    cover_positions: Sequence[int] | None = None,
     tissue: str = "",
 ) -> List[GapmerCandidate]:
     seq_rna = clean_sequence(long_sequence)
@@ -846,7 +945,35 @@ def generate_gapmer_candidates(
             return False
         return blocked_upto[min(end, len(seq_rna))] - blocked_upto[max(0, start)] > 0
 
+    # ALLELE-SELECTIVE: the positions a candidate MUST COVER, 0-based into this sequence --
+    # the mutations the oligo is meant to discriminate. An ASO that does not sit over the
+    # changed base cannot tell the two alleles apart, so a candidate covering none of them is
+    # not generated at all. Same prefix-sum trick as the exclusions, so the test is one
+    # subtraction however many mutations there are. Empty / absent: no requirement, and the
+    # design runs exactly as it did before this existed.
+    cover_upto = None
+    cover_sorted: List[int] = []
+    if cover_positions:
+        marks = bytearray(len(seq_rna))
+        for pos in cover_positions:
+            try:
+                k = int(pos)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= k < len(seq_rna):
+                marks[k] = 1
+        cover_sorted = [k for k in range(len(seq_rna)) if marks[k]]
+        cover_upto = [0] * (len(seq_rna) + 1)
+        for k in range(len(seq_rna)):
+            cover_upto[k + 1] = cover_upto[k] + marks[k]
+
+    def _covers_required(start: int, end: int) -> bool:
+        if cover_upto is None:
+            return True
+        return cover_upto[min(end, len(seq_rna))] - cover_upto[max(0, start)] > 0
+
     excluded_by_region = 0
+    missed_required = 0
 
     for length in lengths:
         valid_gap_sizes = [g for g in gap_sizes if g < length]
@@ -856,6 +983,9 @@ def generate_gapmer_candidates(
             for i in range(0, len(seq_rna) - length + 1):
                 if _is_blocked(i, i + length):
                     excluded_by_region += 1
+                    continue
+                if not _covers_required(i, i + length):
+                    missed_required += 1
                     continue
                 target_site_rna = seq_rna[i:i + length]
                 antisense_core_rna = reverse_complement_rna(target_site_rna) if strand == 1 else complement_rna(target_site_rna)
@@ -974,6 +1104,7 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             # A bare sequence is the rule-based design, as it has always been.
             "design_mode": "rules",
             "tile_step": 0,
+            "cover_positions": [],
             "endonuclease_motifs": list(DEFAULT_ENDONUCLEASE_MOTIFS_DNA),
             "exclude_gap_cleavage_motif_hits": True,
             "offtarget_index": None,
@@ -1023,13 +1154,23 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             # A tiling panel is what you order when you mean to test the transcript rather
             # than to pick a compound from it, and ranking cannot give you one: the best
             # sites cluster, and the stretches between them are exactly what a walk is for.
-            "design_mode": ("tile" if str(payload.get("design_mode", "rules")).lower().startswith("til")
-                            else "rules"),
+            #   "allele" walks the registers AROUND EACH MUTATION (cover_positions) and
+            #           nowhere else: an ASO that does not sit over the changed base cannot
+            #           discriminate the two alleles, so the rest of the target is not
+            #           designed against at all.
+            "design_mode": _normalize_design_mode(payload.get("design_mode", "rules")),
             # The increment, in bases. 0 means END TO END: each tile starts where the last
             # one finished, so the target is covered once with no overlap and no gap.
             "tile_step": max(0, int(payload.get("tile_step", 0))),
             "endonuclease_motifs": list(motifs),
             "exclude_gap_cleavage_motif_hits": bool(payload.get("exclude_gap_cleavage_motif_hits", True)),
+            # 0-based positions in this sequence that a candidate MUST cover: the mutations an
+            # allele-selective design is built around. Only consulted when they are given;
+            # design_mode "allele" is what asks for the walk around them.
+            "cover_positions": [
+                int(x) for x in (payload.get("cover_positions") or [])
+                if isinstance(x, (int, float)) or (isinstance(x, str) and x.strip().lstrip("-").isdigit())
+            ],
             # [[from, to), …] index ranges of this sequence no candidate may overlap: the
             # caller's business (a variant on another track, an indel), not the designer's.
             "exclude_regions": [
@@ -1079,7 +1220,18 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     endonuclease_motifs = normalize_motif_list(request["endonuclease_motifs"])
     exclude_gap_cleavage_motif_hits = request["exclude_gap_cleavage_motif_hits"]
     exclude_regions = request.get("exclude_regions") or []
+    cover_positions = request.get("cover_positions") or []
     tissue = request.get("tissue", "")
+    # Allele-selective without any mutation to sit over is not a design, it is a request for
+    # every candidate in the transcript labelled as allele-selective. Refuse it here rather
+    # than return one.
+    if design_mode == "allele" and not cover_positions:
+        raise ValueError(
+            "Allele-selective design needs the positions of the mutations to cover "
+            "(cover_positions); none were given.")
+    # A walk is a walk: both modes return every step of it, so neither is re-ranked by the
+    # off-target screen and neither is cut to a shortlist.
+    is_walk = design_mode in ("tile", "allele")
     offtarget_index = request["offtarget_index"]
     offtarget_edit_distance = request["offtarget_edit_distance"]
     offtarget_oversample = request["offtarget_oversample"]
@@ -1136,6 +1288,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         endonuclease_motifs=endonuclease_motifs,
         exclude_gap_cleavage_motif_hits=exclude_gap_cleavage_motif_hits,
         exclude_regions=exclude_regions,
+        cover_positions=cover_positions,
         tissue=tissue,
     )
 
@@ -1175,11 +1328,25 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     # The oversample is room for the screen to CHANGE which sites come back, which only makes
     # sense when the answer is a shortlist. A tiling is a walk: every step of it is wanted,
     # and screening more of them than that would only mean throwing some away.
-    want = (top_n * offtarget_oversample) if (screen and design_mode != "tile") else top_n
-    if screen and design_mode != "tile":
+    want = (top_n * offtarget_oversample) if (screen and not is_walk) else top_n
+    if screen and not is_walk:
         want = min(want, offtarget_screen_cap)
 
-    if design_mode == "tile":
+    if design_mode == "allele":
+        # ONLY AROUND THE MUTATIONS. Every candidate that exists already covers one of them;
+        # this shares the registers out between them, one each in turn, so a maximum smaller
+        # than the full walk covers every mutation before it covers any of them twice.
+        works.msg(
+            "Tiling the registers over %d mutation%s"
+            % (len(cover_positions), "" if len(cover_positions) == 1 else "s")
+        )
+        top_candidates = select_allele_tiled(all_candidates, cover_positions, step=tile_step, top_n=want)
+        works.msg(
+            "%d allele-selective tile%s over %d mutation%s"
+            % (len(top_candidates), "" if len(top_candidates) == 1 else "s",
+               len(cover_positions), "" if len(cover_positions) == 1 else "s")
+        )
+    elif design_mode == "tile":
         # A WALK, NOT A SHORTLIST. The ranking is not consulted for WHICH sites come back --
         # only for which layout is kept at each one -- so the result covers the target evenly
         # and the scores are there to read afterwards rather than to select on.
@@ -1261,7 +1428,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
                 ]
                 if symbols:
                     c.notes.append("Nearest off-targets: " + ", ".join(symbols))
-            if design_mode == "tile":
+            if is_walk:
                 # THE WALK IS THE ANSWER and the screen must not rewrite it. Re-ranking here
                 # would hand back the best-scoring tiles rather than a walk across the target,
                 # which is the one thing a tiling was asked for. The off-target numbers stay
@@ -1343,11 +1510,20 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         "top_n": top_n,
         "coverage": coverage,
         "offtarget_screen": offtarget_report,
-        "selection_mode": ("tiled_across_target" if design_mode == "tile"
+        "selection_mode": ("tiled_around_mutations" if design_mode == "allele"
+                           else "tiled_across_target" if design_mode == "tile"
                            else ("rank_order_across_sequence_space" if enforce_non_overlapping
                                  else "global_top_n_overlaps_allowed")),
         "design_mode": design_mode,
-        "tile_step": (tile_step if design_mode == "tile" else None),
+        "tile_step": (tile_step if is_walk else None),
+        # The mutations an allele-selective run was built around, and how many tiles landed
+        # over each: a mutation with none is one no ASO could be laid over, which is a result
+        # in itself rather than a silent omission.
+        "cover_positions": (sorted({int(p) for p in cover_positions}) if design_mode == "allele" else None),
+        "tiles_per_mutation": ({
+            str(p): sum(1 for c in top_candidates if c.start <= p < c.end + 1)
+            for p in sorted({int(p) for p in cover_positions})
+        } if design_mode == "allele" else None),
         "min_separation": min_separation,
         "lengths_scanned": list(lengths),
         "gap_sizes_scanned": list(gap_sizes),
