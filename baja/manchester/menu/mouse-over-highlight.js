@@ -1603,6 +1603,15 @@ function (graph, genegraph_panel_layout) {
         // y and 14 px tall), the pointer has to be for the hover to light it and a click to open its
         // menu. One value for both, so what is lit is what a click acts on.
         const ANN_HIT_Y_PX = 10;
+        // AN EXON IS DRAWN ON THE TRACK'S BASELINE, graph.Y(track.tgraph.Y(0)), not at its own y, so
+        // it is hit-tested there, and tighter: within EXON_HIT_Y_PX screen pixels of that line. Testing
+        // against an.y put the hit band away from the bar that is actually drawn.
+        const EXON_HIT_Y_PX = 5;
+        const annHit = (track, an, y) => {
+            const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
+            const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
+            return Math.abs(yi - graph.Y(y)) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
+        };
 
         let current = null;
         graph.addMouseMoveListener(async (scx, scy) => {
@@ -1831,7 +1840,7 @@ function (graph, genegraph_panel_layout) {
                     // Within ANN_HIT_Y_PX screen pixels of the annotation's bar, the same test the
                     // click uses. The old test (0.05 in track units) scaled with the track height, so
                     // on a tall track an exon lit -- and its menu opened -- from well above or below it.
-                    if (Math.abs(graph.Y(track.tgraph.Y(an.y)) - graph.Y(y)) <= ANN_HIT_Y_PX)
+                    if (annHit(track, an, y))
                         an.select();
                 }
             }
@@ -1927,8 +1936,7 @@ function (graph, genegraph_panel_layout) {
                         const annHits = [];
                         for (let an of annotations) {
                             if (!an) continue;
-                            const dy = Math.abs(graph.Y(track.tgraph.Y(an.y)) - graph.Y(y));
-                            if (dy > HIT_Y_PX && !hovered.has(an)) continue;
+                            if (!annHit(track, an, y) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
                             // It goes to the selection box, as before, AND opens where the click
