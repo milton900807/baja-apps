@@ -239,6 +239,62 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                 }
             },
             {
+                // KEEP THE 10 MOST COMMON, REMOVE THE REST. "Common" is the allele frequency the
+                // variant carries (AF, from gnomAD / dbSNP / the VCF INFO), and, where several
+                // variants have no AF or the same AF, how many times that same change (position,
+                // ref, alt) appears on the track, e.g. once per sample. Every copy of a kept change
+                // stays. Scoped like the rest of this menu: with a selection, only the variants in
+                // it are ranked and removed, and everything outside it is left alone.
+                label: 'Remove uncommon variants (keep top 10)', move: () => { }, click: async () => {
+                    const TOP = 10;
+                    const keyOf = (s) => [s.xi, ('' + (s.reference ?? '')).toUpperCase(), ('' + (s.alternate ?? '')).toUpperCase(), s.type].join('|');
+                    const groups = new Map();
+                    for (const s of pool) {
+                        const k = keyOf(s);
+                        let g = groups.get(k);
+                        if (!g) { g = { key: k, n: 0, af: null, first: s }; groups.set(k, g); }
+                        g.n++;
+                        const af = readAf(s);
+                        if (af != null && (g.af == null || af > g.af)) g.af = af;
+                    }
+                    const ranked = Array.from(groups.values()).sort((a, b) =>
+                        ((b.af ?? -1) - (a.af ?? -1)) || (b.n - a.n) || (a.first.xi - b.first.xi));
+                    if (ranked.length <= TOP) {
+                        graph.setMessage(' Only ' + ranked.length + ' distinct variant' + (ranked.length === 1 ? '' : 's')
+                            + (range ? ' in the selection' : ' on the track') + '; nothing to remove. ');
+                        return;
+                    }
+                    const anyAf = ranked.some((g) => g.af != null), anyRepeat = ranked.some((g) => g.n > 1);
+                    if (!anyAf && !anyRepeat) {
+                        graph.setMessage(' Cannot rank these variants: none carries an allele frequency and none occurs more than once. Load gnomAD or dbSNP (Variants ▸) for frequencies first. ');
+                        return;
+                    }
+                    const keep = new Set(ranked.slice(0, TOP).map((g) => g.key));
+                    const doomed = new Set(pool.filter((s) => !keep.has(keyOf(s))));
+                    const basis = anyAf ? 'allele frequency' + (anyRepeat ? ', then how often each occurs' : '') : 'how often each occurs on the track';
+                    const doRemove = () => {
+                        try { graph.pushOntoHistory(); } catch (e) { }
+                        const before = track.snpindels.length;
+                        track.snpindels = track.snpindels.filter((s) => !doomed.has(s));
+                        const rm = before - track.snpindels.length;
+                        let childRm = 0;
+                        try { if (track.clearDescendantSnps) childRm = track.clearDescendantSnps(graph); } catch (e) { }
+                        if (graph.wake) graph.wake();
+                        const top = ranked.slice(0, 3).map((g) => (g.first.name || g.first.id || (g.first.reference + '>' + g.first.alternate))
+                            + (g.af != null ? ' AF ' + (+g.af).toPrecision(2) : '') + (g.n > 1 ? ' ×' + g.n : '')).join(', ');
+                        graph.setMessage(' Kept the ' + TOP + ' most common variants (by ' + basis + '; top: ' + top + '); removed ' + rm
+                            + (childRm ? ' (+' + childRm + ' from child tracks)' : '') + '. ' + track.snpindels.length + ' remain. ');
+                        if (graph.hideMenu) graph.hideMenu();
+                    };
+                    if (graph.hideMenu) graph.hideMenu();
+                    try {
+                        const c = await exec('baja/lib/confirm.js', 'Keep the ' + TOP + ' most common variants ' + (range ? 'in the selection' : 'on this track')
+                            + ' (ranked by ' + basis + ') and remove the other ' + doomed.size + '?', () => { doRemove(); });
+                        showModal(c);
+                    } catch (e) { doRemove(); }
+                }
+            },
+            {
                 label: 'Advanced (form)…', move: () => { }, click: () => {
                     if (graph.hideMenu) graph.hideMenu();
                     exec('baja/manchester/menu/edit-snps-panel.js', graph, genegraph_panel_layout, track);
