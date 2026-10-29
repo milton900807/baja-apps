@@ -154,8 +154,13 @@ function (graph, genegraph_panel_layout, selectedTrack) {
                     var foo = Object.assign(new Track(), selectedTrack);
                     foo.track_layers = selectedTrack.copyLayers()
                     foo.name = selectedTrack.name + '**'
+                    // The copy gets its OWN reading frame. Object.assign shares the source's orf object, so
+                    // re-translating either track (after a Mutate) rewrote the other's peptide as well.
+                    foo.orf = null;
                     let t = await graph.addTrackJSON(foo);
                     t.tgraph.yi = selectedTrack.tgraph.yi + 2;
+                    try { if (t && typeof t.generateORF === 'function') t.generateORF(); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
 
                 },
                 move: () => {

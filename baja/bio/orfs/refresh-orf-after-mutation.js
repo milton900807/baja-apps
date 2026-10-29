@@ -23,7 +23,20 @@ function (track, graph, before) {
         };
         if (!track || typeof track.generateORF !== 'function' || !has()) return { changed: false };
         const was = (before != null) ? ('' + before) : '';
+        // A track made with "Copy to new track" may share its orf OBJECT with the track it was
+        // copied from. Re-translate into a fresh one, and re-translate every other track that held
+        // the same object from its own sequence, so neither shows the other's peptide.
+        // (a shallow copy, so anything else kept on the orf, such as protein domains, survives)
+        const shared = track.orf || null;
+        track.orf = shared ? Object.assign({}, shared) : null;
         try { track.generateORF(); } catch (e) { }
+        if (shared) {
+            for (const t of ((graph && graph.track) || [])) {
+                if (!t || t === track || t.orf !== shared) continue;
+                t.orf = Object.assign({}, shared);
+                try { t.generateORF(); } catch (e) { }
+            }
+        }
         const now = (track.orf && track.orf.sequence) ? ('' + track.orf.sequence) : '';
         try { if (graph && graph.wake) graph.wake(); } catch (e) { }
 
@@ -46,6 +59,8 @@ function (track, graph, before) {
             }
         } else if (was && now && was === now) {
             summary = 'no change to the protein';
+        } else if (!now) {
+            summary = 'no peptide could be built (the track has no CDS / Translation annotation, or no start codon in it)';
         }
         try {
             if (graph && graph.setMessage && summary) graph.setMessage(' Peptide re-translated: ' + summary + '. ', 6);

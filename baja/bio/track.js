@@ -2371,7 +2371,10 @@ return new Promise(async (resolve, reject) => {
                   _cdsi.push({ index: _gpos[i + ci], ci: ci, codon_index: i / 3, aa: _aa || 'X', codon: _codon });
                 }
               }
-              this.orf = this.orf || {};
+              // A fresh object, not this.orf filled in place: a copied track (Copy to new track,
+              // Object.assign) SHARES its source's orf object, so writing into it re-translated
+              // the source too -- the unmutated track showed the mutant peptide.
+              this.orf = Object.assign({}, this.orf || {});
               this.orf.cdsi = _cdsi;
               this.orf.sequence = _protein.join('');
               try { this.orfhash = compressJson(JSON.stringify(this.orf)); } catch (e) { }
@@ -2670,7 +2673,7 @@ return new Promise(async (resolve, reject) => {
       try {
         const __cds = this.getCDS();
         if (__cds && __cds.cdsi && __cds.cdsi.length) {
-          this.orf = this.orf || {};
+          this.orf = Object.assign({}, this.orf || {});   // never write into a shared orf (see above)
           this.orf.cdsi = __cds.cdsi;
           if (__cds.protein) this.orf.sequence = __cds.protein;
           this.orfhash = compressJson(JSON.stringify(this.orf));

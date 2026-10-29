@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""
+Copied tracks get their own reading frame.
+
+"Copy to new track" made the copy with Object.assign, so the copy and its source shared ONE orf object:
+re-translating either (after a Mutate) rewrote the other's peptide, which is how the unmutated track came to
+show the mutant residue. This gives each copy its own ORF, makes generateORF build a fresh object instead of
+filling a shared one, and makes the Mutate re-translation repair any track that already shares one.
+
+    sudo python3 install-orf-copy-fix.py /opt/baja-apps
+
+Run install-mutate-reorf.py first if it is not installed yet. Backs up each edited file as
+<file>.before-orf-copy. Safe to run twice.
+"""
+import os, shutil, sys
+OPS = {'baja/manchester/menu/edit-track.js': [("\n                    foo.name = selectedTrack.name + '**'\n\n                    let t = await graph.addTrackJSON(foo);\n                    t.tgraph.yi = selectedTrack.tgraph.yi + 2;\n\n                },\n                move: () => {\n", "\n                    foo.name = selectedTrack.name + '**'\n\n                    // The copy gets its OWN reading frame. Object.assign shares the source's orf object, so\n                    // re-translating either track (after a Mutate) rewrote the other's peptide as well.\n                    foo.orf = null;\n                    let t = await graph.addTrackJSON(foo);\n                    t.tgraph.yi = selectedTrack.tgraph.yi + 2;\n                    try { if (t && typeof t.generateORF === 'function') t.generateORF(); } catch (e) { }\n                    try { if (graph.wake) graph.wake(); } catch (e) { }\n\n                },\n                move: () => {\n")], 'baja/manchester/menu/edit-current-track.js': [("                    var foo = Object.assign(new Track(), selectedTrack);\n                    foo.track_layers = selectedTrack.copyLayers()\n                    foo.name = selectedTrack.name + '**'\n                    let t = await graph.addTrackJSON(foo);\n                    t.tgraph.yi = selectedTrack.tgraph.yi + 2;\n\n                },\n                move: () => {\n", "                    var foo = Object.assign(new Track(), selectedTrack);\n                    foo.track_layers = selectedTrack.copyLayers()\n                    foo.name = selectedTrack.name + '**'\n                    // The copy gets its OWN reading frame. Object.assign shares the source's orf object, so\n                    // re-translating either track (after a Mutate) rewrote the other's peptide as well.\n                    foo.orf = null;\n                    let t = await graph.addTrackJSON(foo);\n                    t.tgraph.yi = selectedTrack.tgraph.yi + 2;\n                    try { if (t && typeof t.generateORF === 'function') t.generateORF(); } catch (e) { }\n                    try { if (graph.wake) graph.wake(); } catch (e) { }\n\n                },\n                move: () => {\n")]}
+OPTIONAL = {'baja/bio/track.js': [("                  _cdsi.push({ index: _gpos[i + ci], ci: ci, codon_index: i / 3, aa: _aa || 'X', codon: _codon });\n                }\n              }\n              this.orf = this.orf || {};\n              this.orf.cdsi = _cdsi;\n              this.orf.sequence = _protein.join('');\n              try { this.orfhash = compressJson(JSON.stringify(this.orf)); } catch (e) { }\n", "                  _cdsi.push({ index: _gpos[i + ci], ci: ci, codon_index: i / 3, aa: _aa || 'X', codon: _codon });\n                }\n              }\n              // A fresh object, not this.orf filled in place: a copied track (Copy to new track,\n              // Object.assign) SHARES its source's orf object, so writing into it re-translated\n              // the source too -- the unmutated track showed the mutant peptide.\n              this.orf = Object.assign({}, this.orf || {});\n              this.orf.cdsi = _cdsi;\n              this.orf.sequence = _protein.join('');\n              try { this.orfhash = compressJson(JSON.stringify(this.orf)); } catch (e) { }\n"), ('      try {\n        const __cds = this.getCDS();\n        if (__cds && __cds.cdsi && __cds.cdsi.length) {\n          this.orf = this.orf || {};\n          this.orf.cdsi = __cds.cdsi;\n          if (__cds.protein) this.orf.sequence = __cds.protein;\n          this.orfhash = compressJson(JSON.stringify(this.orf));\n', '      try {\n        const __cds = this.getCDS();\n        if (__cds && __cds.cdsi && __cds.cdsi.length) {\n          this.orf = Object.assign({}, this.orf || {});   // never write into a shared orf (see above)\n          this.orf.cdsi = __cds.cdsi;\n          if (__cds.protein) this.orf.sequence = __cds.protein;\n          this.orfhash = compressJson(JSON.stringify(this.orf));\n')]}
+MODULES = {'baja/bio/orfs/refresh-orf-after-mutation.js': 'function (track, graph, before) {\n\n    // RE-TRANSLATE AFTER A MUTATION. Every "Mutate" path calls this once the track\'s sequence has\n    // changed, so the peptide drawn above the track is the peptide of the sequence now on it.\n    //\n    //   const before = track.orf && track.orf.sequence;      // capture first\n    //   ... mutate ...\n    //   await exec(\'baja/bio/orfs/refresh-orf-after-mutation.js\', track, graph, before)\n    //\n    // Only a track that HAS a peptide is re-translated: one with an ORF already, or with CDS /\n    // Translation annotations to build one from. track.updateCDS() (which the mutators call) skips\n    // any track without both a TSS and a STOP annotation, and the Mutate menus did not all call\n    // generateORF themselves, so a peptide could survive the edit unchanged.\n    //\n    // Resolves { changed, before, after, summary } and says what happened to the protein.\n    return (async () => {\n        const has = () => {\n            if (track && track.orf && track.orf.sequence) return true;\n            return (track && track.annotations || []).some((a) => {\n                const t = (\'\' + (a && a.type)).toLowerCase();\n                return t === \'cds\' || t === \'translation\';\n            });\n        };\n        if (!track || typeof track.generateORF !== \'function\' || !has()) return { changed: false };\n        const was = (before != null) ? (\'\' + before) : \'\';\n        // A track made with "Copy to new track" may share its orf OBJECT with the track it was\n        // copied from. Re-translate into a fresh one, and re-translate every other track that held\n        // the same object from its own sequence, so neither shows the other\'s peptide.\n        // (a shallow copy, so anything else kept on the orf, such as protein domains, survives)\n        const shared = track.orf || null;\n        track.orf = shared ? Object.assign({}, shared) : null;\n        try { track.generateORF(); } catch (e) { }\n        if (shared) {\n            for (const t of ((graph && graph.track) || [])) {\n                if (!t || t === track || t.orf !== shared) continue;\n                t.orf = Object.assign({}, shared);\n                try { t.generateORF(); } catch (e) { }\n            }\n        }\n        const now = (track.orf && track.orf.sequence) ? (\'\' + track.orf.sequence) : \'\';\n        try { if (graph && graph.wake) graph.wake(); } catch (e) { }\n\n        // What changed, in protein terms: the first residue that differs.\n        let summary = \'\';\n        if (was && now && was !== now) {\n            let i = 0;\n            while (i < was.length && i < now.length && was[i] === now[i]) i++;\n            const pos = i + 1;\n            if (now.length < was.length && now.length === i) {\n                summary = \'premature stop at residue \' + pos + \' (\' + was[i] + pos + \'*), protein \' + now.length + \' aa (was \' + was.length + \')\';\n            } else if (now.length !== was.length) {\n                summary = \'protein changes from residue \' + pos + \' (\' + was[i] + pos + (now[i] || \'?\') + \'), protein \' + now.length + \' aa (was \' + was.length + \')\';\n            } else {\n                let diffs = 0;\n                for (let k = 0; k < now.length; k++) if (now[k] !== was[k]) diffs++;\n                // Most residues after the first change differ: the frame moved.\n                if (diffs >= 2 && diffs >= 0.6 * (now.length - i)) summary = \'frameshift from residue \' + pos + \' (\' + was[i] + pos + now[i] + \'fs)\';\n                else summary = was[i] + pos + now[i] + (diffs > 1 ? \' and \' + (diffs - 1) + \' more\' : \'\');\n            }\n        } else if (was && now && was === now) {\n            summary = \'no change to the protein\';\n        } else if (!now) {\n            summary = \'no peptide could be built (the track has no CDS / Translation annotation, or no start codon in it)\';\n        }\n        try {\n            if (graph && graph.setMessage && summary) graph.setMessage(\' Peptide re-translated: \' + summary + \'. \', 6);\n        } catch (e) { }\n        return { changed: !!(was && now && was !== now), before: was, after: now, summary };\n    })();\n}\n'}
+MARK = 'gets its OWN reading frame'
+MARK_T = 'never write into a shared orf'
+root = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else '~/baja-apps')
+
+def prepare(rel, hunks, mark, required):
+    p = os.path.join(root, rel)
+    if not os.path.isfile(p):
+        if required: sys.exit('Not found: ' + p + '. Nothing was changed.')
+        return None
+    s = open(p, encoding='utf-8', errors='surrogateescape').read()
+    crlf = '\r\n' in s
+    s = s.replace('\r\n', '\n')
+    if mark in s:
+        print('Already installed:', p); return None
+    for old, new in hunks:
+        if s.count(old) != 1:
+            if required: sys.exit(p + ' differs from the version this update was made against. Nothing was changed.')
+            print('Skipped (differs; the Mutate re-translation still repairs shared frames):', p)
+            return None
+        s = s.replace(old, new, 1)
+    return (p, s, crlf)
+
+if not os.path.isfile(os.path.join(root, 'baja/bio/orfs/refresh-orf-after-mutation.js')):
+    sys.exit('Install install-mutate-reorf.py first. Nothing was changed.')
+plan = [x for x in (prepare(r, h, MARK, True) for r, h in OPS.items()) if x]
+plan += [x for x in (prepare(r, h, MARK_T, False) for r, h in OPTIONAL.items()) if x]
+for rel, text in MODULES.items():
+    m = os.path.join(root, rel)
+    open(m, 'w', encoding='utf-8').write(text)
+    print('Wrote', m)
+for p, s, crlf in plan:
+    shutil.copyfile(p, p + '.before-orf-copy')
+    open(p, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(s.replace('\n', '\r\n') if crlf else s)
+    print('Updated', p)
+print('Restart baja-server (it caches scripts), then hard-refresh the editor (Ctrl+Shift+R).')
