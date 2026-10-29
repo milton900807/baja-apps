@@ -803,6 +803,9 @@ function (path, config) {
                                         if (s.startsWith(`{"graph"`)) {
                                             let js = JSON.parse(s);
                                             await graph.setState(js)
+                                        } else if ((await exec('baja/data/parse-genomic-variants.js')).isGenomicVariantText(s)) {
+                                            // "chr16:1762843 C>T" (one per line): placed on every track that covers it.
+                                            await exec('baja/data/genomic-variant-paste.js', window['env']['apiUrl'], graph, genegraph_panel_layout, s);
                                         } else if (looksLikeResidueProse(s)) {
                                             await exec('baja/manchester/menu/text-extract.js', graph, genegraph_panel_layout, s);
                                         } else {
