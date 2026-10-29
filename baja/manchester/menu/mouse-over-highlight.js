@@ -1595,6 +1595,11 @@ function (graph, genegraph_panel_layout) {
             return null;
         }
 
+        // How close, in screen pixels above or below an annotation's bar (an exon's is centred on its
+        // y and 14 px tall), the pointer has to be for the hover to light it and a click to open its
+        // menu. One value for both, so what is lit is what a click acts on.
+        const ANN_HIT_Y_PX = 10;
+
         let current = null;
         graph.addMouseMoveListener(async (scx, scy) => {
             let x = scx;
@@ -1819,7 +1824,10 @@ function (graph, genegraph_panel_layout) {
                     str.deselect();
                 }
                 for (let an of annotations) {
-                    if (Math.abs(yw - an.y) < 0.05)
+                    // Within ANN_HIT_Y_PX screen pixels of the annotation's bar, the same test the
+                    // click uses. The old test (0.05 in track units) scaled with the track height, so
+                    // on a tall track an exon lit -- and its menu opened -- from well above or below it.
+                    if (Math.abs(graph.Y(track.tgraph.Y(an.y)) - graph.Y(y)) <= ANN_HIT_Y_PX)
                         an.select();
                 }
             }
@@ -1903,16 +1911,14 @@ function (graph, genegraph_panel_layout) {
                         let xw = track.tgraph.Xwc(x - track.tgraph.xi * 2);
                         let yw = (track.tgraph.Ywc(y - track.tgraph.yi * 2))
                         let annotations = track.getAnnotationsInRange(xw - 1, xw + 1);
-                        // WHAT THE HOVER LIT IS WHAT THE CLICK ACTS ON. The hover highlight
-                        // (mouse-move, above) picks annotations with its own test, in world
-                        // units, and that test is looser than the 10 px one below -- so an exon
-                        // could be lit under the pointer and the click on it still miss. Read
-                        // the hover's answer before the deselect below wipes it.
+                        // WHAT THE HOVER LIT IS WHAT THE CLICK ACTS ON. Both use the same
+                        // ANN_HIT_Y_PX band now; the hover's answer is still read (before the
+                        // deselect below wipes it) so a release a pixel off a lit exon still counts.
                         const hovered = new Set((track.annotations || []).filter((a) => a && (a.highlighted || (a.isSelected && a.isSelected()))));
                         for (let str of track.annotations) {
                             str.deselect();
                         }
-                        const HIT_Y_PX = 10;
+                        const HIT_Y_PX = ANN_HIT_Y_PX;
                         const mergedMenu = { title: "Annotations", items: [] };
                         const annHits = [];
                         for (let an of annotations) {
