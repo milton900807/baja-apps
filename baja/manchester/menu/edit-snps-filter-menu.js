@@ -14,18 +14,19 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     if (range && !pool.length) { graph.setMessage(' No SNPs in the selected region. '); return; }
     const M = pool.length;
 
-    // FEEDBACK WHILE IT WORKS. A track can carry tens of thousands of variants (ClinVar, gnomAD),
+    // FEEDBACK WHILE IT WORKS. (Helpers are prefixed __vf_: this body runs after lib/core.js in one
+    // function, and core.js already declares names such as `status`.) A track can carry tens of thousands of variants (ClinVar, gnomAD),
     // and tallying, filtering or removing them runs on the main thread: the canvas stops and
     // nothing said why. Every step now puts what it is doing in the status line (spinner) and the
     // message bar FIRST, lets the browser paint that, works in chunks with a running count, and
     // clears the status when it is done.
-    const tname = (track && track.name) || 'track';
-    const fmt = (n) => (+n || 0).toLocaleString();
+    const __vf_tname = (track && track.name) || 'track';
+    const __vf_fmt = (n) => (+n || 0).toLocaleString();
     // Three places, because none of them alone is guaranteed to show: the shell's status line
     // (only where the shell provides it), the canvas message bar (drawn on the canvas's next frame,
     // so the canvas is woken), and a small panel of our own at the top of the window, which is
     // plain DOM and paints whatever the canvas is doing.
-    const panel = () => {
+    const __vf_panel = () => {
         let el = document.getElementById('baja-variants-progress');
         if (!el) {
             el = document.createElement('div');
@@ -46,27 +47,27 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
         }
         return el;
     };
-    const status = (text) => {
+    const __vf_status = (text) => {
         try { exec('baja/lib/work-status.js', 'Variants · ' + text); } catch (e) { }
         try { graph.setMessage(' ' + text + ' '); if (graph.wake) graph.wake(); } catch (e) { }
-        try { panel().querySelector('.t').textContent = text; } catch (e) { }
+        try { __vf_panel().querySelector('.t').textContent = text; } catch (e) { }
     };
-    const done = () => {
+    const __vf_done = () => {
         try { exec('baja/lib/work-status.js', null); } catch (e) { }
         try { const el = document.getElementById('baja-variants-progress'); if (el) el.remove(); } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
     };
     // Yield until the browser has painted, so the status above is on screen before the work starts.
-    const tick = () => new Promise((r) => {
+    const __vf_tick = () => new Promise((r) => {
         try { if (window.requestAnimationFrame) return requestAnimationFrame(() => setTimeout(r, 0)); } catch (e) { }
         setTimeout(r, 16);
     });
-    const busy = async (text, fn) => { status(text); await tick(); try { return await fn(); } finally { done(); } };
-    const CHUNK = 4000;
+    const __vf_busy = async (text, fn) => { __vf_status(text); await __vf_tick(); try { return await fn(); } finally { __vf_done(); } };
+    const __vf_CHUNK = 4000;
 
     return (async () => {
-    status('Reading ' + fmt(M) + ' variants on ' + tname + '…');
-    await tick();
+    __vf_status('Reading ' + __vf_fmt(M) + ' variants on ' + __vf_tname + '…');
+    await __vf_tick();
     try {
 
     const F = track.__snpFilter || (track.__snpFilter = { type: null, source: null, clinsig: null, clinGroup: null, consequence: null, quality: null, phase: null, minAf: null });
@@ -124,22 +125,22 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     };
     const apply = async (what) => {
         const N = snps.length;
-        status((what || 'Filtering') + ' · ' + fmt(N) + ' variants on ' + tname + '…');
-        await tick();
+        __vf_status((what || 'Filtering') + ' · ' + __vf_fmt(N) + ' variants on ' + __vf_tname + '…');
+        await __vf_tick();
         let shown = 0;
         try {
             for (let i = 0; i < N; i++) {
                 const s = snps[i];
                 s.hidden = !matches(s);
                 if (!s.hidden) shown++;
-                if (i && i % CHUNK === 0) {
-                    status((what || 'Filtering') + ' · ' + fmt(i) + ' / ' + fmt(N) + ' variants on ' + tname + '…');
-                    await tick();
+                if (i && i % __vf_CHUNK === 0) {
+                    __vf_status((what || 'Filtering') + ' · ' + __vf_fmt(i) + ' / ' + __vf_fmt(N) + ' variants on ' + __vf_tname + '…');
+                    await __vf_tick();
                 }
             }
             track.showSnpIndels = true;
             if (graph.wake) graph.wake();
-        } finally { done(); }
+        } finally { __vf_done(); }
         return shown;
     };
 
@@ -269,7 +270,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                 label: 'Remove hidden', move: () => { }, click: async () => {
                     const hiddenCount = track.snpindels.filter((s) => s.hidden).length;
                     if (!hiddenCount) { graph.setMessage(' No hidden SNPs to remove. '); return; }
-                    const doRemove = () => busy('Removing variants from ' + tname + '…', () => {
+                    const doRemove = () => __vf_busy('Removing variants from ' + __vf_tname + '…', () => {
                         const before = track.snpindels.length;
                         track.snpindels = track.snpindels.filter((s) => !s.hidden);
                         const rm = before - track.snpindels.length;
@@ -294,7 +295,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                     const shown = snps.filter((s) => !s.hidden);
                     if (!shown.length) { graph.setMessage(' No matching SNPs to remove — set a filter first. '); return; }
                     const what = activeLabel() === '(none)' ? (range ? 'in selection' : 'on track') : activeLabel();
-                    const doRemove = () => busy('Removing variants from ' + tname + '…', () => {
+                    const doRemove = () => __vf_busy('Removing variants from ' + __vf_tname + '…', () => {
                         const before = track.snpindels.length;
                         track.snpindels = track.snpindels.filter((s) => s.hidden);   // keep hidden, drop the matching
                         const rm = before - track.snpindels.length;
@@ -321,9 +322,9 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                 // it are ranked and removed, and everything outside it is left alone.
                 label: 'Remove uncommon variants (keep top 10)', move: () => { }, click: async () => {
                     const TOP = 10;
-                    status('Ranking ' + fmt(M) + ' variants on ' + tname + ' by how common they are…');
-                    await tick();
-                    done();
+                    __vf_status('Ranking ' + __vf_fmt(M) + ' variants on ' + __vf_tname + ' by how common they are…');
+                    await __vf_tick();
+                    __vf_done();
                     const keyOf = (s) => [s.xi, ('' + (s.reference ?? '')).toUpperCase(), ('' + (s.alternate ?? '')).toUpperCase(), s.type].join('|');
                     const groups = new Map();
                     for (const s of pool) {
@@ -349,7 +350,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                     const keep = new Set(ranked.slice(0, TOP).map((g) => g.key));
                     const doomed = new Set(pool.filter((s) => !keep.has(keyOf(s))));
                     const basis = anyAf ? 'allele frequency' + (anyRepeat ? ', then how often each occurs' : '') : 'how often each occurs on the track';
-                    const doRemove = () => busy('Removing variants from ' + tname + '…', () => {
+                    const doRemove = () => __vf_busy('Removing variants from ' + __vf_tname + '…', () => {
                         try { graph.pushOntoHistory(); } catch (e) { }
                         const before = track.snpindels.length;
                         track.snpindels = track.snpindels.filter((s) => !doomed.has(s));
@@ -382,6 +383,6 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     };
 
     mainMenu();
-    } finally { done(); }
+    } finally { __vf_done(); }
     })();
 }
