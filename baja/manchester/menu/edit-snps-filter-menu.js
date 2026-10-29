@@ -65,6 +65,77 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
     const __vf_busy = async (text, fn) => { __vf_status(text); await __vf_tick(); try { return await fn(); } finally { __vf_done(); } };
     const __vf_CHUNK = 4000;
 
+    // gnomAD LOOKUP for the variants on this track: their global (species-wide) allele
+    // frequency. Asks the server's /variants/region (db=gnomad, which calls the gnomAD v4 API) in
+    // windows of at most 30 kb around clusters of variants, matches each variant by position, ref
+    // and alt, and records s.gnomadAf: the frequency, or 0 when the window was read and the allele
+    // is not in it. A window that comes back empty is treated as NOT LOOKED UP rather than
+    // "absent" -- gnomAD has variants nearly everywhere, and the server returns an empty list when
+    // the API call fails. Reports progress window by window.
+    const __vf_gnomad = async (list) => {
+        const out = { ok: false, found: 0, absent: 0, unknown: 0, why: '' };
+        const chr = ('' + (track.chr || '')).replace(/^chr/i, '');
+        if (!chr) { out.why = 'the track has no chromosome'; return out; }
+        const species = ('' + (track.species || 'human')).toLowerCase();
+        const server = (window['env'] && window['env']['apiUrl']) || window.location.origin;
+        const child = !!(track.isChildCDNATrack && track.isChildCDNATrack());
+        const gpos = (s) => {
+            try { const g = child ? track.genomicAt(Math.round(+s.xi)) : Math.round(+s.xi); return (g != null && isFinite(g)) ? +g : null; } catch (e) { return null; }
+        };
+        const items = [];
+        for (const s of list) { s.gnomadAf = null; const g = gpos(s); if (g != null) items.push({ s, g }); else out.unknown++; }
+        if (!items.length) { out.why = 'no genomic positions'; return out; }
+        items.sort((a, b) => a.g - b.g);
+        const wins = [];
+        for (const it of items) {
+            const w = wins[wins.length - 1];
+            if (w && it.g - w.hi <= 5000 && it.g - w.lo <= 30000) { w.hi = it.g; w.items.push(it); }
+            else wins.push({ lo: it.g, hi: it.g, items: [it] });
+        }
+        const comp = { A: 'T', C: 'G', G: 'C', T: 'A' };
+        const rc = (x) => ('' + x).toUpperCase().split('').reverse().map((c) => comp[c] || c).join('');
+        let okWins = 0;
+        for (let i = 0; i < wins.length; i++) {
+            const w = wins[i];
+            __vf_status('Looking up global frequencies in gnomAD · region ' + (i + 1) + ' / ' + wins.length + ' (chr' + chr + ':' + __vf_fmt(w.lo) + ')…');
+            await __vf_tick();
+            let vs = null;
+            try {
+                const url = server + '/variants/region?species=' + encodeURIComponent(species) + '&region=' + encodeURIComponent(chr + ':' + (w.lo - 2) + '-' + (w.hi + 2)) + '&db=gnomad&limit=60000';
+                const r = await fetch(url);
+                const j = r.ok ? await r.json() : null;
+                vs = (j && Array.isArray(j.variants)) ? j.variants : null;
+                if (j && j.error) out.why = j.error;
+            } catch (e) { vs = null; out.why = '' + (e && e.message || e); }
+            if (!vs || !vs.length) { out.unknown += w.items.length; continue; }
+            okWins++;
+            const byPos = new Map();
+            for (const v of vs) { const k = +v.start; if (!byPos.has(k)) byPos.set(k, []); byPos.get(k).push(v); }
+            for (const { s, g } of w.items) {
+                const ref = ('' + (s.reference ?? '')).toUpperCase(), alt = ('' + (s.alternate ?? '')).toUpperCase();
+                let hit = null;
+                // the variant's own position, and one before it (a VCF-style deletion is drawn past
+                // its anchor base); the alleles as given, or reverse-complemented if stored on the
+                // transcript strand
+                const isDel = ('' + s.type).toLowerCase() === 'del' || ref.length > alt.length;
+                for (const p of (isDel ? [g, g - 1] : [g])) {
+                    for (const v of (byPos.get(p) || [])) {
+                        const vr = ('' + v.ref).toUpperCase(), va = ('' + v.alt).toUpperCase();
+                        if ((vr === ref && va === alt) || (vr === rc(ref) && va === rc(alt))) { hit = v; break; }
+                    }
+                    if (hit) break;
+                }
+                s.gnomadAf = hit ? (hit.af != null ? +hit.af : 0) : 0;
+                s.gnomadId = hit ? hit.id : null;
+                if (hit && hit.af != null) { out.found++; if (s.af == null) s.af = +hit.af; } else out.absent++;
+            }
+        }
+        __vf_done();
+        out.ok = okWins > 0;
+        if (!out.ok && !out.why) out.why = 'no data returned';
+        return out;
+    };
+
     return (async () => {
     __vf_status('Reading ' + __vf_fmt(M) + ' variants on ' + __vf_tname + '…');
     await __vf_tick();
@@ -320,19 +391,28 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                 // ref, alt) appears on the track, e.g. once per sample. Every copy of a kept change
                 // stays. Scoped like the rest of this menu: with a selection, only the variants in
                 // it are ranked and removed, and everything outside it is left alone.
-                label: 'Remove uncommon variants (keep top 10)', move: () => { }, click: async () => {
+                label: 'Remove uncommon variants (keep top 10, gnomAD)', move: () => { }, click: async () => {
                     const TOP = 10;
+                    // 1) GLOBAL frequency: look every variant up in gnomAD (v4, ~800k people), so
+                    //    "common" means common in the species, not common on this track.
+                    const gn = await __vf_gnomad(pool);
+                    // With gnomAD answering, rank only what it could assess; a variant whose region
+                    // could not be looked up is KEPT (never removed on a failed lookup) and left out
+                    // of the ranking. Without gnomAD at all, fall back to the variants' own AF and
+                    // how often each occurs, and say so.
+                    const rankPool = gn.ok ? pool.filter((s) => s.gnomadAf != null) : pool;
                     __vf_status('Ranking ' + __vf_fmt(M) + ' variants on ' + __vf_tname + ' by how common they are…');
                     await __vf_tick();
                     __vf_done();
                     const keyOf = (s) => [s.xi, ('' + (s.reference ?? '')).toUpperCase(), ('' + (s.alternate ?? '')).toUpperCase(), s.type].join('|');
                     const groups = new Map();
-                    for (const s of pool) {
+                    for (const s of rankPool) {
                         const k = keyOf(s);
                         let g = groups.get(k);
                         if (!g) { g = { key: k, n: 0, af: null, first: s }; groups.set(k, g); }
                         g.n++;
-                        const af = readAf(s);
+                        // gnomAD first (0 = looked up and not seen); the variant's own AF otherwise
+                        const af = (s.gnomadAf != null) ? +s.gnomadAf : readAf(s);
                         if (af != null && (g.af == null || af > g.af)) g.af = af;
                     }
                     const ranked = Array.from(groups.values()).sort((a, b) =>
@@ -342,14 +422,18 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                             + (range ? ' in the selection' : ' on the track') + '; nothing to remove. ');
                         return;
                     }
-                    const anyAf = ranked.some((g) => g.af != null), anyRepeat = ranked.some((g) => g.n > 1);
+                    const anyAf = ranked.some((g) => g.af != null && g.af > 0), anyRepeat = ranked.some((g) => g.n > 1);
                     if (!anyAf && !anyRepeat) {
-                        graph.setMessage(' Cannot rank these variants: none carries an allele frequency and none occurs more than once. Load gnomAD or dbSNP (Variants ▸) for frequencies first. ');
+                        graph.setMessage(' Cannot rank these variants: ' + (gn.ok ? 'none of them is in gnomAD' : 'gnomAD could not be reached (' + gn.why + ')')
+                            + ', none carries an allele frequency, and none occurs more than once. ');
                         return;
                     }
+                    const gnText = gn.ok ? ('global allele frequency in gnomAD v4 (' + gn.found + ' found, ' + gn.absent + ' not in gnomAD'
+                        + (gn.unknown ? '; ' + gn.unknown + ' could not be looked up and are kept' : '') + ')')
+                        : ('the variants\' own allele frequency, since gnomAD could not be reached (' + gn.why + ')');
                     const keep = new Set(ranked.slice(0, TOP).map((g) => g.key));
-                    const doomed = new Set(pool.filter((s) => !keep.has(keyOf(s))));
-                    const basis = anyAf ? 'allele frequency' + (anyRepeat ? ', then how often each occurs' : '') : 'how often each occurs on the track';
+                    const doomed = new Set(rankPool.filter((s) => !keep.has(keyOf(s))));
+                    const basis = anyAf ? ((gnText || 'allele frequency') + (anyRepeat ? ', then how often each occurs' : '')) : 'how often each occurs on the track';
                     const doRemove = () => __vf_busy('Removing variants from ' + __vf_tname + '…', () => {
                         try { graph.pushOntoHistory(); } catch (e) { }
                         const before = track.snpindels.length;
@@ -359,7 +443,7 @@ function (graph, genegraph_panel_layout, selectedTrack, range) {
                         try { if (track.clearDescendantSnps) childRm = track.clearDescendantSnps(graph); } catch (e) { }
                         if (graph.wake) graph.wake();
                         const top = ranked.slice(0, 3).map((g) => (g.first.name || g.first.id || (g.first.reference + '>' + g.first.alternate))
-                            + (g.af != null ? ' AF ' + (+g.af).toPrecision(2) : '') + (g.n > 1 ? ' ×' + g.n : '')).join(', ');
+                            + (g.af != null ? (g.af > 0 ? ' AF ' + (+g.af).toPrecision(2) : ' not in gnomAD') : '') + (g.n > 1 ? ' ×' + g.n : '')).join(', ');
                         graph.setMessage(' Kept the ' + TOP + ' most common variants (by ' + basis + '; top: ' + top + '); removed ' + rm
                             + (childRm ? ' (+' + childRm + ' from child tracks)' : '') + '. ' + track.snpindels.length + ' remain. ');
                         if (graph.hideMenu) graph.hideMenu();
