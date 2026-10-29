@@ -1949,6 +1949,45 @@ function (graph, genegraph_panel_layout) {
                             try { if (graph.addAnnotationToSelection) graph.addAnnotationToSelection(an, track, annMenu); } catch (e) { }
                             if (annMenu.length) annHits.push({ an: an, items: annMenu.filter(Boolean) });
                         }
+                        // A CLICK ON THE PEPTIDE. Zoomed in far enough to draw the amino-acid letters, a
+                        // click on one opens the menu of the exon it sits in (the letters are well
+                        // above the exon bar, outside its 10 px band) with "Update ORF" at the top,
+                        // which re-translates the track from its current sequence. The row's height
+                        // above the baseline is recorded by track.js each frame it draws the letters
+                        // (tgraph.__pepMidUpPx); when the letters are not drawn there is nothing to hit.
+                        let __pepHit = null;
+                        try {
+                            const tg = track.tgraph;
+                            const cdsi = (track.orf && Array.isArray(track.orf.cdsi)) ? track.orf.cdsi : null;
+                            // letters are only drawn once a base is several pixels wide
+                            const cellPx = Math.abs(graph.X(tg.X(1)) - graph.X(tg.X(0)));
+                            const basePx = graph.Y(tg.Y(0));
+                            const pepPx = (typeof tg.__pepMidUpPx === 'number' && tg.__pepMidUpPx > 0) ? basePx - tg.__pepMidUpPx
+                                : (typeof tg.__pepMidPx === 'number' ? tg.__pepMidPx : null);
+                            if (cdsi && cdsi.length && cellPx >= 5 && pepPx != null) {
+                                const topPx = (typeof tg.__pepIndexTopUpPx === 'number') ? basePx - tg.__pepIndexTopUpPx : pepPx - 18;
+                                const yPx = graph.Y(y);
+                                if (yPx >= topPx - 4 && yPx <= pepPx + 10) {
+                                    const xi = Math.round(xw);
+                                    const c = cdsi.find((e) => e && e.index === xi) || cdsi.find((e) => e && Math.abs(e.index - xw) < 1);
+                                    if (c) __pepHit = c;
+                                }
+                            }
+                        } catch (e) { __pepHit = null; }
+                        if (__pepHit) {
+                            const xi = __pepHit.index;
+                            const exon = (track.annotations || []).find((a) => a && ('' + a.type).toLowerCase() === 'exon'
+                                && xi >= Math.min(+a.xi, +a.xf) && xi <= Math.max(+a.xi, +a.xf));
+                            if (exon && !annHits.some((h) => h.an === exon)) {
+                                try {
+                                    const mfToken = MenuFactory?.[exon.type];
+                                    const mf = mfToken ? getIon(mfToken) : null;
+                                    const menu = mf ? mf(exon, track, graph, genegraph_panel_layout, x) : null;
+                                    exon.select();
+                                    if (Array.isArray(menu) && menu.length) annHits.unshift({ an: exon, items: menu.filter(Boolean) });
+                                } catch (e) { }
+                            }
+                        }
                         // The clicked annotations' menus, each under its own name when more than
                         // one sits under the pointer (an exon and a CDS overlapping, say).
                         const annName = (a) => '' + (a.name || a.type || 'Annotation');
@@ -1959,6 +1998,24 @@ function (graph, genegraph_panel_layout) {
                                 if (mergedMenu.items.length) mergedMenu.items.push({ type: 'separator' });
                                 mergedMenu.items.push({ label: annName(h.an), header: true }, ...h.items);
                             }
+                        }
+                        if (__pepHit) {
+                            const __aaName = { A: 'Ala', R: 'Arg', N: 'Asn', D: 'Asp', C: 'Cys', E: 'Glu', Q: 'Gln', G: 'Gly', H: 'His', I: 'Ile', L: 'Leu', K: 'Lys', M: 'Met', F: 'Phe', P: 'Pro', S: 'Ser', T: 'Thr', W: 'Trp', Y: 'Tyr', V: 'Val' };
+                            const __res = (__aaName[__pepHit.aa] || __pepHit.aa || '?') + ((+__pepHit.codon_index || 0) + 1)
+                                + (__pepHit.codon ? ' (' + __pepHit.codon + ')' : '');
+                            mergedMenu.items = [
+                                { label: __res, header: true },
+                                {
+                                    label: 'Update ORF',
+                                    click: async () => {
+                                        const __before = track.orf && track.orf.sequence;
+                                        try { graph.pushOntoHistory(); } catch (e) { }
+                                        await exec('baja/bio/orfs/refresh-orf-after-mutation.js', track, graph, __before);
+                                    }
+                                },
+                                ...(mergedMenu.items.length ? [{ type: 'separator' }] : []),
+                                ...mergedMenu.items
+                            ];
                         }
                         const xWorld = Math.round(
                             track.tgraph.Xwc(graph.mousex - track.tgraph.xi * 2)
@@ -1997,7 +2054,8 @@ function (graph, genegraph_panel_layout) {
 
                         if (mergedMenu && mergedMenu.items && mergedMenu.items.length) {
                             const __title = (snp && snp.name) ? ('' + snp.name)
-                                : (annHits.length === 1 ? annName(annHits[0].an) : (snp ? 'Variant' : 'Annotations'));
+                                : (__pepHit ? ('Residue ' + ((+__pepHit.codon_index || 0) + 1))
+                                    : (annHits.length === 1 ? annName(annHits[0].an) : (snp ? 'Variant' : 'Annotations')));
                             // At the pointer, like the variant and oligo menus; the side panel
                             // only where a floating menu cannot open (mobile).
                             const ds = graph.__downScreen || { x: graph.X(x), y: graph.Y(y) };
