@@ -177,11 +177,16 @@ function (kind, targetLength, context) {
                 + '<div id="ad-doc"></div>'
                 + '<div id="ad-adv" style="display:none;">'
                 + '<label style="' + lbl + '">ASO lengths (nt, comma-separated)</label>'
-                + '<input id="ad-lengths" value="' + (isGapmer ? '16,17,18,19,20' : '18,19,20') + '" style="' + inp + '"/>'
+                // THE ADVANCED TAB OPENS ON ONE LAYOUT, NOT ON THE WHOLE SEARCH SPACE. A gapmer
+                // programme runs on a house layout -- the 5-10-5 20-mer, full PS, 2'-MOE wings --
+                // and the tab that exists to tune a design should start from the thing being
+                // made rather than from every length and gap the designer is able to enumerate.
+                // The lists still take as many values as you want: 16,17,18,19,20 is one edit away.
+                + '<input id="ad-lengths" value="' + (isGapmer ? '20' : '18,19,20') + '" style="' + inp + '"/>'
                 + (isGapmer
                     ? ('<label style="' + lbl + '">Gap sizes (comma-separated)</label>'
-                        + '<input id="ad-gaps" value="8,9,10" style="' + inp + '"/>'
-                        + '<label style="' + lbl + '">Template chemistry</label>' + wingSelect('ad-wing', 'LNA')
+                        + '<input id="ad-gaps" value="10" style="' + inp + '"/>'
+                        + '<label style="' + lbl + '">Template chemistry</label>' + wingSelect('ad-wing', "2'-MOE")
                         + backboneEditor())
                     : ('<label style="' + lbl + '">Template chemistry</label>' + wingSelect('ad-wing', "2'-MOE")
                         + backboneEditor()))
@@ -230,7 +235,7 @@ function (kind, targetLength, context) {
             // The preset writes it, the strip and the text field edit it, and Run design reads
             // it. The displayed length only decides how much of it is on screen.
             let pattern = [];
-            const defLengths = isGapmer ? [16, 17, 18, 19, 20] : [18, 19, 20];
+            const defLengths = isGapmer ? [20] : [18, 19, 20];
             const lengthsNow = () => parseList(q('#ad-lengths') ? q('#ad-lengths').value : '', defLengths);
             const shownLength = () => {
                 const sel = q('#ad-bb-len');
@@ -491,9 +496,9 @@ function (kind, targetLength, context) {
                     params.enforce_non_overlapping = false;
                 }
                 if (mode === 'advanced') {
-                    params.lengths = parseList(q('#ad-lengths').value, isGapmer ? [16, 17, 18, 19, 20] : [18, 19, 20]);
-                    if (isGapmer) { params.gap_sizes = parseList(q('#ad-gaps').value, [8, 9, 10]); }
-                    params.wing_modification = q('#ad-wing') ? q('#ad-wing').value : (isGapmer ? 'LNA' : "2'-MOE");
+                    params.lengths = parseList(q('#ad-lengths').value, isGapmer ? [20] : [18, 19, 20]);
+                    if (isGapmer) { params.gap_sizes = parseList(q('#ad-gaps').value, [10]); }
+                    params.wing_modification = q('#ad-wing') ? q('#ad-wing').value : "2'-MOE";
                     params.chemistry_template = params.wing_modification;
                     // The pattern itself, plus the two older parameters derived from it so a
                     // design that only reads those still behaves: the majority linkage as the
