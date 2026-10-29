@@ -238,8 +238,10 @@ function (graph, track, snp) {
                     const hl = await exec('baja/manchester/menu/variant-tools-finder.js', graph)
                     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                     CurrentLayout.setComponent('buttonMenuPanel', hl);
+                    const __pepBefore = track.orf && track.orf.sequence;
                     track.mutateTrackWithSingleMutation(snp)
-                    track.generateORF();
+                    // Re-translate the peptide above the track (if it has one) and say what it did.
+                    await exec('baja/bio/orfs/refresh-orf-after-mutation.js', track, graph, __pepBefore);
                     infoPrompt(" Track sequence has changed. ")
                 },
                 move: () => {

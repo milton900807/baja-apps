@@ -1249,9 +1249,11 @@ function (graph, genegraph_panel_layout) {
 
                                     setTimeout(async () => {
                                         graph.pushOntoHistory()
+                                        const __pepBefore = selectedTrack.orf && selectedTrack.orf.sequence;
                                         for (let snp of snpsv) {
                                             selectedTrack.resolveSNP(snp)
                                         }
+                                        await exec('baja/bio/orfs/refresh-orf-after-mutation.js', selectedTrack, graph, __pepBefore);
                                     })
                                 }
                             },
@@ -1260,9 +1262,11 @@ function (graph, genegraph_panel_layout) {
                                     click: async () => {
                                         setTimeout(async () => {
                                             graph.pushOntoHistory()
+                                            const __pepBefore = selectedTrack.orf && selectedTrack.orf.sequence;
                                             for (let snp of snpsv) {
                                                 selectedTrack.resolveSNP(snp)
                                             }
+                                            await exec('baja/bio/orfs/refresh-orf-after-mutation.js', selectedTrack, graph, __pepBefore);
                                         })
                                     }
                                 })
