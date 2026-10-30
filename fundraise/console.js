@@ -62,7 +62,26 @@ function (path, config) {
             // dashboard. Which payment methods appear -- card, Apple Pay, Google Pay, Link,
             // Cash App, Klarna, bank debits -- is a Stripe dashboard setting in both cases,
             // not something this page chooses, so turning one on there turns it on here.
-            donate: { on: false, mode: 'checkout', label: 'Donate', url: '', amounts: [25, 50, 100, 250], custom: true }
+            donate: { on: false, mode: 'checkout', label: 'Donate', url: '', amounts: [25, 50, 100, 250], custom: true },
+            // A picture is NOT kept in here. The display re-reads this document every few
+            // seconds, and a photograph in it would be re-downloaded on every one of those
+            // reads, on every screen. The document names a sibling file instead, and the
+            // display fetches that once and again only when imageV changes.
+            media: { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'background', youtube: '' }
+        };
+        const med = () => (doc.media && typeof doc.media === 'object' ? doc.media
+            : (doc.media = { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'background', youtube: '' }));
+        const THEMES = [
+            ['deep', 'Deep blue'], ['midnight', 'Midnight'], ['forest', 'Forest'],
+            ['warm', 'Warm'], ['plain', 'Plain dark'],
+        ];
+        // youtu.be/ID, watch?v=ID, /embed/ID, /shorts/ID, or the id on its own.
+        const ytId = (v) => {
+            const t = ('' + (v || '')).trim();
+            if (!t) return '';
+            if (/^[\w-]{11}$/.test(t)) return t;
+            const m = t.match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/);
+            return m ? m[1] : '';
         };
         const don = () => (doc.donate && typeof doc.donate === 'object' ? doc.donate
             : (doc.donate = { on: false, mode: 'checkout', label: 'Donate', url: '', amounts: [], custom: true }));
@@ -166,6 +185,20 @@ function (path, config) {
             + '<textarea id="fc-upd" rows="3" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
             + '<div style="margin-top:8px;">' + btn('fc-post', 'Post update') + '</div>'
             + '<div id="fc-updates" style="margin-top:10px;"></div>'
+            + '<label style="' + lbl + '">Look of the display</label>'
+            + '<select id="fc-theme" style="' + inp + '">' + THEMES.map((t) => '<option value="' + t[0] + '">' + t[1] + '</option>').join('') + '</select>'
+            + '<label style="' + lbl + '">A picture</label>'
+            + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + '<input id="fc-img" type="file" accept="image/*" style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/>'
+            + '<select id="fc-img-mode" style="' + inp + 'flex:0 0 185px;">'
+            + '<option value="background">behind the whole display</option>'
+            + '<option value="banner">above the title</option></select>'
+            + btn('fc-img-clear', 'Remove') + '</div>'
+            + '<div id="fc-img-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
+            + '<div id="fc-img-prev" style="margin-top:8px;"></div>'
+            + '<label style="' + lbl + '">A film (YouTube)</label>'
+            + '<input id="fc-yt" placeholder="https://youtu.be/… — shown on the details page" style="' + inp + '"/>'
+            + '<div id="fc-yt-out" style="margin-top:5px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
             + '<div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);">'
             + '<label style="font:12.5px system-ui;color:#eaf6f9;display:flex;align-items:center;gap:8px;cursor:pointer;">'
             + '<input id="fc-don-on" type="checkbox" style="accent-color:#22c55e;"/>'
@@ -208,6 +241,101 @@ function (path, config) {
         for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) wrap.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
         const $ = (id) => document.getElementById(id);
 
+        // The picture lives beside the campaign, named after it, so one campaign's photograph
+        // cannot land on another's display.
+        const imgFileFor = () => (fileName || (slug(doc.title) + '.fund')).replace(/\.fund$/i, '') + '.fundimg';
+        const siblingPath = (file) => {
+            const base = ('' + docPath).replace(/[^/]*$/, '');
+            return base ? base + file : '';
+        };
+        const readImage = async () => {
+            const m = med();
+            if (!m.imageFile) return;
+            const sp = siblingPath(m.imageFile);
+            if (!sp) return;
+            try {
+                const rs = await POSTJSON({ path: sp, key: 'user', user: user }, host + '/load-file');
+                let d = rs;
+                if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
+                if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
+                if (d && d.dataUri) { loadedImage = '' + d.dataUri; imgUI(); preview(); }
+            } catch (e) { }
+        };
+
+        // A PICTURE, SHRUNK BEFORE IT GOES ANYWHERE. A photograph straight off a phone is
+        // several megabytes, and the display is often a laptop on a hotel wifi. It is drawn
+        // into a canvas at a sane size and re-encoded as a JPEG, which turns 6MB into a
+        // couple of hundred KB without anyone in the room being able to tell.
+        const IMG_MAX = 1600, IMG_BYTES = 420 * 1024;
+        let pendingImage = null, imageGone = false, loadedImage = '';
+        const shrink = (file) => new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onerror = () => reject(new Error('that file could not be read'));
+            fr.onload = () => {
+                const im = new Image();
+                im.onerror = () => reject(new Error('that file is not an image this browser can read'));
+                im.onload = () => {
+                    try {
+                        const scale = Math.min(1, IMG_MAX / Math.max(im.width || 1, im.height || 1));
+                        const w = Math.max(1, Math.round((im.width || 1) * scale));
+                        const h = Math.max(1, Math.round((im.height || 1) * scale));
+                        const cv = document.createElement('canvas');
+                        cv.width = w; cv.height = h;
+                        cv.getContext('2d').drawImage(im, 0, 0, w, h);
+                        let q = 0.82, url = cv.toDataURL('image/jpeg', q);
+                        // Three attempts, then take what we have: a slightly large picture is
+                        // better than refusing the campaign its photograph.
+                        for (let i = 0; i < 3 && url.length > IMG_BYTES * 1.37; i++) {
+                            q -= 0.17; url = cv.toDataURL('image/jpeg', Math.max(0.3, q));
+                        }
+                        resolve({ dataUri: url, w: w, h: h, bytes: Math.round(url.length * 0.75) });
+                    } catch (e) { reject(e); }
+                };
+                im.src = fr.result;
+            };
+            fr.readAsDataURL(file);
+        });
+        const currentImage = () => (pendingImage ? pendingImage.dataUri : (!imageGone && loadedImage ? loadedImage : ''));
+        const imgUI = () => {
+            const u = currentImage();
+            $('fc-img-prev').innerHTML = u
+                ? '<img src="' + esc(u) + '" style="max-width:260px;max-height:130px;border-radius:8px;'
+                    + 'border:1px solid rgba(255,255,255,0.16);display:block;"/>'
+                : '';
+            const has = !!u;
+            $('fc-img-mode').style.opacity = has ? '1' : '0.5';
+            $('fc-img-clear').style.display = has ? '' : 'none';
+        };
+        const ytUI = () => {
+            const raw = ('' + $('fc-yt').value).trim(), id = ytId(raw);
+            $('fc-yt-out').innerHTML = !raw ? ''
+                : (id ? '<span style="color:#86efac;">The film will play on the details page.</span>'
+                    : '<span style="color:#fcd34d;">That does not look like a YouTube link.</span>');
+        };
+        $('fc-img').addEventListener('change', async () => {
+            const f = $('fc-img').files && $('fc-img').files[0];
+            if (!f) return;
+            $('fc-img-out').textContent = 'Reading the picture…';
+            try {
+                const got = await shrink(f);
+                pendingImage = got; imageGone = false;
+                $('fc-img-out').textContent = 'Ready: ' + got.w + '×' + got.h + ', about '
+                    + Math.round(got.bytes / 1024) + 'KB. Publish to put it on the display.';
+                imgUI(); preview();
+            } catch (e) {
+                $('fc-img-out').textContent = 'Could not use that picture: ' + ((e && e.message) ? e.message : e);
+            }
+        });
+        $('fc-img-clear').onclick = () => {
+            pendingImage = null; imageGone = true;
+            try { $('fc-img').value = ''; } catch (e) { }
+            $('fc-img-out').textContent = 'The picture comes off the display when you publish.';
+            imgUI(); preview();
+        };
+        $('fc-yt').addEventListener('input', () => { ytUI(); sync(); });
+        $('fc-theme').addEventListener('change', () => sync());   // called, not captured: sync is declared below
+        $('fc-img-mode').addEventListener('change', () => { sync(); preview(); });
+
         const toForm = () => {
             $('fc-title').value = doc.title || '';
             $('fc-sub').value = doc.subtitle || '';
@@ -226,6 +354,11 @@ function (path, config) {
             $('fc-don-amts').value = (Array.isArray(dcfg.amounts) ? dcfg.amounts : []).join(', ');
             $('fc-don-custom').checked = dcfg.custom !== false;
             $('fc-don-names').checked = !!dcfg.showNames;
+            const m = med();
+            $('fc-theme').value = m.theme || 'deep';
+            $('fc-img-mode').value = (m.imageMode === 'banner') ? 'banner' : 'background';
+            $('fc-yt').value = m.youtube || '';
+            imgUI(); ytUI();
             donUI();
         };
 
@@ -267,6 +400,10 @@ function (path, config) {
             // The campaign document is fetched whole by the public display, so a name stored
             // here is a name on a wall. Off by default: a donor gave it to Stripe to pay.
             dcfg.showNames = !!$('fc-don-names').checked;
+            const m = med();
+            m.theme = $('fc-theme').value || 'deep';
+            m.imageMode = ($('fc-img-mode').value === 'banner') ? 'banner' : 'background';
+            m.youtube = ytId($('fc-yt').value);
             dcfg.amounts = ('' + $('fc-don-amts').value).split(/[,;\s]+/).map((x) => parseMoney(x))
                 .filter((v) => isFinite(v) && v > 0).slice(0, 6);
         };
@@ -316,11 +453,31 @@ function (path, config) {
                 };
             }
         };
+        const PREV_THEME = {
+            deep: 'radial-gradient(600px 300px at 50% -20%,#123a63 0%,#0a1e3a 60%,#071526 100%)',
+            midnight: 'radial-gradient(600px 300px at 50% -20%,#241b4e 0%,#140f2e 60%,#0a0718 100%)',
+            forest: 'radial-gradient(600px 300px at 50% -20%,#14492f 0%,#0b2a1d 60%,#061712 100%)',
+            warm: 'radial-gradient(600px 300px at 50% -20%,#5a2b1b 0%,#311611 60%,#1a0c08 100%)',
+            plain: 'linear-gradient(#0d1420,#0a0f18)',
+        };
         const preview = () => {
             const cur = doc.currency, goal = Math.max(0, +doc.goal || 0), raised = Math.max(0, +doc.raised || 0);
             const pct = goal > 0 ? Math.max(0, Math.min(100, raised / goal * 100)) : 0;
             const over = goal > 0 && raised >= goal;
+            // The preview wears the same clothes as the display, or it is not a preview.
+            const m = med(), pic = currentImage();
+            const asBg = pic && m.imageMode !== 'banner';
+            try {
+                const pv = $('fc-prev');
+                pv.style.backgroundImage = asBg
+                    ? 'linear-gradient(rgba(5,14,26,0.72),rgba(5,14,26,0.86)), url("' + pic + '")'
+                    : (PREV_THEME[m.theme] || PREV_THEME.deep);
+                pv.style.backgroundSize = asBg ? 'cover' : '';
+                pv.style.backgroundPosition = asBg ? 'center' : '';
+            } catch (e) { }
             $('fc-prev').innerHTML = ''
+                + ((pic && m.imageMode === 'banner')
+                    ? '<img src="' + esc(pic) + '" alt="" style="max-width:100%;max-height:90px;border-radius:10px;display:block;margin:0 auto 10px;"/>' : '')
                 + (doc.title ? '<div style="font:800 22px system-ui;">' + esc(doc.title) + '</div>' : '')
                 + (doc.subtitle ? '<div style="margin-top:4px;font:400 13px system-ui;color:#9fc4d4;">' + esc(doc.subtitle) + '</div>' : '')
                 + '<div style="margin:16px 0 4px;font:800 44px system-ui;letter-spacing:-0.03em;color:' + (over ? '#86efac' : '#fff') + ';">' + esc(money(raised, cur)) + '</div>'
@@ -534,6 +691,28 @@ function (path, config) {
             doc.updated = new Date().toISOString();
             doc.by = user;
             if (!fileName) fileName = slug(doc.title) + '.fund';
+            // The picture goes first: a campaign pointing at a file that is not there yet
+            // would show a broken display for however long the two writes are apart.
+            try {
+                const m = med();
+                if (imageGone && !pendingImage) { m.imageFile = ''; m.imageV = 0; }
+                if (pendingImage) {
+                    $('fc-status').textContent = 'Saving the picture…';
+                    const imgName = imgFileFor();
+                    const rs0 = await POSTJSON({ name: imgName, key: 'user', user: user, spath: 'public',
+                        value: JSON.stringify({ kind: 'fundraise-image', dataUri: pendingImage.dataUri }) },
+                        host + '/save-user-data');
+                    if (!rs0 || !(rs0.status === 'saved' || rs0.path)) throw new Error('the picture could not be saved');
+                    m.imageFile = imgName; m.imageV = Date.now();
+                    loadedImage = pendingImage.dataUri; pendingImage = null; imageGone = false;
+                    try { $('fc-img').value = ''; } catch (e) { }
+                    $('fc-img-out').textContent = 'Picture saved.';
+                }
+            } catch (e) {
+                $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not save the picture: '
+                    + esc(e && e.message ? e.message : e) + '. Nothing else was published.</span>';
+                b.disabled = false; return;
+            }
             try {
                 const rs = await POSTJSON({ name: fileName, key: 'user', user: user, spath: 'public', value: JSON.stringify(doc) },
                     host + '/save-user-data');
@@ -572,6 +751,7 @@ function (path, config) {
             await exec('fundraise/admin');
         };
         loadKnown().then(() => { if (!docPath) checkName(); });
+        if (docPath) readImage();
         try { $('fc-title').focus(); } catch (e) { }
         return true;
     })();

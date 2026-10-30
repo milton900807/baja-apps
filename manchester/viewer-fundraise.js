@@ -88,6 +88,76 @@ function (path, config) {
         }
         const card = () => document.getElementById('fd-card');
 
+        // THE LOOK. A campaign picks one of a few backgrounds, and may put a photograph
+        // behind the whole display or as a banner over the title. The picture is NOT in the
+        // campaign document -- that is re-read every few seconds -- but in a file beside it,
+        // fetched once and again only when the campaign says the version changed.
+        const THEME = {
+            deep: 'radial-gradient(1200px 700px at 50% -10%,#123a63 0%,#0a1e3a 55%,#071526 100%)',
+            midnight: 'radial-gradient(1100px 700px at 50% -10%,#241b4e 0%,#140f2e 55%,#0a0718 100%)',
+            forest: 'radial-gradient(1100px 700px at 50% -10%,#14492f 0%,#0b2a1d 55%,#061712 100%)',
+            warm: 'radial-gradient(1100px 700px at 50% -10%,#5a2b1b 0%,#311611 55%,#1a0c08 100%)',
+            plain: 'linear-gradient(#0d1420,#0a0f18)',
+        };
+        const medOf = (d) => ((d && d.media && typeof d.media === 'object') ? d.media : {});
+        let pictureUri = '', pictureKey = '';
+        const readPicture = async (d) => {
+            const m = medOf(d);
+            const key = ('' + (m.imageFile || '')) + '@' + ('' + (m.imageV || ''));
+            if (!m.imageFile) { pictureUri = ''; pictureKey = ''; return; }
+            if (key === pictureKey) return;
+            const base = ('' + docPath).replace(/[^/]*$/, '');
+            if (!base) return;
+            try {
+                const rs = await POSTJSON({ path: base + m.imageFile, user: 'public' }, host + '/load-file');
+                let v = rs;
+                if (v && typeof v.value === 'string') { try { v = JSON.parse(v.value); } catch (e) { } }
+                if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+                // Only a data: image. Anything else in that field would be a URL this page
+                // then went and fetched, which is not something a campaign document gets to
+                // decide for a screen in someone's hall.
+                const u = (v && typeof v.dataUri === 'string') ? v.dataUri : '';
+                pictureUri = /^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(u) ? u : '';
+                pictureKey = key;
+            } catch (e) { }
+        };
+        const paintBackground = (d) => {
+            const m = medOf(d);
+            const base = THEME[m.theme] || THEME.deep;
+            const asBg = pictureUri && m.imageMode !== 'banner';
+            try {
+                // The photograph goes UNDER a dark wash: a total has to stay readable from the
+                // back of a room, and white numbers on someone's sunny garden party do not.
+                el.style.backgroundImage = asBg
+                    ? 'linear-gradient(rgba(5,14,26,0.72),rgba(5,14,26,0.86)), url("' + pictureUri + '")'
+                    : base;
+                el.style.backgroundSize = asBg ? 'cover' : '';
+                el.style.backgroundPosition = asBg ? 'center' : '';
+                el.style.backgroundRepeat = 'no-repeat';
+                el.style.backgroundColor = '#071526';
+            } catch (e) { }
+        };
+        const bannerHtml = (d, big) => {
+            const m = medOf(d);
+            if (!pictureUri || m.imageMode !== 'banner') return '';
+            return '<div style="margin:0 auto ' + (big ? 'clamp(12px,2.4vmin,26px)' : '14px') + ';">'
+                + '<img src="' + esc(pictureUri) + '" alt="" style="max-width:' + (big ? 'min(760px,86vw)' : '100%')
+                + ';max-height:' + (big ? '26vh' : '200px') + ';border-radius:14px;display:block;margin:0 auto;'
+                + 'box-shadow:0 10px 34px rgba(0,0,0,0.4);"/></div>';
+        };
+        const filmHtml = (d) => {
+            const id = ('' + (medOf(d).youtube || '')).trim();
+            if (!/^[\w-]{11}$/.test(id)) return '';
+            // youtube-nocookie, and no autoplay: a film that starts talking by itself in a
+            // room with a microphone in it is a bad surprise.
+            return '<div style="margin-top:10px;position:relative;padding-top:56.25%;border-radius:12px;overflow:hidden;'
+                + 'border:1px solid rgba(255,255,255,0.14);background:#000;">'
+                + '<iframe src="https://www.youtube-nocookie.com/embed/' + esc(id) + '?rel=0" title="Campaign film" '
+                + 'loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; picture-in-picture" allowfullscreen '
+                + 'referrerpolicy="strict-origin-when-cross-origin" '
+                + 'style="position:absolute;inset:0;width:100%;height:100%;border:0;"></iframe></div>';
+        };
+
         // A donor coming back from the payment page lands here with ?donated=1 on the URL. The
         // processor's own emailed receipt is the proof of payment; this is only an
         // acknowledgement on the way back.
@@ -145,7 +215,8 @@ function (path, config) {
             return t.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
         };
         const listOf = (d, k) => (Array.isArray(d && d[k]) ? d[k] : []).filter((x) => x && typeof x === 'object');
-        const hasDetail = (d) => !!(('' + ((d && d.story) || '')).trim() || listOf(d, 'gifts').length || listOf(d, 'updates').length);
+        const hasDetail = (d) => !!(('' + ((d && d.story) || '')).trim() || listOf(d, 'gifts').length
+            || listOf(d, 'updates').length || /^[\w-]{11}$/.test('' + ((d && d.media && d.media.youtube) || '')));
         // Paragraphs, not a block of run-on text, and still escaped: everything here was typed
         // by the organiser but arrives through a document anyone could in principle write to.
         const paras = (t) => ('' + (t || '')).split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)
@@ -280,6 +351,7 @@ function (path, config) {
             card().innerHTML = '<div style="text-align:left;max-width:820px;margin:0 auto;padding:2vmin 0 6vmin;">'
                 + '<button id="fd-back" style="cursor:pointer;border:1px solid rgba(255,255,255,0.22);background:transparent;'
                 + 'color:#cfe6ef;border-radius:999px;padding:7px 15px;font:600 12.5px system-ui;">← Back to the total</button>'
+                + bannerHtml(d, false)
                 + '<div style="margin-top:18px;font:800 clamp(22px,3.4vmin,36px) system-ui;letter-spacing:-0.02em;">' + esc(d.title || 'Campaign') + '</div>'
                 + (d.subtitle ? '<div style="margin-top:4px;font:400 15px system-ui;color:#9fc4d4;">' + esc(d.subtitle) + '</div>' : '')
                 + '<div style="margin-top:16px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
@@ -293,6 +365,7 @@ function (path, config) {
 
                 + (('' + (d.story || '')).trim() ? sect('About this campaign')
                     + '<div style="font:400 15.5px/1.6 system-ui;color:#dceef5;">' + paras(d.story) + '</div>' : '')
+                + (filmHtml(d) ? sect('Watch') + filmHtml(d) : '')
 
                 + (updates.length ? sect('Updates') + updates.map((u) => ''
                     + '<div style="border-left:2px solid rgba(79,208,230,0.5);padding:2px 0 2px 14px;margin:0 0 18px;">'
@@ -331,6 +404,7 @@ function (path, config) {
             const upd = d.updated ? new Date(d.updated) : null;
             const when = upd && !isNaN(+upd) ? upd.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
             card().innerHTML = ''
+                + bannerHtml(d, true)
                 + (d.title ? '<div style="font:800 clamp(24px,5vmin,56px) system-ui;letter-spacing:-0.02em;">' + esc(d.title) + '</div>' : '')
                 + (d.subtitle ? '<div style="margin-top:6px;font:400 clamp(14px,2.2vmin,22px) system-ui;color:#9fc4d4;">' + esc(d.subtitle) + '</div>' : '')
                 + '<div id="fd-amount" style="margin:clamp(14px,3vmin,34px) 0 6px;font:800 clamp(40px,12vmin,140px) system-ui;letter-spacing:-0.03em;'
@@ -376,6 +450,7 @@ function (path, config) {
         // open redraws THAT page rather than throwing the reader back to the total.
         const draw = (d, firstTime, keepView) => {
             lastDoc = d;
+            paintBackground(d);
             // A redraw while the donate sheet is open would throw away the amount someone is
             // part way through choosing, so the refresh waits for them.
             if (sheet) { pending = d; return; }
@@ -412,8 +487,8 @@ function (path, config) {
                 return;
             }
             const stamp = JSON.stringify([d.title, d.subtitle, d.goal, d.raised, d.donors, d.note, d.updated,
-                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate]);
-            if (stamp !== lastStamp) { lastStamp = stamp; draw(d, firstTime); }
+                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media]);
+            if (stamp !== lastStamp) { lastStamp = stamp; await readPicture(d); draw(d, firstTime); }
         };
 
         try {
