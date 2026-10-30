@@ -83,7 +83,14 @@ function (path, config) {
             const st = document.createElement('style');
             st.id = 'fd-kf';
             st.textContent = '@keyframes fdPulse{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}'
-                + '@keyframes fdPop{0%{transform:scale(1)}40%{transform:scale(1.06)}100%{transform:scale(1)}}';
+                + '@keyframes fdPop{0%{transform:scale(1)}40%{transform:scale(1.06)}100%{transform:scale(1)}}'
+                // The donate button breathes rather than flashes: on a screen somebody
+                // glances at across a room, a slow change of size is what the eye picks up,
+                // and anything faster reads as an advertisement.
+                + '@keyframes fdBreathe{0%{transform:scale(1);box-shadow:0 10px 30px rgba(34,197,94,0.30),0 0 0 0 rgba(34,197,94,0.45)}'
+                + '50%{transform:scale(1.035);box-shadow:0 16px 44px rgba(34,197,94,0.45),0 0 0 14px rgba(34,197,94,0)}'
+                + '100%{transform:scale(1);box-shadow:0 10px 30px rgba(34,197,94,0.30),0 0 0 0 rgba(34,197,94,0)}}'
+                + '#fd-give:hover{filter:brightness(1.06)}';
             document.head.appendChild(st);
         }
         const card = () => document.getElementById('fd-card');
@@ -234,12 +241,19 @@ function (path, config) {
             if (mode === 'checkout' && !amounts.length && !custom) return null;
             return { mode: mode, url: '' + (c.url || ''), label: ('' + (c.label || 'Donate')).slice(0, 40), amounts: amounts, custom: custom };
         };
+        // Is a photograph sitting behind the whole display? Everything that has to stay
+        // readable asks this, because over a picture the answer is more contrast, not less.
+        const overPic = (d) => !!(pictureUri && medOf(d).imageMode !== 'banner');
         const donateBtn = (d, big) => {
             const c = donCfg(d);
             if (!c) return '';
-            return '<button id="fd-give" style="cursor:pointer;border:0;background:#22c55e;color:#04210f;border-radius:999px;'
-                + (big ? 'padding:13px 34px;font:800 clamp(14px,2vmin,19px) system-ui;' : 'padding:9px 22px;font:800 13.5px system-ui;')
-                + 'box-shadow:0 8px 24px rgba(34,197,94,0.25);">' + esc(c.label) + '</button>';
+            return '<button id="fd-give" style="cursor:pointer;border:0;border-radius:999px;color:#04210f;'
+                + 'background:linear-gradient(180deg,#36dd77,#16a34a);'
+                + (big ? 'padding:16px 44px;font:800 clamp(16px,2.5vmin,24px) system-ui;letter-spacing:.01em;'
+                    + 'animation:fdBreathe 3.4s ease-in-out infinite;'
+                    : 'padding:10px 24px;font:800 14px system-ui;box-shadow:0 8px 24px rgba(34,197,94,0.3);')
+                + (big ? 'outline:2px solid rgba(255,255,255,0.22);outline-offset:3px;' : '')
+                + '">' + esc(c.label) + '</button>';
         };
 
         // The sheet: pick an amount, then Stripe. Nothing is typed here that belongs to a
@@ -396,6 +410,17 @@ function (path, config) {
         };
 
         const renderMain = (d, firstTime) => {
+            // Over a photograph the whole block sits on its own panel: a dark pane with the
+            // picture blurred behind it. A text shadow alone survives a plain sky and fails
+            // the moment someone uploads a crowd shot, and the number is the one thing on
+            // this screen that has to be legible from the back of the room.
+            const pic = overPic(d);
+            const panel = pic
+                ? 'background:rgba(6,16,28,0.56);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);'
+                    + 'border:1px solid rgba(255,255,255,0.14);border-radius:26px;padding:clamp(20px,4vmin,46px) clamp(18px,4vmin,54px);'
+                    + 'box-shadow:0 30px 90px rgba(0,0,0,0.45);'
+                : '';
+            const shadow = pic ? 'text-shadow:0 2px 18px rgba(0,0,0,0.55);' : '';
             const cur = d.currency || 'USD';
             const goal = Math.max(0, +d.goal || 0);
             const raised = Math.max(0, +d.raised || 0);
@@ -403,16 +428,19 @@ function (path, config) {
             const over = goal > 0 && raised >= goal;
             const upd = d.updated ? new Date(d.updated) : null;
             const when = upd && !isNaN(+upd) ? upd.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
-            card().innerHTML = ''
+            card().innerHTML = '<div style="' + panel + '">'
                 + bannerHtml(d, true)
-                + (d.title ? '<div style="font:800 clamp(24px,5vmin,56px) system-ui;letter-spacing:-0.02em;">' + esc(d.title) + '</div>' : '')
-                + (d.subtitle ? '<div style="margin-top:6px;font:400 clamp(14px,2.2vmin,22px) system-ui;color:#9fc4d4;">' + esc(d.subtitle) + '</div>' : '')
+                + (d.title ? '<div style="font:800 clamp(24px,5vmin,56px) system-ui;letter-spacing:-0.02em;' + shadow + '">' + esc(d.title) + '</div>' : '')
+                + (d.subtitle ? '<div style="margin-top:6px;font:400 clamp(14px,2.2vmin,22px) system-ui;color:' + (pic ? '#d7ebf3' : '#9fc4d4') + ';' + shadow + '">' + esc(d.subtitle) + '</div>' : '')
                 + '<div id="fd-amount" style="margin:clamp(14px,3vmin,34px) 0 6px;font:800 clamp(40px,12vmin,140px) system-ui;letter-spacing:-0.03em;'
-                + 'color:' + (over ? '#86efac' : '#ffffff') + ';line-height:1;">' + esc(money(raised, cur)) + '</div>'
-                + (goal > 0 ? '<div style="font:500 clamp(13px,2vmin,20px) system-ui;color:#9fc4d4;">raised of ' + esc(money(goal, cur)) + ' goal</div>' : '')
+                + 'color:' + (over ? '#86efac' : '#ffffff') + ';line-height:1;'
+                + (pic ? 'text-shadow:0 4px 30px rgba(0,0,0,0.6);' : '') + '">' + esc(money(raised, cur)) + '</div>'
+                + (goal > 0 ? '<div style="font:500 clamp(13px,2vmin,20px) system-ui;color:' + (pic ? '#d7ebf3' : '#9fc4d4') + ';' + shadow + '">raised of ' + esc(money(goal, cur)) + ' goal</div>' : '')
                 + (goal > 0 ? ('<div style="margin:clamp(14px,3vmin,30px) auto 0;max-width:900px;">'
-                    + '<div style="height:clamp(16px,3vmin,30px);border-radius:999px;background:rgba(255,255,255,0.10);'
-                    + 'border:1px solid rgba(255,255,255,0.16);overflow:hidden;">'
+                    + '<div style="height:clamp(16px,3vmin,30px);border-radius:999px;'
+                    + (pic ? 'background:rgba(2,8,16,0.62);border:1px solid rgba(255,255,255,0.34);'
+                        + 'box-shadow:inset 0 1px 6px rgba(0,0,0,0.5);'
+                        : 'background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.16);') + 'overflow:hidden;">'
                     + '<div id="fd-bar" style="height:100%;width:' + pct.toFixed(2) + '%;border-radius:999px;'
                     + 'background:linear-gradient(90deg,#1aa3bd,#22c55e);transition:width .9s cubic-bezier(.22,.9,.26,1);"></div></div>'
                     + '<div id="fd-pct" style="margin-top:8px;font:700 clamp(14px,2.2vmin,22px) system-ui;color:' + (over ? '#86efac' : '#bfe6f0') + ';">'
@@ -423,7 +451,7 @@ function (path, config) {
                 + '<div style="margin-top:clamp(16px,3vmin,30px);font:400 12.5px system-ui;color:#6f93a6;">'
                 + (when ? 'Updated ' + esc(when) : '') + (d.by ? (when ? ' · ' : '') + esc(d.by) : '')
                 + (every ? '<span id="fd-live" style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
-                + '</div>'
+                + '</div></div>'
                 + (thanked ? '<div style="margin-top:clamp(12px,2vmin,20px);display:inline-block;border:1px solid rgba(134,239,172,0.5);'
                     + 'background:rgba(34,197,94,0.14);color:#bbf7d0;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.7vmin,16px) system-ui;">'
                     + 'Thank you. Your receipt is on its way from VRI.</div>' : '')
@@ -432,8 +460,7 @@ function (path, config) {
                     + '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);'
                     + 'color:#eaf6f9;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.6vmin,15px) system-ui;">'
                     + 'Campaign details' + (listOf(d, 'updates').length ? ' · ' + listOf(d, 'updates').length + ' update'
-                        + (listOf(d, 'updates').length === 1 ? '' : 's') : '') + '</button></div>' : '')
-                + '</div>';
+                        + (listOf(d, 'updates').length === 1 ? '' : 's') : '') + '</button></div>' : '');
             const more = document.getElementById('fd-more');
             if (more) more.onclick = () => go('detail');
             const give = document.getElementById('fd-give');
