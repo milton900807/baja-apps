@@ -142,7 +142,7 @@ function (path, config) {
                 + '<div style="font:12.5px system-ui;color:#9fb3c8;">' + esc(c.path) + '</div></div>'
                 + '<div style="margin-top:12px;display:flex;gap:9px;flex-wrap:wrap;">'
                 + btn('fa-edit', 'Open in the console') + btn('fa-view', 'Open the display') + btn('fa-copy', 'Copy the link')
-                + btn('fa-pull', 'Pull donations') + btn('fa-recon', 'Reconcile with Stripe', 'go') + btn('fa-csv', 'Export CSV')
+                + btn('fa-pull', 'Pull donations') + btn('fa-recon', 'Reconcile', 'go') + btn('fa-csv', 'Export CSV')
                 + '<span style="flex:1 1 20px;"></span>' + btn('fa-del', 'Delete', 'bad')
                 + '</div>'
                 + '<div id="fa-out" style="margin-top:12px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
@@ -222,6 +222,8 @@ function (path, config) {
                     .map((kv) => '<div><div style="font:700 10.5px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">' + kv[0] + '</div>'
                         + '<div style="font:700 19px system-ui;margin-top:3px;">' + esc(kv[1]) + '</div></div>').join('')
                 + '</div>'
+                + '<div style="margin-top:8px;font:12px system-ui;color:#6f93a6;">Read from the payment records. '
+                + 'Nothing was changed: the campaign total is what it was.</div>'
                 + (Math.abs(diff) > 0.009 ? '<div style="margin-top:10px;font:12.5px system-ui;color:#fcd34d;">'
                     + 'The campaign shows ' + esc(money(picked.raised, picked.currency)) + ', which is '
                     + esc(money(Math.abs(diff), cur)) + (diff > 0 ? ' more' : ' less')
