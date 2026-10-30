@@ -53,25 +53,25 @@ function () {
             catch (e) { try { if (url) window.location.href = url; } catch (e2) { } }
         };
 
-        const door = (k, label, line, accent) => '<button data-door="' + k + '" class="baja-home-door" style=""flex:1 1 260px;cursor:pointer;'
+        const door = (k, label, line, accent) => '<button data-door="' + k + '" class="baja-home-door" style="flex:1 1 260px;cursor:pointer;'
             + 'text-align:left;border:1px solid #cfdbe2;border-top:4px solid ' + accent + ';background:#fff;border-radius:14px;'
             + 'padding:20px 22px;box-shadow:0 3px 14px rgba(16,40,56,0.09);">'
             + '<div style="font:800 23px Arial;color:#12242c;">' + esc(label) + '</div>'
             + '<div style="font:13.5px Arial;color:#6b8793;margin-top:5px;">' + esc(line) + '</div></button>';
 
-        const tile = (a, i) => '<button data-app="' + i + '" class="baja-home-app" style=""flex:1 1 300px;max-width:430px;cursor:pointer;text-align:left;'
+        const tile = (a, i) => '<button data-app="' + i + '" class="baja-home-app" style="flex:1 1 300px;max-width:430px;cursor:pointer;text-align:left;'
             + 'display:flex;gap:12px;align-items:flex-start;border:1px solid #dbe4ea;background:#fff;border-radius:10px;padding:13px 15px;">'
             + (a.svg ? '<img src="' + esc(a.svg) + '" alt="" width="40" height="40" style="flex:0 0 auto;"/>' : '')
             + '<span style="min-width:0;"><span style="display:block;font:700 15px Arial;color:#12242c;">' + esc(a.label) + '</span>'
             + '<span style="display:block;font:12.5px/1.45 Arial;color:#6b8793;margin-top:2px;">' + esc(a.note) + '</span></span></button>';
 
         const FUNDS = '<div style="display:flex;gap:14px;flex-wrap:wrap;">'
-            + '<button data-fund="new" class="baja-home-fund" style=""flex:1 1 300px;cursor:pointer;text-align:left;border:1px solid #16a34a;'
+            + '<button data-fund="new" class="baja-home-fund" style="flex:1 1 300px;cursor:pointer;text-align:left;border:1px solid #16a34a;'
             + 'background:#16a34a;color:#fff;border-radius:12px;padding:16px 18px;">'
             + '<span style="display:block;font:800 16px Arial;">Start a new campaign</span>'
             + '<span style="display:block;font:13px Arial;opacity:.93;margin-top:4px;">A total, a goal and a link to share. '
             + 'No charge to run it, and no share of what you raise.</span></button>'
-            + '<button data-fund="mine" class="baja-home-fund" style=""flex:1 1 300px;cursor:pointer;text-align:left;border:1px solid #cfdbe2;'
+            + '<button data-fund="mine" class="baja-home-fund" style="flex:1 1 300px;cursor:pointer;text-align:left;border:1px solid #cfdbe2;'
             + 'background:#fff;border-radius:12px;padding:16px 18px;">'
             + '<span style="display:block;font:800 16px Arial;color:#12242c;">Campaigns already running</span>'
             + '<span style="display:block;font:13px Arial;color:#6b8793;margin-top:4px;">Open one to edit it, see what it has '
