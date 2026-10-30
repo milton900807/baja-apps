@@ -803,6 +803,10 @@ function (path, config) {
                                         if (s.startsWith(`{"graph"`)) {
                                             let js = JSON.parse(s);
                                             await graph.setState(js)
+                                        } else if ((await exec('baja/io/parse/parse-hgvs-c.js')).looksLikeHgvsC(s)) {
+                                            // "c.709C>T" (one per line): counted through the exons from
+                                            // the annotated start codon, on every track it can be counted on.
+                                            await exec('baja/data/hgvs-c-paste.js', window['env']['apiUrl'], graph, genegraph_panel_layout, s);
                                         } else if ((await exec('baja/data/parse-genomic-variants.js')).isGenomicVariantText(s)) {
                                             // "chr16:1762843 C>T" (one per line): placed on every track that covers it.
                                             await exec('baja/data/genomic-variant-paste.js', window['env']['apiUrl'], graph, genegraph_panel_layout, s);
