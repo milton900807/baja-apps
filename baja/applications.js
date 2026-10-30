@@ -185,20 +185,39 @@ function (options) {
             'width': '100%',
             'component': {
                 wid: 'html',
-                data: '<div id="' + ID + '" style="padding:14px 4px 2px;font-family:Arial,Helvetica,sans-serif;">'
-                    + '<div style="display:flex;gap:12px;flex-wrap:wrap;">' + DOORS.map(doorHtml).join('') + '</div>'
-                    + '<div data-panel style="display:none;margin-top:14px;padding:14px;border:1px solid #e1e8ed;'
-                    + 'border-radius:12px;background:#f7fafc;"></div></div>'
+                data: '<div id="' + ID + '" style="padding:10px 4px 2px;font-family:Arial,Helvetica,sans-serif;">'
+                    + '<div style="display:flex;gap:12px;flex-wrap:nowrap;">' + DOORS.map(doorHtml).join('') + '</div>'
+                    + '</div>'
             }
         });
 
         // The widget is rendered by the framework, so the handlers are attached once it is
         // actually on the page. Polled rather than assumed: the file browser mounts this
         // header as part of its own render and there is no callback to hang this on.
+        const PANEL_ID = ID + '-panel';
         const wire = () => {
             const root = document.getElementById(ID);
             if (!root) return false;
-            const panel = root.querySelector('[data-panel]');
+            // THE PANEL IS NOT IN THE ROW. This header is one row of a layout that gives
+            // each row a fixed height, and a panel that grows would be clipped by it or
+            // drawn over by the file list below. So it is attached to the page itself and
+            // positioned under the doors, like a menu, and the row's height never changes.
+            try { const stale = document.getElementById(PANEL_ID); if (stale && stale.parentNode) stale.parentNode.removeChild(stale); } catch (e) { }
+            const panel = document.createElement('div');
+            panel.id = PANEL_ID;
+            panel.style.cssText = 'position:fixed;z-index:2147482000;display:none;box-sizing:border-box;'
+                + 'background:#f7fafc;border:1px solid #cfdbe2;border-radius:12px;padding:14px;'
+                + 'box-shadow:0 18px 50px rgba(16,40,56,0.28);font-family:Arial,Helvetica,sans-serif;'
+                + 'max-height:70vh;overflow:auto;';
+            document.body.appendChild(panel);
+            const place = () => {
+                try {
+                    const r = root.getBoundingClientRect();
+                    panel.style.left = Math.max(8, r.left) + 'px';
+                    panel.style.top = (r.bottom + 6) + 'px';
+                    panel.style.width = Math.max(320, Math.min(r.width, window.innerWidth - 16)) + 'px';
+                } catch (e) { }
+            };
             let openDoor = '';
             const paint = () => {
                 for (const b of root.querySelectorAll('[data-door]')) {
@@ -207,6 +226,7 @@ function (options) {
                     b.style.boxShadow = on ? '0 2px 14px rgba(16,40,56,0.14)' : '0 2px 10px rgba(16,40,56,0.07)';
                 }
                 panel.style.display = openDoor ? '' : 'none';
+                if (openDoor) place();
             };
             const wireInner = () => {
                 for (const b of panel.querySelectorAll('[data-open]')) {
@@ -229,6 +249,22 @@ function (options) {
                     if (openDoor) wireInner();
                 };
             }
+            // A panel pinned to the page has to follow the page: reposition while it is
+            // open, and close it when the user's attention goes elsewhere.
+            const follow = () => { if (openDoor) place(); };
+            try {
+                window.addEventListener('resize', follow);
+                window.addEventListener('scroll', follow, true);
+                document.addEventListener('keydown', (e) => {
+                    if (e && e.key === 'Escape' && openDoor) { openDoor = ''; paint(); }
+                }, true);
+                document.addEventListener('mousedown', (e) => {
+                    if (!openDoor) return;
+                    const t = e && e.target;
+                    if (panel.contains(t) || root.contains(t)) return;
+                    openDoor = ''; paint();
+                }, true);
+            } catch (e) { }
             paint();
             return true;
         };
@@ -251,6 +287,9 @@ function (options) {
         return {
             wid: 'card',
             width: '100%',
+            // Read by manchester/fb.js, which reserves this much room for the header rather
+            // than laying the file list over it.
+            headerHeight: 104,
             componentRef: o.componentRef || 'applicationsRow',
             data: { cards: [rows] }
         };
