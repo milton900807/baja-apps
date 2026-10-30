@@ -224,7 +224,11 @@ function (path, config) {
             + '<span style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">Take donations</span></label>'
             + '<div id="fc-don-box" style="display:none;">'
             + '<div style="margin-top:6px;font:12.5px system-ui;color:#9fb3c8;">Payment is handled by Stripe. Which methods a donor sees '
-            + '(card, Apple Pay, Google Pay, Link, Cash App, bank debits) is set on the Stripe account, not here.</div>'
+            + 'is set on the Stripe account, not here, and each one also depends on the donor\'s device and country: '
+            + 'Apple Pay shows for someone in Safari with a card in their wallet, and needs nothing from this page.</div>'
+            + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + btn('fc-pm', 'What donors will be offered')
+            + '<span id="fc-pm-out" style="font:12.5px system-ui;color:#cfe0f5;"></span></div>'
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + '<div style="flex:1 1 200px;"><label style="' + lbl + '">How</label><select id="fc-don-mode" style="' + inp + '">'
             + '<option value="checkout">Stripe Checkout on this server</option>'
@@ -606,6 +610,24 @@ function (path, config) {
         for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story',
             'fc-don-label', 'fc-don-url', 'fc-don-amts']) $(id).addEventListener('input', sync);
         for (const id of ['fc-don-on', 'fc-don-mode', 'fc-don-custom', 'fc-don-names']) $(id).addEventListener('change', sync);
+
+        // The account's own answer to "is Apple Pay on?", rather than mine.
+        $('fc-pm').onclick = async () => {
+            const out = $('fc-pm-out');
+            out.textContent = 'Asking Stripe…';
+            try {
+                const r = await GETJSON(host + '/stripe/payment-methods');
+                if (!r || r.error) throw new Error((r && (r.error_description || r.error)) || 'no answer');
+                if (!r.configured) { out.textContent = 'Stripe has no payment-method configuration on this account yet.'; return; }
+                const on = (r.on || []).join(', ') || 'nothing';
+                const off = (r.off || []);
+                out.innerHTML = '<span style="color:#86efac;">On: ' + esc(on) + '.</span>'
+                    + (off.length ? ' <span style="color:#9fb3c8;">Off: ' + esc(off.join(', '))
+                        + '. Turn these on in the Stripe dashboard under Settings, Payment methods.</span>' : '');
+            } catch (e) {
+                out.textContent = 'Could not ask Stripe: ' + ((e && e.message) ? e.message : e);
+            }
+        };
 
         // WHAT STRIPE HAS BEEN PAID, folded into the campaign. The display does this by
         // itself every few seconds; the button is for the organiser standing at the laptop
