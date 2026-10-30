@@ -56,8 +56,16 @@ function (path, config) {
         let doc = {
             kind: 'fundraise', title: 'Our campaign', subtitle: '', currency: 'USD',
             goal: 100000, raised: 0, donors: 0, note: '', updated: '', by: '',
-            story: '', hideGiftAmounts: false, gifts: [], updates: []
+            story: '', hideGiftAmounts: false, gifts: [], updates: [],
+            // How a visitor gives. 'checkout' asks this server for a Stripe Checkout session
+            // with the amount the donor picked; 'link' opens a Payment Link made in the Stripe
+            // dashboard. Which payment methods appear -- card, Apple Pay, Google Pay, Link,
+            // Cash App, Klarna, bank debits -- is a Stripe dashboard setting in both cases,
+            // not something this page chooses, so turning one on there turns it on here.
+            donate: { on: false, mode: 'checkout', label: 'Donate', url: '', amounts: [25, 50, 100, 250], custom: true }
         };
+        const don = () => (doc.donate && typeof doc.donate === 'object' ? doc.donate
+            : (doc.donate = { on: false, mode: 'checkout', label: 'Donate', url: '', amounts: [], custom: true }));
         // Both lists are newest first, and capped: a document that grows without a bound is
         // one the display eventually cannot load.
         const CAP = 200;
@@ -130,6 +138,27 @@ function (path, config) {
             + '<textarea id="fc-upd" rows="3" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
             + '<div style="margin-top:8px;">' + btn('fc-post', 'Post update') + '</div>'
             + '<div id="fc-updates" style="margin-top:10px;"></div>'
+            + '<div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);">'
+            + '<label style="font:12.5px system-ui;color:#eaf6f9;display:flex;align-items:center;gap:8px;cursor:pointer;">'
+            + '<input id="fc-don-on" type="checkbox" style="accent-color:#22c55e;"/>'
+            + '<span style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">Take donations</span></label>'
+            + '<div id="fc-don-box" style="display:none;">'
+            + '<div style="margin-top:6px;font:12.5px system-ui;color:#9fb3c8;">Payment is handled by Stripe. Which methods a donor sees '
+            + '(card, Apple Pay, Google Pay, Link, Cash App, bank debits) is set on the Stripe account, not here.</div>'
+            + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+            + '<div style="flex:1 1 200px;"><label style="' + lbl + '">How</label><select id="fc-don-mode" style="' + inp + '">'
+            + '<option value="checkout">Stripe Checkout on this server</option>'
+            + '<option value="link">A Stripe Payment Link</option></select></div>'
+            + '<div style="flex:1 1 150px;"><label style="' + lbl + '">Button</label><input id="fc-don-label" style="' + inp + '"/></div>'
+            + '</div>'
+            + '<div id="fc-don-url-row"><label style="' + lbl + '">Payment Link</label>'
+            + '<input id="fc-don-url" placeholder="https://buy.stripe.com/…" style="' + inp + '"/></div>'
+            + '<label style="' + lbl + '">Suggested amounts</label>'
+            + '<input id="fc-don-amts" placeholder="25, 50, 100, 250" style="' + inp + '"/>'
+            + '<label style="margin-top:8px;font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
+            + '<input id="fc-don-custom" type="checkbox" style="accent-color:#22c55e;"/> let a donor type their own amount</label>'
+            + '<div id="fc-don-warn" style="margin-top:8px;font:12.5px system-ui;color:#fca5a5;"></div>'
+            + '</div></div>'
             + '<div id="fc-status" style="margin-top:14px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
             + '<div id="fc-link" style="margin-top:6px;font:12.5px system-ui;word-break:break-all;"></div>'
             + '</div>'
@@ -155,6 +184,33 @@ function (path, config) {
             $('fc-note').value = doc.note || '';
             $('fc-story').value = doc.story || '';
             $('fc-hide').checked = !!doc.hideGiftAmounts;
+            const dcfg = don();
+            $('fc-don-on').checked = !!dcfg.on;
+            $('fc-don-mode').value = dcfg.mode === 'link' ? 'link' : 'checkout';
+            $('fc-don-label').value = dcfg.label || 'Donate';
+            $('fc-don-url').value = dcfg.url || '';
+            $('fc-don-amts').value = (Array.isArray(dcfg.amounts) ? dcfg.amounts : []).join(', ');
+            $('fc-don-custom').checked = dcfg.custom !== false;
+            donUI();
+        };
+
+        // Only the fields that matter for the chosen route are on screen, and a Payment Link
+        // that is not a link at all is called out before it reaches a donor.
+        const donUI = () => {
+            const dcfg = don();
+            $('fc-don-box').style.display = dcfg.on ? '' : 'none';
+            $('fc-don-url-row').style.display = (dcfg.mode === 'link') ? '' : 'none';
+            let warn = '';
+            if (dcfg.on && dcfg.mode === 'link') {
+                const u = ('' + (dcfg.url || '')).trim();
+                if (!u) warn = 'Paste the Payment Link from your Stripe dashboard, or switch to Checkout.';
+                else if (!/^https:\/\//i.test(u)) warn = 'That has to be an https link.';
+                else if (!/(^|\.)stripe\.com$/i.test((() => { try { return new URL(u).hostname; } catch (e) { return ''; } })()))
+                    warn = 'That is not a stripe.com address. It will still be used, but check it is the right one.';
+            }
+            if (dcfg.on && dcfg.mode === 'checkout' && !(Array.isArray(dcfg.amounts) && dcfg.amounts.length) && dcfg.custom === false)
+                warn = 'With no suggested amounts and no custom amount, a donor has nothing to choose.';
+            $('fc-don-warn').textContent = warn;
         };
         const fromForm = () => {
             doc.title = ('' + $('fc-title').value).trim();
@@ -167,6 +223,14 @@ function (path, config) {
             doc.note = ('' + $('fc-note').value).trim();
             doc.story = ('' + $('fc-story').value).trim();
             doc.hideGiftAmounts = !!$('fc-hide').checked;
+            const dcfg = don();
+            dcfg.on = !!$('fc-don-on').checked;
+            dcfg.mode = $('fc-don-mode').value === 'link' ? 'link' : 'checkout';
+            dcfg.label = ('' + $('fc-don-label').value).trim() || 'Donate';
+            dcfg.url = ('' + $('fc-don-url').value).trim();
+            dcfg.custom = !!$('fc-don-custom').checked;
+            dcfg.amounts = ('' + $('fc-don-amts').value).split(/[,;\s]+/).map((x) => parseMoney(x))
+                .filter((v) => isFinite(v) && v > 0).slice(0, 6);
         };
 
         // The two lists, as the organiser sees them here: newest first, each removable.
@@ -234,11 +298,15 @@ function (path, config) {
                     ? '<div style="margin-top:14px;"><span style="display:inline-block;border:1px solid rgba(255,255,255,0.28);'
                         + 'background:rgba(255,255,255,0.06);border-radius:999px;padding:6px 14px;font:600 12px system-ui;">Campaign details'
                         + (arr('updates').length ? ' · ' + arr('updates').length + ' update' + (arr('updates').length === 1 ? '' : 's') : '')
-                        + '</span></div>' : '');
+                        + '</span></div>' : '')
+                + (don().on ? '<div style="margin-top:10px;"><span style="display:inline-block;background:#22c55e;color:#04210f;'
+                    + 'border-radius:999px;padding:8px 20px;font:800 13px system-ui;">' + esc(don().label || 'Donate') + '</span></div>' : '');
         };
-        const sync = () => { fromForm(); preview(); };
+        const sync = () => { fromForm(); preview(); donUI(); };
         toForm(); preview(); lists();
-        for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story']) $(id).addEventListener('input', sync);
+        for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story',
+            'fc-don-label', 'fc-don-url', 'fc-don-amts']) $(id).addEventListener('input', sync);
+        for (const id of ['fc-don-on', 'fc-don-mode', 'fc-don-custom']) $(id).addEventListener('change', sync);
         $('fc-cur').addEventListener('change', () => { sync(); lists(); });
         $('fc-hide').addEventListener('change', sync);
 

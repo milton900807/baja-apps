@@ -16,7 +16,20 @@ function (path, config) {
     // here through /load-file as `public`, which is the same path a shared genome takes.
     //
     //   { kind: 'fundraise', title, subtitle, currency, goal, raised, donors, note,
-    //     updated, by, story, gifts: [{ amount, name, note, at }], updates: [{ at, text }] }
+    //     updated, by, story, gifts: [{ amount, name, note, at }], updates: [{ at, text }],
+    //     donate: { on, mode: 'checkout'|'link', label, url, amounts: [...], custom } }
+    //
+    // GIVING. The donate button asks for an amount and then hands the donor to Stripe, either
+    // through a Checkout session this server creates for that amount (POST /stripe/donation-
+    // session) or through a Payment Link made in the Stripe dashboard. WHICH PAYMENT METHODS
+    // APPEAR -- card, Apple Pay, Google Pay, Link, Cash App, Klarna, bank debits -- is a
+    // Stripe dashboard setting, not a choice this page makes: the session asks for no
+    // payment_method_types, so Stripe offers every method enabled on the account that is
+    // eligible for the amount, currency and country. Money never touches this page, and no
+    // card detail is typed on it.
+    //
+    // A donation does NOT move the total by itself: nothing here hears back from Stripe. The
+    // organiser enters gifts in the console, or a Stripe webhook could do it.
     //
     // TWO LEVELS. The first is the number, which is what a screen in a room is for and which
     // has to stay readable from the back of it. Everything that wants reading up close --
@@ -71,6 +84,18 @@ function (path, config) {
         }
         const card = () => document.getElementById('fd-card');
 
+        // A donor coming back from Stripe lands here with ?donated=1 on the URL. Stripe's own
+        // receipt is the proof of payment; this is only an acknowledgement on the way back.
+        const thanked = (qp('donated') === '1');
+        // Taken off the URL once read, so a reload later does not thank someone twice.
+        if (thanked) {
+            try {
+                const u = new URL(window.location.href);
+                u.searchParams.delete('donated');
+                history.replaceState({}, '', u.pathname + (u.search || '') + (u.hash || ''));
+            } catch (e) { }
+        }
+
         const money = (n, cur) => {
             const v = (+n || 0);
             try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur || 'USD', maximumFractionDigits: (v % 1 ? 2 : 0) }).format(v); }
@@ -116,6 +141,110 @@ function (path, config) {
         const paras = (t) => ('' + (t || '')).split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)
             .map((x) => '<p style="margin:0 0 12px;">' + esc(x).replace(/\n/g, '<br>') + '</p>').join('');
 
+        // ---- giving ----------------------------------------------------------------------
+        const donCfg = (d) => {
+            const c = (d && d.donate && typeof d.donate === 'object') ? d.donate : null;
+            if (!c || !c.on) return null;
+            const mode = (c.mode === 'link') ? 'link' : 'checkout';
+            if (mode === 'link' && !/^https:\/\//i.test('' + (c.url || ''))) return null;
+            const amounts = (Array.isArray(c.amounts) ? c.amounts : [])
+                .map((v) => +v).filter((v) => isFinite(v) && v > 0).slice(0, 6);
+            const custom = c.custom !== false;
+            if (mode === 'checkout' && !amounts.length && !custom) return null;
+            return { mode: mode, url: '' + (c.url || ''), label: ('' + (c.label || 'Donate')).slice(0, 40), amounts: amounts, custom: custom };
+        };
+        const donateBtn = (d, big) => {
+            const c = donCfg(d);
+            if (!c) return '';
+            return '<button id="fd-give" style="cursor:pointer;border:0;background:#22c55e;color:#04210f;border-radius:999px;'
+                + (big ? 'padding:13px 34px;font:800 clamp(14px,2vmin,19px) system-ui;' : 'padding:9px 22px;font:800 13.5px system-ui;')
+                + 'box-shadow:0 8px 24px rgba(34,197,94,0.25);">' + esc(c.label) + '</button>';
+        };
+
+        // The sheet: pick an amount, then Stripe. Nothing is typed here that belongs to a
+        // card -- the only field is how much.
+        let sheet = null;
+        let pending = null;
+        const closeSheet = () => {
+            try { if (sheet && sheet.parentNode) sheet.parentNode.removeChild(sheet); } catch (e) { }
+            sheet = null;
+            if (pending) { const d = pending; pending = null; draw(d, false, true); }
+        };
+        const openSheet = (d) => {
+            const c = donCfg(d);
+            if (!c) return;
+            const cur = d.currency || 'USD';
+            closeSheet();
+            sheet = document.createElement('div');
+            sheet.style.cssText = 'position:fixed;inset:0;z-index:2147483100;background:rgba(3,11,22,0.72);display:flex;'
+                + 'align-items:center;justify-content:center;padding:4vmin;box-sizing:border-box;';
+            const chip = (v) => '<button class="fd-amt" data-amt="' + v + '" style="cursor:pointer;border:1px solid rgba(255,255,255,0.25);'
+                + 'background:rgba(255,255,255,0.06);color:#eaf6f9;border-radius:10px;padding:12px 6px;font:700 15px system-ui;">'
+                + esc(money(v, cur)) + '</button>';
+            sheet.innerHTML = '<div style="width:min(430px,94vw);background:#0b2545;border:1px solid rgba(255,255,255,0.14);'
+                + 'border-radius:16px;padding:22px;color:#eaf6f9;box-shadow:0 30px 80px rgba(0,0,0,0.5);">'
+                + '<div style="display:flex;align-items:baseline;gap:10px;">'
+                + '<div style="font:800 19px system-ui;">' + esc(c.label) + '</div>'
+                + '<button id="fd-x" style="margin-left:auto;cursor:pointer;border:0;background:transparent;color:#9fc4d4;font:700 18px system-ui;">×</button></div>'
+                + '<div style="margin-top:4px;font:13px system-ui;color:#9fc4d4;">' + esc(d.title || 'this campaign') + '</div>'
+                + (c.amounts.length ? '<div style="margin-top:16px;display:grid;grid-template-columns:repeat(' + Math.min(3, c.amounts.length)
+                    + ',1fr);gap:9px;">' + c.amounts.map(chip).join('') + '</div>' : '')
+                + (c.custom ? '<div style="margin-top:12px;"><input id="fd-own" inputmode="decimal" placeholder="another amount" '
+                    + 'style="width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.18);'
+                    + 'border-radius:10px;padding:11px 13px;font:15px system-ui;"/></div>' : '')
+                + '<button id="fd-go" style="margin-top:14px;width:100%;cursor:pointer;border:0;background:#22c55e;color:#04210f;'
+                + 'border-radius:10px;padding:13px;font:800 15px system-ui;">Continue to payment</button>'
+                + '<div id="fd-err" style="margin-top:10px;font:12.5px system-ui;color:#fca5a5;min-height:16px;"></div>'
+                + '<div style="margin-top:6px;font:11.5px system-ui;color:#7fb0c4;">Payment is handled by Stripe. Card, Apple Pay, '
+                + 'Google Pay and the other methods enabled on this account all appear there. Nothing to do with a card is typed on this page.</div>'
+                + '</div>';
+            document.body.appendChild(sheet);
+
+            let picked = c.amounts.length ? c.amounts[Math.min(1, c.amounts.length - 1)] : 0;
+            const paint = () => {
+                for (const b of sheet.querySelectorAll('.fd-amt')) {
+                    const on = (+b.getAttribute('data-amt') === picked);
+                    b.style.borderColor = on ? '#22c55e' : 'rgba(255,255,255,0.25)';
+                    b.style.background = on ? 'rgba(34,197,94,0.18)' : 'rgba(255,255,255,0.06)';
+                }
+            };
+            paint();
+            for (const b of sheet.querySelectorAll('.fd-amt')) {
+                b.onclick = () => { picked = +b.getAttribute('data-amt'); const o = sheet.querySelector('#fd-own'); if (o) o.value = ''; paint(); };
+            }
+            const own = sheet.querySelector('#fd-own');
+            if (own) own.addEventListener('input', () => {
+                const t = ('' + own.value).replace(/[^0-9.]/g, '');
+                const v = parseFloat(t);
+                picked = isFinite(v) ? v : 0;
+                paint();
+            });
+            sheet.querySelector('#fd-x').onclick = closeSheet;
+            sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
+
+            sheet.querySelector('#fd-go').onclick = async () => {
+                const err = sheet.querySelector('#fd-err'), go = sheet.querySelector('#fd-go');
+                // A Payment Link carries its own amount (or asks for one), so an amount here
+                // is only needed for a session this server creates.
+                if (c.mode === 'checkout' && !(picked > 0)) { err.textContent = 'Choose an amount first.'; return; }
+                if (c.mode === 'link') { closeSheet(); try { window.open(c.url, '_blank', 'noopener'); } catch (e) { window.location.href = c.url; } return; }
+                go.disabled = true; err.textContent = ''; go.textContent = 'Taking you to Stripe…';
+                try {
+                    const back = window.location.href.split('#')[0];
+                    const r = await POSTJSON({
+                        amount: picked, currency: cur, campaign: ('' + (d.title || '')).slice(0, 120),
+                        path: docPath, returnUrl: back
+                    }, host + '/stripe/donation-session');
+                    if (r && r.url) { window.location.href = r.url; return; }
+                    throw new Error((r && (r.error_description || r.error)) || 'the payment page could not be opened');
+                } catch (e) {
+                    go.disabled = false; go.textContent = 'Continue to payment';
+                    err.textContent = 'Could not reach Stripe: ' + ((e && e.message) ? e.message : e)
+                        + '. Try again, or tell the organiser.';
+                }
+            };
+        };
+
         let view = 'main', lastDoc = null;
         const go = (v) => {
             view = v;
@@ -150,6 +279,7 @@ function (path, config) {
                 + (goal > 0 ? '<div style="margin-top:12px;height:10px;border-radius:999px;background:rgba(255,255,255,0.10);'
                     + 'border:1px solid rgba(255,255,255,0.16);overflow:hidden;"><div style="height:100%;width:' + pct.toFixed(2) + '%;'
                     + 'background:linear-gradient(90deg,#1aa3bd,#22c55e);transition:width .9s cubic-bezier(.22,.9,.26,1);"></div></div>' : '')
+                + (donateBtn(d, false) ? '<div style="margin-top:16px;">' + donateBtn(d, false) + '</div>' : '')
 
                 + (('' + (d.story || '')).trim() ? sect('About this campaign')
                     + '<div style="font:400 15.5px/1.6 system-ui;color:#dceef5;">' + paras(d.story) + '</div>' : '')
@@ -178,6 +308,8 @@ function (path, config) {
                 + '</div></div>';
             const b = document.getElementById('fd-back');
             if (b) b.onclick = () => go('main');
+            const give = document.getElementById('fd-give');
+            if (give) give.onclick = () => openSheet(d);
         };
 
         const renderMain = (d, firstTime) => {
@@ -208,6 +340,10 @@ function (path, config) {
                 + (when ? 'Updated ' + esc(when) : '') + (d.by ? (when ? ' · ' : '') + esc(d.by) : '')
                 + (every ? '<span id="fd-live" style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div>'
+                + (thanked ? '<div style="margin-top:clamp(12px,2vmin,20px);display:inline-block;border:1px solid rgba(134,239,172,0.5);'
+                    + 'background:rgba(34,197,94,0.14);color:#bbf7d0;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.7vmin,16px) system-ui;">'
+                    + 'Thank you. Your receipt is on its way from Stripe.</div>' : '')
+                + (donateBtn(d, true) ? '<div style="margin-top:clamp(14px,2.6vmin,26px);">' + donateBtn(d, true) + '</div>' : '')
                 + (hasDetail(d) ? '<div style="margin-top:clamp(12px,2.4vmin,22px);">'
                     + '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);'
                     + 'color:#eaf6f9;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.6vmin,15px) system-ui;">'
@@ -216,6 +352,8 @@ function (path, config) {
                 + '</div>';
             const more = document.getElementById('fd-more');
             if (more) more.onclick = () => go('detail');
+            const give = document.getElementById('fd-give');
+            if (give) give.onclick = () => openSheet(d);
             const amt = document.getElementById('fd-amount');
             if (!firstTime && shownRaised != null && shownRaised !== raised && amt) {
                 amt.style.animation = 'fdPop .5s ease';
@@ -228,6 +366,9 @@ function (path, config) {
         // open redraws THAT page rather than throwing the reader back to the total.
         const draw = (d, firstTime, keepView) => {
             lastDoc = d;
+            // A redraw while the donate sheet is open would throw away the amount someone is
+            // part way through choosing, so the refresh waits for them.
+            if (sheet) { pending = d; return; }
             if (view === 'detail' && hasDetail(d)) { renderDetail(d); return; }
             if (view === 'detail') view = 'main';
             renderMain(d, firstTime && !keepView);
@@ -249,13 +390,15 @@ function (path, config) {
                 return;
             }
             const stamp = JSON.stringify([d.title, d.subtitle, d.goal, d.raised, d.donors, d.note, d.updated,
-                d.story, d.hideGiftAmounts, d.gifts, d.updates]);
+                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate]);
             if (stamp !== lastStamp) { lastStamp = stamp; draw(d, firstTime); }
         };
 
         try {
             document.addEventListener('keydown', (e) => {
-                if (e && e.key === 'Escape' && view === 'detail') { try { e.stopPropagation(); } catch (e2) { } go('main'); }
+                if (!e || e.key !== 'Escape') return;
+                if (sheet) { try { e.stopPropagation(); } catch (e2) { } closeSheet(); return; }
+                if (view === 'detail') { try { e.stopPropagation(); } catch (e2) { } go('main'); }
             }, true);
         } catch (e) { }
 
