@@ -135,7 +135,15 @@ function (path, config) {
             const d = $('fa-detail');
             if (!picked) { d.innerHTML = ''; return; }
             const c = picked;
-            const link = window.location.origin + '/app/manchester/viewer-fundraise?path=' + encodeURIComponent(c.path);
+            // The long form works, but the short one is what a campaign is shared by: it
+            // carries the preview card. Asked for once per campaign and remembered.
+            let link = window.location.origin + '/app/manchester/viewer-fundraise?path=' + encodeURIComponent(c.path);
+            if (c.__code) link = window.location.origin + '/f/' + c.__code;
+            else {
+                POSTJSON({ path: c.path }, host + '/share-alias').then((al) => {
+                    if (al && al.code) { c.__code = al.code; if (picked === c) drawDetail(); }
+                }).catch(() => { });
+            }
             d.innerHTML = '<div style="border:1px solid rgba(255,255,255,0.14);border-radius:12px;padding:18px;background:#0b2545;">'
                 + '<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
                 + '<div style="font:700 17px system-ui;">' + esc(c.title) + '</div>'

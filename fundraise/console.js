@@ -226,6 +226,10 @@ function (path, config) {
             + '<span id="fc-pull-out" style="font:12.5px system-ui;color:#cfe0f5;"></span></div>'
             + '<div id="fc-don-warn" style="margin-top:8px;font:12.5px system-ui;color:#fca5a5;"></div>'
             + '</div></div>'
+            + '<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);'
+            + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display')
+            + '<span style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
             + '<div id="fc-status" style="margin-top:14px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
             + '<div id="fc-link" style="margin-top:6px;font:12.5px system-ui;word-break:break-all;"></div>'
             + '</div>'
@@ -686,8 +690,8 @@ function (path, config) {
                 checkName();
                 return;
             }
-            const b = $('fc-publish');
-            b.disabled = true; $('fc-status').textContent = 'Publishing…';
+            const busy = (v) => { for (const id of ['fc-publish', 'fc-publish2']) { const el = $(id); if (el) el.disabled = v; } };
+            busy(true); $('fc-status').textContent = 'Publishing…';
             doc.updated = new Date().toISOString();
             doc.by = user;
             if (!fileName) fileName = slug(doc.title) + '.fund';
@@ -711,7 +715,7 @@ function (path, config) {
             } catch (e) {
                 $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not save the picture: '
                     + esc(e && e.message ? e.message : e) + '. Nothing else was published.</span>';
-                b.disabled = false; return;
+                busy(false); return;
             }
             try {
                 const rs = await POSTJSON({ name: fileName, key: 'user', user: user, spath: 'public', value: JSON.stringify(doc) },
@@ -721,12 +725,15 @@ function (path, config) {
                 try { await POSTJSON({ name: '.share', key: 'user', user: user, spath: 'public', value: 'public\n/public' }, host + '/save-user-data'); } catch (e) { }
                 docPath = ('' + (rs.path || '')).replace(/\/{2,}/g, '/');
                 let link = window.location.origin + '/app/manchester/viewer-fundraise?path=' + encodeURIComponent(docPath);
-                // A short code keeps the owner's email out of the address bar on a screen in a
-                // room; /s/<code> itself lands on the genome viewer, so the display link names
-                // this route and passes the code to it.
+                // THE LINK PEOPLE ARE GIVEN IS /f/<code>. It is short enough to read out, it
+                // keeps the owner's email out of the address bar on a screen in a room, and
+                // it is the only form of this link that can carry a preview card: that route
+                // is answered by the server, so a post on Facebook or a message in Slack
+                // shows the campaign's own title and picture instead of the Baja shell's.
+                // It sends a browser on to the display immediately.
                 try {
                     const al = await POSTJSON({ path: docPath }, host + '/share-alias');
-                    if (al && al.code) link = window.location.origin + '/app/manchester/viewer-fundraise?s=' + encodeURIComponent(al.code);
+                    if (al && al.code) link = window.location.origin + '/f/' + encodeURIComponent(al.code);
                 } catch (e) { }
                 publicLink = link;
                 let copied = false;
@@ -738,13 +745,16 @@ function (path, config) {
             } catch (e) {
                 $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not publish: ' + esc(e && e.message ? e.message : e) + '</span>';
             }
-            b.disabled = false;
+            busy(false);
         };
         $('fc-publish').onclick = publish;
-        $('fc-open').onclick = () => {
+        $('fc-publish2').onclick = publish;
+        const openDisplay = () => {
             if (!publicLink) { $('fc-status').textContent = 'Publish it first, then the display has something to read.'; return; }
             try { window.open(publicLink, '_blank', 'noopener'); } catch (e) { }
         };
+        $('fc-open').onclick = openDisplay;
+        $('fc-open2').onclick = openDisplay;
         $('fc-all').onclick = async () => {
             try { clear(); } catch (e) { }
             try { window.history.pushState({}, '', '/app/fundraise/admin'); } catch (e) { }
