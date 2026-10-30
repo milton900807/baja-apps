@@ -85,7 +85,26 @@ function (path, config) {
         }
 
         // ---- the screen --------------------------------------------------------------------
+        // NOT A PAGE FOR A STRANGER. Everything here writes into someone's own folder and
+        // publishes under their name, so without an account there is nothing this screen
+        // could usefully do. The display is the public half; this is not it.
         try { const old = document.getElementById('baja-fundraise-console'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+        if (!user) {
+            const no = document.createElement('div');
+            no.id = 'baja-fundraise-console';
+            no.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#eaf6f9;display:flex;'
+                + 'align-items:center;justify-content:center;padding:6vmin;box-sizing:border-box;text-align:center;'
+                + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
+            no.innerHTML = '<div style="max-width:44ch;">'
+                + '<div style="font:700 22px system-ui;">Fundraising</div>'
+                + '<div style="margin-top:10px;font:15px/1.55 system-ui;color:#9fb3c8;">Sign in to run a campaign. '
+                + 'A campaign is published from your own files and under your own name, so this screen needs an account.</div>'
+                + '<div style="margin-top:16px;font:13px system-ui;color:#6f93a6;">A published display needs no account: '
+                + 'anyone with its link can watch it.</div></div>';
+            document.body.appendChild(no);
+            try { document.title = 'Fundraising'; } catch (e) { }
+            return false;
+        }
         const wrap = document.createElement('div');
         wrap.id = 'baja-fundraise-console';
         wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483000;overflow:auto;background:#071a30;color:#eaf6f9;'
@@ -102,6 +121,13 @@ function (path, config) {
             + 'border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
             + '<div><div style="font:700 20px system-ui;">Fundraising</div>'
             + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">Enter the total raised, then publish a display anyone can open.</div></div>'
+            // Whose campaign this is, on screen: a campaign is published under the signed-in
+            // account's name, into its folder, and at an event there is usually more than one
+            // laptop and more than one person near it.
+            + '<div style="margin-left:18px;padding:6px 12px;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
+            + 'background:rgba(255,255,255,0.04);"><div style="font:600 10.5px system-ui;letter-spacing:.1em;'
+            + 'text-transform:uppercase;color:#7fb0c4;">Signed in as</div>'
+            + '<div style="font:600 13px system-ui;margin-top:2px;">' + esc(user) + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-all', 'All campaigns')
             + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
@@ -490,7 +516,6 @@ function (path, config) {
 
         const publish = async () => {
             sync();
-            if (!user) { $('fc-status').textContent = 'Sign in to publish a campaign.'; return; }
             if (!doc.title) { $('fc-status').textContent = 'Give the campaign a name first.'; return; }
             // Re-read rather than trust the list from a minute ago: this is the check that
             // stands between a second campaign and the first one's money.

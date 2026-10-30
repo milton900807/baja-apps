@@ -28,6 +28,30 @@ function (path, config) {
         };
         const when = (iso) => { const t = iso ? new Date(iso) : null; return (t && !isNaN(+t)) ? t.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
 
+        // THE DOOR. This page shows what every campaign raised and what each donor paid, so it
+        // is for the account that runs the fundraising and nobody else. The same list is
+        // enforced on the server in front of the two endpoints below, which is what actually
+        // keeps the data in: refusing here only saves the wrong person a 403 and a blank page.
+        if (!(await exec('fundraise/admins.js', user))) {
+            try { const old = document.getElementById('baja-fundraise-admin'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+            const no = document.createElement('div');
+            no.id = 'baja-fundraise-admin';
+            no.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#eaf6f9;display:flex;'
+                + 'align-items:center;justify-content:center;padding:6vmin;box-sizing:border-box;text-align:center;'
+                + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
+            no.innerHTML = '<div style="max-width:46ch;">'
+                + '<div style="font:700 22px system-ui;">Fundraising administration</div>'
+                + '<div style="margin-top:10px;font:15px/1.55 system-ui;color:#9fb3c8;">'
+                + (user ? 'This page is for the account that runs the fundraising, and ' + esc(user) + ' is not it.'
+                    : 'Sign in with the account that runs the fundraising to open this page.')
+                + '</div>'
+                + '<div style="margin-top:16px;font:13px system-ui;color:#6f93a6;">A campaign of your own is edited at '
+                + '/app/fundraise/console.</div></div>';
+            document.body.appendChild(no);
+            try { document.title = 'Fundraising administration'; } catch (e) { }
+            return false;
+        }
+
         try { const old = document.getElementById('baja-fundraise-admin'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
         const wrap = document.createElement('div');
         wrap.id = 'baja-fundraise-admin';
