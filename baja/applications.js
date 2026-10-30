@@ -7,7 +7,7 @@ function (options) {
     //
     //     Design      Oligo  ·  Neoantigen  ·  mRNA  ·  Assay
     //     Explore     Chromosomes  ·  Library
-    //     Programme   Project  ·  Analytics  ·  Financial Modeling
+    //     Programme   Project  ·  Analytics  ·  Financial Modeling  ·  Fundraising
     //
     // Returned rather than shown, so the caller decides where it goes. The home screen puts
     // it above the file browser.
@@ -109,6 +109,12 @@ function (options) {
                         icon: 'icons/svg/financial-modeling',
                         path: 'cpd/baja-analytics',
                         args: ['', cfg(), '/app/cpd/baja-analytics']
+                    },
+                    {
+                        label: 'Fundraising',
+                        description: 'A campaign total and a goal, on a public display the room can read. Enter gifts as they land and the screen moves on its own.',
+                        icon: 'icons/svg/fundraise',
+                        path: 'fundraise/console'
                     }
                 ]
             }
@@ -140,14 +146,16 @@ function (options) {
                 if (svg) b.svg = svg;
                 buttons.push(b);
             }
-            rows.push({
+            // The first group is deliberately unlabelled (name '_'), and printing its
+            // missing blurb put the word "undefined" on the launcher.
+            if (g.name && g.name !== '_') rows.push({
                 'width': '100%',
                 'component': {
                     wid: 'html',
                     data: '<div style="padding:14px 4px 0;font-family:Arial,Helvetica,sans-serif;">'
                         + '<span style="font:700 12px Arial;letter-spacing:.06em;text-transform:uppercase;color:#12242c;">'
                         + g.name + '</span>'
-                        + '<span style="font:12.5px Arial;color:#7b8b96;margin-left:10px;">' + g.blurb + '</span></div>'
+                        + '<span style="font:12.5px Arial;color:#7b8b96;margin-left:10px;">' + (g.blurb || '') + '</span></div>'
                 }
             });
             rows.push({
