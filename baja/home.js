@@ -96,16 +96,29 @@ function () {
             data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: html } }]] }
         });
 
-        // HANDLERS ON THE DOCUMENT, NOT ON THE BUTTONS.
+        // POINTERDOWN ON THE DOCUMENT. NOT CLICK, AND NOT ON THE BUTTONS.
         //
-        // Attaching onclick to each button worked in a test page and did nothing on the
-        // real one: the framework owns this markup and puts it back on the page when it
-        // decides to, and a fresh node carries none of the handlers the old one was given.
-        // So nothing is attached to the buttons at all. One listener on the document asks
-        // what was clicked, which keeps working however often the markup is replaced.
+        // Three things had to be true at once for a door to answer, and the third is the
+        // one that kept this page dead:
         //
-        // Only one listener, and only one path: a direct handler as well as this one fired
-        // twice for every click and toggled each door straight back shut.
+        //   1. Nothing is attached to the buttons. The framework owns this markup and puts
+        //      it back whenever it redraws, and a fresh node carries none of the handlers
+        //      the old one was given. One listener on the document survives that.
+        //   2. One listener, one path. A direct handler as well as this one fired twice
+        //      per press and toggled each door straight back shut.
+        //   3. THERE IS NO CLICK EVENT ON THIS PAGE. html-field binds [innerHTML] to a
+        //      value that is a new object on every change-detection pass, so the subtree is
+        //      rebuilt constantly -- including between the press and the release of a
+        //      click. A click is only dispatched when press and release land on the same
+        //      element, so the browser dispatches it on the surviving parent instead, and
+        //      a listener looking for the button never sees one. Measured, not guessed:
+        //      with the markup replaced on pointerdown, the mousedown already reports the
+        //      parent div and no click event is dispatched at all.
+        //
+        // pointerdown is the one event that still reports the button, because it is
+        // dispatched before anything has had the chance to replace it. mousedown and click
+        // are kept as a fallback for a browser without pointer events, with a short guard
+        // so a browser that sends all three does not act on it three times.
         //
         // The panel hangs off the page for the same reason -- it has to survive a redraw
         // of the block it sits under -- and is taken down when this page is left.
@@ -160,18 +173,33 @@ function () {
         // stop being acted on.
         if (!window.__bajaHomeWired) {
             window.__bajaHomeWired = true;
-            document.addEventListener('click', (e) => {
+            let pressed = 0;
+            const hit = (e) => {
                 const h = window.__bajaHomeHandlers;
                 const t = e && e.target;
                 if (!h || !t || !t.closest) return;
+                // One press, one action. A pointerdown is always a new press, so it is always
+                // acted on; the mousedown and click a browser sends after it are not, and are
+                // ignored while they are still part of that same press. A browser with no
+                // pointer events never sets the stamp, so its mousedown is the press.
+                const now = Date.now();
+                if (e.type !== 'pointerdown' && now - pressed < 700) return;
+                const act = (fn) => {
+                    pressed = now;
+                    try { e.preventDefault(); } catch (x) { }
+                    fn();
+                };
                 const d = t.closest('[data-door]');
-                if (d) { try { e.preventDefault(); } catch (x) { } h.door(d.getAttribute('data-door')); return; }
+                if (d) return act(() => h.door(d.getAttribute('data-door')));
                 const a = t.closest('[data-app]');
-                if (a) { try { e.preventDefault(); } catch (x) { } h.app(+a.getAttribute('data-app')); return; }
+                if (a) return act(() => h.app(+a.getAttribute('data-app')));
                 const f = t.closest('[data-fund]');
-                if (f) { try { e.preventDefault(); } catch (x) { } h.fund(f.getAttribute('data-fund')); return; }
+                if (f) return act(() => h.fund(f.getAttribute('data-fund')));
                 if (!t.closest('#' + PANEL_ID)) h.away();
-            }, true);
+            };
+            document.addEventListener('pointerdown', hit, true);
+            document.addEventListener('mousedown', hit, true);
+            document.addEventListener('click', hit, true);
             document.addEventListener('keydown', (e) => {
                 const h = window.__bajaHomeHandlers;
                 if (h && e && e.key === 'Escape') h.away();
