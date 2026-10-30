@@ -67,8 +67,15 @@ function (path, config) {
             // seconds, and a photograph in it would be re-downloaded on every one of those
             // reads, on every screen. The document names a sibling file instead, and the
             // display fetches that once and again only when imageV changes.
-            media: { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'background', youtube: '' }
+            media: { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'background', youtube: '' },
+            // The people behind the campaign. Their faces are NOT in here either, for the
+            // same reason the campaign photograph is not: this document is re-read every few
+            // seconds. Names and roles are a few bytes and stay; the portraits live in a
+            // sibling file, fetched once.
+            team: [], teamV: 0, teamFile: ''
         };
+        const TEAM_MAX = 16;
+        const teamArr = () => (Array.isArray(doc.team) ? doc.team : (doc.team = []));
         const med = () => (doc.media && typeof doc.media === 'object' ? doc.media
             : (doc.media = { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'background', youtube: '' }));
         const THEMES = [
@@ -196,6 +203,18 @@ function (path, config) {
             + btn('fc-img-clear', 'Remove') + '</div>'
             + '<div id="fc-img-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
             + '<div id="fc-img-prev" style="margin-top:8px;"></div>'
+            + '<label style="' + lbl + '">The team</label>'
+            + '<div style="font:12px system-ui;color:#9fb3c8;margin-bottom:7px;">Who is behind the campaign. Shown on the details page.</div>'
+            + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+            + '<input id="fc-tm-name" placeholder="name" style="' + inp + 'flex:1 1 140px;"/>'
+            + '<input id="fc-tm-role" placeholder="role (optional)" style="' + inp + 'flex:1 1 140px;"/>'
+            + '</div>'
+            + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">'
+            + '<input id="fc-tm-note" placeholder="a line about them (optional)" style="' + inp + 'flex:1 1 220px;"/>'
+            + '<input id="fc-tm-img" type="file" accept="image/*" style="font:12px system-ui;color:#9fb3c8;max-width:190px;"/>'
+            + btn('fc-tm-add', '+ Add') + '</div>'
+            + '<div id="fc-tm-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
+            + '<div id="fc-team" style="margin-top:8px;"></div>'
             + '<label style="' + lbl + '">A film (YouTube)</label>'
             + '<input id="fc-yt" placeholder="https://youtu.be/… — shown on the details page" style="' + inp + '"/>'
             + '<div id="fc-yt-out" style="margin-top:5px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
@@ -264,6 +283,69 @@ function (path, config) {
                 if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
                 if (d && d.dataUri) { loadedImage = '' + d.dataUri; imgUI(); preview(); }
             } catch (e) { }
+        };
+
+        // THE TEAM. Names and roles ride in the campaign document; the portraits go in one
+        // sibling file, as a square each, so a page of faces costs one fetch rather than one
+        // per person and the document the display re-reads stays a kilobyte.
+        let teamFaces = {}, teamDirty = false;
+        const teamFileFor = () => (fileName || (slug(doc.title) + '.fund')).replace(/\.fund$/i, '') + '.fundteam';
+        const readTeam = async () => {
+            if (!doc.teamFile) return;
+            const sp = siblingPath(doc.teamFile);
+            if (!sp) return;
+            try {
+                const rs = await POSTJSON({ path: sp, key: 'user', user: user }, host + '/load-file');
+                let d = rs;
+                if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
+                if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
+                if (d && d.faces && typeof d.faces === 'object') { teamFaces = d.faces; teamList(); }
+            } catch (e) { }
+        };
+        // A face is cropped square and kept small: it is drawn at the size of a coin.
+        const squareFace = (file) => new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onerror = () => reject(new Error('that file could not be read'));
+            fr.onload = () => {
+                const im = new Image();
+                im.onerror = () => reject(new Error('that file is not an image this browser can read'));
+                im.onload = () => {
+                    try {
+                        const N = 320, side = Math.min(im.width, im.height);
+                        const cv = document.createElement('canvas');
+                        cv.width = N; cv.height = N;
+                        cv.getContext('2d').drawImage(im, (im.width - side) / 2, (im.height - side) / 2, side, side, 0, 0, N, N);
+                        resolve(cv.toDataURL('image/jpeg', 0.8));
+                    } catch (e) { reject(e); }
+                };
+                im.src = fr.result;
+            };
+            fr.readAsDataURL(file);
+        });
+        const teamList = () => {
+            const t = teamArr();
+            $('fc-team').innerHTML = !t.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;">'
+                + t.map((m, i) => '<div style="display:flex;gap:10px;align-items:center;padding:7px 10px;'
+                    + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
+                    + (teamFaces[m.id]
+                        ? '<img src="' + esc(teamFaces[m.id]) + '" style="width:30px;height:30px;border-radius:50%;object-fit:cover;flex:0 0 auto;"/>'
+                        : '<div style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.10);flex:0 0 auto;"></div>')
+                    + '<div style="flex:1 1 auto;min-width:0;">'
+                    + '<div style="font:600 13.5px system-ui;">' + esc(m.name)
+                    + (m.role ? '<span style="color:#9fb3c8;font-weight:400;"> · ' + esc(m.role) + '</span>' : '') + '</div>'
+                    + (m.note ? '<div style="font:12.5px system-ui;color:#9fb3c8;">' + esc(m.note) + '</div>' : '') + '</div>'
+                    + '<button data-tm="' + esc(m.id) + '" title="Remove" style="cursor:pointer;border:0;background:transparent;'
+                    + 'color:#7fb0c4;font:700 15px system-ui;line-height:1;padding:0 2px;">×</button>'
+                    + '</div>').join('') + '</div>';
+            for (const b of wrap.querySelectorAll('[data-tm]')) {
+                b.onclick = () => {
+                    const id = b.getAttribute('data-tm');
+                    doc.team = teamArr().filter((m) => m.id !== id);
+                    if (teamFaces[id]) { delete teamFaces[id]; teamDirty = true; }
+                    teamList(); preview();
+                    $('fc-tm-out').textContent = 'Removed. Publish to put that on the details page.';
+                };
+            }
         };
 
         // A PICTURE, SHRUNK BEFORE IT GOES ANYWHERE. A photograph straight off a phone is
@@ -335,6 +417,24 @@ function (path, config) {
             try { $('fc-img').value = ''; } catch (e) { }
             $('fc-img-out').textContent = 'The picture comes off the display when you publish.';
             imgUI(); preview();
+        };
+        $('fc-tm-add').onclick = async () => {
+            const name = ('' + $('fc-tm-name').value).trim();
+            if (!name) { $('fc-tm-out').textContent = 'A name first.'; return; }
+            if (teamArr().length >= TEAM_MAX) { $('fc-tm-out').textContent = 'That is as many as the page shows well.'; return; }
+            const id = 't' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+            const f = $('fc-tm-img').files && $('fc-tm-img').files[0];
+            if (f) {
+                $('fc-tm-out').textContent = 'Reading the photograph…';
+                try { teamFaces[id] = await squareFace(f); teamDirty = true; }
+                catch (e) { $('fc-tm-out').textContent = 'Could not use that photograph: ' + ((e && e.message) ? e.message : e); return; }
+            }
+            teamArr().push({ id: id, name: name, role: ('' + $('fc-tm-role').value).trim(), note: ('' + $('fc-tm-note').value).trim() });
+            $('fc-tm-name').value = ''; $('fc-tm-role').value = ''; $('fc-tm-note').value = '';
+            try { $('fc-tm-img').value = ''; } catch (e) { }
+            teamList(); preview();
+            $('fc-tm-out').textContent = 'Added ' + name + '. Publish to put them on the details page.';
+            try { $('fc-tm-name').focus(); } catch (e) { }
         };
         $('fc-yt').addEventListener('input', () => { ytUI(); sync(); });
         $('fc-theme').addEventListener('change', () => sync());   // called, not captured: sync is declared below
@@ -493,7 +593,7 @@ function (path, config) {
                 + (doc.donors ? '<div style="margin-top:12px;font:500 13px system-ui;color:#9fc4d4;">' + esc((+doc.donors).toLocaleString())
                     + ' ' + (Math.abs(+doc.donors) === 1 ? 'donor' : 'donors') + '</div>' : '')
                 + (doc.note ? '<div style="margin-top:12px;font:400 13px system-ui;color:#cfe6ef;">' + esc(doc.note) + '</div>' : '')
-                + ((doc.story || arr('gifts').length || arr('updates').length)
+                + ((doc.story || arr('gifts').length || arr('updates').length || teamArr().length)
                     ? '<div style="margin-top:14px;"><span style="display:inline-block;border:1px solid rgba(255,255,255,0.28);'
                         + 'background:rgba(255,255,255,0.06);border-radius:999px;padding:6px 14px;font:600 12px system-ui;">Campaign details'
                         + (arr('updates').length ? ' · ' + arr('updates').length + ' update' + (arr('updates').length === 1 ? '' : 's') : '')
@@ -700,6 +800,17 @@ function (path, config) {
             try {
                 const m = med();
                 if (imageGone && !pendingImage) { m.imageFile = ''; m.imageV = 0; }
+                if (teamDirty || (teamArr().length && !doc.teamFile)) {
+                    const tName = teamFileFor();
+                    // Only the faces still attached to someone: a removed member's portrait
+                    // should not sit in a public folder for ever.
+                    const keep = {};
+                    for (const m of teamArr()) if (teamFaces[m.id]) keep[m.id] = teamFaces[m.id];
+                    const rsT = await POSTJSON({ name: tName, key: 'user', user: user, spath: 'public',
+                        value: JSON.stringify({ kind: 'fundraise-team', faces: keep }) }, host + '/save-user-data');
+                    if (!rsT || !(rsT.status === 'saved' || rsT.path)) throw new Error('the team photographs could not be saved');
+                    teamFaces = keep; doc.teamFile = tName; doc.teamV = Date.now(); teamDirty = false;
+                }
                 if (pendingImage) {
                     $('fc-status').textContent = 'Saving the picture…';
                     const imgName = imgFileFor();
@@ -761,7 +872,7 @@ function (path, config) {
             await exec('fundraise/admin');
         };
         loadKnown().then(() => { if (!docPath) checkName(); });
-        if (docPath) readImage();
+        if (docPath) { readImage(); readTeam(); }
         try { $('fc-title').focus(); } catch (e) { }
         return true;
     })();

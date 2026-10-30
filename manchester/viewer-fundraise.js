@@ -17,7 +17,9 @@ function (path, config) {
     //
     //   { kind: 'fundraise', title, subtitle, currency, goal, raised, donors, note,
     //     updated, by, story, gifts: [{ amount, name, note, at }], updates: [{ at, text }],
-    //     donate: { on, mode: 'checkout'|'link', label, url, amounts: [...], custom } }
+    //     donate: { on, mode: 'checkout'|'link', label, url, amounts: [...], custom },
+    //     media: { theme, imageFile, imageV, imageMode, youtube },
+    //     team: [{ id, name, role, note }], teamFile, teamV }
     //
     // GIVING. The donate button asks for an amount and then hands the donor to Stripe, either
     // through a Checkout session this server creates for that amount (POST /stripe/donation-
@@ -128,6 +130,33 @@ function (path, config) {
                 pictureKey = key;
             } catch (e) { }
         };
+        // The faces, from one sibling file, fetched once and again only when the campaign
+        // says the team changed.
+        let faces = {}, facesKey = '';
+        const readFaces = async (d) => {
+            const file = '' + ((d && d.teamFile) || '');
+            const key = file + '@' + ('' + ((d && d.teamV) || ''));
+            if (!file || !listOf(d, 'team').length) { faces = {}; facesKey = ''; return; }
+            if (key === facesKey) return;
+            const base = ('' + docPath).replace(/[^/]*$/, '');
+            if (!base) return;
+            try {
+                const rs = await POSTJSON({ path: base + file, user: 'public' }, host + '/load-file');
+                let v = rs;
+                if (v && typeof v.value === 'string') { try { v = JSON.parse(v.value); } catch (e) { } }
+                if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+                const got = (v && v.faces && typeof v.faces === 'object') ? v.faces : {};
+                // data: images only, as with the campaign picture: a URL in this file would
+                // be a page in someone's hall fetching whatever it said.
+                const clean = {};
+                for (const k of Object.keys(got)) {
+                    const u = '' + got[k];
+                    if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(u)) clean[k] = u;
+                }
+                faces = clean; facesKey = key;
+            } catch (e) { }
+        };
+
         const paintBackground = (d) => {
             const m = medOf(d);
             const base = THEME[m.theme] || THEME.deep;
@@ -223,7 +252,8 @@ function (path, config) {
         };
         const listOf = (d, k) => (Array.isArray(d && d[k]) ? d[k] : []).filter((x) => x && typeof x === 'object');
         const hasDetail = (d) => !!(('' + ((d && d.story) || '')).trim() || listOf(d, 'gifts').length
-            || listOf(d, 'updates').length || /^[\w-]{11}$/.test('' + ((d && d.media && d.media.youtube) || '')));
+            || listOf(d, 'updates').length || listOf(d, 'team').length
+            || /^[\w-]{11}$/.test('' + ((d && d.media && d.media.youtube) || '')));
         // Paragraphs, not a block of run-on text, and still escaped: everything here was typed
         // by the organiser but arrives through a document anyone could in principle write to.
         const paras = (t) => ('' + (t || '')).split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)
@@ -388,6 +418,23 @@ function (path, config) {
                     + '<div style="margin-top:5px;font:400 15px/1.55 system-ui;color:#dceef5;">' + paras(u.text) + '</div>'
                     + '</div>').join('') : '')
 
+                + (listOf(d, 'team').length ? sect('The team')
+                    + '<div style="display:flex;flex-wrap:wrap;gap:18px 26px;">'
+                    + listOf(d, 'team').map((m) => '<div style="display:flex;gap:11px;align-items:center;flex:1 1 260px;min-width:0;">'
+                        + (faces[m.id]
+                            ? '<img src="' + esc(faces[m.id]) + '" alt="" style="width:54px;height:54px;border-radius:50%;'
+                                + 'object-fit:cover;flex:0 0 auto;border:1px solid rgba(255,255,255,0.18);"/>'
+                            : '<div style="width:54px;height:54px;border-radius:50%;flex:0 0 auto;background:rgba(255,255,255,0.10);'
+                                + 'border:1px solid rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;'
+                                + 'font:700 18px system-ui;color:#9fc4d4;">'
+                                + esc((('' + (m.name || '?')).trim()[0] || '?').toUpperCase()) + '</div>')
+                        + '<div style="min-width:0;">'
+                        + '<div style="font:600 15px system-ui;">' + esc(m.name || '') + '</div>'
+                        + (m.role ? '<div style="font:13px system-ui;color:#9fc4d4;">' + esc(m.role) + '</div>' : '')
+                        + (m.note ? '<div style="margin-top:3px;font:13px/1.45 system-ui;color:#bcd9e4;">' + esc(m.note) + '</div>' : '')
+                        + '</div></div>').join('')
+                    + '</div>' : '')
+
                 + (gifts.length ? sect('Recent donations') + '<div>' + gifts.map((g) => ''
                     + '<div style="display:flex;gap:12px;align-items:baseline;padding:9px 0;border-bottom:1px solid rgba(255,255,255,0.08);">'
                     + '<div style="flex:1 1 auto;min-width:0;">'
@@ -514,8 +561,8 @@ function (path, config) {
                 return;
             }
             const stamp = JSON.stringify([d.title, d.subtitle, d.goal, d.raised, d.donors, d.note, d.updated,
-                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media]);
-            if (stamp !== lastStamp) { lastStamp = stamp; await readPicture(d); draw(d, firstTime); }
+                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media, d.team, d.teamV]);
+            if (stamp !== lastStamp) { lastStamp = stamp; await readPicture(d); await readFaces(d); draw(d, firstTime); }
         };
 
         try {
