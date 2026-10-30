@@ -974,6 +974,79 @@ function () {
                                 }
                             },
                             {
+                                // AG SCANNING -- the mechanism a splice-redirection ASO depends on.
+                                // Destroy the exon's authentic 3' acceptor and the spliceosome, already
+                                // committed to the branch point, scans downstream and splices at the first
+                                // AG it meets: the exon keeps its donor and loses its 5' end. This shows
+                                // which AG that is, what the exon becomes, and what the protein does, then
+                                // applies it.
+                                label: 'Redirect acceptor (AG scan)',
+                                click: async (xwc, ywc) => {
+                                    if (!selectedTrack) { graph.setMessage(" No track selected "); return; }
+                                    const esc = (t) => ('' + t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+                                    // __orderMenu moves any row whose label holds Back / Cancel / Close / Done
+                                    // to the bottom as navigation; a zero-width space keeps a sentence put.
+                                    const plain = (t) => ('' + t).replace(/\b(back|cancel|close|done)\b/gi, (w) => w[0] + '\u200b' + w.slice(1));
+                                    const title = 'Redirect the acceptor of ' + (annotation.name || 'this exon');
+                                    const back = { label: '\u2039 Back', click: () => { graph.showSideMenu(t); }, move: () => { } };
+                                    const close = { label: 'Close', click: () => { graph.showSideMenu(null); }, move: () => { } };
+                                    const show = async (pick) => {
+                                        let r = null;
+                                        try { r = await exec('baja/bio/splicing/ag-scan.js', selectedTrack, annotation, { pick: pick || 0 }); } catch (e) { r = null; }
+                                        if (!r || !r.ok) {
+                                            const why = (r && r.reason) || 'Could not scan this exon.';
+                                            graph.showSideMenu([{ type: 'html', label: plain(why), html: esc(why) }, { type: 'separator' }, back, close], null, title);
+                                            return;
+                                        }
+                                        const c = r.candidates[r.chosen] || null;
+                                        const col = { 'nmd': '#c0392b', 'nmd-maybe-escape': '#d97706', 'nonstop': '#c0392b', 'escapes': '#15803d' }[(r.impact || {}).nmd]
+                                            || (c && c.inFrame ? '#15803d' : '#d97706');
+                                        const chipText = c ? ((c.inFrame ? 'In frame' : 'Frameshift') + ' \u00b7 \u2212' + c.lost + ' nt') : 'No AG downstream';
+                                        const chip = '<span style="display:inline-block;padding:2px 9px;border-radius:10px;background:' + col
+                                            + ';color:#fff;font-size:11.5px;font-weight:700">' + esc(chipText) + '</span>';
+                                        const lens = (r.impact && r.impact.oldLength)
+                                            ? '<div style="margin-top:6px;color:#9fc4d4">Protein: ' + r.impact.oldLength + ' aa \u2192 ' + r.impact.newLength + ' aa</div>' : '';
+                                        const body = chip + '<div style="margin-top:8px;font-weight:600">' + esc(r.headline) + '</div>' + lens;
+                                        const notes = '<ul style="margin:0 0 0 16px;padding:0">'
+                                            + r.lines.map((l) => '<li style="margin:3px 0">' + esc(l) + '</li>').join('') + '</ul>';
+                                        const foot = '<div style="font-size:11px;color:#9fc4d4">First-AG rule: with the authentic acceptor blocked, '
+                                            + 'the spliceosome splices at the first AG downstream of it. A prediction, not a measurement.</div>';
+                                        // The AGs after the first one, in case that one is blocked too.
+                                        const alts = r.candidates.map((x, i) => (i === r.chosen) ? null : {
+                                            label: 'Use the AG ' + x.lost + ' nt in (' + (x.inFrame ? 'in frame' : 'frameshift') + ')',
+                                            click: () => { show(i); }, move: () => { }
+                                        }).filter(Boolean);
+                                        const applyRow = (mutate) => ({
+                                            label: mutate ? 'Apply and mutate the authentic AG' : 'Apply the redirection',
+                                            emphasis: mutate ? 'danger' : undefined,
+                                            move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                try {
+                                                    await exec('baja/bio/splicing/apply-ag-scan.js', selectedTrack, annotation, c,
+                                                        { graph: graph, mutate: !!mutate, authentic: r.authentic });
+                                                } catch (e) { graph.setMessage(' Could not redirect: ' + (e && e.message ? e.message : e) + ' '); }
+                                            }
+                                        });
+                                        graph.showSideMenu([
+                                            { type: 'html', label: plain(chipText + '. ' + r.headline), html: body },
+                                            { type: 'separator' },
+                                            { type: 'html', label: plain(r.lines.join(' ')), html: notes },
+                                            { type: 'html', label: 'A prediction, not a measurement.', html: foot },
+                                            { type: 'separator' },
+                                            ...(c && c.inExon ? [applyRow(false), applyRow(true)] : []),
+                                            ...alts,
+                                            back,
+                                            close
+                                        ], null, title);
+                                    };
+                                    await show(0);
+                                },
+                                move: () => {
+                                    log('')
+                                }
+                            },
+                            {
                                 label: 'Remove exon',
                                 click: async (xwc, ywc) => {
 

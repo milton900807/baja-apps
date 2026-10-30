@@ -1,9 +1,20 @@
-function (track, exon) {
+function (track, exon, opts) {
 
     // What removing (skipping) one exon would do to the transcript's ORF. Read-only: the track
     // is not changed.
     //
     //   const r = await exec('baja/bio/orfs/exon-removal-impact.js', track, exon)
+    //
+    // OTHER EDITS TO THE SAME EXON go through the same translator and the same NMD rules, so
+    // two features cannot drift into disagreeing about what a frameshift or a PTC is:
+    //
+    //   opts.replaceWith   an exon-shaped { xi, xf } used IN PLACE OF `exon` in the "after"
+    //                      transcript, instead of dropping it -- a trimmed exon, a shifted
+    //                      boundary (see baja/bio/splicing/ag-scan.js).
+    //   opts.raw           return the machinery rather than the removal narrative:
+    //                      { ok, plus, startG, before, after, nmdOf, baseAt, exons }.
+    //                      The wording of a removal does not describe any other edit, and a
+    //                      caller that has its own story to tell should not have to undo one.
     //
     // Works whether or not the exon is still on the track: the transcript "with" the exon is
     // the remaining exons plus it, "without" is the remaining exons alone. Both are translated
@@ -100,8 +111,10 @@ function (track, exon) {
 
             const allExons = (track.getExons ? track.getExons() : A.filter((a) => a && a.type === 'Exon'));
             const others = allExons.filter((e) => e !== exon);
+            const O = opts || {};
+            const repl = O.replaceWith || null;
             const before = translate(others.concat(exon ? [exon] : []));
-            const after = translate(others);
+            const after = translate(repl ? others.concat([repl]) : others);
 
             // The 50-55 nt rule (with its exceptions) for one translation's stop codon.
             const nmdCall = (t) => {
@@ -119,6 +132,12 @@ function (track, exon) {
                 if (exLen > 407) exceptions.push('long-exon');
                 return { call: exceptions.length ? 'nmd-maybe-escape' : 'nmd', dist, exLen, fromStart, exceptions };
             };
+
+            // A caller with its own narrative takes the machinery and stops here.
+            if ((opts || {}).raw) {
+                resolve({ ok: true, plus, startG, before, after, nmdOf: nmdCall, baseAt: baseAt, exons: allExons });
+                return;
+            }
 
             // ---- the exon itself ----------------------------------------------------------------
             const eLo = Math.min(+exon.xi, +exon.xf), eHi = Math.max(+exon.xi, +exon.xf);
