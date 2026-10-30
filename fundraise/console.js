@@ -342,6 +342,50 @@ function (path, config) {
             $('fc-status').textContent = 'Update written. Publish to put it on the details page.';
         };
 
+        // THE PUBLISHED LINK, in the share dialog this platform already uses for a public
+        // link (manchester/design-share.js): same overlay, same card, same wording for the
+        // same promise. A link is the whole point of publishing, and a line of grey text at
+        // the bottom of a long form is a place to miss it.
+        const linkDialog = (link, campaign) => {
+            try { const old_ = document.getElementById('baja-fundraise-link'); if (old_ && old_.parentNode) old_.parentNode.removeChild(old_); } catch (e) { }
+            const w = document.createElement('div');
+            w.id = 'baja-fundraise-link';
+            w.style.cssText = 'position:fixed;inset:0;z-index:2147483200;background:rgba(0,0,0,0.45);font-family:Arial,Helvetica,sans-serif;';
+            const dbtn = (id, label, primary) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
+                + (primary ? 'border:1px solid #22c55e;background:#22c55e;color:#04210f;'
+                    : 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;') + '">' + label + '</button>';
+            w.innerHTML = '<div style="position:absolute;top:70px;left:50%;transform:translateX(-50%);width:min(560px,94vw);'
+                + 'max-height:calc(100vh - 100px);overflow:auto;background:#0b2545;color:#fff;border:1px solid rgba(255,255,255,0.14);'
+                + 'border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);padding:18px;">'
+                + '<div style="font:700 16px Arial;margin-bottom:4px;">Your campaign is live</div>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-bottom:14px;">' + esc(campaign || '') + '</div>'
+                + '<div style="font:700 13px Arial;margin-bottom:6px;">A public link</div>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-bottom:8px;">Anyone with the link can watch it, without signing in. '
+                + 'It re-reads the campaign every few seconds, so publishing again moves the number on their screen.</div>'
+                + '<input id="fl-url" readonly value="' + esc(link) + '" style="width:100%;box-sizing:border-box;background:#0a1e3a;'
+                + 'color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:9px;font:13px Arial;"/>'
+                + '<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">'
+                + dbtn('fl-copy', 'Copy link', true) + dbtn('fl-open', 'Open the display', false) + dbtn('fl-close', 'Close', false) + '</div>'
+                + '<div id="fl-out" style="margin-top:10px;font:12px Arial;color:#cfe0f5;min-height:16px;"></div></div>';
+            document.body.appendChild(w);
+            // The editor shell listens for these on the document; a dialog must keep its own.
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) w.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+            const close = () => { try { if (w.parentNode) w.parentNode.removeChild(w); } catch (e) { } };
+            w.addEventListener('click', (e) => { if (e.target === w) close(); });
+            w.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+            document.getElementById('fl-close').onclick = close;
+            document.getElementById('fl-open').onclick = () => { try { window.open(link, '_blank', 'noopener'); } catch (e) { } };
+            document.getElementById('fl-copy').onclick = async () => {
+                let ok = false;
+                try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); ok = true; } } catch (e) { }
+                // Without clipboard permission the link is still selected, which is the next
+                // best thing: Ctrl+C then does it.
+                if (!ok) { try { const f = document.getElementById('fl-url'); f.focus(); f.select(); } catch (e) { } }
+                document.getElementById('fl-out').textContent = ok ? 'Copied to your clipboard.' : 'Selected: press Ctrl+C to copy.';
+            };
+            try { const f = document.getElementById('fl-url'); f.focus(); f.select(); } catch (e) { }
+        };
+
         const publish = async () => {
             sync();
             if (!user) { $('fc-status').textContent = 'Sign in to publish a campaign.'; return; }
@@ -372,6 +416,7 @@ function (path, config) {
                 $('fc-status').textContent = 'Published. Anyone with the link can watch it, and it updates itself.';
                 $('fc-link').innerHTML = (copied ? 'Copied to your clipboard: ' : 'The link: ')
                     + '<a href="' + esc(link) + '" target="_blank" rel="noopener" style="color:#4fd0e6;">' + esc(link) + '</a>';
+                linkDialog(link, doc.title);
             } catch (e) {
                 $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not publish: ' + esc(e && e.message ? e.message : e) + '</span>';
             }
