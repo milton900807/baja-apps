@@ -6,7 +6,7 @@ Reword the deployed gene.clinic sign-in page, without a front-end build.
     sudo python3 retext-login.py /eln           # do it
 
 WHY THIS EXISTS. The sign-in card's headings are compiled into the Angular bundle, so the
-proper fix is the source change (baja, commit 1c09b6c) and a front-end deploy. Until that
+proper fix is the source change (baja, commit c020fe9) and a front-end deploy. Until that
 deploy happens the old words are still on the page. This changes them in the built files in
 the meantime, and replaces strip-login-disclaimer.py, which only did the last of them.
 
@@ -24,7 +24,10 @@ import os, re, shutil, subprocess, sys, tempfile
 # Old words on the left, what they should say on the right. Apostrophes are avoided on the
 # right: these land inside string literals whose quoting style is whatever the bundler chose.
 REPLACE = [
-    ('For a deeper understanding of genetic medicine', 'Fundraising for rare disease'),
+    ('For a deeper understanding of genetic medicine',
+     'No charge to run a campaign, 100% of the funds you raise go right into your cause.'),
+    # In case this tool has already run once with the shorter line in it.
+    ('Fundraising for rare disease', 'No charge to run a campaign, 100% of the funds you raise go right into your cause.'),
     ('Rare disease, explained', 'Understand it. Share it. Fund it.'),
     ('Understanding a rare condition, gene by gene', 'Raise money for a rare disease, and keep all of it'),
 ]
@@ -112,5 +115,5 @@ for p, hits, out in changed:
 if not dry:
     print('')
     print('Hard-refresh the sign-in page (Ctrl+Shift+R): the bundle is cached by file name.')
-    print('A stopgap. The next front-end deploy overwrites these files; deploy baja 1c09b6c or later.')
+    print('A stopgap. The next front-end deploy overwrites these files; deploy baja c020fe9 or later.')
 sys.exit(1 if failed else 0)
