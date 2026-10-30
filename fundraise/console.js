@@ -157,6 +157,12 @@ function (path, config) {
             + '<input id="fc-don-amts" placeholder="25, 50, 100, 250" style="' + inp + '"/>'
             + '<label style="margin-top:8px;font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
             + '<input id="fc-don-custom" type="checkbox" style="accent-color:#22c55e;"/> let a donor type their own amount</label>'
+            + '<label style="margin-top:8px;font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
+            + '<input id="fc-don-names" type="checkbox" style="accent-color:#22c55e;"/> publish donor names from Stripe '
+            + '<span style="color:#6f93a6;">(off: they appear as Anonymous)</span></label>'
+            + '<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + btn('fc-pull', 'Pull donations from Stripe')
+            + '<span id="fc-pull-out" style="font:12.5px system-ui;color:#cfe0f5;"></span></div>'
             + '<div id="fc-don-warn" style="margin-top:8px;font:12.5px system-ui;color:#fca5a5;"></div>'
             + '</div></div>'
             + '<div id="fc-status" style="margin-top:14px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
@@ -191,6 +197,7 @@ function (path, config) {
             $('fc-don-url').value = dcfg.url || '';
             $('fc-don-amts').value = (Array.isArray(dcfg.amounts) ? dcfg.amounts : []).join(', ');
             $('fc-don-custom').checked = dcfg.custom !== false;
+            $('fc-don-names').checked = !!dcfg.showNames;
             donUI();
         };
 
@@ -229,6 +236,9 @@ function (path, config) {
             dcfg.label = ('' + $('fc-don-label').value).trim() || 'Donate';
             dcfg.url = ('' + $('fc-don-url').value).trim();
             dcfg.custom = !!$('fc-don-custom').checked;
+            // The campaign document is fetched whole by the public display, so a name stored
+            // here is a name on a wall. Off by default: a donor gave it to Stripe to pay.
+            dcfg.showNames = !!$('fc-don-names').checked;
             dcfg.amounts = ('' + $('fc-don-amts').value).split(/[,;\s]+/).map((x) => parseMoney(x))
                 .filter((v) => isFinite(v) && v > 0).slice(0, 6);
         };
@@ -306,7 +316,34 @@ function (path, config) {
         toForm(); preview(); lists();
         for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story',
             'fc-don-label', 'fc-don-url', 'fc-don-amts']) $(id).addEventListener('input', sync);
-        for (const id of ['fc-don-on', 'fc-don-mode', 'fc-don-custom']) $(id).addEventListener('change', sync);
+        for (const id of ['fc-don-on', 'fc-don-mode', 'fc-don-custom', 'fc-don-names']) $(id).addEventListener('change', sync);
+
+        // WHAT STRIPE HAS BEEN PAID, folded into the campaign. The display does this by
+        // itself every few seconds; the button is for the organiser standing at the laptop
+        // who wants to know NOW, and for a campaign nobody has open on a screen.
+        $('fc-pull').onclick = async () => {
+            const out = $('fc-pull-out');
+            if (!docPath) { out.textContent = 'Publish the campaign first.'; return; }
+            $('fc-pull').disabled = true; out.textContent = 'Asking Stripe…';
+            try {
+                const r = await POSTJSON({ path: docPath }, host + '/stripe/donation-sync');
+                if (r && r.error) throw new Error(r.error_description || r.error);
+                if (r && r.skipped === 'cooldown') out.textContent = 'Just checked a moment ago; try again shortly.';
+                else if (r && r.added) {
+                    // The server wrote the gifts into the stored document, so the form has to
+                    // be re-read from it rather than guessing at what changed.
+                    const rs = await POSTJSON({ path: docPath, key: 'user', user: user }, host + '/load-file');
+                    let d = rs;
+                    if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
+                    if (d && typeof d === 'object' && (d.kind === 'fundraise' || d.goal != null)) { doc = Object.assign(doc, d); toForm(); preview(); lists(); }
+                    out.textContent = 'Added ' + r.added + ' donation' + (r.added === 1 ? '' : 's')
+                        + ' (' + money(r.amount || 0, doc.currency) + ').';
+                } else out.textContent = 'Nothing new from Stripe.';
+            } catch (e) {
+                out.textContent = 'Could not reach Stripe: ' + ((e && e.message) ? e.message : e);
+            }
+            $('fc-pull').disabled = false;
+        };
         $('fc-cur').addEventListener('change', () => { sync(); lists(); });
         $('fc-hide').addEventListener('change', sync);
 

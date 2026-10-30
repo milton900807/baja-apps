@@ -28,8 +28,12 @@ function (path, config) {
     // eligible for the amount, currency and country. Money never touches this page, and no
     // card detail is typed on it.
     //
-    // A donation does NOT move the total by itself: nothing here hears back from Stripe. The
-    // organiser enters gifts in the console, or a Stripe webhook could do it.
+    // DONATIONS COME BACK ON THEIR OWN. A paid session is known to Stripe and to nobody else,
+    // so before each re-read this asks the server to reconcile: POST /stripe/donation-sync
+    // folds any session Stripe reports as paid for this campaign into the document, once. The
+    // total then rises here the same way it does when the organiser types a gift in, without
+    // anyone touching anything. The server ignores the call more often than it obeys it (one
+    // Stripe lookup per campaign per 15s, however many screens are watching).
     //
     // TWO LEVELS. The first is the number, which is what a screen in a room is for and which
     // has to stay readable from the back of it. Everything that wants reading up close --
@@ -374,6 +378,18 @@ function (path, config) {
             renderMain(d, firstTime && !keepView);
         };
 
+        // Ask the server to fold in anything Stripe has been paid for this campaign. Fire and
+        // forget: it is an optimisation on the read that follows, never a reason not to read.
+        let syncing = false;
+        const syncDonations = async () => {
+            if (syncing || !docPath) return;
+            const c = lastDoc && donCfg(lastDoc);
+            if (!c || c.mode !== 'checkout') return;     // a Payment Link has no session to match
+            syncing = true;
+            try { await POSTJSON({ path: docPath }, host + '/stripe/donation-sync'); } catch (e) { }
+            syncing = false;
+        };
+
         const load = async (firstTime) => {
             if (!docPath) { fail('This display has no campaign link. Open it from the fundraising console, or use the link the organiser sent you.'); return; }
             let rs = null;
@@ -403,7 +419,10 @@ function (path, config) {
         } catch (e) { }
 
         await load(true);
-        if (every > 0) setInterval(() => { load(false); }, every * 1000);
+        // Someone just came back from paying: reconcile at once rather than at the next tick,
+        // so they see their own donation land.
+        if (thanked) { await syncDonations(); await load(false); }
+        if (every > 0) setInterval(async () => { await syncDonations(); await load(false); }, every * 1000);
         // Nothing else belongs on this screen: no toolbar, no menus, no graph.
         try { document.title = 'Fundraising'; } catch (e) { }
         return true;
