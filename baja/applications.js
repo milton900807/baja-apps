@@ -7,7 +7,7 @@ function (options) {
     //
     //     Design      Oligo  ·  Neoantigen  ·  mRNA  ·  Assay
     //     Explore     Chromosomes  ·  Library
-    //     Programme   Project  ·  Analytics  ·  Financial Modeling  ·  Fundraising
+    //     Programme   Project  ·  Analytics  ·  Financial Modeling  ·  Fundraise Campaign
     //
     // Returned rather than shown, so the caller decides where it goes. The home screen puts
     // it above the file browser.
@@ -111,7 +111,7 @@ function (options) {
                         args: ['', cfg(), '/app/cpd/baja-analytics']
                     },
                     {
-                        label: 'Fundraising',
+                        label: 'Fundraise Campaign',
                         description: 'A campaign total and a goal, on a public display the room can read. Enter gifts as they land and the screen moves on its own.',
                         icon: 'icons/svg/fundraise',
                         path: 'fundraise/console'

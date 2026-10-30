@@ -47,6 +47,17 @@ function (pm) {
             );
 
             //
+            // Fundraise Campaign
+            //
+            ai_create_file_items.push(
+                makeAiCreateItem("Fundraise Campaign", async () => {
+                    clear();
+                    window.history.pushState({}, "", "/app/fundraise/console");
+                    await exec("fundraise/console");
+                })
+            );
+
+            //
             // Bookshelf
             //
             ai_create_file_items.push(
