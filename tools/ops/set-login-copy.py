@@ -11,7 +11,7 @@ so changing it is a file edit and a reload rather than an Angular build and a de
 
 WHAT TAKES EFFECT WHEN. The deployed bundle already reads clinicFeatures, so the bullet list
 changes as soon as this runs. clinicBanner, clinicTag, clinicTitle and clinicNote are read by
-the newer bundle (baja, commit 62d6781): writing them now is harmless, and they start showing
+the newer bundle (baja, commit 1c09b6c): writing them now is harmless, and they start showing
 the moment the front end is next built and deployed.
 
 The medical disclaimer is not settable here. It is compiled into the page on purpose: a
@@ -28,7 +28,7 @@ MARK_OPEN = '  /* ---- gene.clinic sign-in wording (set-login-copy.py) ---- */'
 MARK_CLOSE = '  /* ---- end gene.clinic sign-in wording ---- */'
 
 COPY = {
-    'clinicBanner': 'Fundraising for rare disease, with nothing taken off the top',
+    'clinicBanner': 'Fundraising for rare disease',
     'clinicTag': 'Understand it. Share it. Fund it.',
     'clinicTitle': 'Raise money for a rare disease, and keep all of it',
     # Exact rather than "free": this site takes nothing, and the card processor's fee is
