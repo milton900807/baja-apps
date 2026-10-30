@@ -107,6 +107,7 @@ function (path, config) {
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div style="flex:1 1 420px;max-width:560px;">'
             + '<label style="' + lbl + '">Campaign</label><input id="fc-title" style="' + inp + '"/>'
+            + '<div id="fc-name-out" style="margin-top:5px;font:12px system-ui;min-height:15px;"></div>'
             + '<label style="' + lbl + '">A line under it (optional)</label><input id="fc-sub" style="' + inp + '"/>'
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + '<div style="flex:1 1 120px;"><label style="' + lbl + '">Currency</label><select id="fc-cur" style="' + inp + '">'
@@ -346,6 +347,26 @@ function (path, config) {
             $('fc-pull').disabled = false;
         };
         $('fc-cur').addEventListener('change', () => { sync(); lists(); });
+
+        // Told while typing, not after pressing Publish: a name you have to change is worth
+        // knowing about before you have filled in the rest of the form.
+        let nameTimer = null, nameSeq = 0;
+        const checkName = async () => {
+            const out = $('fc-name-out'), title = ('' + $('fc-title').value).trim();
+            if (!title) { out.textContent = ''; return; }
+            const seq = ++nameSeq;
+            const hit = await nameClash(title, docPath);
+            if (seq !== nameSeq) return;                 // a later keystroke has answered
+            if (hit) {
+                out.innerHTML = '<span style="color:#fcd34d;">A campaign called “' + esc(hit.title || title)
+                    + '” already exists. Choose another name, or open that one from All campaigns.</span>';
+            } else out.innerHTML = '<span style="color:#6f93a6;">That name is free.</span>';
+        };
+        $('fc-title').addEventListener('input', () => {
+            $('fc-name-out').textContent = '';
+            clearTimeout(nameTimer);
+            nameTimer = setTimeout(checkName, 450);
+        });
         $('fc-hide').addEventListener('change', sync);
 
         // A gift ADDS to the total rather than replacing it: at a desk taking donations, the
@@ -378,6 +399,49 @@ function (path, config) {
             $('fc-upd').value = ''; $('fc-upd-title').value = '';
             preview(); lists();
             $('fc-status').textContent = 'Update written. Publish to put it on the details page.';
+        };
+
+        // ONE NAME, ONE CAMPAIGN. The file is named from the title, so two campaigns called
+        // the same thing are one file: publishing the second would overwrite the first, and
+        // every link handed out for it would quietly start showing the other campaign's
+        // money. That is the failure this prevents.
+        //
+        // The check is made two ways because either can be unavailable. Asking the server for
+        // this user's campaigns gives the real titles, which is what makes the message useful
+        // and catches a RENAME onto a name another campaign already has. Reading the file the
+        // name would occupy needs no new endpoint and is what actually decides it: `/user/` in
+        // a path is replaced with this user's folder server-side, so the console can look at
+        // its own public folder without knowing how that folder is named.
+        const titleKey = (t) => ('' + (t || '')).trim().toLowerCase().replace(/\s+/g, ' ');
+        let known = [];
+        const loadKnown = async () => {
+            try {
+                const r = await POSTJSON({ user: user }, host + '/fundraise/campaigns');
+                known = (r && Array.isArray(r.campaigns)) ? r.campaigns : [];
+            } catch (e) { known = []; }
+            return known;
+        };
+        const fileExists = async (name) => {
+            try {
+                const rs = await POSTJSON({ path: '/user/public/' + name, key: 'user', user: user }, host + '/load-file');
+                let d = rs;
+                if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
+                if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
+                return !!(d && typeof d === 'object' && (d.kind === 'fundraise' || d.goal != null));
+            } catch (e) { return false; }
+        };
+        // Returns the campaign in the way, or null. `mine` is the path being edited, which can
+        // never be in its own way.
+        const nameClash = async (title, mine) => {
+            const t = titleKey(title);
+            if (!t) return null;
+            const want = slug(title) + '.fund';
+            for (const c of known) {
+                if (mine && c.path === mine) continue;
+                if (titleKey(c.title) === t || c.file === want) return c;
+            }
+            if (mine) return null;                       // a rename cannot collide with a file it already owns
+            return (await fileExists(want)) ? { title: title, file: want, path: '' } : null;
         };
 
         // THE PUBLISHED LINK, in the share dialog this platform already uses for a public
@@ -428,6 +492,18 @@ function (path, config) {
             sync();
             if (!user) { $('fc-status').textContent = 'Sign in to publish a campaign.'; return; }
             if (!doc.title) { $('fc-status').textContent = 'Give the campaign a name first.'; return; }
+            // Re-read rather than trust the list from a minute ago: this is the check that
+            // stands between a second campaign and the first one's money.
+            await loadKnown();
+            const clash = await nameClash(doc.title, docPath);
+            if (clash) {
+                $('fc-status').innerHTML = '<span style="color:#fca5a5;">A campaign called “' + esc(clash.title || doc.title)
+                    + '” already exists, and publishing this would write over it. Give this one a different name, '
+                    + 'or open that campaign from All campaigns and carry on with it.</span>';
+                try { $('fc-title').focus(); $('fc-title').select(); } catch (e) { }
+                checkName();
+                return;
+            }
             const b = $('fc-publish');
             b.disabled = true; $('fc-status').textContent = 'Publishing…';
             doc.updated = new Date().toISOString();
@@ -470,6 +546,7 @@ function (path, config) {
             try { window.history.pushState({}, '', '/app/fundraise/admin'); } catch (e) { }
             await exec('fundraise/admin');
         };
+        loadKnown().then(() => { if (!docPath) checkName(); });
         try { $('fc-title').focus(); } catch (e) { }
         return true;
     })();
