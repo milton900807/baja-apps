@@ -337,6 +337,8 @@ function (path, config) {
             sheet = document.createElement('div');
             sheet.style.cssText = 'position:fixed;inset:0;z-index:2147483100;background:rgba(3,11,22,0.72);display:flex;'
                 + 'align-items:center;justify-content:center;padding:4vmin;box-sizing:border-box;';
+            const fld = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;'
+                + 'border:1px solid rgba(255,255,255,0.18);border-radius:10px;padding:11px 13px;font:15px system-ui;';
             const chip = (v) => '<button class="fd-amt" data-amt="' + v + '" style="cursor:pointer;border:1px solid rgba(255,255,255,0.25);'
                 + 'background:rgba(255,255,255,0.06);color:#eaf6f9;border-radius:10px;padding:12px 6px;font:700 15px system-ui;">'
                 + esc(money(v, cur)) + '</button>';
@@ -349,8 +351,13 @@ function (path, config) {
                 + (c.amounts.length ? '<div style="margin-top:16px;display:grid;grid-template-columns:repeat(' + Math.min(3, c.amounts.length)
                     + ',1fr);gap:9px;">' + c.amounts.map(chip).join('') + '</div>' : '')
                 + (c.custom ? '<div style="margin-top:12px;"><input id="fd-own" inputmode="decimal" placeholder="another amount" '
-                    + 'style="width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.18);'
-                    + 'border-radius:10px;padding:11px 13px;font:15px system-ui;"/></div>' : '')
+                    + 'style="' + fld + '"/></div>' : '')
+                // Optional, and said so twice: a donor who wants to stay out of it should
+                // not have to wonder what happens if they leave these alone.
+                + '<div style="margin-top:12px;"><input id="fd-name" maxlength="40" placeholder="your name (optional)" style="' + fld + '"/></div>'
+                + '<div style="margin-top:8px;"><input id="fd-msg" maxlength="140" placeholder="a message with it (optional)" style="' + fld + '"/></div>'
+                + '<div style="margin-top:6px;font:11.5px system-ui;color:#7fb0c4;">Both appear on the campaign\'s page. '
+                + 'Leave the name empty to give as Anonymous.</div>'
                 + '<button id="fd-go" style="margin-top:14px;width:100%;cursor:pointer;border:0;background:#22c55e;color:#04210f;'
                 + 'border-radius:10px;padding:13px;font:800 15px system-ui;">' + LOCK(15) + 'Continue to payment</button>'
                 + '<div id="fd-err" style="margin-top:10px;font:12.5px system-ui;color:#fca5a5;min-height:16px;"></div>'
@@ -403,9 +410,14 @@ function (path, config) {
                 go.disabled = true; err.textContent = ''; go.innerHTML = LOCK(15) + 'Taking you to checkout…';
                 try {
                     const back = window.location.href.split('#')[0];
+                    const val = (id) => { const el = sheet.querySelector('#' + id); return el ? ('' + el.value).trim() : ''; };
                     const r = await POSTJSON({
                         amount: picked, currency: cur, campaign: ('' + (d.title || '')).slice(0, 120),
-                        path: docPath, returnUrl: back
+                        path: docPath, returnUrl: back,
+                        // Typed here, so publishing them is the donor's own decision. A name
+                        // taken off a card is a different thing and stays behind the
+                        // campaign's own setting.
+                        donorName: val('fd-name').slice(0, 40), donorNote: val('fd-msg').slice(0, 140)
                     }, host + '/stripe/donation-session');
                     if (r && r.url) { window.location.href = r.url; return; }
                     throw new Error((r && (r.error_description || r.error)) || 'the payment page could not be opened');

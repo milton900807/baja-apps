@@ -154,7 +154,7 @@ function (path, config) {
             + 'background:rgba(255,255,255,0.04);"><div style="font:600 10.5px system-ui;letter-spacing:.1em;'
             + 'text-transform:uppercase;color:#7fb0c4;">Signed in as</div>'
             + '<div style="font:600 13px system-ui;margin-top:2px;">' + esc(user) + '</div></div>'
-            + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-all', 'All campaigns')
+            + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
             + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div style="flex:1 1 420px;max-width:560px;">'
@@ -251,7 +251,7 @@ function (path, config) {
             + '</div></div>'
             + '<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);'
             + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-            + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display')
+            + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
             + '<span style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
             + '<div id="fc-status" style="margin-top:14px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
             + '<div id="fc-link" style="margin-top:6px;font:12.5px system-ui;word-break:break-all;"></div>'
@@ -346,7 +346,7 @@ function (path, config) {
                     const id = b.getAttribute('data-tm');
                     doc.team = teamArr().filter((m) => m.id !== id);
                     if (teamFaces[id]) { delete teamFaces[id]; teamDirty = true; }
-                    teamList(); preview();
+                    teamList(); preview(); touch();
                     $('fc-tm-out').textContent = 'Removed. Publish to put that on the details page.';
                 };
             }
@@ -411,7 +411,7 @@ function (path, config) {
                 pendingImage = got; imageGone = false;
                 $('fc-img-out').textContent = 'Ready: ' + got.w + '×' + got.h + ', about '
                     + Math.round(got.bytes / 1024) + 'KB. Publish to put it on the display.';
-                imgUI(); preview();
+                imgUI(); preview(); touch();
             } catch (e) {
                 $('fc-img-out').textContent = 'Could not use that picture: ' + ((e && e.message) ? e.message : e);
             }
@@ -420,7 +420,7 @@ function (path, config) {
             pendingImage = null; imageGone = true;
             try { $('fc-img').value = ''; } catch (e) { }
             $('fc-img-out').textContent = 'The picture comes off the display when you publish.';
-            imgUI(); preview();
+            imgUI(); preview(); touch();
         };
         $('fc-tm-add').onclick = async () => {
             const name = ('' + $('fc-tm-name').value).trim();
@@ -436,7 +436,7 @@ function (path, config) {
             teamArr().push({ id: id, name: name, role: ('' + $('fc-tm-role').value).trim(), note: ('' + $('fc-tm-note').value).trim() });
             $('fc-tm-name').value = ''; $('fc-tm-role').value = ''; $('fc-tm-note').value = '';
             try { $('fc-tm-img').value = ''; } catch (e) { }
-            teamList(); preview();
+            teamList(); preview(); touch();
             $('fc-tm-out').textContent = 'Added ' + name + '. Publish to put them on the details page.';
             try { $('fc-tm-name').focus(); } catch (e) { }
         };
@@ -543,6 +543,7 @@ function (path, config) {
                 b.onclick = () => {
                     const [k, idx] = ('' + b.getAttribute('data-del')).split(':');
                     const i = parseInt(idx, 10);
+                    let msg = 'Removed. Publish to put that on the display.';
                     if (k === 'g') {
                         const g = arr('gifts')[i];
                         // A gift entered here moved the total when it went in, so taking it
@@ -554,10 +555,21 @@ function (path, config) {
                             doc.donors = Math.max(0, (+doc.donors || 0) - 1);
                             toForm();
                         }
+                        // A gift that came from a payment is remembered as removed, or the
+                        // next reconcile reads it straight back in -- and, because its
+                        // amount is already in the total, counts it twice. Removing one is
+                        // how an organiser takes an unwanted message off the page, so it
+                        // has to stay off.
+                        if (g && g.sid) {
+                            if (!Array.isArray(doc.giftsSkip)) doc.giftsSkip = [];
+                            if (doc.giftsSkip.indexOf(g.sid) < 0) doc.giftsSkip.push(g.sid);
+                            if (doc.giftsSkip.length > 400) doc.giftsSkip = doc.giftsSkip.slice(-400);
+                            msg = 'Taken off the list. The money stays in the total, and it will not come back on the next pull.';
+                        }
                         arr('gifts').splice(i, 1);
                     } else arr('updates').splice(i, 1);
-                    preview(); lists();
-                    $('fc-status').textContent = 'Removed. Publish to put that on the display.';
+                    preview(); lists(); touch();
+                    $('fc-status').textContent = msg;
                 };
             }
         };
@@ -605,8 +617,15 @@ function (path, config) {
                 + (don().on ? '<div style="margin-top:10px;"><span style="display:inline-block;background:#22c55e;color:#04210f;'
                     + 'border-radius:999px;padding:8px 20px;font:800 13px system-ui;">' + esc(don().label || 'Donate') + '</span></div>' : '');
         };
-        const sync = () => { fromForm(); preview(); donUI(); };
-        toForm(); preview(); lists();
+        // LEAVING WITHOUT PUBLISHING LOSES WHAT IS ON THIS SCREEN, so Cancel asks once when
+        // there is something to lose and goes straight out when there is not. What is
+        // tracked is whether anything was touched, not whether it differs from what was
+        // stored: a form that says "no changes" while the gift list has moved is worse than
+        // one that asks an unnecessary question.
+        let dirty = false;
+        const touch = () => { dirty = true; };
+        const sync = () => { fromForm(); preview(); donUI(); touch(); };
+        toForm(); preview(); lists(); dirty = false;
         for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story',
             'fc-don-label', 'fc-don-url', 'fc-don-amts']) $(id).addEventListener('input', sync);
         for (const id of ['fc-don-on', 'fc-don-mode', 'fc-don-custom', 'fc-don-names']) $(id).addEventListener('change', sync);
@@ -691,7 +710,7 @@ function (path, config) {
                 note: ('' + $('fc-gift-note').value).trim(), at: new Date().toISOString(), counted: true
             });
             if (doc.gifts.length > CAP) doc.gifts.length = CAP;
-            toForm(); preview(); lists();
+            toForm(); preview(); lists(); touch();
             $('fc-gift').value = ''; $('fc-gift-name').value = ''; $('fc-gift-note').value = '';
             try { $('fc-gift').focus(); } catch (e) { }
             $('fc-status').textContent = 'Added ' + money(g, doc.currency) + '. Publish to put it on the display.';
@@ -706,7 +725,7 @@ function (path, config) {
             arr('updates').unshift({ at: new Date().toISOString(), title: title, text: text });
             if (doc.updates.length > CAP) doc.updates.length = CAP;
             $('fc-upd').value = ''; $('fc-upd-title').value = '';
-            preview(); lists();
+            preview(); lists(); touch();
             $('fc-status').textContent = 'Update written. Publish to put it on the details page.';
         };
 
@@ -871,6 +890,7 @@ function (path, config) {
                 publicLink = link;
                 let copied = false;
                 try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); copied = true; } } catch (e) { }
+                dirty = false;
                 $('fc-status').textContent = 'Published. Anyone with the link can watch it, and it updates itself.';
                 $('fc-link').innerHTML = (copied ? 'Copied to your clipboard: ' : 'The link: ')
                     + '<a href="' + esc(link) + '" target="_blank" rel="noopener" style="color:#4fd0e6;">' + esc(link) + '</a>';
@@ -888,6 +908,33 @@ function (path, config) {
         };
         $('fc-open').onclick = openDisplay;
         $('fc-open2').onclick = openDisplay;
+        const leave = async (where, mod) => {
+            try { clear(); } catch (e) { }
+            try { window.history.pushState({}, '', where); } catch (e) { }
+            // baja/init.js clears the page and pushes its own URL, so there is nothing to
+            // undo here first; if it fails the browser still goes there, rather than
+            // leaving someone on an empty screen.
+            try { await exec(mod); }
+            catch (e) { try { window.location.href = where; } catch (e2) { } }
+        };
+        let cancelArmed = false, cancelTimer = null;
+        const cancel = async () => {
+            if (dirty && !cancelArmed) {
+                cancelArmed = true;
+                for (const id of ['fc-cancel', 'fc-cancel2']) { const el = $(id); if (el) el.textContent = 'Leave without publishing?'; }
+                $('fc-status').textContent = 'What is on this screen has not been published.';
+                cancelTimer = setTimeout(() => {
+                    cancelArmed = false;
+                    for (const id of ['fc-cancel', 'fc-cancel2']) { const el = $(id); if (el) el.textContent = 'Cancel'; }
+                }, 6000);
+                return;
+            }
+            clearTimeout(cancelTimer);
+            await leave('/app/baja/init', 'baja/init');
+        };
+        $('fc-cancel').onclick = cancel;
+        $('fc-cancel2').onclick = cancel;
+
         $('fc-all').onclick = async () => {
             try { clear(); } catch (e) { }
             try { window.history.pushState({}, '', '/app/fundraise/admin'); } catch (e) { }
