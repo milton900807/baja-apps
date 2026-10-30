@@ -92,7 +92,12 @@ function (path, config) {
                 + '@keyframes fdBreathe{0%{transform:scale(1);box-shadow:0 10px 30px rgba(34,197,94,0.30),0 0 0 0 rgba(34,197,94,0.45)}'
                 + '50%{transform:scale(1.035);box-shadow:0 16px 44px rgba(34,197,94,0.45),0 0 0 14px rgba(34,197,94,0)}'
                 + '100%{transform:scale(1);box-shadow:0 10px 30px rgba(34,197,94,0.30),0 0 0 0 rgba(34,197,94,0)}}'
-                + '#fd-give:hover{filter:brightness(1.06)}';
+                + '#fd-give:hover{filter:brightness(1.06)}'
+                // Someone who has asked their system for less movement gets a button that
+                // holds still. It keeps its size and its ring, which is most of what makes
+                // it carry; the motion is the part that can be given up.
+                + '@media (prefers-reduced-motion: reduce){#fd-give{animation:none!important}'
+                + '#fd-live{animation:none!important}}';
             document.head.appendChild(st);
         }
         const card = () => document.getElementById('fd-card');
@@ -206,6 +211,16 @@ function (path, config) {
         // campaign should speak in the campaign's name. The comments below still say Stripe
         // because that is what the code talks to.
         const thanked = (qp('donated') === '1');
+        // THE ADDRESS BAR SHOWS THE SHORT LINK, NOT THIS ONE. /f/<code> sends a browser here,
+        // which leaves the long URL on screen -- and the long URL is the one that gets
+        // copied, pasted into Facebook, and shows the shell's card instead of the campaign's.
+        // So once this page is up it puts /f/<code> back in the address bar. Nothing
+        // navigates: it is the same page, under the name it should be shared by, and
+        // reloading that name comes back here through the server.
+        if (code) {
+            try { history.replaceState({}, '', '/f/' + encodeURIComponent(code)); } catch (e) { }
+        }
+
         // Taken off the URL once read, so a reload later does not thank someone twice.
         if (thanked) {
             try {
