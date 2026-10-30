@@ -1032,13 +1032,8 @@ function (__path, __header) {
             // it always did.
             let usermain_rows = []
             if (__header) {
-                // WITH A HEIGHT, or the rows below are laid over it: the browser's own
-                // menu bar and file list were drawn on top of the header, leaving a 20px
-                // sliver of it showing. Everything else in this layout states its height;
-                // this row was the one that did not.
                 usermain_rows.push({
                     'width': '100%',
-                    'height': (__header && __header.headerHeight) || 104,
                     'component': __header
                 })
             }
