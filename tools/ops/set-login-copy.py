@@ -11,7 +11,7 @@ so changing it is a file edit and a reload rather than an Angular build and a de
 
 WHAT TAKES EFFECT WHEN. The deployed bundle already reads clinicFeatures, so the bullet list
 changes as soon as this runs. clinicBanner, clinicTag, clinicTitle and clinicNote are read by
-the newer bundle (baja, commit 456c16c): writing them now is harmless, and they start showing
+the newer bundle (baja, commit 62d6781): writing them now is harmless, and they start showing
 the moment the front end is next built and deployed.
 
 The medical disclaimer is not settable here. It is compiled into the page on purpose: a
@@ -28,17 +28,19 @@ MARK_OPEN = '  /* ---- gene.clinic sign-in wording (set-login-copy.py) ---- */'
 MARK_CLOSE = '  /* ---- end gene.clinic sign-in wording ---- */'
 
 COPY = {
-    'clinicBanner': 'Understanding rare disease, and funding the work on it',
-    'clinicTag': 'Rare disease: understood, shared, funded',
-    'clinicTitle': 'Understand a rare condition, and raise what it takes to treat it',
-    'clinicNote': 'Campaigns raised here go to the programme the campaign names; '
-                  'this site takes no part of a donation.',
+    'clinicBanner': 'Fundraising for rare disease, with nothing taken off the top',
+    'clinicTag': 'Understand it. Share it. Fund it.',
+    'clinicTitle': 'Raise money for a rare disease, and keep all of it',
+    # Exact rather than "free": this site takes nothing, and the card processor's fee is
+    # not ours to waive. Both halves, in the same sentence, on a page about money.
+    'clinicNote': 'There is no charge for this and no share of what you raise. '
+                  'Gifts arrive in your own payment account, less the fee the card processor charges.',
     'clinicFeatures': [
+        'No charge to run a campaign, and no share of what you raise',
+        'A live page to share, and a display for the room, with no account needed to watch it',
+        "Donations go straight to your own account, minus the card processor's own fee",
         'See the gene, and the change in it, drawn in plain language',
-        'Understand where a variant sits and what it affects',
         'Follow the work being done towards a therapy for it',
-        'Raise awareness with a page anyone can open, and no account to read it',
-        'Run a fundraising campaign for that work, with a total that moves as gifts arrive',
     ],
 }
 
