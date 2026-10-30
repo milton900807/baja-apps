@@ -186,7 +186,10 @@ function (path, config) {
             if (!/^[\w-]{11}$/.test(id)) return '';
             // youtube-nocookie, and no autoplay: a film that starts talking by itself in a
             // room with a microphone in it is a bad surprise.
-            return '<div style="margin-top:10px;position:relative;padding-top:56.25%;border-radius:12px;overflow:hidden;'
+            // Capped rather than full width: at 820px a 16:9 film is 460px tall and pushes
+            // everything else off the page, and nobody came to this page for the film alone.
+            return '<div style="margin:10px auto 0;max-width:620px;position:relative;padding-top:34.9%;'
+                + 'max-height:349px;border-radius:12px;overflow:hidden;'
                 + 'border:1px solid rgba(255,255,255,0.14);background:#000;">'
                 + '<iframe src="https://www.youtube-nocookie.com/embed/' + esc(id) + '?rel=0" title="Campaign film" '
                 + 'loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; picture-in-picture" allowfullscreen '
@@ -388,8 +391,20 @@ function (path, config) {
             const meta = [];
             if (goal > 0) meta.push('of ' + esc(money(goal, cur)) + ' · ' + pct.toFixed(pct < 10 ? 1 : 0) + '%');
             if (d.donors) meta.push(esc((+d.donors).toLocaleString()) + ' ' + (Math.abs(+d.donors) === 1 ? 'donor' : 'donors'));
-            const sect = (t) => '<div style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;'
-                + 'margin:26px 0 10px;">' + esc(t) + '</div>';
+            // One section ran into the next: a label in small caps is not enough of a break
+            // between a row of faces and a list of donations. Every section after the first
+            // opens with a rule and a good deal more air above it, so the page reads as
+            // parts rather than as one column of text. Counted rather than hard-coded,
+            // since which sections exist depends on what the campaign has filled in.
+            let sectN = 0;
+            const sect = (t) => {
+                sectN++;
+                return '<div style="' + (sectN > 1
+                    ? 'margin-top:40px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.13);'
+                    : 'margin-top:30px;') + '">'
+                    + '<div style="font:700 12px system-ui;letter-spacing:.11em;text-transform:uppercase;color:#8fc0d4;'
+                    + 'margin-bottom:14px;">' + esc(t) + '</div></div>';
+            };
             const money_ = (v) => esc(money(v, cur));
 
             card().innerHTML = '<div style="text-align:left;max-width:820px;margin:0 auto;padding:2vmin 0 6vmin;">'
