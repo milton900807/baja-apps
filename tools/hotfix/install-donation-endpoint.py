@@ -100,4 +100,4 @@ for p, text, crlf in writes:
     print('Updated', p, '(backup:', os.path.basename(p) + '.before-donation)')
 if writes:
     print('Now:  sudo systemctl restart baja-server')
-    print('Then: curl -s localhost:3000/stripe/donation-session   (or the port this server listens on)')
+    print('Then: curl -s localhost:8080/stripe/donation-session')
