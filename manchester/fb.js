@@ -816,6 +816,15 @@ function (__path, __header) {
                                     })
                                 },
                                 {
+                                    // The page above the console: every campaign, what each
+                                    // raised, and what it banked after Stripe's cut.
+                                    'label': 'Fundraise Admin', 'ionfunction': createIonFunction(async () => {
+                                        clear();
+                                        try { window.history.pushState({ 'fund': '' }, 'fundraise', '/app/fundraise/admin'); } catch (e) { }
+                                        await exec('fundraise/admin');
+                                    })
+                                },
+                                {
                                     // The fundraising console: enter a total, publish a public
                                     // display that anyone can open without an account and that
                                     // re-reads itself while the room watches it.

@@ -102,7 +102,8 @@ function (path, config) {
             + 'border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
             + '<div><div style="font:700 20px system-ui;">Fundraising</div>'
             + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">Enter the total raised, then publish a display anyone can open.</div></div>'
-            + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
+            + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-all', 'All campaigns')
+            + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div style="flex:1 1 420px;max-width:560px;">'
             + '<label style="' + lbl + '">Campaign</label><input id="fc-title" style="' + inp + '"/>'
@@ -463,6 +464,11 @@ function (path, config) {
         $('fc-open').onclick = () => {
             if (!publicLink) { $('fc-status').textContent = 'Publish it first, then the display has something to read.'; return; }
             try { window.open(publicLink, '_blank', 'noopener'); } catch (e) { }
+        };
+        $('fc-all').onclick = async () => {
+            try { clear(); } catch (e) { }
+            try { window.history.pushState({}, '', '/app/fundraise/admin'); } catch (e) { }
+            await exec('fundraise/admin');
         };
         try { $('fc-title').focus(); } catch (e) { }
         return true;
