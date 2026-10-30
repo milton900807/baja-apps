@@ -38,7 +38,7 @@ SERVER_DIR="${SERVER_DIR:-/opt/baja-server}"
 APPS_DIR="${APPS_DIR:-/opt/baja-apps}"
 PORT="${PORT:-8080}"
 RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
-REF="${REF:-112bb7688b78910c754961274c7459eca4c97170}"
+REF="${REF:-00288331d5d7073e25a0cca8bf5a634f3c142a77}"
 DO_KEY=1; DO_DEPLOY=1; KEY_FILE=""
 
 while [[ $# -gt 0 ]]; do case "$1" in
