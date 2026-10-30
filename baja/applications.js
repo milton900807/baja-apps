@@ -1,13 +1,19 @@
 function (options) {
 
-    // THE APPLICATION LAUNCHER, as a widget.
+    // THE HOME SCREEN'S THREE DOORS, as a widget: Funds, Design, My Files.
     //
-    // Every application in the platform that can be opened cold, grouped by what a user is
-    // trying to do:
+    // It was a grid of nine application tiles above the file list, which asked a visitor to
+    // read nine descriptions before doing anything, and buried the one thing a family
+    // arriving at gene.clinic came for among eight tools for designing drugs. Three doors
+    // ask one question instead:
     //
-    //     Design      Oligo  ·  Neoantigen  ·  mRNA  ·  Assay
-    //     Explore     Chromosomes  ·  Library
-    //     Programme   Project  ·  Analytics  ·  Financial Modeling  ·  Fundraise Campaign
+    //     Funds      start a campaign, or open one already running
+    //     Design     the design and analysis tools, as the nine tiles
+    //     My Files   the file list, which is the rest of this page
+    //
+    // My Files is not a panel. The file browser is ALREADY underneath this widget -- it is
+    // the page -- so that door simply closes whatever panel is open and leaves the files
+    // showing, which is also the state the page opens in.
     //
     // Returned rather than shown, so the caller decides where it goes. The home screen puts
     // it above the file browser.
@@ -120,58 +126,117 @@ function (options) {
             }
         ];
 
-        // An icon store that is unreachable must not cost the user their launcher. A tile
-        // with no picture is still a working button; a row that threw is nothing at all.
         const rows = [];
+
+        // Icons first: an icon store that is unreachable must not cost the user the page.
+        // A tile with no picture is still a working button; a row that threw is nothing.
+        const tiles = [];
+        for (const g of GROUPS) {
+            for (const a of g.apps) {
+                // Fundraising has a door of its own now, so it is not also a tile behind
+                // the Design one: the same thing in two places makes a visitor wonder
+                // whether they are the same thing.
+                if (a.path === 'fundraise/console') continue;
+                let svg = null;
+                try { svg = await exec(a.icon); } catch (e) { svg = null; }
+                tiles.push({ app: a, group: g, svg: svg });
+            }
+        }
+
+        // One html widget for the whole thing, wired up after it is mounted. The platform's
+        // button widgets draw a grid of equals, and this needs three doors and a panel that
+        // changes underneath them.
+        const ID = 'baja-home-doors';
+        const esc = (t) => ('' + (t == null ? '' : t)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const DOORS = [
+            { key: 'funds', label: 'Funds', line: 'Raise money for a rare disease', accent: '#16a34a' },
+            { key: 'design', label: 'Design', line: 'The tools for designing a therapy', accent: '#0f6e7a' },
+            { key: 'files', label: 'My Files', line: 'Everything you have saved', accent: '#5b7d86' },
+        ];
+        const doorHtml = (d) => '<button data-door="' + d.key + '" style="flex:1 1 220px;cursor:pointer;text-align:left;'
+            + 'border:1px solid #cfdbe2;border-left:5px solid ' + d.accent + ';background:#fff;border-radius:12px;'
+            + 'padding:16px 18px;box-shadow:0 2px 10px rgba(16,40,56,0.07);">'
+            + '<div style="font:800 19px Arial;color:#12242c;">' + esc(d.label) + '</div>'
+            + '<div style="font:13px Arial;color:#6b8793;margin-top:3px;">' + esc(d.line) + '</div></button>';
+
+        const tileHtml = (t) => '<button data-open="' + esc(t.app.path) + '" data-i="' + tiles.indexOf(t) + '" '
+            + 'style="flex:1 1 300px;max-width:420px;cursor:pointer;text-align:left;display:flex;gap:12px;align-items:flex-start;'
+            + 'border:1px solid #dbe4ea;background:#fff;border-radius:10px;padding:12px 14px;">'
+            + (t.svg ? '<img src="' + esc(t.svg) + '" alt="" width="40" height="40" style="flex:0 0 auto;"/>' : '')
+            + '<span style="min-width:0;"><span style="display:block;font:700 14.5px Arial;color:#12242c;">' + esc(t.app.label) + '</span>'
+            + '<span style="display:block;font:12.5px/1.45 Arial;color:#6b8793;margin-top:2px;">' + esc(t.app.description) + '</span></span>'
+            + '</button>';
+
+        const fundsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+            + '<button data-fund="new" style="flex:1 1 280px;cursor:pointer;text-align:left;border:1px solid #16a34a;'
+            + 'background:#16a34a;color:#fff;border-radius:10px;padding:14px 16px;">'
+            + '<span style="display:block;font:800 15px Arial;">Start a new campaign</span>'
+            + '<span style="display:block;font:12.5px Arial;opacity:.92;margin-top:3px;">A total, a goal and a link to share. '
+            + 'No charge, and no share of what you raise.</span></button>'
+            + '<button data-fund="mine" style="flex:1 1 280px;cursor:pointer;text-align:left;border:1px solid #cfdbe2;'
+            + 'background:#fff;border-radius:10px;padding:14px 16px;">'
+            + '<span style="display:block;font:800 15px Arial;color:#12242c;">Campaigns already running</span>'
+            + '<span style="display:block;font:12.5px Arial;color:#6b8793;margin-top:3px;">Open one to edit it, see what it has '
+            + 'raised, or pull in donations.</span></button></div>';
+
+        const designHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;">' + tiles.map(tileHtml).join('') + '</div>';
 
         rows.push({
             'width': '100%',
             'component': {
                 wid: 'html',
-                data: '<div style="padding:16px 4px 2px;font-family:Arial,Helvetica,sans-serif;">'
-                    + '</div>'
+                data: '<div id="' + ID + '" style="padding:14px 4px 2px;font-family:Arial,Helvetica,sans-serif;">'
+                    + '<div style="display:flex;gap:12px;flex-wrap:wrap;">' + DOORS.map(doorHtml).join('') + '</div>'
+                    + '<div data-panel style="display:none;margin-top:14px;padding:14px;border:1px solid #e1e8ed;'
+                    + 'border-radius:12px;background:#f7fafc;"></div></div>'
             }
         });
 
-        for (const g of GROUPS) {
-            const buttons = [];
-            for (const a of g.apps) {
-                let svg = null;
-                try { svg = await exec(a.icon); } catch (e) { svg = null; }
-                const b = {
-                    label: a.label,
-                    description: a.description,
-                    ionfunction: open(a.path, a.url, a.args)
+        // The widget is rendered by the framework, so the handlers are attached once it is
+        // actually on the page. Polled rather than assumed: the file browser mounts this
+        // header as part of its own render and there is no callback to hang this on.
+        const wire = () => {
+            const root = document.getElementById(ID);
+            if (!root) return false;
+            const panel = root.querySelector('[data-panel]');
+            let openDoor = '';
+            const paint = () => {
+                for (const b of root.querySelectorAll('[data-door]')) {
+                    const on = b.getAttribute('data-door') === openDoor;
+                    b.style.background = on ? '#eef6fb' : '#fff';
+                    b.style.boxShadow = on ? '0 2px 14px rgba(16,40,56,0.14)' : '0 2px 10px rgba(16,40,56,0.07)';
+                }
+                panel.style.display = openDoor ? '' : 'none';
+            };
+            const wireInner = () => {
+                for (const b of panel.querySelectorAll('[data-open]')) {
+                    const t = tiles[+b.getAttribute('data-i')];
+                    if (t) b.onclick = () => open(t.app.path, t.app.url, t.app.args).__ion();
+                }
+                const nw = panel.querySelector('[data-fund="new"]');
+                if (nw) nw.onclick = () => open('fundraise/console', '/app/fundraise/console').__ion();
+                const mine = panel.querySelector('[data-fund="mine"]');
+                if (mine) mine.onclick = () => open('fundraise/admin', '/app/fundraise/admin').__ion();
+            };
+            for (const b of root.querySelectorAll('[data-door]')) {
+                b.onclick = () => {
+                    const k = b.getAttribute('data-door');
+                    // My Files is the page itself, so its door closes the panel rather than
+                    // filling it, and pressing an open door closes it again.
+                    openDoor = (k === 'files' || k === openDoor) ? '' : k;
+                    panel.innerHTML = openDoor === 'funds' ? fundsHtml : (openDoor === 'design' ? designHtml : '');
+                    paint();
+                    if (openDoor) wireInner();
                 };
-                if (svg) b.svg = svg;
-                buttons.push(b);
             }
-            // The first group is deliberately unlabelled (name '_'), and printing its
-            // missing blurb put the word "undefined" on the launcher.
-            if (g.name && g.name !== '_') rows.push({
-                'width': '100%',
-                'component': {
-                    wid: 'html',
-                    data: '<div style="padding:14px 4px 0;font-family:Arial,Helvetica,sans-serif;">'
-                        + '<span style="font:700 12px Arial;letter-spacing:.06em;text-transform:uppercase;color:#12242c;">'
-                        + g.name + '</span>'
-                        + '<span style="font:12.5px Arial;color:#7b8b96;margin-left:10px;">' + (g.blurb || '') + '</span></div>'
-                }
-            });
-            rows.push({
-                'width': '100%',
-                'component': {
-                    wid: 'radio-buttons',
-                    data: {
-                        description: '',
-                        type: g.name,
-                        unchecked: true,
-                        button_size: (typeof o.button_size === 'number') ? o.button_size : 260,
-                        buttons: buttons
-                    }
-                }
-            });
-        }
+            paint();
+            return true;
+        };
+        // Up to ten seconds, then give up quietly: the three doors would be dead, but the
+        // file list under them is untouched and the menus still open everything.
+        let tries = 0;
+        const tick = () => { if (wire() || ++tries > 100) return; setTimeout(tick, 100); };
+        setTimeout(tick, 0);
 
         rows.push({
             'width': '100%',
