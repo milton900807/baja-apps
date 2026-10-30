@@ -88,8 +88,14 @@ function (path, config) {
         }
         const card = () => document.getElementById('fd-card');
 
-        // A donor coming back from Stripe lands here with ?donated=1 on the URL. Stripe's own
-        // receipt is the proof of payment; this is only an acknowledgement on the way back.
+        // A donor coming back from the payment page lands here with ?donated=1 on the URL. The
+        // processor's own emailed receipt is the proof of payment; this is only an
+        // acknowledgement on the way back.
+        //
+        // NOTHING A DONOR READS NAMES THE PROCESSOR. Which company clears the card is the
+        // organiser's arrangement, not the donor's business, and a page that belongs to the
+        // campaign should speak in the campaign's name. The comments below still say Stripe
+        // because that is what the code talks to.
         const thanked = (qp('donated') === '1');
         // Taken off the URL once read, so a reload later does not thank someone twice.
         if (thanked) {
@@ -199,8 +205,8 @@ function (path, config) {
                 + '<button id="fd-go" style="margin-top:14px;width:100%;cursor:pointer;border:0;background:#22c55e;color:#04210f;'
                 + 'border-radius:10px;padding:13px;font:800 15px system-ui;">Continue to payment</button>'
                 + '<div id="fd-err" style="margin-top:10px;font:12.5px system-ui;color:#fca5a5;min-height:16px;"></div>'
-                + '<div style="margin-top:6px;font:11.5px system-ui;color:#7fb0c4;">Payment is handled by Stripe. Card, Apple Pay, '
-                + 'Google Pay and the other methods enabled on this account all appear there. Nothing to do with a card is typed on this page.</div>'
+                + '<div style="margin-top:6px;font:11.5px system-ui;color:#7fb0c4;">Payment is handled securely by VRI. Card, Apple Pay, '
+                + 'Google Pay and the other methods enabled all appear at checkout. Nothing to do with a card is typed on this page.</div>'
                 + '</div>';
             document.body.appendChild(sheet);
 
@@ -232,7 +238,7 @@ function (path, config) {
                 // is only needed for a session this server creates.
                 if (c.mode === 'checkout' && !(picked > 0)) { err.textContent = 'Choose an amount first.'; return; }
                 if (c.mode === 'link') { closeSheet(); try { window.open(c.url, '_blank', 'noopener'); } catch (e) { window.location.href = c.url; } return; }
-                go.disabled = true; err.textContent = ''; go.textContent = 'Taking you to Stripe…';
+                go.disabled = true; err.textContent = ''; go.textContent = 'Taking you to checkout…';
                 try {
                     const back = window.location.href.split('#')[0];
                     const r = await POSTJSON({
@@ -243,7 +249,7 @@ function (path, config) {
                     throw new Error((r && (r.error_description || r.error)) || 'the payment page could not be opened');
                 } catch (e) {
                     go.disabled = false; go.textContent = 'Continue to payment';
-                    err.textContent = 'Could not reach Stripe: ' + ((e && e.message) ? e.message : e)
+                    err.textContent = 'Could not open checkout: ' + ((e && e.message) ? e.message : e)
                         + '. Try again, or tell the organiser.';
                 }
             };
@@ -346,7 +352,7 @@ function (path, config) {
                 + '</div>'
                 + (thanked ? '<div style="margin-top:clamp(12px,2vmin,20px);display:inline-block;border:1px solid rgba(134,239,172,0.5);'
                     + 'background:rgba(34,197,94,0.14);color:#bbf7d0;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.7vmin,16px) system-ui;">'
-                    + 'Thank you. Your receipt is on its way from Stripe.</div>' : '')
+                    + 'Thank you. Your receipt is on its way from VRI.</div>' : '')
                 + (donateBtn(d, true) ? '<div style="margin-top:clamp(14px,2.6vmin,26px);">' + donateBtn(d, true) + '</div>' : '')
                 + (hasDetail(d) ? '<div style="margin-top:clamp(12px,2.4vmin,22px);">'
                     + '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);'
