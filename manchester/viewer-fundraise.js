@@ -292,6 +292,15 @@ function (path, config) {
         // Is a photograph sitting behind the whole display? Everything that has to stay
         // readable asks this, because over a picture the answer is more contrast, not less.
         const overPic = (d) => !!(pictureUri && medOf(d).imageMode !== 'banner');
+        // A padlock drawn rather than fetched, and in currentColor so it is the same ink as
+        // the words beside it. Trust marks that arrive over the network are the first thing
+        // to fail on a hall's wifi, and a broken padlock is worse than none.
+        const LOCK = (px, op) => '<svg viewBox="0 0 24 24" width="' + px + '" height="' + px + '" aria-hidden="true" '
+            + 'style="vertical-align:-0.14em;margin-right:7px;opacity:' + (op || 1) + ';" fill="none" stroke="currentColor" '
+            + 'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
+            + '<rect x="4" y="10.5" width="16" height="10.5" rx="2.4"></rect>'
+            + '<path d="M8 10.5V7.2a4 4 0 0 1 8 0v3.3"></path></svg>';
+
         const donateBtn = (d, big) => {
             const c = donCfg(d);
             if (!c) return '';
@@ -301,8 +310,15 @@ function (path, config) {
                     + 'animation:fdBreathe 3.4s ease-in-out infinite;'
                     : 'padding:10px 24px;font:800 14px system-ui;box-shadow:0 8px 24px rgba(34,197,94,0.3);')
                 + (big ? 'outline:2px solid rgba(255,255,255,0.22);outline-offset:3px;' : '')
-                + '">' + esc(c.label) + '</button>';
+                + '">' + LOCK(big ? 19 : 14) + esc(c.label) + '</button>';
         };
+        // One line, under the button, in the words that actually matter to someone about to
+        // type a card number: where it goes, and what is kept here.
+        const safeLine = (d) => donCfg(d)
+            ? '<div style="margin-top:10px;font:500 clamp(11.5px,1.5vmin,14px) system-ui;color:#9fc4d4;">'
+                + LOCK(13, 0.85) + 'Secure payment. Card details are never typed on this page, '
+                + 'and nothing about you is used for anything but this campaign.</div>'
+            : '';
 
         // The sheet: pick an amount, then Stripe. Nothing is typed here that belongs to a
         // card -- the only field is how much.
@@ -336,10 +352,23 @@ function (path, config) {
                     + 'style="width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.18);'
                     + 'border-radius:10px;padding:11px 13px;font:15px system-ui;"/></div>' : '')
                 + '<button id="fd-go" style="margin-top:14px;width:100%;cursor:pointer;border:0;background:#22c55e;color:#04210f;'
-                + 'border-radius:10px;padding:13px;font:800 15px system-ui;">Continue to payment</button>'
+                + 'border-radius:10px;padding:13px;font:800 15px system-ui;">' + LOCK(15) + 'Continue to payment</button>'
                 + '<div id="fd-err" style="margin-top:10px;font:12.5px system-ui;color:#fca5a5;min-height:16px;"></div>'
-                + '<div style="margin-top:6px;font:11.5px system-ui;color:#7fb0c4;">Payment is handled securely by VRI. Card, Apple Pay, '
-                + 'Google Pay and the other methods enabled all appear at checkout. Nothing to do with a card is typed on this page.</div>'
+                // WHAT ACTUALLY HAPPENS TO WHAT, in four lines. Every one of these is a
+                // statement about this code rather than a reassuring noise: the next screen
+                // is the payment provider's, this page stores no card detail because it
+                // never sees one, the campaign records an amount and a time, and an address
+                // is given to the provider for the receipt and is not published anywhere.
+                + '<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.12);'
+                + 'font:12px/1.6 system-ui;color:#9fc4d4;">'
+                + '<div style="font:700 11px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#86efac;margin-bottom:7px;">'
+                + LOCK(13) + 'A secure donation</div>'
+                + '<div>' + LOCK(11, 0.5) + 'Card details are entered on the payment page, never on this one.</div>'
+                + '<div>' + LOCK(11, 0.5) + 'This campaign records the amount and the time, and nothing else.</div>'
+                + '<div>' + LOCK(11, 0.5) + 'Your email goes to the payment provider for the receipt. It is never shown here.</div>'
+                + '<div>' + LOCK(11, 0.5) + 'Nothing is used for marketing, and nothing is passed on.</div>'
+                + '<div style="margin-top:7px;color:#7fb0c4;">Card, Apple Pay, Google Pay and the account\'s other methods '
+                + 'all appear at checkout.</div></div>'
                 + '</div>';
             document.body.appendChild(sheet);
 
@@ -371,7 +400,7 @@ function (path, config) {
                 // is only needed for a session this server creates.
                 if (c.mode === 'checkout' && !(picked > 0)) { err.textContent = 'Choose an amount first.'; return; }
                 if (c.mode === 'link') { closeSheet(); try { window.open(c.url, '_blank', 'noopener'); } catch (e) { window.location.href = c.url; } return; }
-                go.disabled = true; err.textContent = ''; go.textContent = 'Taking you to checkout…';
+                go.disabled = true; err.textContent = ''; go.innerHTML = LOCK(15) + 'Taking you to checkout…';
                 try {
                     const back = window.location.href.split('#')[0];
                     const r = await POSTJSON({
@@ -381,7 +410,7 @@ function (path, config) {
                     if (r && r.url) { window.location.href = r.url; return; }
                     throw new Error((r && (r.error_description || r.error)) || 'the payment page could not be opened');
                 } catch (e) {
-                    go.disabled = false; go.textContent = 'Continue to payment';
+                    go.disabled = false; go.innerHTML = LOCK(15) + 'Continue to payment';
                     err.textContent = 'Could not open checkout: ' + ((e && e.message) ? e.message : e)
                         + '. Try again, or tell the organiser.';
                 }
@@ -435,7 +464,9 @@ function (path, config) {
                 + (goal > 0 ? '<div style="margin-top:12px;height:10px;border-radius:999px;background:rgba(255,255,255,0.10);'
                     + 'border:1px solid rgba(255,255,255,0.16);overflow:hidden;"><div style="height:100%;width:' + pct.toFixed(2) + '%;'
                     + 'background:linear-gradient(90deg,#1aa3bd,#22c55e);transition:width .9s cubic-bezier(.22,.9,.26,1);"></div></div>' : '')
-                + (donateBtn(d, false) ? '<div style="margin-top:16px;">' + donateBtn(d, false) + '</div>' : '')
+                + (donateBtn(d, false) ? '<div style="margin-top:16px;">' + donateBtn(d, false)
+                    + '<div style="margin-top:8px;font:12px system-ui;color:#8fb6c6;">' + LOCK(12, 0.85)
+                    + 'Card details are never typed on this page.</div></div>' : '')
 
                 + (('' + (d.story || '')).trim() ? sect('About this campaign')
                     + '<div style="font:400 15.5px/1.6 system-ui;color:#dceef5;">' + paras(d.story) + '</div>' : '')
@@ -532,7 +563,8 @@ function (path, config) {
                 + (thanked ? '<div style="margin-top:clamp(12px,2vmin,20px);display:inline-block;border:1px solid rgba(134,239,172,0.5);'
                     + 'background:rgba(34,197,94,0.14);color:#bbf7d0;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.7vmin,16px) system-ui;">'
                     + 'Thank you. Your receipt is on its way from VRI.</div>' : '')
-                + (donateBtn(d, true) ? '<div style="margin-top:clamp(14px,2.6vmin,26px);">' + donateBtn(d, true) + '</div>' : '')
+                + (donateBtn(d, true) ? '<div style="margin-top:clamp(14px,2.6vmin,26px);">' + donateBtn(d, true)
+                    + safeLine(d) + '</div>' : '')
                 + (hasDetail(d) ? '<div style="margin-top:clamp(12px,2.4vmin,22px);">'
                     + '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);'
                     + 'color:#eaf6f9;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.6vmin,15px) system-ui;">'
