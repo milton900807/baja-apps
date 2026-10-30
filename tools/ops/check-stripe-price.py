@@ -31,7 +31,10 @@ def read_env(path):
         if not s or s.startswith('#') or '=' not in s:
             continue
         k, v = s.split('=', 1)
-        out[k.strip().lstrip('export ').strip()] = v.strip().strip('"').strip("'")
+        k = k.strip()
+        if k.startswith('export '):
+            k = k[len('export '):]
+        out[k.strip()] = v.strip().strip('"').strip("'")
     return out, raw
 
 def api(key, path):
@@ -58,6 +61,32 @@ st, acct = api(key, '/v1/account')
 if st == 401:
     sys.exit('Stripe rejected this key (401). Nothing else below would mean anything.')
 print('Account       ' + str(acct.get('id', '?')) + '   ' + str(acct.get('business_profile', {}).get('name') or acct.get('settings', {}).get('dashboard', {}).get('display_name') or ''))
+
+# THE DONATION KEY IS A DIFFERENT ACCOUNT, AND THAT IS THE POINT. Donations run on
+# STRIPE_DONATION_SECRET_KEY; the subscription price above belongs to STRIPE_SECRET_KEY.
+# One key in both places is what makes a price "not found", so this says plainly which
+# account each one is.
+dkey = env.get('STRIPE_DONATION_SECRET_KEY', '')
+print('')
+if not dkey:
+    print('Donations     no STRIPE_DONATION_SECRET_KEY, so donations fall back to the key above.')
+    print('              That is the old behaviour. To give donations their own account:')
+    print('              sudo bash set-stripe-key.sh --donations')
+elif dkey == key:
+    print('Donations     THE SAME KEY as the subscription. If they are meant to be two accounts,')
+    print('              set the donation key:  sudo bash set-stripe-key.sh --donations')
+else:
+    dmode = 'live' if '_live_' in dkey else ('test' if '_test_' in dkey else 'unknown')
+    dst, dacct = api(dkey, '/v1/account')
+    if dst == 401:
+        print('Donations     key …' + dkey[-4:] + ' (' + dmode + ')   STRIPE REJECTED IT (401). Donations will fail.')
+    else:
+        print('Donations     key …' + dkey[-4:] + ' (' + dmode + ')   account ' + str(dacct.get('id', '?'))
+              + '   ' + str(dacct.get('business_profile', {}).get('name')
+                            or dacct.get('settings', {}).get('dashboard', {}).get('display_name') or ''))
+    if dmode != mode and 'unknown' not in (dmode, mode):
+        print('              NOTE: one key is ' + mode + ' and the other ' + dmode + '. That is allowed, but')
+        print('              it means one of the two is not taking real money.')
 
 # Has the key changed recently? The fundraising setup script keeps the previous .env.
 old = ENV + '.before-fundraise'

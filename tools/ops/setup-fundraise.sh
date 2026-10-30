@@ -7,9 +7,14 @@
 #      curl -fsSL https://raw.githubusercontent.com/milton900807/baja-apps/REF/tools/ops/setup-fundraise.sh -o setup-fundraise.sh
 #      sudo bash setup-fundraise.sh
 #
-#  It asks for the Stripe secret key, checks it against Stripe, writes it to the
-#  server's .env, installs both halves of the app, restarts the API and proves the
-#  endpoint answers.
+#  It asks for the Stripe secret key FOR DONATIONS, checks it against Stripe, writes it
+#  to the server's .env as STRIPE_DONATION_SECRET_KEY, installs both halves of the app,
+#  restarts the API and proves the endpoint answers.
+#
+#  IT DOES NOT TOUCH STRIPE_SECRET_KEY, which is the software subscription's own key and
+#  a different Stripe account. An earlier version of this script wrote that variable, and
+#  that is what made the subscription price vanish ("No such price"): a price belongs to
+#  one account. To set or repair the subscription key, use set-stripe-key.sh --software.
 #
 #  THE KEY IS TREATED AS A SECRET THROUGHOUT, which is most of what this script is:
 #    * it is typed at a prompt with the echo off, never passed as an argument, so it
@@ -40,7 +45,7 @@ while [[ $# -gt 0 ]]; do case "$1" in
   --key-file) KEY_FILE="${2:-}"; shift 2 ;;
   --no-deploy) DO_DEPLOY=0; shift ;;
   --no-key) DO_KEY=0; shift ;;
-  -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+  -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
   *) echo "Unknown option: $1" >&2; exit 2 ;;
 esac; done
 
@@ -69,7 +74,7 @@ if [[ $DO_KEY -eq 1 ]]; then
     # From the terminal rather than stdin, so a piped-in script cannot answer this,
     # and with the echo off so the key never appears on screen.
     [[ -r /dev/tty ]] || die "No terminal to ask on. Use --key-file instead."
-    printf 'Stripe secret key (it will not be shown): ' > /dev/tty
+    printf 'Stripe secret key FOR DONATIONS (it will not be shown): ' > /dev/tty
     IFS= read -rs KEY < /dev/tty || true
     printf '\n' > /dev/tty
     KEY="$(printf '%s' "$KEY" | tr -d ' \t\r\n')"
@@ -105,9 +110,9 @@ if [[ $DO_KEY -eq 1 ]]; then
   esac
   [[ "$MODE" != live ]] || say "This is a LIVE key: donations will take real money."
 
-  # Replace STRIPE_SECRET_KEY in place, keep every other line, and never widen the
-  # permissions of the file. The old .env is kept, with the same 600, because it has
-  # every other secret in it too.
+  # Replace STRIPE_DONATION_SECRET_KEY in place, keep every other line, and never widen
+  # the permissions of the file. The old .env is kept, with the same 600, because it has
+  # every other secret in it too -- STRIPE_SECRET_KEY among them, which is left alone.
   OWNER="$(stat -c '%u:%g' "$SERVER_DIR")"
   NEW="$TMP/env.new"; : > "$NEW"; chmod 600 "$NEW"
   if [[ -f "$ENV_FILE" ]]; then
@@ -120,23 +125,23 @@ key = os.environ['KEY']                      # via the environment, not the comm
 lines = open(src, encoding='utf-8', errors='replace').read().split('\n')
 out, done = [], False
 for ln in lines:
-    if ln.strip().startswith('STRIPE_SECRET_KEY=') or ln.strip().startswith('export STRIPE_SECRET_KEY='):
+    if ln.strip().startswith('STRIPE_DONATION_SECRET_KEY=') or ln.strip().startswith('export STRIPE_DONATION_SECRET_KEY='):
         if not done:
-            out.append('STRIPE_SECRET_KEY=' + key); done = True
+            out.append('STRIPE_DONATION_SECRET_KEY=' + key); done = True
         continue                              # drop any later duplicates
     out.append(ln)
 if not done:
     while out and out[-1].strip() == '': out.pop()
-    out.append('STRIPE_SECRET_KEY=' + key)
+    out.append('STRIPE_DONATION_SECRET_KEY=' + key)
 open(dst, 'w', encoding='utf-8').write('\n'.join(out).rstrip('\n') + '\n')
 PY
   else
-    printf 'STRIPE_SECRET_KEY=%s\n' "$KEY" > "$NEW"
+    printf 'STRIPE_DONATION_SECRET_KEY=%s\n' "$KEY" > "$NEW"
   fi
   unset KEY
   chmod 600 "$NEW"; chown "$OWNER" "$NEW" 2>/dev/null || true
   mv -f "$NEW" "$ENV_FILE"
-  say "Wrote STRIPE_SECRET_KEY (…$LAST4) to $ENV_FILE  (the previous file is $ENV_FILE.before-fundraise)"
+  say "Wrote STRIPE_DONATION_SECRET_KEY (…$LAST4) to $ENV_FILE  (the previous file is $ENV_FILE.before-fundraise)"
 fi
 
 if [[ $DO_DEPLOY -eq 1 ]]; then
@@ -167,7 +172,8 @@ CONFIGURED="$(printf '%s' "$OUT" | python3 -c "import json,sys;print(json.load(s
 say ""
 say "Done."
 say "  endpoint       /stripe/donation-session  answers on port $PORT"
-say "  Stripe key     stripeConfigured=$CONFIGURED"
+say "  donation key   stripeConfigured=$CONFIGURED"
+say "  both keys      sudo bash set-stripe-key.sh --show"
 say "  the console    /app/fundraise/console   (Apps > Fundraise Campaign)"
 say ""
 say "Which payment methods donors see is set on the Stripe account, not here:"
