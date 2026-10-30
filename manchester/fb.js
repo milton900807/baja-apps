@@ -815,6 +815,16 @@ function (__path, __header) {
                                         await exec('cpd/baja-analytics', '', { silent: true, user: getUser(), mode: 'editor' }, '/app/cpd/baja-analytics');
                                     })
                                 },
+                                {
+                                    // The fundraising console: enter a total, publish a public
+                                    // display that anyone can open without an account and that
+                                    // re-reads itself while the room watches it.
+                                    'label': 'Fundraise Campaign', 'ionfunction': createIonFunction(async () => {
+                                        clear();
+                                        try { window.history.pushState({ 'fund': '' }, 'fundraise', '/app/fundraise/console'); } catch (e) { }
+                                        await exec('fundraise/console');
+                                    })
+                                },
                             ]
                         },
                         {
