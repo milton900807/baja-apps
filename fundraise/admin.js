@@ -72,7 +72,11 @@ function (path, config) {
             + '<div><div style="font:700 20px system-ui;">' + (admin ? 'Fundraising administration' : 'My campaigns') + '</div>'
             + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">'
             + 'Your campaigns, what each raised, and what it banked. Signed in as ' + esc(user) + '.</div></div>'
-            + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fa-refresh', 'Refresh') + btn('fa-new', 'New campaign', 'go') + '</div></div>'
+            // Home first in the row, because this page is a destination rather than a step:
+            // someone who has read what their campaigns raised is finished, and the way back
+            // to the three doors should not be the browser's back button.
+            + '<div style="margin-left:auto;display:flex;gap:10px;">'
+            + btn('fa-home', '\u2190 Home') + btn('fa-refresh', 'Refresh') + btn('fa-new', 'New campaign', 'go') + '</div></div>'
             + '<div style="padding:18px 22px;">'
             + '<div id="fa-status" style="font:12.5px system-ui;color:#cfe0f5;min-height:18px;margin-bottom:10px;"></div>'
             + '<div id="fa-list"></div>'
@@ -315,6 +319,7 @@ function (path, config) {
                         + '</tr>').join('') + '</tbody></table>' : '');
         };
 
+        $('fa-home').onclick = () => openApp('/app/baja/init', 'baja/init');
         $('fa-refresh').onclick = () => load();
         $('fa-new').onclick = () => openApp('/app/fundraise/console', 'fundraise/console');
         await load();
