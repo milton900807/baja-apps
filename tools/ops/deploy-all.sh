@@ -190,13 +190,24 @@ if [[ $DO_WEB -eq 1 ]]; then
   git -C "$SRC_DIR" reset -q --hard "origin/$BRANCH"
   say "At $(git -C "$SRC_DIR" log --oneline -1)"
 
-  # npm ci is the right command when there is a lock file and an error when there is
-  # not, so the choice is made by looking rather than by failing first.
+  # THIS TREE NEEDS --legacy-peer-deps, and saying so is better than discovering it.
+  #
+  # ngx-monaco-editor-v2 asks for Angular 18 peers while the application is on Angular 17,
+  # and the committed lock holds @angular/core at 17.3.8 beside an @angular/animations
+  # 17.3.12 that demands core 17.3.12 exactly. Neither is new and neither breaks the build:
+  # the tree was installed with peer checking off, which is how it has always been built.
+  # So npm ci is tried honestly first, and the flag is the fallback rather than the habit.
+  # Aligning the versions properly is a separate job; it is not one to do inside a deploy.
   say "Installing dependencies (this is the slow part)…"
+  npm_in() { ( cd "$SRC_DIR" && npm "$@" --no-audit --no-fund ); }
   if [[ -f "$SRC_DIR/package-lock.json" ]]; then
-    ( cd "$SRC_DIR" && npm ci --no-audit --no-fund ) || ( cd "$SRC_DIR" && npm install --no-audit --no-fund )
+    npm_in ci || {
+      say "npm ci would not resolve the peers; retrying with --legacy-peer-deps, which is"
+      say "how this tree has always been installed."
+      npm_in ci --legacy-peer-deps || npm_in install --legacy-peer-deps
+    }
   else
-    ( cd "$SRC_DIR" && npm install --no-audit --no-fund )
+    npm_in install || npm_in install --legacy-peer-deps
   fi
 
   say "Building…"
