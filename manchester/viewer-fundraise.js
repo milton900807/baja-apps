@@ -784,6 +784,9 @@ function (path, config) {
             syncing = false;
         };
 
+        // How many re-reads in a row have come back with nothing usable. Shown only after
+        // a few, because one is normal and three means something is actually wrong.
+        let missed = 0;
         const load = async (firstTime) => {
             if (!docPath) { fail('This display has no campaign link. Open it from the fundraising console, or use the link the organiser sent you.'); return; }
             let rs = null;
@@ -795,10 +798,36 @@ function (path, config) {
             let d = rs;
             if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
             if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
-            if (!d || typeof d !== 'object' || (d.kind && d.kind !== 'fundraise')) {
-                if (firstTime) fail('That link does not point at a fundraising campaign, or it has been taken down.');
+            // WHAT COUNTS AS AN ANSWER.
+            //
+            // /load-file replies 200 with { msg: 'Failed to load the file' } when it cannot
+            // read one, and the test here used to be "is it an object with no foreign
+            // kind", which that passes. So a read that failed for a second -- a campaign
+            // caught mid-save, a server restarting under a deploy -- was drawn as a
+            // campaign with no name and no money, and a display in a room went to $0 while
+            // people were looking at it. Ten seconds later it came back.
+            //
+            // A campaign has to look like one: the kind this console writes, or at least a
+            // name or a figure. Anything else is a read that did not work.
+            const isCampaign = !!(d && typeof d === 'object' && !d.msg && !d.error
+                && (d.kind === 'fundraise'
+                    || (typeof d.title === 'string' && d.title.trim())
+                    || +d.goal > 0 || +d.raised > 0)
+                && (!d.kind || d.kind === 'fundraise'));
+            if (!isCampaign) {
+                // The first read is different: there is nothing on screen to protect, and
+                // somebody is looking at a link that did not work.
+                if (firstTime) { fail('That link does not point at a fundraising campaign, or it has been taken down.'); return; }
+                // Otherwise keep what is on the screen. It was right ten seconds ago and is
+                // very nearly right now, which is better than nothing at all.
+                missed++;
+                if (missed >= 3) {
+                    const el = document.getElementById('fd-live');
+                    if (el) el.textContent = 'reconnecting';
+                }
                 return;
             }
+            missed = 0;
             const stamp = JSON.stringify([d.title, d.subtitle, d.goal, d.raised, d.donors, d.note, d.updated,
                 d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media, d.team, d.teamV]);
             if (stamp !== lastStamp) { lastStamp = stamp; await readPicture(d); await readFaces(d); draw(d, firstTime); }

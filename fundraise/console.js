@@ -462,11 +462,12 @@ function (path, config) {
             + '<input id="fc-don-on" type="checkbox" style="accent-color:#22c55e;"/>'
             + '<span style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">Take donations</span></label>'
             + '<div id="fc-don-box" style="display:none;">'
-            + '<div style="margin-top:6px;font:12.5px system-ui;color:#9fb3c8;">A donor pays on a secure page, and the '
-            + 'money arrives in your own account. Which methods they are offered -- card, Apple Pay, Link and the rest -- '
-            + 'is set once on your payment account rather than per campaign, and each one also depends on the donor\'s '
-            + 'device and country: Apple Pay shows for someone in Safari with a card in their wallet, and needs nothing '
-            + 'from this page.</div>'
+            // The paragraph that used to be here said the money arrives in your own
+            // account. It does not: every donation is charged to the Gene.Clinic Stripe
+            // account, and the organiser is paid from there. Rather than describe that in
+            // a line nobody would read the same way twice, it says nothing, which is the
+            // honest version until the money actually moves the way a sentence here would
+            // have to claim.
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + '<div style="flex:1 1 150px;"><label style="' + lbl + '">Button label (optional)</label><input id="fc-don-label" style="' + inp + '"/></div>'
             + '</div>'
