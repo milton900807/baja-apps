@@ -161,8 +161,12 @@ function (path, config) {
             try { document.title = 'Fundraising'; } catch (e) { }
             return false;
         }
+        const WRAP = 'baja-fundraise-console';
+        const phone = (() => {
+            try { return typeof isMobile === 'function' && !!isMobile(); } catch (e) { return false; }
+        })();
         const wrap = document.createElement('div');
-        wrap.id = 'baja-fundraise-console';
+        wrap.id = WRAP;
         wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483000;overflow:auto;background:#071a30;color:#eaf6f9;'
             + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
         const lbl = 'display:block;font:600 12px system-ui;color:#9fb3c8;margin:14px 0 5px;';
@@ -173,10 +177,10 @@ function (path, config) {
                 : 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;') + '">' + label + '</button>';
 
         wrap.innerHTML = ''
-            + '<div style="display:flex;align-items:center;gap:16px;padding:16px 22px 14px;background:#0b2545;'
+            + '<div class="fc-head" style="display:flex;align-items:center;gap:16px;padding:16px 22px 14px;background:#0b2545;'
             + 'border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
             + '<div><div style="font:700 20px system-ui;">Fundraising</div>'
-            + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">'
+            + '<div class="fc-blurb" style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">'
             + (forOther
                 ? 'Editing a campaign that belongs to <b style="color:#fde68a;">' + esc(forOther.owner) + '</b>. It saves back into their folder.'
                 : 'Enter the total raised, then publish a display anyone can open.')
@@ -209,8 +213,8 @@ function (path, config) {
             + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
             + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
-            + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
-            + '<div style="flex:1 1 420px;max-width:560px;">'
+            + '<div class="fc-body" style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
+            + '<div class="fc-col" style="flex:1 1 420px;max-width:560px;">'
             + '<label style="' + lbl + '">Campaign</label><input id="fc-title" style="' + inp + '"/>'
             + '<div id="fc-name-out" style="margin-top:5px;font:12px system-ui;min-height:15px;"></div>'
             + '<label style="' + lbl + '">A line under it (optional)</label><input id="fc-sub" style="' + inp + '"/>'
@@ -300,7 +304,7 @@ function (path, config) {
             + '<div id="fc-status" style="margin-top:14px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
             + '<div id="fc-link" style="margin-top:6px;font:12.5px system-ui;word-break:break-all;"></div>'
             + '</div>'
-            + '<div style="flex:1 1 380px;min-width:300px;">'
+            + '<div class="fc-col fc-side" style="flex:1 1 380px;min-width:300px;">'
             + '<div style="font:600 12px system-ui;color:#9fb3c8;margin:14px 0 5px;">What the display shows</div>'
             + '<div id="fc-prev" style="border:1px solid rgba(255,255,255,0.14);border-radius:12px;padding:22px 18px;text-align:center;'
             + 'background:radial-gradient(600px 300px at 50% -20%,#123a63 0%,#0a1e3a 60%,#071526 100%);"></div>'
@@ -308,6 +312,51 @@ function (path, config) {
             + 'so raising the total here moves it on screen without anyone reloading the page.</div>'
             + '</div></div>';
         document.body.appendChild(wrap);
+
+        // ---- ON A PHONE ----------------------------------------------------------------
+        //
+        // One stylesheet rather than a conditional in every style string. The markup here is
+        // built from inline styles, which beat a stylesheet, so each rule that has to win
+        // says so; the ones that are only setting a value a phone has no opinion about are
+        // left alone.
+        //
+        // What actually goes wrong on a phone, in order of how much it hurts:
+        //   * the header is a row of four buttons and an account pill beside a title, and at
+        //     390px it either overflows or squeezes the title to nothing. It stacks.
+        //   * an input under 16px makes iOS Safari ZOOM the page when it is focused, and the
+        //     page never zooms back. Every field is 16px.
+        //   * a 9px-tall button is not a tap target. Everything tappable is at least 44px,
+        //     which is the smallest Apple and Google both consider reliable.
+        //   * the two columns are 420px and 380px wide, so they do not sit side by side
+        //     anyway; saying so explicitly stops the min-width forcing a sideways scroll.
+        //   * the account menu is positioned to the right of a pill that is now full width.
+        if (phone) {
+            const st = document.createElement('style');
+            st.id = 'fc-phone';
+            st.textContent = [
+                '#' + WRAP + ' .fc-head{flex-wrap:wrap!important;gap:10px!important;padding:12px 14px 12px!important;}',
+                '#' + WRAP + ' .fc-head > div:first-child{flex:1 1 100%!important;}',
+                // A sentence explaining the screen is worth a line on a laptop and worth
+                // forty pixels of a phone, which is the wrong trade when the account pill
+                // and four buttons are under it. The one case it stays is the one where it
+                // says something that is not obvious: whose campaign is open.
+                (forOther ? '' : '#' + WRAP + ' .fc-blurb{display:none!important;}'),
+                '#' + WRAP + ' #fc-who-wrap{margin-left:0!important;flex:1 1 100%!important;}',
+                '#' + WRAP + ' #fc-who{width:100%!important;}',
+                '#' + WRAP + ' #fc-who-menu{left:0!important;right:auto!important;width:100%!important;}',
+                '#' + WRAP + ' .fc-head > div:last-child{flex:1 1 100%!important;flex-wrap:wrap!important;}',
+                '#' + WRAP + ' .fc-body{padding:14px!important;gap:16px!important;}',
+                '#' + WRAP + ' .fc-col{flex:1 1 100%!important;max-width:100%!important;min-width:0!important;}',
+                '#' + WRAP + ' input,#' + WRAP + ' select,#' + WRAP + ' textarea{font-size:16px!important;padding:11px 12px!important;}',
+                '#' + WRAP + ' button{min-height:44px!important;padding:10px 16px!important;}',
+                // The menu is a list of destinations, not a row of controls: it keeps its own
+                // height so four of them do not fill the screen.
+                '#' + WRAP + ' #fc-who-menu button{min-height:46px!important;}',
+                '#' + WRAP + ' img{max-width:100%!important;height:auto!important;}',
+                '#' + WRAP + '{-webkit-text-size-adjust:100%;}',
+            ].join('\n');
+            wrap.appendChild(st);
+        }
         // The editor shell listens for these on the document; a form must keep its own.
         for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) wrap.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
         const $ = (id) => document.getElementById(id);
