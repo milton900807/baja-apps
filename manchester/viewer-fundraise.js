@@ -361,23 +361,46 @@ function (path, config) {
                 + '<button id="fd-go" style="margin-top:14px;width:100%;cursor:pointer;border:0;background:#22c55e;color:#04210f;'
                 + 'border-radius:10px;padding:13px;font:800 15px system-ui;">' + LOCK(15) + 'Continue to payment</button>'
                 + '<div id="fd-err" style="margin-top:10px;font:12.5px system-ui;color:#fca5a5;min-height:16px;"></div>'
-                // WHAT ACTUALLY HAPPENS TO WHAT, in four lines. Every one of these is a
-                // statement about this code rather than a reassuring noise: the next screen
-                // is the payment provider's, this page stores no card detail because it
-                // never sees one, the campaign records an amount and a time, and an address
-                // is given to the provider for the receipt and is not published anywhere.
+                // WHAT ACTUALLY HAPPENS TO WHAT: one line, and the detail behind it.
+                //
+                // Every one of these is a statement about this code rather than a reassuring
+                // noise, and that is exactly why they were all on screen at once. But four
+                // paragraphs of privacy text between "how much" and "pay" is four paragraphs
+                // a donor has to get past, and the ones who want them are not the ones who
+                // are mid-donation. So the promise is one line, and the detail opens under
+                // it for whoever wants to read it.
+                //
+                // It is in the page, not behind a request: no network, nothing to fail, and
+                // it works the same on a display in a hall with no connection to spare.
                 + '<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.12);'
                 + 'font:12px/1.6 system-ui;color:#9fc4d4;">'
-                + '<div style="font:700 11px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#86efac;margin-bottom:7px;">'
-                + LOCK(13) + 'A secure donation</div>'
+                + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+                + '<span style="font:700 11px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#86efac;">'
+                + LOCK(13) + 'A secure donation</span>'
+                + '<button id="fd-more" type="button" style="cursor:pointer;border:0;background:none;padding:0;'
+                + 'font:12px system-ui;color:#7fd7ea;text-decoration:underline;">What is kept, and what is not</button>'
+                + '</div>'
+                + '<div id="fd-detail" style="display:none;margin-top:8px;">'
                 + '<div>' + LOCK(11, 0.5) + 'Card details are entered on the payment page, never on this one.</div>'
                 + '<div>' + LOCK(11, 0.5) + 'This campaign records the amount and the time, and nothing else.</div>'
                 + '<div>' + LOCK(11, 0.5) + 'Your email goes to the payment provider for the receipt. It is never shown here.</div>'
                 + '<div>' + LOCK(11, 0.5) + 'Nothing is used for marketing, and nothing is passed on.</div>'
                 + '<div style="margin-top:7px;color:#7fb0c4;">Card, Apple Pay, Google Pay and the account\'s other methods '
-                + 'all appear at checkout.</div></div>'
+                + 'all appear at checkout.</div></div></div>'
                 + '</div>';
             document.body.appendChild(sheet);
+
+            // The detail opens in place and stays open: someone who asked to read it is not
+            // helped by having to ask again, and the sheet scrolls.
+            const more = sheet.querySelector('#fd-more');
+            if (more) more.onclick = () => {
+                const d = sheet.querySelector('#fd-detail');
+                if (!d) return;
+                const open = d.style.display !== 'none';
+                d.style.display = open ? 'none' : '';
+                more.textContent = open ? 'What is kept, and what is not' : 'Hide';
+                if (!open) { try { d.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { } }
+            };
 
             let picked = c.amounts.length ? c.amounts[Math.min(1, c.amounts.length - 1)] : 0;
             const paint = () => {

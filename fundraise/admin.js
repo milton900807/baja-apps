@@ -83,32 +83,87 @@ function (path, config) {
         const $ = (id) => document.getElementById(id);
         const say = (m) => { $('fa-status').textContent = m || ''; };
 
+        // This page is a fixed, full-screen element on document.body rather than something
+        // in the widget area, so clear() cannot remove it. Leaving without taking it down
+        // draws the next screen underneath a sheet that is still covering the window.
         const openApp = (url, mod, args) => {
+            try {
+                const el = document.getElementById('baja-fundraise-admin');
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            } catch (e) { }
             try { clear(); } catch (e) { }
             try { window.history.pushState({}, '', url); } catch (e) { }
             return exec.apply(null, [mod].concat(args || []));
         };
 
-        let campaigns = [], picked = null, report = null;
+        // WHAT WENT WRONG, IN WORDS.
+        //
+        // POSTJSON resolves rather than rejects on a non-2xx and hands back Angular's
+        // HttpErrorResponse, so the server's body arrives nested under .error -- which is an
+        // OBJECT. Passing that straight to new Error() is where "Could not list campaigns:
+        // [object Object]" came from: the server had said exactly what was wrong and the page
+        // threw the sentence away.
+        //
+        // So: unwrap one level if there is one, prefer the server's own description, and fall
+        // back to the error code rather than to the object it sits in.
+        const problem = (r) => {
+            try {
+                if (!r) return 'no answer from the server';
+                const b = (r.error && typeof r.error === 'object') ? r.error : r;
+                const code = ('' + (b.error || '')).trim();
+                const said = ('' + (b.error_description || b.message || '')).trim();
+                if (code === 'not_signed_in') return 'you are not signed in.';
+                if (code === 'not_an_admin') return 'this server has not been updated yet, so it still '
+                    + 'reserves the campaign list for one account. Run install-donation-endpoint.py on it.';
+                if (code === 'not_your_campaign') return 'that campaign belongs to another account.';
+                if (said) return said;
+                if (code) return code;
+                const st = +(r.status || 0);
+                if (st === 404) return 'the server has no such endpoint (it needs install-donation-endpoint.py).';
+                if (st) return 'the server answered ' + st + '.';
+                return 'the server did not say.';
+            } catch (e) { return 'the server did not say.'; }
+        };
+        const failed = (r) => !!(r && (r.error || (+r.status && +r.status >= 400)));
+
+        let campaigns = [], picked = null, report = null, trouble = '';
 
         const load = async () => {
             if (!user) { say('Sign in to see your campaigns.'); return; }
             say('Reading your campaigns…');
+            trouble = '';
             try {
                 const r = await POSTJSON({ user: user }, host + '/fundraise/campaigns');
-                if (!r || r.error) throw new Error((r && (r.error_description || r.error)) || 'could not list campaigns');
-                campaigns = Array.isArray(r.campaigns) ? r.campaigns : [];
-                say(campaigns.length ? '' : 'No campaigns yet. "New campaign" starts one.');
+                if (failed(r)) { trouble = problem(r); campaigns = []; }
+                else { campaigns = Array.isArray(r && r.campaigns) ? r.campaigns : []; }
             } catch (e) {
                 campaigns = [];
-                say('Could not list campaigns: ' + ((e && e.message) ? e.message : e)
-                    + (/404|not found/i.test('' + e) ? '  (the server needs install-donation-endpoint.py)' : ''));
+                trouble = (e && e.message) ? e.message : ('' + e);
             }
+            say('');
             drawList();
         };
 
         const drawList = () => {
-            if (!campaigns.length) { $('fa-list').innerHTML = ''; return; }
+            // Nothing to show is a thing to SAY, not a blank page. Two different nothings,
+            // too: no campaigns yet, which is where everyone starts and wants a way in, and
+            // a list that could not be read, which is a fault and says what it was.
+            if (!campaigns.length) {
+                const panel = (title, line, withBtn) => '<div style="border:1px solid rgba(255,255,255,0.14);'
+                    + 'border-radius:12px;padding:26px 22px;text-align:center;background:rgba(255,255,255,0.03);">'
+                    + '<div style="font:700 17px system-ui;">' + title + '</div>'
+                    + '<div style="margin-top:8px;font:13.5px/1.6 system-ui;color:#9fb3c8;max-width:52ch;'
+                    + 'margin-left:auto;margin-right:auto;">' + line + '</div>'
+                    + (withBtn ? '<div style="margin-top:16px;">' + btn('fa-empty-new', 'Start a campaign', 'go') + '</div>' : '')
+                    + '</div>';
+                $('fa-list').innerHTML = trouble
+                    ? panel('Could not read your campaigns', 'The server said: ' + esc(trouble), false)
+                    : panel('No campaigns yet',
+                        'When you start one it appears here, with what it has raised and the donations behind it.', true);
+                const b = $('fa-empty-new');
+                if (b) b.onclick = () => openApp('/app/fundraise/console', 'fundraise/console');
+                return;
+            }
             const head = ['Campaign', 'Raised', 'Goal', 'Donors', 'Donations', 'Giving', 'Updated']
                 .map((h) => '<th style="text-align:left;padding:8px 10px;font:700 11px system-ui;letter-spacing:.08em;'
                     + 'text-transform:uppercase;color:#7fb0c4;border-bottom:1px solid rgba(255,255,255,0.14);">' + h + '</th>').join('');
@@ -173,8 +228,8 @@ function (path, config) {
             $('fa-pull').onclick = async () => {
                 out().textContent = 'Asking Stripe…';
                 try {
-                    const r = await POSTJSON({ path: c.path }, host + '/stripe/donation-sync');
-                    if (r && r.error) throw new Error(r.error_description || r.error);
+                    const r = await POSTJSON({ path: c.path, user: user }, host + '/stripe/donation-sync');
+                    if (failed(r)) throw new Error(problem(r));
                     if (r && r.skipped === 'cooldown') out().textContent = 'Just checked a moment ago; try again shortly.';
                     else if (r && r.added) { out().textContent = 'Added ' + r.added + ' donation' + (r.added === 1 ? '' : 's') + ' (' + money(r.amount, c.currency) + ').'; await load(); }
                     else out().textContent = 'Nothing new from Stripe.';
@@ -183,8 +238,10 @@ function (path, config) {
             $('fa-recon').onclick = async () => {
                 out().textContent = 'Reading the payments…';
                 try {
-                    const r = await POSTJSON({ path: c.path }, host + '/stripe/donation-report');
-                    if (!r || r.error) throw new Error((r && (r.error_description || r.error)) || 'no report');
+                    // user, because the server now answers this only for the account whose
+                    // campaign it is (or an admin), and it has no other way to know who asked.
+                    const r = await POSTJSON({ path: c.path, user: user }, host + '/stripe/donation-report');
+                    if (failed(r)) throw new Error(problem(r));
                     report = r; out().textContent = ''; drawReport();
                 } catch (e) { out().textContent = 'Could not read the payments: ' + ((e && e.message) ? e.message : e); }
             };
@@ -217,7 +274,7 @@ function (path, config) {
                 out().textContent = 'Deleting…';
                 try {
                     const r = await POSTJSON({ path: c.path, key: 'user', user: user }, host + '/rm');
-                    if (r && r.error) throw new Error(r.error_description || r.error);
+                    if (failed(r)) throw new Error(problem(r));
                     picked = null; report = null; await load(); drawDetail();
                     say('Deleted ' + c.title + '.');
                 } catch (e) { out().textContent = 'Could not delete it: ' + ((e && e.message) ? e.message : e); }

@@ -150,10 +150,29 @@ function (path, config) {
             // Whose campaign this is, on screen: a campaign is published under the signed-in
             // account's name, into its folder, and at an event there is usually more than one
             // laptop and more than one person near it.
-            + '<div style="margin-left:18px;padding:6px 12px;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
-            + 'background:rgba(255,255,255,0.04);"><div style="font:600 10.5px system-ui;letter-spacing:.1em;'
+            // The pill is also the way out of here. It is the one thing on this screen that
+            // names the account, so it is where someone looks to leave the account, and the
+            // other two places anyone goes from a campaign are the same two menu items.
+            + '<div id="fc-who-wrap" style="margin-left:18px;position:relative;">'
+            + '<button id="fc-who" type="button" style="display:block;text-align:left;cursor:pointer;'
+            + 'padding:6px 30px 6px 12px;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
+            + 'background:rgba(255,255,255,0.04);color:inherit;font:inherit;">'
+            + '<div style="font:600 10.5px system-ui;letter-spacing:.1em;'
             + 'text-transform:uppercase;color:#7fb0c4;">Signed in as</div>'
-            + '<div style="font:600 13px system-ui;margin-top:2px;">' + esc(user) + '</div></div>'
+            + '<div style="font:600 13px system-ui;margin-top:2px;">' + esc(user) + '</div>'
+            + '<span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font:10px system-ui;'
+            + 'color:#7fb0c4;">\u25be</span></button>'
+            + '<div id="fc-who-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:30;'
+            + 'min-width:210px;background:#0b2545;border:1px solid rgba(255,255,255,0.18);border-radius:12px;'
+            + 'box-shadow:0 18px 40px rgba(0,0,0,0.45);overflow:hidden;">'
+            + ['home|Home', 'files|My files', 'campaigns|My campaigns', 'out|Sign out'].map((x) => {
+                const k = x.split('|')[0], label = x.split('|')[1];
+                return '<button type="button" data-go="' + k + '" style="display:block;width:100%;text-align:left;'
+                    + 'cursor:pointer;border:0;background:none;color:' + (k === 'out' ? '#fca5a5' : '#eaf6f9') + ';'
+                    + 'padding:11px 14px;font:600 13px system-ui;'
+                    + (k === 'out' ? 'border-top:1px solid rgba(255,255,255,0.12);' : '') + '">' + label + '</button>';
+            }).join('')
+            + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
             + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
@@ -223,20 +242,14 @@ function (path, config) {
             + '<input id="fc-don-on" type="checkbox" style="accent-color:#22c55e;"/>'
             + '<span style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">Take donations</span></label>'
             + '<div id="fc-don-box" style="display:none;">'
-            + '<div style="margin-top:6px;font:12.5px system-ui;color:#9fb3c8;">Payment is handled by Stripe. Which methods a donor sees '
-            + 'is set on the Stripe account, not here, and each one also depends on the donor\'s device and country: '
-            + 'Apple Pay shows for someone in Safari with a card in their wallet, and needs nothing from this page.</div>'
-            + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-            + btn('fc-pm', 'What donors will be offered')
-            + '<span id="fc-pm-out" style="font:12.5px system-ui;color:#cfe0f5;"></span></div>'
+            + '<div style="margin-top:6px;font:12.5px system-ui;color:#9fb3c8;">A donor pays on a secure page, and the '
+            + 'money arrives in your own account. Which methods they are offered -- card, Apple Pay, Link and the rest -- '
+            + 'is set once on your payment account rather than per campaign, and each one also depends on the donor\'s '
+            + 'device and country: Apple Pay shows for someone in Safari with a card in their wallet, and needs nothing '
+            + 'from this page.</div>'
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-            + '<div style="flex:1 1 200px;"><label style="' + lbl + '">How</label><select id="fc-don-mode" style="' + inp + '">'
-            + '<option value="checkout">Stripe Checkout on this server</option>'
-            + '<option value="link">A Stripe Payment Link</option></select></div>'
             + '<div style="flex:1 1 150px;"><label style="' + lbl + '">Button</label><input id="fc-don-label" style="' + inp + '"/></div>'
             + '</div>'
-            + '<div id="fc-don-url-row"><label style="' + lbl + '">Payment Link</label>'
-            + '<input id="fc-don-url" placeholder="https://buy.stripe.com/…" style="' + inp + '"/></div>'
             + '<label style="' + lbl + '">Suggested amounts</label>'
             + '<input id="fc-don-amts" placeholder="25, 50, 100, 250" style="' + inp + '"/>'
             + '<label style="margin-top:8px;font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
@@ -244,9 +257,6 @@ function (path, config) {
             + '<label style="margin-top:8px;font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
             + '<input id="fc-don-names" type="checkbox" style="accent-color:#22c55e;"/> publish donor names from Stripe '
             + '<span style="color:#6f93a6;">(off: they appear as Anonymous)</span></label>'
-            + '<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-            + btn('fc-pull', 'Pull donations from Stripe')
-            + '<span id="fc-pull-out" style="font:12.5px system-ui;color:#cfe0f5;"></span></div>'
             + '<div id="fc-don-warn" style="margin-top:8px;font:12.5px system-ui;color:#fca5a5;"></div>'
             + '</div></div>'
             + '<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);'
@@ -456,9 +466,7 @@ function (path, config) {
             $('fc-hide').checked = !!doc.hideGiftAmounts;
             const dcfg = don();
             $('fc-don-on').checked = !!dcfg.on;
-            $('fc-don-mode').value = dcfg.mode === 'link' ? 'link' : 'checkout';
             $('fc-don-label').value = dcfg.label || 'Donate';
-            $('fc-don-url').value = dcfg.url || '';
             $('fc-don-amts').value = (Array.isArray(dcfg.amounts) ? dcfg.amounts : []).join(', ');
             $('fc-don-custom').checked = dcfg.custom !== false;
             $('fc-don-names').checked = !!dcfg.showNames;
@@ -470,21 +478,17 @@ function (path, config) {
             donUI();
         };
 
-        // Only the fields that matter for the chosen route are on screen, and a Payment Link
-        // that is not a link at all is called out before it reaches a donor.
+        // ONE WAY TO TAKE A DONATION. There used to be a choice here between checkout on
+        // this server and a Payment Link pasted from the dashboard, and the second one was a
+        // second thing to get wrong: a link that was blank, not https, not a stripe.com
+        // address, or pointing at the wrong campaign, with half this screen there to warn
+        // about it. Checkout on this server is the one that knows which campaign the money is
+        // for, so it is now the only one.
         const donUI = () => {
             const dcfg = don();
             $('fc-don-box').style.display = dcfg.on ? '' : 'none';
-            $('fc-don-url-row').style.display = (dcfg.mode === 'link') ? '' : 'none';
             let warn = '';
-            if (dcfg.on && dcfg.mode === 'link') {
-                const u = ('' + (dcfg.url || '')).trim();
-                if (!u) warn = 'Paste the Payment Link from your Stripe dashboard, or switch to Checkout.';
-                else if (!/^https:\/\//i.test(u)) warn = 'That has to be an https link.';
-                else if (!/(^|\.)stripe\.com$/i.test((() => { try { return new URL(u).hostname; } catch (e) { return ''; } })()))
-                    warn = 'That is not a stripe.com address. It will still be used, but check it is the right one.';
-            }
-            if (dcfg.on && dcfg.mode === 'checkout' && !(Array.isArray(dcfg.amounts) && dcfg.amounts.length) && dcfg.custom === false)
+            if (dcfg.on && !(Array.isArray(dcfg.amounts) && dcfg.amounts.length) && dcfg.custom === false)
                 warn = 'With no suggested amounts and no custom amount, a donor has nothing to choose.';
             $('fc-don-warn').textContent = warn;
         };
@@ -501,9 +505,13 @@ function (path, config) {
             doc.hideGiftAmounts = !!$('fc-hide').checked;
             const dcfg = don();
             dcfg.on = !!$('fc-don-on').checked;
-            dcfg.mode = $('fc-don-mode').value === 'link' ? 'link' : 'checkout';
+            // Written every time rather than carried through from whatever the document
+            // said, so a campaign saved under the old choice becomes a checkout campaign the
+            // next time it is published, instead of quietly keeping a Payment Link that no
+            // screen can show or edit any more.
+            dcfg.mode = 'checkout';
             dcfg.label = ('' + $('fc-don-label').value).trim() || 'Donate';
-            dcfg.url = ('' + $('fc-don-url').value).trim();
+            dcfg.url = '';
             dcfg.custom = !!$('fc-don-custom').checked;
             // The campaign document is fetched whole by the public display, so a name stored
             // here is a name on a wall. Off by default: a donor gave it to Stripe to pay.
@@ -627,53 +635,17 @@ function (path, config) {
         const sync = () => { fromForm(); preview(); donUI(); touch(); };
         toForm(); preview(); lists(); dirty = false;
         for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story',
-            'fc-don-label', 'fc-don-url', 'fc-don-amts']) $(id).addEventListener('input', sync);
-        for (const id of ['fc-don-on', 'fc-don-mode', 'fc-don-custom', 'fc-don-names']) $(id).addEventListener('change', sync);
+            'fc-don-label', 'fc-don-amts']) $(id).addEventListener('input', sync);
+        for (const id of ['fc-don-on', 'fc-don-custom', 'fc-don-names']) $(id).addEventListener('change', sync);
 
-        // The account's own answer to "is Apple Pay on?", rather than mine.
-        $('fc-pm').onclick = async () => {
-            const out = $('fc-pm-out');
-            out.textContent = 'Asking Stripe…';
-            try {
-                const r = await GETJSON(host + '/stripe/payment-methods');
-                if (!r || r.error) throw new Error((r && (r.error_description || r.error)) || 'no answer');
-                if (!r.configured) { out.textContent = 'Stripe has no payment-method configuration on this account yet.'; return; }
-                const on = (r.on || []).join(', ') || 'nothing';
-                const off = (r.off || []);
-                out.innerHTML = '<span style="color:#86efac;">On: ' + esc(on) + '.</span>'
-                    + (off.length ? ' <span style="color:#9fb3c8;">Off: ' + esc(off.join(', '))
-                        + '. Turn these on in the Stripe dashboard under Settings, Payment methods.</span>' : '');
-            } catch (e) {
-                out.textContent = 'Could not ask Stripe: ' + ((e && e.message) ? e.message : e);
-            }
-        };
+        // THERE IS NO "PULL DONATIONS" BUTTON. There was one, and it did by hand what the
+        // display already does by itself every few seconds: ask Stripe for payments against
+        // this campaign and fold them into the document. A button for something that has
+        // already happened is a button that is usually about to say "Nothing new from
+        // Stripe", which reads like a fault rather than the truth. The endpoint it called is
+        // still there and still called -- by the display, and by Reconcile on the campaigns
+        // page, which is where someone goes when they want to know NOW.
 
-        // WHAT STRIPE HAS BEEN PAID, folded into the campaign. The display does this by
-        // itself every few seconds; the button is for the organiser standing at the laptop
-        // who wants to know NOW, and for a campaign nobody has open on a screen.
-        $('fc-pull').onclick = async () => {
-            const out = $('fc-pull-out');
-            if (!docPath) { out.textContent = 'Publish the campaign first.'; return; }
-            $('fc-pull').disabled = true; out.textContent = 'Asking Stripe…';
-            try {
-                const r = await POSTJSON({ path: docPath }, host + '/stripe/donation-sync');
-                if (r && r.error) throw new Error(r.error_description || r.error);
-                if (r && r.skipped === 'cooldown') out.textContent = 'Just checked a moment ago; try again shortly.';
-                else if (r && r.added) {
-                    // The server wrote the gifts into the stored document, so the form has to
-                    // be re-read from it rather than guessing at what changed.
-                    const rs = await POSTJSON({ path: docPath, key: 'user', user: user }, host + '/load-file');
-                    let d = rs;
-                    if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
-                    if (d && typeof d === 'object' && (d.kind === 'fundraise' || d.goal != null)) { doc = Object.assign(doc, d); toForm(); preview(); lists(); }
-                    out.textContent = 'Added ' + r.added + ' donation' + (r.added === 1 ? '' : 's')
-                        + ' (' + money(r.amount || 0, doc.currency) + ').';
-                } else out.textContent = 'Nothing new from Stripe.';
-            } catch (e) {
-                out.textContent = 'Could not reach Stripe: ' + ((e && e.message) ? e.message : e);
-            }
-            $('fc-pull').disabled = false;
-        };
         $('fc-cur').addEventListener('change', () => { sync(); lists(); });
 
         // Told while typing, not after pressing Publish: a name you have to change is worth
@@ -688,7 +660,7 @@ function (path, config) {
             if (hit) {
                 out.innerHTML = '<span style="color:#fcd34d;">A campaign called “' + esc(hit.title || title)
                     + '” already exists. Choose another name, or open that one from All campaigns.</span>';
-            } else out.innerHTML = '<span style="color:#6f93a6;">That name is free.</span>';
+            } else out.innerHTML = '<span style="color:#6f93a6;">That name is available.</span>';
         };
         $('fc-title').addEventListener('input', () => {
             $('fc-name-out').textContent = '';
@@ -908,7 +880,22 @@ function (path, config) {
         };
         $('fc-open').onclick = openDisplay;
         $('fc-open2').onclick = openDisplay;
+        // TAKE THIS SCREEN DOWN BEFORE OPENING THE NEXT ONE.
+        //
+        // This console is not drawn in the widget area: it is a fixed, full-screen element on
+        // document.body, which is what lets it own the whole window. clear() empties the
+        // widget area and cannot touch it, so leaving without removing it first drew the next
+        // screen underneath an opaque sheet that was still covering the window -- which is
+        // exactly what "Cancel does nothing" looked like. The same is true of every other way
+        // out of here.
+        const takeDown = () => {
+            try {
+                const el = document.getElementById('baja-fundraise-console');
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            } catch (e) { }
+        };
         const leave = async (where, mod) => {
+            takeDown();
             try { clear(); } catch (e) { }
             try { window.history.pushState({}, '', where); } catch (e) { }
             // baja/init.js clears the page and pushes its own URL, so there is nothing to
@@ -935,7 +922,59 @@ function (path, config) {
         $('fc-cancel').onclick = cancel;
         $('fc-cancel2').onclick = cancel;
 
+        // THE ACCOUNT MENU. Every item leaves this screen, so every item has to take the
+        // console down on the way out (it is a fixed sheet on document.body, which clear()
+        // cannot touch) and has to ask first when there is unpublished work -- the same
+        // two-press question Cancel asks, in the item itself.
+        const menu = () => $('fc-who-menu');
+        const closeMenu = () => { const m = menu(); if (m) m.style.display = 'none'; armedGo = ''; resetGo(); };
+        const resetGo = () => {
+            for (const b of (menu() ? menu().querySelectorAll('[data-go]') : []))
+                b.textContent = { home: 'Home', files: 'My files', campaigns: 'My campaigns', out: 'Sign out' }[b.getAttribute('data-go')];
+        };
+        let armedGo = '', goTimer = null;
+        $('fc-who').onclick = (e) => {
+            try { e.stopPropagation(); } catch (x) { }
+            const m = menu();
+            if (m) m.style.display = (m.style.display === 'none') ? '' : 'none';
+            if (m && m.style.display === 'none') { armedGo = ''; resetGo(); }
+        };
+        document.addEventListener('pointerdown', (e) => {
+            try {
+                const w = $('fc-who-wrap');
+                if (w && e.target && w.contains(e.target)) return;
+                closeMenu();
+            } catch (x) { }
+        }, true);
+        for (const b of (menu() ? menu().querySelectorAll('[data-go]') : [])) {
+            b.onclick = async () => {
+                const k = b.getAttribute('data-go');
+                if (dirty && armedGo !== k) {
+                    armedGo = k;
+                    resetGo();
+                    b.textContent = 'Leave without publishing?';
+                    clearTimeout(goTimer);
+                    goTimer = setTimeout(() => { armedGo = ''; resetGo(); }, 6000);
+                    return;
+                }
+                clearTimeout(goTimer); armedGo = '';
+                closeMenu();
+                if (k === 'out') {
+                    // Down first: the sign-in page draws where the application draws, and
+                    // this sheet would be sitting on top of it.
+                    takeDown();
+                    try { clear(); } catch (x) { }
+                    try { logout(); } catch (x) { try { window.location.href = '/login'; } catch (x2) { } }
+                    return;
+                }
+                if (k === 'files') return leave('/app/baja/fb', 'manchester/fb.js');
+                if (k === 'campaigns') return leave('/app/fundraise/admin', 'fundraise/admin');
+                return leave('/app/baja/init', 'baja/init');
+            };
+        }
+
         $('fc-all').onclick = async () => {
+            takeDown();
             try { clear(); } catch (e) { }
             try { window.history.pushState({}, '', '/app/fundraise/admin'); } catch (e) { }
             await exec('fundraise/admin');
