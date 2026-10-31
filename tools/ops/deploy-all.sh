@@ -41,7 +41,7 @@ APPS_DIR="${APPS_DIR:-/opt/baja-apps}"
 PORT="${PORT:-8080}"
 BRANCH="${BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
-REF="${REF:-ddaa75b92d73f5b8d254c7a10b0753c0935b851b}"
+REF="${REF:-49af18dadc626c468d9fa7d192ccdf6c7a647a29}"
 DO_API=1; DO_WEB=0; DO_RESTART=1; DO_MENU=1
 
 while [[ $# -gt 0 ]]; do case "$1" in
