@@ -28,11 +28,17 @@ function (path, config) {
         };
         const when = (iso) => { const t = iso ? new Date(iso) : null; return (t && !isNaN(+t)) ? t.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
 
-        // THE DOOR. This page shows what every campaign raised and what each donor paid, so it
-        // is for the account that runs the fundraising and nobody else. The same list is
-        // enforced on the server in front of the two endpoints below, which is what actually
-        // keeps the data in: refusing here only saves the wrong person a 403 and a blank page.
-        if (!(await exec('fundraise/admins.js', user))) {
+        // THE DOOR. Everyone who runs a campaign needs this page: it is where they see what
+        // theirs raised, what it banked, and who gave. So the door asks only that somebody is
+        // signed in, and WHOSE campaigns it shows is settled by the account, not by the door
+        // -- /fundraise/campaigns lists the caller's own folder and nothing else, and
+        // /stripe/donation-report refuses a campaign path that is not in it.
+        //
+        // The admin list still means something: an admin may pull the report for any
+        // campaign, which is what makes supporting someone else's possible. It no longer
+        // decides who may open the page.
+        const admin = await exec('fundraise/admins.js', user);
+        if (!user) {
             try { const old = document.getElementById('baja-fundraise-admin'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
             const no = document.createElement('div');
             no.id = 'baja-fundraise-admin';
@@ -40,15 +46,14 @@ function (path, config) {
                 + 'align-items:center;justify-content:center;padding:6vmin;box-sizing:border-box;text-align:center;'
                 + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
             no.innerHTML = '<div style="max-width:46ch;">'
-                + '<div style="font:700 22px system-ui;">Fundraising administration</div>'
+                + '<div style="font:700 22px system-ui;">My campaigns</div>'
                 + '<div style="margin-top:10px;font:15px/1.55 system-ui;color:#9fb3c8;">'
-                + (user ? 'This page is for the account that runs the fundraising, and ' + esc(user) + ' is not it.'
-                    : 'Sign in with the account that runs the fundraising to open this page.')
-                + '</div>'
+                + 'Sign in to see the campaigns you have started, what they have raised, and the '
+                + 'donations behind the total.</div>'
                 + '<div style="margin-top:16px;font:13px system-ui;color:#6f93a6;">A campaign of your own is edited at '
                 + '/app/fundraise/console.</div></div>';
             document.body.appendChild(no);
-            try { document.title = 'Fundraising administration'; } catch (e) { }
+            try { document.title = 'My campaigns'; } catch (e) { }
             return false;
         }
 
@@ -64,8 +69,9 @@ function (path, config) {
         wrap.innerHTML = ''
             + '<div style="display:flex;align-items:center;gap:16px;padding:16px 22px 14px;background:#0b2545;'
             + 'border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
-            + '<div><div style="font:700 20px system-ui;">Fundraising administration</div>'
-            + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">Every campaign on this account, what it raised, and what it banked.</div></div>'
+            + '<div><div style="font:700 20px system-ui;">' + (admin ? 'Fundraising administration' : 'My campaigns') + '</div>'
+            + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">'
+            + 'Your campaigns, what each raised, and what it banked. Signed in as ' + esc(user) + '.</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fa-refresh', 'Refresh') + btn('fa-new', 'New campaign', 'go') + '</div></div>'
             + '<div style="padding:18px 22px;">'
             + '<div id="fa-status" style="font:12.5px system-ui;color:#cfe0f5;min-height:18px;margin-bottom:10px;"></div>'
@@ -255,7 +261,7 @@ function (path, config) {
         $('fa-refresh').onclick = () => load();
         $('fa-new').onclick = () => openApp('/app/fundraise/console', 'fundraise/console');
         await load();
-        try { document.title = 'Fundraising administration'; } catch (e) { }
+        try { document.title = admin ? 'Fundraising administration' : 'My campaigns'; } catch (e) { }
         return true;
     })();
 }

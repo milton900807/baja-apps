@@ -1,7 +1,8 @@
 function () {
 
-    // THE HEADER MENU'S "My campaigns": what is running, what it has raised, and the
-    // donations behind it. The page says so itself if the account may not see it.
+    // THE HEADER MENU'S "My campaigns": the campaigns this account has started, what each
+    // has raised, and the donations behind the total. Every account has its own; the page
+    // only asks that somebody is signed in.
     return (async () => {
         try { clear(); } catch (e) { }
         try { window.history.pushState({}, '', '/app/fundraise/admin'); } catch (e) { }
