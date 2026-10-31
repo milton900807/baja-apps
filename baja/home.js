@@ -70,7 +70,7 @@ function () {
             + 'background:#16a34a;color:#fff;border-radius:12px;padding:16px 18px;">'
             + '<span style="display:block;font:800 16px Arial;">Start a new campaign</span>'
             + '<span style="display:block;font:13px Arial;opacity:.93;margin-top:4px;">A total, a goal and a link to share. '
-            + 'No charge to run it, and no share of what you raise.</span></button>'
+            + 'No charge to run it, and we do not take a share of what you raise.</span></button>'
             + '<button data-fund="mine" class="baja-home-fund" style="flex:1 1 300px;cursor:pointer;text-align:left;border:1px solid #cfdbe2;'
             + 'background:#fff;border-radius:12px;padding:16px 18px;">'
             + '<span style="display:block;font:800 16px Arial;color:#12242c;">Campaigns already running</span>'

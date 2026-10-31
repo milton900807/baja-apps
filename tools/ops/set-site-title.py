@@ -25,7 +25,7 @@ import os, re, shutil, sys
 
 TITLE = 'Gene.Clinic fundraising'
 DESC = ('Raise money for rare disease research. No charge to run a campaign, '
-        'and no share of what you raise.')
+        'and we do not take a share of what you raise.')
 MARK_OPEN = '  <!-- ---- link preview (set-site-title.py) ---- -->'
 MARK_CLOSE = '  <!-- ---- end link preview ---- -->'
 

@@ -172,7 +172,7 @@ function (options) {
             + 'background:#16a34a;color:#fff;border-radius:10px;padding:14px 16px;">'
             + '<span style="display:block;font:800 15px Arial;">Start a new campaign</span>'
             + '<span style="display:block;font:12.5px Arial;opacity:.92;margin-top:3px;">A total, a goal and a link to share. '
-            + 'No charge, and no share of what you raise.</span></button>'
+            + 'No charge, and we do not take a share of what you raise.</span></button>'
             + '<button data-fund="mine" style="flex:1 1 280px;cursor:pointer;text-align:left;border:1px solid #cfdbe2;'
             + 'background:#fff;border-radius:10px;padding:14px 16px;">'
             + '<span style="display:block;font:800 15px Arial;color:#12242c;">Campaigns already running</span>'
