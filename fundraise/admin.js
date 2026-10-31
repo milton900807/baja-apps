@@ -76,7 +76,11 @@ function (path, config) {
             // someone who has read what their campaigns raised is finished, and the way back
             // to the three doors should not be the browser's back button.
             + '<div style="margin-left:auto;display:flex;gap:10px;">'
-            + btn('fa-home', '\u2190 Home') + btn('fa-refresh', 'Refresh') + btn('fa-new', 'New campaign', 'go') + '</div></div>'
+            + btn('fa-home', '\u2190 Home')
+            // Only an admin has anywhere to go with this, and only an admin can open the
+            // page behind it, so it is not shown to anyone else.
+            + (admin ? btn('fa-all', 'Every campaign') : '')
+            + btn('fa-refresh', 'Refresh') + btn('fa-new', 'New campaign', 'go') + '</div></div>'
             + '<div style="padding:18px 22px;">'
             + '<div id="fa-status" style="font:12.5px system-ui;color:#cfe0f5;min-height:18px;margin-bottom:10px;"></div>'
             + '<div id="fa-list"></div>'
@@ -320,6 +324,7 @@ function (path, config) {
         };
 
         $('fa-home').onclick = () => openApp('/app/baja/init', 'baja/init');
+        if ($('fa-all')) $('fa-all').onclick = () => openApp('/app/fundraise/super', 'fundraise/super');
         $('fa-refresh').onclick = () => load();
         $('fa-new').onclick = () => openApp('/app/fundraise/console', 'fundraise/console');
         await load();

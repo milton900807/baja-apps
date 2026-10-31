@@ -27,6 +27,36 @@ function (path, config) {
         const user = ('' + ((typeof getUser === 'function' ? getUser() : '') || '')).trim();
         const qp = (k) => { try { return new URL(window.location.href).searchParams.get(k); } catch (e) { return null; } };
 
+        // EDITING SOMEBODY ELSE'S CAMPAIGN, from the superadmin page and from nowhere else.
+        //
+        // owner and enc arrive as an exec() argument, never from the URL: a query parameter
+        // would let anyone claim to be editing for anyone. With them set, the writes go to
+        // /fundraise/all-file, which is behind the admin list on the server -- so the
+        // capability lives there, where it can be checked, rather than here where it would
+        // only be a claim. Without them nothing changes: a campaign is saved into the
+        // signed-in account's own folder, as it always was.
+        const forOther = (() => {
+            try {
+                const o = ('' + ((config && config.owner) || '')).trim();
+                const e = ('' + ((config && config.enc) || '')).trim();
+                if (!o || !e || o.toLowerCase() === user.toLowerCase()) return null;
+                return { owner: o, enc: e };
+            } catch (e) { return null; }
+        })();
+
+        // One way to write a campaign file, whoever it belongs to. The server's own reply
+        // shapes differ, so this gives the caller the one shape the publish code reads.
+        const putFile = async (name, value) => {
+            if (forOther) {
+                const r = await POSTJSON({ user: user, enc: forOther.enc, name: name, value: value },
+                    host + '/fundraise/all-file');
+                if (!r || r.error || (r.status && +r.status >= 400)) return r || {};
+                return { status: 'saved', path: r.path };
+            }
+            return await POSTJSON({ name: name, key: 'user', user: user, spath: 'public', value: value },
+                host + '/save-user-data');
+        };
+
         const CUR = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'CHF', 'JPY'];
         const money = (n, cur) => {
             const v = (+n || 0);
@@ -146,7 +176,11 @@ function (path, config) {
             + '<div style="display:flex;align-items:center;gap:16px;padding:16px 22px 14px;background:#0b2545;'
             + 'border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
             + '<div><div style="font:700 20px system-ui;">Fundraising</div>'
-            + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">Enter the total raised, then publish a display anyone can open.</div></div>'
+            + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">'
+            + (forOther
+                ? 'Editing a campaign that belongs to <b style="color:#fde68a;">' + esc(forOther.owner) + '</b>. It saves back into their folder.'
+                : 'Enter the total raised, then publish a display anyone can open.')
+            + '</div></div>'
             // Whose campaign this is, on screen: a campaign is published under the signed-in
             // account's name, into its folder, and at an event there is usually more than one
             // laptop and more than one person near it.
@@ -819,17 +853,14 @@ function (path, config) {
                     // should not sit in a public folder for ever.
                     const keep = {};
                     for (const m of teamArr()) if (teamFaces[m.id]) keep[m.id] = teamFaces[m.id];
-                    const rsT = await POSTJSON({ name: tName, key: 'user', user: user, spath: 'public',
-                        value: JSON.stringify({ kind: 'fundraise-team', faces: keep }) }, host + '/save-user-data');
+                    const rsT = await putFile(tName, JSON.stringify({ kind: 'fundraise-team', faces: keep }));
                     if (!rsT || !(rsT.status === 'saved' || rsT.path)) throw new Error('the team photographs could not be saved');
                     teamFaces = keep; doc.teamFile = tName; doc.teamV = Date.now(); teamDirty = false;
                 }
                 if (pendingImage) {
                     $('fc-status').textContent = 'Saving the picture…';
                     const imgName = imgFileFor();
-                    const rs0 = await POSTJSON({ name: imgName, key: 'user', user: user, spath: 'public',
-                        value: JSON.stringify({ kind: 'fundraise-image', dataUri: pendingImage.dataUri }) },
-                        host + '/save-user-data');
+                    const rs0 = await putFile(imgName, JSON.stringify({ kind: 'fundraise-image', dataUri: pendingImage.dataUri }));
                     if (!rs0 || !(rs0.status === 'saved' || rs0.path)) throw new Error('the picture could not be saved');
                     m.imageFile = imgName; m.imageV = Date.now();
                     loadedImage = pendingImage.dataUri; pendingImage = null; imageGone = false;
@@ -842,11 +873,13 @@ function (path, config) {
                 busy(false); return;
             }
             try {
-                const rs = await POSTJSON({ name: fileName, key: 'user', user: user, spath: 'public', value: JSON.stringify(doc) },
-                    host + '/save-user-data');
-                if (!rs || !(rs.status === 'saved' || rs.path)) throw new Error((rs && (rs.status || rs.error)) || 'the campaign could not be saved');
-                // Marks the folder public, the same marker a shared genome writes.
-                try { await POSTJSON({ name: '.share', key: 'user', user: user, spath: 'public', value: 'public\n/public' }, host + '/save-user-data'); } catch (e) { }
+                const rs = await putFile(fileName, JSON.stringify(doc));
+                if (!rs || !(rs.status === 'saved' || rs.path)) throw new Error((rs && (rs.status || rs.error_description || rs.error)) || 'the campaign could not be saved');
+                // Marks the folder public, the same marker a shared genome writes. The
+                // admin route writes it itself, so this is only for one's own folder.
+                if (!forOther) {
+                    try { await POSTJSON({ name: '.share', key: 'user', user: user, spath: 'public', value: 'public\n/public' }, host + '/save-user-data'); } catch (e) { }
+                }
                 docPath = ('' + (rs.path || '')).replace(/\/{2,}/g, '/');
                 let link = window.location.origin + '/app/manchester/viewer-fundraise?path=' + encodeURIComponent(docPath);
                 // THE LINK PEOPLE ARE GIVEN IS /f/<code>. It is short enough to read out, it
