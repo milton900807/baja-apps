@@ -95,10 +95,19 @@ function () {
         const shell = (inner) => '<div id="' + ID + '" style="font-family:Arial,Helvetica,sans-serif;'
             + 'max-width:1180px;margin:0 auto;padding:' + (phone ? '16px 14px 36px' : '26px 18px 40px') + ';">' + inner + '</div>';
 
-        const draw = (inner) => showWidget({
-            wid: 'card', width: '100%', height: '100%',
-            data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: shell(inner) } }]] }
-        });
+        // clear() FIRST, EVERY TIME. showWidget does not replace what is on the screen: it
+        // appends (dash.component's loadWidget calls viewContainerRef.createComponent and
+        // never clears), so drawing a second screen without clearing leaves both, with the
+        // new one below the old. On a desktop that reads as a page that grew; on a phone
+        // the new page is off the bottom and the doors are still there, which looks exactly
+        // like a button that does nothing. That is what it looked like.
+        const draw = (inner) => {
+            try { clear(); } catch (e) { }
+            return showWidget({
+                wid: 'card', width: '100%', height: '100%',
+                data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: shell(inner) } }]] }
+            });
+        };
 
         const DOORS = '<div style="font:800 ' + (phone ? '22px' : '26px') + ' Arial;color:#12242c;">'
             + (who ? 'Welcome back' : 'Welcome') + '</div>'
