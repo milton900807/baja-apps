@@ -305,6 +305,9 @@ function (path, config) {
             + btn('fc-img-clear', 'Remove') + '</div>'
             + '<div id="fc-img-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
             + '<div id="fc-img-prev" style="margin-top:8px;"></div>'
+            + '<div style="margin-top:10px;font:12px system-ui;color:#9fb3c8;">No picture of your own? '
+            + 'Pick one of these.</div>'
+            + '<div id="fc-stock" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px;"></div>'
             + '<label style="' + lbl + '">The team (optional)</label>'
             + '<div style="font:12px system-ui;color:#9fb3c8;margin-bottom:7px;">Who is behind the campaign. Shown on the details page.</div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
@@ -494,6 +497,114 @@ function (path, config) {
         // several megabytes, and the display is often a laptop on a hotel wifi. It is drawn
         // into a canvas at a sane size and re-encoded as a JPEG, which turns 6MB into a
         // couple of hundred KB without anyone in the room being able to tell.
+        // ---- PICTURES FOR A CAMPAIGN THAT HAS NONE -------------------------------------
+        //
+        // Drawn, not photographed. A stock photograph of somebody else's child on a page
+        // about your own is worse than no picture at all, and these cost a few hundred
+        // bytes of markup each instead of a download.
+        //
+        // A chosen one goes through the same path an uploaded photograph does: drawn onto
+        // a canvas at 1200x630 and saved as a JPEG. It is not kept as SVG, because the
+        // link-preview endpoint serves raster formats only -- a campaign that picked a
+        // drawing would otherwise share with no picture at all.
+        const ART = {
+            ribbon: ['Awareness ribbon', '#0b2e4a', '#124a63', (a) =>
+                '<g fill="none" stroke="' + a + '" stroke-width="26" stroke-linecap="round">'
+                + '<path d="M556 524 C578 482 600 456 612 430 C640 374 668 358 664 308'
+                + ' C660 248 620 220 600 220 C580 220 540 248 536 308'
+                + ' C532 358 560 374 588 430 C600 456 622 482 644 524"/></g>'],
+            helix: ['DNA', '#07263b', '#0d4a52', (a) => {
+                let out = '';
+                for (let i = 0; i < 2; i++) {
+                    const x0 = 515 + i * 170, x1 = 685 - i * 170;
+                    out += '<path d="M' + x0 + ' 130 C' + x0 + ' 250 ' + x1 + ' 310 ' + x1 + ' 420 C'
+                        + x1 + ' 530 ' + x0 + ' 390 ' + x0 + ' 510" fill="none" stroke="' + a
+                        + '" stroke-width="20" stroke-linecap="round"/>';
+                }
+                for (let k = 0; k < 7; k++) {
+                    const y = 160 + k * 55;
+                    const w = 22 + 63 * Math.abs(Math.cos((y - 130) / 290 * Math.PI));
+                    out += '<path d="M' + (600 - w) + ' ' + y + ' L' + (600 + w) + ' ' + y + '" stroke="' + a
+                        + '" stroke-width="12" stroke-linecap="round" opacity="0.7"/>';
+                }
+                return out;
+            }],
+            zebra: ['Zebra stripes', '#0a2235', '#123b52', (a) => {
+                let out = '';
+                for (let i = 0; i < 9; i++) {
+                    const x = 180 + i * 110;
+                    out += '<path d="M' + x + ' 60 C' + (x + 70) + ' 220 ' + (x - 50) + ' 410 ' + (x + 40)
+                        + ' 580" fill="none" stroke="' + a + '" stroke-width="' + (16 + (i % 3) * 7)
+                        + '" stroke-linecap="round" opacity="0.85"/>';
+                }
+                return out;
+            }],
+            scope: ['Microscope', '#08283f', '#10465c', (a) =>
+                '<g fill="none" stroke="' + a + '" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M470 470 L730 470"/><path d="M540 470 L540 400 Q540 330 600 300"/>'
+                + '<path d="M600 300 L660 180 L720 210 L665 330 Z"/><path d="M470 400 Q470 250 600 210"/>'
+                + '<path d="M500 520 L700 520"/></g>'],
+            cells: ['Cells', '#072a3c', '#0f4a4a', (a) => {
+                let out = '<circle cx="600" cy="330" r="190" fill="none" stroke="' + a
+                    + '" stroke-width="18" opacity="0.8"/>';
+                const seeds = [[520, 260, 46], [660, 300, 60], [575, 400, 38], [680, 420, 30], [500, 370, 26]];
+                for (const c of seeds) {
+                    out += '<circle cx="' + c[0] + '" cy="' + c[1] + '" r="' + c[2] + '" fill="' + a
+                        + '" opacity="0.45"/><circle cx="' + c[0] + '" cy="' + c[1] + '" r="'
+                        + Math.round(c[2] / 3) + '" fill="' + a + '"/>';
+                }
+                return out;
+            }],
+            hands: ['In our hands', '#0a2740', '#13455f', (a) =>
+                '<g transform="translate(600,290) scale(1.25) translate(-600,-290)" fill="none" stroke="' + a
+                + '" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M600 404 C548 366 514 338 514 302 C514 274 536 256 560 256'
+                + ' C579 256 593 269 600 284 C607 269 621 256 640 256 C664 256 686 274 686 302'
+                + ' C686 338 652 366 600 404 Z" fill="' + a + '" opacity="0.5"/>'
+                + '<path d="M448 432 C448 552 752 552 752 432"/>'
+                + '<path d="M448 432 C430 406 448 378 474 384"/>'
+                + '<path d="M752 432 C770 406 752 378 726 384"/></g>'],
+            seedling: ['A beginning', '#0a2e32', '#11514b', (a) =>
+                '<g fill="none" stroke="' + a + '" stroke-width="22" stroke-linecap="round">'
+                + '<path d="M600 520 L600 330"/>'
+                + '<path d="M600 390 C520 390 460 340 455 265 C540 258 600 310 600 390 Z" fill="' + a
+                + '" opacity="0.5"/>'
+                + '<path d="M600 350 C680 350 745 300 750 225 C660 218 600 270 600 350 Z" fill="' + a
+                + '" opacity="0.5"/>'
+                + '<path d="M470 530 L730 530"/></g>'],
+            summit: ['The climb', '#092033', '#0f3f58', (a) =>
+                '<circle cx="775" cy="200" r="58" fill="' + a + '" opacity="0.85"/>'
+                + '<path d="M240 540 L470 250 L620 450 L720 330 L960 540 Z" fill="' + a + '" opacity="0.5"'
+                + ' stroke="' + a + '" stroke-width="20" stroke-linejoin="round"/>'
+                + '<path d="M470 250 L556 362 L384 362 Z" fill="#eaf6f9" opacity="0.85"/>'
+                + '<path d="M240 540 L960 540" stroke="' + a + '" stroke-width="22" stroke-linecap="round"/>'],
+        };
+        const artSvg = (id) => {
+            const a = ART[id];
+            if (!a) return '';
+            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">'
+                + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+                + '<stop offset="0" stop-color="' + a[1] + '"/>'
+                + '<stop offset="1" stop-color="' + a[2] + '"/></linearGradient></defs>'
+                + '<rect width="1200" height="630" fill="url(#g)"/>'
+                + '<g transform="translate(0,20)">' + a[3]('#5ee3a6') + '</g></svg>';
+        };
+        const artUri = (id) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(artSvg(id));
+        const artJpeg = (id) => new Promise((resolve, reject) => {
+            const im = new Image();
+            im.onerror = () => reject(new Error('that picture could not be drawn here'));
+            im.onload = () => {
+                try {
+                    const cv = document.createElement('canvas');
+                    cv.width = 1200; cv.height = 630;
+                    cv.getContext('2d').drawImage(im, 0, 0, 1200, 630);
+                    const url = cv.toDataURL('image/jpeg', 0.86);
+                    resolve({ dataUri: url, w: 1200, h: 630, bytes: Math.round(url.length * 0.75) });
+                } catch (e) { reject(e); }
+            };
+            im.src = artUri(id);
+        });
+
         const IMG_MAX = 1600, IMG_BYTES = 420 * 1024;
         let pendingImage = null, imageGone = false, loadedImage = '';
         const shrink = (file) => new Promise((resolve, reject) => {
@@ -554,6 +665,35 @@ function (path, config) {
                 $('fc-img-out').textContent = 'Could not use that picture: ' + ((e && e.message) ? e.message : e);
             }
         });
+        // The gallery is filled in here rather than in the markup above: eight data URIs
+        // on one line of HTML is a line nobody can read or change later.
+        (() => {
+            const box = $('fc-stock');
+            if (!box) return;
+            box.innerHTML = Object.keys(ART).map((id) =>
+                '<button type="button" data-art="' + id + '" title="' + esc(ART[id][0]) + '"'
+                + ' aria-label="Use the picture: ' + esc(ART[id][0]) + '"'
+                + ' style="width:84px;height:47px;padding:0;border-radius:7px;cursor:pointer;'
+                + 'border:1px solid rgba(255,255,255,0.18);background:#0a1e3a center/cover no-repeat;'
+                + 'background-image:url(&quot;' + artUri(id) + '&quot;);"></button>').join('');
+            for (const bn of box.querySelectorAll('[data-art]')) {
+                bn.onclick = async () => {
+                    const id = bn.getAttribute('data-art');
+                    $('fc-img-out').textContent = 'Drawing it\u2026';
+                    try {
+                        const got = await artJpeg(id);
+                        pendingImage = got; imageGone = false;
+                        try { $('fc-img').value = ''; } catch (e) { }
+                        $('fc-img-out').textContent = ART[id][0] + ' it is. Publish to put it on the display.';
+                        imgUI(); preview(); touch();
+                    } catch (e) {
+                        $('fc-img-out').textContent = 'Could not use that one: '
+                            + ((e && e.message) ? e.message : e);
+                    }
+                };
+            }
+        })();
+
         $('fc-img-clear').onclick = () => {
             pendingImage = null; imageGone = true;
             try { $('fc-img').value = ''; } catch (e) { }
