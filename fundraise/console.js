@@ -35,21 +35,30 @@ function (path, config) {
         // capability lives there, where it can be checked, rather than here where it would
         // only be a claim. Without them nothing changes: a campaign is saved into the
         // signed-in account's own folder, as it always was.
+        // Two ways to be in somebody else's campaign, and they are not the same thing.
+        // `all-file` is the superadmin's: any campaign on the box, because the account is
+        // on the admin list. `edit-file` is an invitation: the owner put this address on
+        // that one campaign's list, and the server checks the list rather than the claim.
         const forOther = (() => {
             try {
                 const o = ('' + ((config && config.owner) || '')).trim();
                 const e = ('' + ((config && config.enc) || '')).trim();
                 if (!o || !e || o.toLowerCase() === user.toLowerCase()) return null;
-                return { owner: o, enc: e };
+                return { owner: o, enc: e, via: (config && config.shared) ? 'edit-file' : 'all-file' };
             } catch (e) { return null; }
         })();
+        const asGuest = !!(forOther && forOther.via === 'edit-file');
 
         // One way to write a campaign file, whoever it belongs to. The server's own reply
         // shapes differ, so this gives the caller the one shape the publish code reads.
         const putFile = async (name, value) => {
             if (forOther) {
-                const r = await POSTJSON({ user: user, enc: forOther.enc, name: name, value: value },
-                    host + '/fundraise/all-file');
+                // The guest route is given the campaign, not the account: what it may
+                // write is decided by the list attached to that one campaign.
+                const body = asGuest
+                    ? { user: user, path: docPath, name: name, value: value }
+                    : { user: user, enc: forOther.enc, name: name, value: value };
+                const r = await POSTJSON(body, host + '/fundraise/' + forOther.via);
                 if (!r || r.error || (r.status && +r.status >= 400)) return r || {};
                 return { status: 'saved', path: r.path };
             }
@@ -230,6 +239,9 @@ function (path, config) {
         let loadTrouble = '';
         if (docPath) {
             const shapes = [
+                // Asked for by campaign rather than by file when this is somebody else's:
+                // it is the one route that answers for a guest whatever /load-file wants.
+                { __to: '/fundraise/read-file', path: docPath, user: user },
                 { path: docPath, key: 'user', user: user },
                 { path: docPath, user: 'public' },
                 { path: '/user' + docPath, key: 'user', user: user },
@@ -237,7 +249,9 @@ function (path, config) {
             let got = null, last = null;
             for (const body of shapes) {
                 try {
-                    const rs = await POSTJSON(body, host + '/load-file');
+                    const to = body.__to || '/load-file';
+                    if (body.__to) delete body.__to;
+                    const rs = await POSTJSON(body, host + to);
                     let d = rs;
                     if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
                     if (d && typeof d === 'object' && (d.kind === 'fundraise' || d.goal != null)) { got = d; break; }
@@ -309,7 +323,10 @@ function (path, config) {
             + '<div><div style="font:700 20px system-ui;">Fundraising</div>'
             + '<div class="fc-blurb" style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">'
             + (forOther
-                ? 'Editing a campaign that belongs to <b style="color:#fde68a;">' + esc(forOther.owner) + '</b>. It saves back into their folder.'
+                ? (asGuest
+                    ? '<b style="color:#fde68a;">' + esc(forOther.owner) + '</b> shared this campaign with you. '
+                        + 'Your changes go to their copy, which is the one people are watching.'
+                    : 'Editing a campaign that belongs to <b style="color:#fde68a;">' + esc(forOther.owner) + '</b>. It saves back into their folder.')
                 : 'Enter the total raised, then publish a display anyone can open.')
             + '</div></div>'
             // Whose campaign this is, on screen: a campaign is published under the signed-in
@@ -1301,6 +1318,94 @@ function (path, config) {
         // link (manchester/design-share.js): same overlay, same card, same wording for the
         // same promise. A link is the whole point of publishing, and a line of grey text at
         // the bottom of a long form is a place to miss it.
+        // WHO ELSE CAN WORK ON THIS CAMPAIGN.
+        //
+        // One campaign, named addresses, granted by the account that owns it. What it
+        // grants is the console: the totals, the story, the picture, the updates. It does
+        // not grant deleting the campaign, giving it away, or the donor report, which stay
+        // with the owner.
+        //
+        // The list is kept by the server outside the public folder, never in the campaign
+        // document: that document is fetched by everyone who opens the display, and a list
+        // of colleagues' addresses in it would be a list of addresses on the open web.
+        const shareDialog = async () => {
+            try { const o = document.getElementById('baja-fundraise-share'); if (o && o.parentNode) o.parentNode.removeChild(o); } catch (e) { }
+            const w = document.createElement('div');
+            w.id = 'baja-fundraise-share';
+            w.style.cssText = 'position:fixed;inset:0;z-index:2147483200;background:rgba(0,0,0,0.45);'
+                + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
+            w.innerHTML = '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'
+                + 'width:min(520px,92vw);max-height:86vh;overflow:auto;background:#0b2545;color:#eaf6f9;'
+                + 'border:1px solid rgba(255,255,255,0.18);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,0.55);padding:20px 22px;">'
+                + '<div style="font:800 17px system-ui;">Who can edit this campaign</div>'
+                + '<div style="margin-top:6px;font:13px/1.6 system-ui;color:#9fb3c8;">'
+                + 'They sign in with their own account and find it under My campaigns. They can change '
+                + 'the campaign, its picture and its updates. They cannot delete it, cannot share it on, '
+                + 'and do not see the donations report.</div>'
+                + '<div id="fs-list" style="margin-top:14px;"></div>'
+                + '<label style="display:block;margin:16px 0 5px;font:600 12px system-ui;color:#9fb3c8;">Add somebody</label>'
+                + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+                + '<input id="fs-mail" type="email" placeholder="their email address" autocomplete="off" '
+                + 'style="flex:1 1 240px;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;'
+                + 'border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:10px 11px;font:16px system-ui;"/>'
+                + '<button id="fs-add" style="cursor:pointer;border:1px solid #22c55e;background:#22c55e;color:#04210f;'
+                + 'border-radius:8px;padding:10px 16px;font:700 12.5px system-ui;">Add</button></div>'
+                + '<div id="fs-out" style="margin-top:9px;font:12.5px system-ui;color:#9fb3c8;min-height:17px;"></div>'
+                + '<div style="margin-top:16px;text-align:right;">'
+                + '<button id="fs-done" style="cursor:pointer;border:1px solid rgba(255,255,255,0.25);background:transparent;'
+                + 'color:#fff;border-radius:8px;padding:9px 16px;font:700 12.5px system-ui;">Done</button></div></div>';
+            document.body.appendChild(w);
+            const q = (id) => w.querySelector('#' + id);
+            const shut = () => { try { w.parentNode.removeChild(w); } catch (e) { } };
+            q('fs-done').onclick = shut;
+            w.addEventListener('click', (e) => { if (e.target === w) shut(); });
+
+            let editors = [];
+            const paint = () => {
+                const box = q('fs-list');
+                if (!editors.length) {
+                    box.innerHTML = '<div style="font:13px system-ui;color:#7fa3b8;padding:10px 0;">'
+                        + 'Nobody else yet. It is yours alone.</div>';
+                    return;
+                }
+                box.innerHTML = editors.map((e) =>
+                    '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;'
+                    + 'border-top:1px solid rgba(255,255,255,0.09);">'
+                    + '<span style="font:13.5px system-ui;word-break:break-all;">' + esc(e) + '</span>'
+                    + '<button data-drop="' + esc(e) + '" style="margin-left:auto;cursor:pointer;'
+                    + 'border:1px solid rgba(252,165,165,0.45);background:transparent;color:#fca5a5;'
+                    + 'border-radius:7px;padding:6px 11px;font:700 11.5px system-ui;">Remove</button></div>').join('');
+                for (const b2 of box.querySelectorAll('[data-drop]')) {
+                    b2.onclick = () => send({ remove: b2.getAttribute('data-drop') },
+                        'Removed ' + b2.getAttribute('data-drop') + '.');
+                }
+            };
+            const send = async (extra, said) => {
+                q('fs-out').style.color = '#9fb3c8';
+                q('fs-out').textContent = 'Saving…';
+                try {
+                    const r = await POSTJSON(Object.assign({ user: user, path: docPath }, extra),
+                        host + '/fundraise/share');
+                    if (!r || r.ok !== true) throw new Error(problemText(r));
+                    editors = Array.isArray(r.editors) ? r.editors : [];
+                    paint();
+                    q('fs-out').textContent = said || '';
+                    q('fs-mail').value = '';
+                } catch (e) {
+                    q('fs-out').style.color = '#fca5a5';
+                    q('fs-out').textContent = (e && e.message) ? e.message : ('' + e);
+                }
+            };
+            q('fs-add').onclick = () => {
+                const v = ('' + q('fs-mail').value).trim();
+                if (!v) { q('fs-mail').focus(); return; }
+                send({ add: v }, 'Added ' + v + '. It is in their My campaigns now.');
+            };
+            q('fs-mail').addEventListener('keydown', (e) => { if (e.key === 'Enter') q('fs-add').click(); });
+            await send({}, '');
+            try { q('fs-mail').focus(); } catch (e) { }
+        };
+
         const linkDialog = (link, campaign) => {
             try { const old_ = document.getElementById('baja-fundraise-link'); if (old_ && old_.parentNode) old_.parentNode.removeChild(old_); } catch (e) { }
             const w = document.createElement('div');
@@ -1490,11 +1595,20 @@ function (path, config) {
                         'Anyone browsing gene.clinic can find it again.')
                     : liveItem('fc-lm-hide', 'Hide from the campaigns page',
                         'The link keeps working. It just stops being listed.');
-                m.innerHTML += liveItem('fc-lm-del', 'Delete this campaign',
-                    'The link stops working. An administrator can still put it back.', true);
+                // Only the owner decides who may edit, and only the owner may delete. A
+                // guest editor is offered neither: the server refuses both, and a button
+                // that is going to be refused should not be on the screen.
+                if (!asGuest) {
+                    m.innerHTML += liveItem('fc-lm-who', 'Who can edit this',
+                        'Share the console with somebody, by email address.');
+                    m.innerHTML += liveItem('fc-lm-del', 'Delete this campaign',
+                        'The link stops working. An administrator can still put it back.', true);
+                }
             }
             const pub = $('fc-lm-pub');
             if (pub) pub.onclick = () => { closeLive(); publish(); };
+            const whoBtn = $('fc-lm-who');
+            if (whoBtn) whoBtn.onclick = () => { closeLive(); shareDialog(); };
             const hide = $('fc-lm-hide');
             if (hide) hide.onclick = async () => {
                 closeLive();

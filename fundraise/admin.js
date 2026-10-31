@@ -144,6 +144,17 @@ function (path, config) {
                 const r = await POSTJSON({ user: user }, host + '/fundraise/campaigns');
                 if (failed(r)) { trouble = problem(r); campaigns = []; }
                 else { campaigns = Array.isArray(r && r.campaigns) ? r.campaigns : []; }
+                // AND THE ONES OTHER PEOPLE SHARED. They belong to another account's
+                // folder, so they are not in the list above; they are in the same list
+                // here because "my campaigns" means the campaigns somebody works on, and
+                // a second table for three rows is a second place to look.
+                try {
+                    const rs = await POSTJSON({ user: user }, host + '/fundraise/shared-with-me');
+                    for (const c of (Array.isArray(rs && rs.campaigns) ? rs.campaigns : [])) {
+                        campaigns.push(Object.assign({}, c, { sharedBy: c.owner, gifts: c.gifts || 0 }));
+                    }
+                    campaigns.sort((a, b) => ('' + b.updated).localeCompare('' + a.updated));
+                } catch (e) { /* an older server has no such route; your own list still works */ }
             } catch (e) {
                 campaigns = [];
                 trouble = (e && e.message) ? e.message : ('' + e);
@@ -183,7 +194,9 @@ function (path, config) {
                     return '<tr data-pick="' + i + '" style="cursor:pointer;background:' + (on ? 'rgba(79,208,230,0.10)' : 'transparent') + ';">'
                         + '<td style="padding:10px;border-bottom:1px solid rgba(255,255,255,0.07);">'
                         + '<div style="font:600 14px system-ui;">' + esc(c.title) + '</div>'
-                        + '<div style="font:11.5px system-ui;color:#6f93a6;">' + esc(c.file) + '</div></td>'
+                        + '<div style="font:11.5px system-ui;color:#6f93a6;">' + esc(c.file)
+                        + (c.sharedBy ? ' <span style="color:#fbbf24;">shared with you by ' + esc(c.sharedBy) + '</span>' : '')
+                        + '</div></td>'
                         + '<td style="padding:10px;border-bottom:1px solid rgba(255,255,255,0.07);font:700 14px system-ui;">' + esc(money(c.raised, c.currency)) + '</td>'
                         + '<td style="padding:10px;border-bottom:1px solid rgba(255,255,255,0.07);font:13px system-ui;color:#9fb3c8;">'
                         + (c.goal > 0 ? esc(money(c.goal, c.currency)) + ' · ' + pct.toFixed(pct < 10 ? 1 : 0) + '%' : '—') + '</td>'
@@ -223,21 +236,34 @@ function (path, config) {
                 + '<div style="font:12.5px system-ui;color:#9fb3c8;">' + esc(c.file) + '</div></div>'
                 + '<div style="margin-top:12px;display:flex;gap:9px;flex-wrap:wrap;">'
                 + btn('fa-edit', 'Edit campaign') + btn('fa-view', 'Open the display') + btn('fa-copy', 'Copy the link')
-                + btn('fa-pull', 'Pull donations') + btn('fa-recon', 'Reconcile', 'go') + btn('fa-csv', 'Export CSV')
-                + '<span style="flex:1 1 20px;"></span>' + btn('fa-del', 'Delete', 'bad')
+                // The money and the delete belong to the account that owns the campaign.
+                // The server says so too; this is so a guest is not offered a button that
+                // is going to come back refused.
+                + (c.sharedBy ? ''
+                    : btn('fa-pull', 'Pull donations') + btn('fa-recon', 'Reconcile', 'go') + btn('fa-csv', 'Export CSV')
+                        + '<span style="flex:1 1 20px;"></span>' + btn('fa-del', 'Delete', 'bad'))
                 + '</div>'
+                + (c.sharedBy ? '<div style="margin-top:10px;font:12.5px/1.6 system-ui;color:#9fb3c8;">'
+                    + esc(c.sharedBy) + ' shared this campaign with you. You can edit it; the donations and '
+                    + 'deleting it stay with them.</div>' : '')
                 + '<div id="fa-out" style="margin-top:12px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
                 + '<div id="fa-reportbox"></div></div>';
             const out = () => $('fa-out');
 
-            $('fa-edit').onclick = () => openApp('/app/fundraise/console?c=' + encodeURIComponent(c.file), 'fundraise/console', ['', { path: c.path }]);
+            $('fa-edit').onclick = () => (c.sharedBy
+                // No ?c= in the address bar for somebody else's campaign: a reload would
+                // look for a file of that name in YOUR folder and find the wrong one, or
+                // nothing. The console is handed the campaign instead.
+                ? openApp('/app/fundraise/console', 'fundraise/console',
+                    ['', { path: c.path, owner: c.owner, enc: c.enc, shared: true }])
+                : openApp('/app/fundraise/console?c=' + encodeURIComponent(c.file), 'fundraise/console', ['', { path: c.path }]));
             $('fa-view').onclick = () => { try { window.open(link, '_blank', 'noopener'); } catch (e) { } };
             $('fa-copy').onclick = async () => {
                 let ok = false;
                 try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); ok = true; } } catch (e) { }
                 out().textContent = ok ? 'Link copied.' : link;
             };
-            $('fa-pull').onclick = async () => {
+            if ($('fa-pull')) $('fa-pull').onclick = async () => {
                 out().textContent = 'Asking Stripe…';
                 try {
                     const r = await POSTJSON({ path: c.path, user: user }, host + '/stripe/donation-sync');
@@ -247,7 +273,7 @@ function (path, config) {
                     else out().textContent = 'Nothing new from Stripe.';
                 } catch (e) { out().textContent = 'Could not reach Stripe: ' + ((e && e.message) ? e.message : e); }
             };
-            $('fa-recon').onclick = async () => {
+            if ($('fa-recon')) $('fa-recon').onclick = async () => {
                 out().textContent = 'Reading the payments…';
                 try {
                     // user, because the server now answers this only for the account whose
@@ -257,7 +283,7 @@ function (path, config) {
                     report = r; out().textContent = ''; drawReport();
                 } catch (e) { out().textContent = 'Could not read the payments: ' + ((e && e.message) ? e.message : e); }
             };
-            $('fa-csv').onclick = async () => {
+            if ($('fa-csv')) $('fa-csv').onclick = async () => {
                 if (!report) { out().textContent = 'Reconcile first, then the CSV has something to write.'; return; }
                 const q = (v) => '"' + ('' + (v == null ? '' : v)).replace(/"/g, '""') + '"';
                 const lines = [['date', 'payment_id', 'currency', 'gross', 'fee', 'net', 'name', 'email', 'receipt'].join(',')];
@@ -275,7 +301,7 @@ function (path, config) {
             // Deleting takes the display down for everyone holding the link, so it asks twice
             // and the second press is the one that does it.
             let armed = false, armTimer = null;
-            $('fa-del').onclick = async () => {
+            if ($('fa-del')) $('fa-del').onclick = async () => {
                 if (!armed) {
                     armed = true; $('fa-del').textContent = 'Really delete?';
                     out().textContent = 'This takes the campaign down and breaks the link for anyone watching it. '
