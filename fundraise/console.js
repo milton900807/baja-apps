@@ -349,6 +349,20 @@ function (path, config) {
             + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
             + '<span style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
+            // WHAT PUBLISHING COMMITS YOU TO. Said next to the button rather than buried in
+            // terms nobody opens: a campaign that claims a cure, or dresses up something
+            // that is not science, costs the next family on the directory their trust in
+            // all of it.
+            + '<div id="fc-terms" style="margin-top:12px;padding:11px 13px;border-radius:9px;'
+            + 'border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);'
+            + 'font:12.5px/1.55 system-ui;color:#bcd2e2;max-width:640px;">'
+            + '<b style="color:#eaf6f9;">Before you publish.</b> Campaigns on Gene.Clinic are '
+            + 'for real research and real patient need. Anything judged to be pseudoscience, '
+            + 'or not science at all, will be taken down, as will any campaign that promises a '
+            + 'cure, misrepresents a treatment or an outcome, or asks for money for care that '
+            + 'has no evidence behind it. Gene.Clinic may refuse, unlist or remove any campaign '
+            + 'at any time, at its own discretion, with or without a reason given. Publishing '
+            + 'means you accept that.</div>'
             + '<div id="fc-status" style="margin-top:14px;font:12.5px system-ui;color:#cfe0f5;min-height:18px;"></div>'
             + '<div id="fc-link" style="margin-top:6px;font:12.5px system-ui;word-break:break-all;"></div>'
             + '</div>'
