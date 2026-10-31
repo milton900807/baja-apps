@@ -59,15 +59,31 @@ esac; done
 # is bounded to the places a site is served from, skips this script's own backups, and
 # refuses to choose when it finds more than one.
 find_web_dir() {
-  local hits d out=()
-  hits="$(grep -rl --include=index.html -m1 'app-root' \
-            /opt /var/www /srv /usr/share/nginx /home 2>/dev/null | head -40 || true)"
-  while IFS= read -r f; do
-    [[ -z "$f" ]] && continue
-    case "$f" in *.before-*|*/node_modules/*|*/src/*) continue ;; esac
-    d="$(dirname "$f")"
-    case " ${out[*]-} " in *" $d "*) ;; *) out+=("$d") ;; esac
-  done <<< "$hits"
+  local hits d out=() cand
+  # FIRST, ASK NGINX. It is the only thing that actually knows, and on this box the answer
+  # was /eln -- a directory straight off the root, which no list of likely places was ever
+  # going to contain. Every root it declares that holds an Angular index.html is a
+  # candidate.
+  if command -v nginx >/dev/null; then
+    while IFS= read -r cand; do
+      [[ -n "$cand" && -f "$cand/index.html" ]] || continue
+      grep -q 'app-root' "$cand/index.html" 2>/dev/null || continue
+      case " ${out[*]-} " in *" $cand "*) ;; *) out+=("$cand") ;; esac
+    done < <(nginx -T 2>/dev/null | sed -n 's/^[[:space:]]*root[[:space:]]\+\([^;]*\);.*/\1/p' | tr -d '"' | sort -u)
+  fi
+  # THEN LOOK, for a box with no nginx or a config that names no root: the app is found by
+  # what it IS, an index.html with <app-root> in it, which on a web server is the Angular
+  # shell and nothing else. Backups, node_modules and source trees are skipped.
+  if [[ ${#out[@]} -eq 0 ]]; then
+    hits="$(grep -rl --include=index.html -m1 'app-root' \
+              /eln /opt /var/www /srv /usr/share/nginx /home 2>/dev/null | head -40 || true)"
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      case "$f" in *.before-*|*/node_modules/*|*/src/*) continue ;; esac
+      d="$(dirname "$f")"
+      case " ${out[*]-} " in *" $d "*) ;; *) out+=("$d") ;; esac
+    done <<< "$hits"
+  fi
   [[ ${#out[@]} -eq 1 ]] || return 1
   printf '%s' "${out[0]}"
 }
@@ -109,7 +125,7 @@ if [[ $DO_API -eq 1 ]]; then
     ENVJS="${ENVJS:-}"
     if [[ -z "$ENVJS" ]]; then
       W="${WEB_DIR:-$(find_web_dir || true)}"
-      for d in "$W" /opt/baja/eln /opt/baja /var/www/eln /var/www/html/eln /usr/share/nginx/html/eln /srv/eln; do
+      for d in "$W" /eln /opt/baja/eln /opt/baja /var/www/eln /var/www/html/eln /usr/share/nginx/html/eln /srv/eln; do
         [[ -n "$d" && -f "$d/assets/env.js" ]] && { ENVJS="$d/assets/env.js"; break; }
       done
     fi
