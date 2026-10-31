@@ -703,17 +703,79 @@ function (path, config) {
         // about your own is worse than no picture at all, and these cost a few hundred
         // bytes of markup each instead of a download.
         //
+        // Grouped and in their own colours, because a page of thirty pictures in one green
+        // is a page of one picture. Each entry is [label, group, background from,
+        // background to, accent, draw].
+        //
         // A chosen one goes through the same path an uploaded photograph does: drawn onto
         // a canvas at 1200x630 and saved as a JPEG. It is not kept as SVG, because the
         // link-preview endpoint serves raster formats only -- a campaign that picked a
         // drawing would otherwise share with no picture at all.
         const ART = {
-            ribbon: ['Awareness ribbon', '#0b2e4a', '#124a63', (a) =>
+            // ---- rare disease ----------------------------------------------------------
+            ribbon: ['Awareness ribbon', 'Rare disease', '#241b4e', '#140f2e', '#c4a2ff', (a) =>
                 '<g fill="none" stroke="' + a + '" stroke-width="26" stroke-linecap="round">'
                 + '<path d="M556 524 C578 482 600 456 612 430 C640 374 668 358 664 308'
                 + ' C660 248 620 220 600 220 C580 220 540 248 536 308'
                 + ' C532 358 560 374 588 430 C600 456 622 482 644 524"/></g>'],
-            helix: ['DNA', '#07263b', '#0d4a52', (a) => {
+            zebra: ['Zebra stripes', 'Rare disease', '#0a2235', '#123b52', '#e2e8f0', (a) => {
+                let out = '';
+                for (let i = 0; i < 9; i++) {
+                    const x = 180 + i * 110;
+                    out += '<path d="M' + x + ' 60 C' + (x + 70) + ' 220 ' + (x - 50) + ' 410 ' + (x + 40)
+                        + ' 580" fill="none" stroke="' + a + '" stroke-width="' + (16 + (i % 3) * 7)
+                        + '" stroke-linecap="round" opacity="0.85"/>';
+                }
+                return out;
+            }],
+            butterfly: ['Butterfly', 'Rare disease', '#3a1536', '#1b0718', '#f0abfc', (a) =>
+                '<g stroke="' + a + '" stroke-width="12" stroke-linejoin="round" fill="' + a + '" fill-opacity="0.22">'
+                + '<path d="M592 300 C520 196 404 180 380 238 C356 296 452 330 592 322 Z"/>'
+                + '<path d="M608 300 C680 196 796 180 820 238 C844 296 748 330 608 322 Z"/>'
+                + '<path d="M592 338 C512 352 446 408 470 460 C494 512 560 452 592 386 Z"/>'
+                + '<path d="M608 338 C688 352 754 408 730 460 C706 512 640 452 608 386 Z"/></g>'
+                + '<path d="M600 262 L600 452" stroke="' + a + '" stroke-width="14" stroke-linecap="round"/>'
+                + '<path d="M596 258 C580 220 556 206 540 206 M604 258 C620 220 644 206 660 206" fill="none" '
+                + 'stroke="' + a + '" stroke-width="10" stroke-linecap="round"/>'],
+            lighthouse: ['A light', 'Rare disease', '#07263b', '#0d3a52', '#fbbf24', (a) =>
+                '<path d="M566 262 L412 206 L412 316 Z" fill="' + a + '" opacity="0.32"/>'
+                + '<path d="M634 262 L788 206 L788 316 Z" fill="' + a + '" opacity="0.32"/>'
+                + '<g fill="none" stroke="' + a + '" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M548 500 L572 298 L628 298 L652 500 Z"/>'
+                + '<path d="M558 428 L642 428 M551 364 L649 364"/>'
+                + '<path d="M568 298 L632 298 L626 250 L574 250 Z"/>'
+                + '<path d="M586 218 L614 218 L600 190 Z"/><path d="M600 250 L600 218"/>'
+                + '<path d="M516 522 Q600 492 684 522"/></g>'
+                + '<circle cx="600" cy="276" r="15" fill="' + a + '"/>'],
+            together: ['Together', 'Rare disease', '#0a2740', '#13455f', '#7dd3fc', (a) => {
+                let out = '';
+                for (const [x, r] of [[478, 36], [600, 44], [722, 36]]) {
+                    const y = r === 44 ? 250 : 268;
+                    out += '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + a + '" opacity="0.8"/>'
+                        + '<path d="M' + (x - r - 14) + ' ' + (y + r + 108) + ' C' + (x - r - 14) + ' ' + (y + r + 20)
+                        + ' ' + (x + r + 14) + ' ' + (y + r + 20) + ' ' + (x + r + 14) + ' ' + (y + r + 108)
+                        + '" fill="none" stroke="' + a + '" stroke-width="20" stroke-linecap="round"/>';
+                }
+                return out;
+            }],
+            heartbeat: ['A heart, beating', 'Rare disease', '#3b0d1f', '#1a0510', '#fda4af', (a) =>
+                '<path d="M600 470 C500 396 430 342 430 274 C430 222 470 188 516 188 C552 188 580 210 600 240'
+                + ' C620 210 648 188 684 188 C730 188 770 222 770 274 C770 342 700 396 600 470 Z" fill="' + a
+                + '" fill-opacity="0.22" stroke="' + a + '" stroke-width="16" stroke-linejoin="round"/>'
+                + '<path d="M430 300 L510 300 L540 250 L578 360 L616 276 L644 300 L770 300" fill="none" stroke="' + a
+                + '" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>'],
+            hands: ['In our hands', 'Rare disease', '#0a2740', '#13455f', '#5ee3a6', (a) =>
+                '<g transform="translate(600,290) scale(1.25) translate(-600,-290)" fill="none" stroke="' + a
+                + '" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M600 404 C548 366 514 338 514 302 C514 274 536 256 560 256'
+                + ' C579 256 593 269 600 284 C607 269 621 256 640 256 C664 256 686 274 686 302'
+                + ' C686 338 652 366 600 404 Z" fill="' + a + '" opacity="0.5"/>'
+                + '<path d="M448 432 C448 552 752 552 752 432"/>'
+                + '<path d="M448 432 C430 406 448 378 474 384"/>'
+                + '<path d="M752 432 C770 406 752 378 726 384"/></g>'],
+
+            // ---- the science -----------------------------------------------------------
+            helix: ['DNA', 'The science', '#07263b', '#0d4a52', '#5ee3a6', (a) => {
                 let out = '';
                 for (let i = 0; i < 2; i++) {
                     const x0 = 515 + i * 170, x1 = 685 - i * 170;
@@ -729,22 +791,75 @@ function (path, config) {
                 }
                 return out;
             }],
-            zebra: ['Zebra stripes', '#0a2235', '#123b52', (a) => {
+            chromosome: ['Chromosome', 'The science', '#2a1540', '#140a22', '#c4a2ff', (a) =>
+                '<g stroke="' + a + '" stroke-width="30" stroke-linecap="round" fill="none">'
+                + '<path d="M520 180 C560 250 560 290 600 320 C640 350 640 390 680 460"/>'
+                + '<path d="M680 180 C640 250 640 290 600 320 C560 350 560 390 520 460"/></g>'
+                + '<g stroke="#0b1a2a" stroke-width="7" opacity="0.5" stroke-linecap="round">'
+                + '<path d="M536 212 L562 196 M548 250 L576 236 M644 196 L670 212 M624 236 L652 250'
+                + ' M560 404 L588 390 M532 438 L560 424 M612 390 L640 404 M640 424 L668 438"/></g>'],
+            molecule: ['A molecule', 'The science', '#07263b', '#0e4458', '#7dd3fc', (a) => {
+                const n = [[600, 200, 34], [460, 300, 26], [740, 300, 26], [520, 450, 22], [690, 450, 22]];
+                let out = '<g stroke="' + a + '" stroke-width="12" opacity="0.75">'
+                    + '<path d="M600 200 L460 300 M600 200 L740 300 M460 300 L520 450 M740 300 L690 450 M520 450 L690 450"/></g>';
+                for (const c of n) out += '<circle cx="' + c[0] + '" cy="' + c[1] + '" r="' + c[2] + '" fill="' + a + '"/>';
+                return out;
+            }],
+            atom: ['An atom', 'The science', '#0a1b3a', '#07122a', '#93c5fd', (a) => {
                 let out = '';
-                for (let i = 0; i < 9; i++) {
-                    const x = 180 + i * 110;
-                    out += '<path d="M' + x + ' 60 C' + (x + 70) + ' 220 ' + (x - 50) + ' 410 ' + (x + 40)
-                        + ' 580" fill="none" stroke="' + a + '" stroke-width="' + (16 + (i % 3) * 7)
-                        + '" stroke-linecap="round" opacity="0.85"/>';
+                for (const r of [0, 60, 120]) {
+                    out += '<ellipse cx="600" cy="315" rx="190" ry="72" fill="none" stroke="' + a
+                        + '" stroke-width="12" opacity="0.8" transform="rotate(' + r + ' 600 315)"/>';
+                }
+                return out + '<circle cx="600" cy="315" r="30" fill="' + a + '"/>';
+            }],
+            protein: ['A fold', 'The science', '#0a2e32', '#06201f', '#5eead4', (a) => {
+                // An alpha helix, drawn the way one is drawn on a whiteboard: overlapping
+                // leaning ellipses, which the eye reads as a coil where a single wavy line
+                // reads as a worm.
+                let out = '<path d="M372 404 L440 374" stroke="' + a
+                    + '" stroke-width="14" stroke-linecap="round" fill="none"/>';
+                for (let i = 0; i < 6; i++) {
+                    out += '<ellipse cx="' + (470 + i * 54) + '" cy="' + (344 - i * 6) + '" rx="31" ry="86"'
+                        + ' fill="none" stroke="' + a + '" stroke-width="14"'
+                        + ' transform="rotate(-20 ' + (470 + i * 54) + ' ' + (344 - i * 6) + ')"/>';
+                }
+                return out + '<path d="M798 302 L866 272" stroke="' + a
+                    + '" stroke-width="14" stroke-linecap="round" fill="none"/>';
+            }],
+            vials: ['Samples', 'The science', '#08283f', '#10465c', '#5eead4', (a) => {
+                let out = '';
+                const fill = [0.45, 0.7, 0.3];
+                for (let i = 0; i < 3; i++) {
+                    const x = 480 + i * 120, top = 180, bot = 470, w = 54;
+                    const liq = bot - (bot - top - 40) * fill[i];
+                    out += '<path d="M' + (x - w / 2) + ' ' + liq + ' L' + (x - w / 2) + ' ' + (bot - 28)
+                        + ' Q' + (x - w / 2) + ' ' + bot + ' ' + x + ' ' + bot
+                        + ' Q' + (x + w / 2) + ' ' + bot + ' ' + (x + w / 2) + ' ' + (bot - 28)
+                        + ' L' + (x + w / 2) + ' ' + liq + ' Z" fill="' + a + '" opacity="0.8"/>'
+                        + '<path d="M' + (x - w / 2) + ' ' + top + ' L' + (x - w / 2) + ' ' + (bot - 28)
+                        + ' Q' + (x - w / 2) + ' ' + bot + ' ' + x + ' ' + bot
+                        + ' Q' + (x + w / 2) + ' ' + bot + ' ' + (x + w / 2) + ' ' + (bot - 28)
+                        + ' L' + (x + w / 2) + ' ' + top + '" fill="none" stroke="' + a
+                        + '" stroke-width="13" stroke-linecap="round"/>'
+                        + '<path d="M' + (x - 38) + ' ' + top + ' L' + (x + 38) + ' ' + top + '" stroke="' + a
+                        + '" stroke-width="15" stroke-linecap="round"/>';
                 }
                 return out;
             }],
-            scope: ['Microscope', '#08283f', '#10465c', (a) =>
+            flask: ['The bench', 'The science', '#0a2e32', '#11514b', '#bef264', (a) =>
+                '<g fill="none" stroke="' + a + '" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M556 180 L556 300 L452 470 Q440 500 474 500 L726 500 Q760 500 748 470 L644 300 L644 180"/>'
+                + '<path d="M538 180 L662 180"/></g>'
+                + '<path d="M498 408 L702 408 Q736 470 726 486 L474 486 Q464 470 498 408 Z" fill="' + a + '" opacity="0.4"/>'
+                + '<g fill="' + a + '" opacity="0.75"><circle cx="556" cy="372" r="13"/><circle cx="614" cy="346" r="9"/>'
+                + '<circle cx="652" cy="386" r="11"/></g>'],
+            scope: ['Microscope', 'The science', '#08283f', '#10465c', '#5ee3a6', (a) =>
                 '<g fill="none" stroke="' + a + '" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">'
                 + '<path d="M470 470 L730 470"/><path d="M540 470 L540 400 Q540 330 600 300"/>'
                 + '<path d="M600 300 L660 180 L720 210 L665 330 Z"/><path d="M470 400 Q470 250 600 210"/>'
                 + '<path d="M500 520 L700 520"/></g>'],
-            cells: ['Cells', '#072a3c', '#0f4a4a', (a) => {
+            cells: ['Cells', 'The science', '#072a3c', '#0f4a4a', '#5ee3a6', (a) => {
                 let out = '<circle cx="600" cy="330" r="190" fill="none" stroke="' + a
                     + '" stroke-width="18" opacity="0.8"/>';
                 const seeds = [[520, 260, 46], [660, 300, 60], [575, 400, 38], [680, 420, 30], [500, 370, 26]];
@@ -755,16 +870,121 @@ function (path, config) {
                 }
                 return out;
             }],
-            hands: ['In our hands', '#0a2740', '#13455f', (a) =>
-                '<g transform="translate(600,290) scale(1.25) translate(-600,-290)" fill="none" stroke="' + a
-                + '" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">'
-                + '<path d="M600 404 C548 366 514 338 514 302 C514 274 536 256 560 256'
-                + ' C579 256 593 269 600 284 C607 269 621 256 640 256 C664 256 686 274 686 302'
-                + ' C686 338 652 366 600 404 Z" fill="' + a + '" opacity="0.5"/>'
-                + '<path d="M448 432 C448 552 752 552 752 432"/>'
-                + '<path d="M448 432 C430 406 448 378 474 384"/>'
-                + '<path d="M752 432 C770 406 752 378 726 384"/></g>'],
-            seedling: ['A beginning', '#0a2e32', '#11514b', (a) =>
+
+            // ---- the data --------------------------------------------------------------
+            trend: ['The numbers move', 'The data', '#0a1f3a', '#0b3350', '#5ee3a6', (a) => {
+                const pts = [[430, 460], [510, 420], [590, 436], [670, 350], [750, 300], [830, 220]];
+                let out = '<g fill="none" stroke="' + a + '" stroke-width="10" opacity="0.35" stroke-linecap="round">'
+                    + '<path d="M400 180 L400 500 L860 500"/></g>'
+                    + '<path d="M' + pts.map((p) => p.join(' ')).join(' L') + '" fill="none" stroke="' + a
+                    + '" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>';
+                for (const p of pts) out += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="13" fill="' + a + '"/>';
+                return out;
+            }],
+            scatter: ['A result', 'The data', '#1a0f33', '#0c0720', '#f0abfc', (a) => {
+                let out = '<g fill="none" stroke="' + a + '" stroke-width="10" opacity="0.3" stroke-linecap="round">'
+                    + '<path d="M400 160 L400 500 L860 500"/></g>'
+                    + '<path d="M400 300 L860 300" fill="none" stroke="' + a
+                    + '" stroke-width="7" stroke-dasharray="14 14" opacity="0.45"/>';
+                const pts = [[452, 452], [486, 430], [520, 464], [556, 436], [596, 452], [628, 420], [664, 446],
+                             [700, 458], [742, 430], [782, 452], [818, 440],
+                             [470, 240], [502, 196], [540, 262], [690, 214], [726, 176], [760, 248], [800, 210]];
+                for (let i = 0; i < pts.length; i++) {
+                    const big = pts[i][1] < 300;
+                    out += '<circle cx="' + pts[i][0] + '" cy="' + pts[i][1] + '" r="' + (big ? 15 : 10)
+                        + '" fill="' + a + '" opacity="' + (big ? '0.95' : '0.45') + '"/>';
+                }
+                return out;
+            }],
+            reads: ['Sequencing', 'The data', '#07263b', '#0b3a3f', '#5eead4', (a) => {
+                let out = '<path d="M380 212 L880 212" stroke="' + a + '" stroke-width="16" stroke-linecap="round"/>';
+                const rows = [[400, 170], [470, 150], [560, 190], [430, 120], [600, 160], [690, 170], [520, 140], [760, 120]];
+                for (let i = 0; i < rows.length; i++) {
+                    const y = 262 + i * 38;
+                    out += '<rect x="' + rows[i][0] + '" y="' + y + '" width="' + rows[i][1]
+                        + '" height="22" rx="11" fill="' + a + '" opacity="' + (0.35 + (i % 3) * 0.2).toFixed(2) + '"/>';
+                }
+                return out;
+            }],
+            trial: ['The trial', 'The data', '#0a2235', '#123b52', '#93c5fd', (a) => {
+                let out = '<rect x="446" y="150" width="308" height="370" rx="22" fill="none" stroke="' + a
+                    + '" stroke-width="15"/>'
+                    + '<rect x="536" y="118" width="128" height="62" rx="18" fill="' + a + '" opacity="0.8"/>';
+                for (let i = 0; i < 4; i++) {
+                    const y = 250 + i * 72;
+                    out += '<path d="M492 ' + y + ' l22 22 l40 -44" fill="none" stroke="' + a
+                        + '" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" opacity="'
+                        + (i === 3 ? '0.35' : '1') + '"/>'
+                        + '<rect x="578" y="' + (y - 10) + '" width="' + (130 - i * 18) + '" height="18" rx="9" fill="'
+                        + a + '" opacity="0.4"/>';
+                }
+                return out;
+            }],
+
+            // ---- in the clinic ---------------------------------------------------------
+            brain: ['The brain', 'In the clinic', '#2a1038', '#15061d', '#f0abfc', (a) =>
+                '<g fill="none" stroke="' + a + '" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M600 190 C520 160 440 200 440 268 C398 292 398 358 440 380 C436 448 500 486 560 466'
+                + ' C580 500 640 500 660 466 C720 486 784 448 780 380 C822 358 822 292 780 268'
+                + ' C780 200 700 160 620 190"/>'
+                + '<path d="M610 186 L610 480" opacity="0.8"/>'
+                + '<path d="M548 244 C586 252 586 300 548 312 M672 244 C634 252 634 300 672 312'
+                + ' M520 390 C568 390 572 430 544 444 M700 390 C652 390 648 430 676 444" opacity="0.6"/></g>'],
+            neuron: ['A neuron', 'In the clinic', '#0a1b3a', '#071029', '#93c5fd', (a) => {
+                let out = '<circle cx="520" cy="320" r="62" fill="' + a + '" opacity="0.35"/>'
+                    + '<circle cx="520" cy="320" r="62" fill="none" stroke="' + a + '" stroke-width="14"/>'
+                    + '<circle cx="520" cy="320" r="20" fill="' + a + '"/>';
+                for (const [dx, dy] of [[-1, -1], [-1.25, 0], [-1, 1], [-0.2, -1.3], [-0.2, 1.3]]) {
+                    out += '<path d="M' + (520 + dx * 48) + ' ' + (320 + dy * 48) + ' L' + (520 + dx * 118) + ' '
+                        + (320 + dy * 112) + '" stroke="' + a + '" stroke-width="12" stroke-linecap="round" opacity="0.8"/>';
+                }
+                out += '<path d="M582 320 L790 320" stroke="' + a + '" stroke-width="14" stroke-linecap="round"/>';
+                for (const dy of [-1, 0, 1]) {
+                    out += '<path d="M790 320 L852 ' + (320 + dy * 56) + '" stroke="' + a
+                        + '" stroke-width="12" stroke-linecap="round"/>';
+                }
+                return out;
+            }],
+            scan: ['A scan', 'In the clinic', '#07263b', '#0a3348', '#7dd3fc', (a) =>
+                '<rect x="420" y="150" width="360" height="360" rx="20" fill="' + a + '" opacity="0.10"/>'
+                + '<rect x="420" y="150" width="360" height="360" rx="20" fill="none" stroke="' + a
+                + '" stroke-width="12" opacity="0.7"/>'
+                // A head in profile, not a circle with a smile in it.
+                + '<path d="M676 486 C676 404 690 362 664 316 C634 262 556 248 512 292'
+                + ' C476 330 484 372 492 398 C498 418 478 424 478 438 C478 450 498 452 498 462'
+                + ' C498 478 494 486 508 486 Z" fill="' + a + '" fill-opacity="0.18"'
+                + ' stroke="' + a + '" stroke-width="14" stroke-linejoin="round"/>'
+                + '<path d="M556 330 C586 310 616 320 626 350 C634 374 616 392 594 386" fill="none"'
+                + ' stroke="' + a + '" stroke-width="11" stroke-linecap="round" opacity="0.65"/>'
+                + '<g stroke="' + a + '" stroke-width="5" opacity="0.3">'
+                + '<path d="M420 230 L780 230 M420 300 L780 300 M420 370 L780 370 M420 440 L780 440"/></g>'],
+            stethoscope: ['The clinic', 'In the clinic', '#0a2740', '#123f5c', '#5eead4', (a) =>
+                '<g fill="none" stroke="' + a + '" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M470 170 L470 290 C470 362 530 406 596 406 C662 406 722 362 722 290 L722 170"/>'
+                + '<path d="M444 166 L496 166 M696 166 L748 166"/>'
+                + '<path d="M596 406 L596 452 C596 500 640 522 686 522 C734 522 772 496 772 452 L772 412"/>'
+                + '<circle cx="772" cy="372" r="42" fill="' + a + '" fill-opacity="0.3"/></g>'],
+            capsule: ['The medicine', 'In the clinic', '#3a2208', '#1b1004', '#fbbf24', (a) =>
+                '<g transform="rotate(-32 600 315)">'
+                + '<rect x="420" y="258" width="360" height="118" rx="59" fill="' + a + '" opacity="0.22"/>'
+                + '<path d="M600 258 L479 258 A59 59 0 0 0 479 376 L600 376 Z" fill="' + a + '" opacity="0.85"/>'
+                + '<rect x="420" y="258" width="360" height="118" rx="59" fill="none" stroke="' + a + '" stroke-width="14"/>'
+                + '<path d="M600 258 L600 376" stroke="' + a + '" stroke-width="14"/></g>'],
+            drip: ['Infusion', 'In the clinic', '#0a2235', '#0d3a4a', '#7dd3fc', (a) =>
+                '<g fill="none" stroke="' + a + '" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">'
+                + '<path d="M470 140 L470 520 M430 140 L510 140"/>'
+                + '<path d="M540 186 L676 186 L676 330 Q676 372 608 372 Q540 372 540 330 Z"/>'
+                + '<path d="M608 372 L608 420 C608 470 700 470 700 516"/></g>'
+                + '<path d="M548 282 L668 282 L668 330 Q668 364 608 364 Q548 364 548 330 Z" fill="' + a + '" opacity="0.45"/>'
+                + '<circle cx="700" cy="516" r="16" fill="' + a + '" opacity="0.8"/>'],
+            shield: ['Care', 'In the clinic', '#0a2e32', '#06201f', '#5ee3a6', (a) =>
+                '<path d="M600 150 L770 212 C770 380 700 460 600 500 C500 460 430 380 430 212 Z" fill="' + a
+                + '" fill-opacity="0.18" stroke="' + a + '" stroke-width="16" stroke-linejoin="round"/>'
+                + '<path d="M600 250 L600 400 M525 325 L675 325" stroke="' + a
+                + '" stroke-width="30" stroke-linecap="round"/>'],
+
+            // ---- something ahead -------------------------------------------------------
+            seedling: ['A beginning', 'Something ahead', '#0a2e32', '#11514b', '#5ee3a6', (a) =>
                 '<g fill="none" stroke="' + a + '" stroke-width="22" stroke-linecap="round">'
                 + '<path d="M600 520 L600 330"/>'
                 + '<path d="M600 390 C520 390 460 340 455 265 C540 258 600 310 600 390 Z" fill="' + a
@@ -772,22 +992,61 @@ function (path, config) {
                 + '<path d="M600 350 C680 350 745 300 750 225 C660 218 600 270 600 350 Z" fill="' + a
                 + '" opacity="0.5"/>'
                 + '<path d="M470 530 L730 530"/></g>'],
-            summit: ['The climb', '#092033', '#0f3f58', (a) =>
+            summit: ['The climb', 'Something ahead', '#092033', '#0f3f58', '#5ee3a6', (a) =>
                 '<circle cx="775" cy="200" r="58" fill="' + a + '" opacity="0.85"/>'
                 + '<path d="M240 540 L470 250 L620 450 L720 330 L960 540 Z" fill="' + a + '" opacity="0.5"'
                 + ' stroke="' + a + '" stroke-width="20" stroke-linejoin="round"/>'
                 + '<path d="M470 250 L556 362 L384 362 Z" fill="#eaf6f9" opacity="0.85"/>'
                 + '<path d="M240 540 L960 540" stroke="' + a + '" stroke-width="22" stroke-linecap="round"/>'],
+            sunrise: ['First light', 'Something ahead', '#3a1e08', '#120a18', '#fb923c', (a) => {
+                let out = '<circle cx="600" cy="400" r="130" fill="' + a + '" opacity="0.85"/>';
+                for (let i = 0; i < 7; i++) {
+                    const ang = Math.PI * (0.08 + i * 0.14);
+                    const x1 = 600 - Math.cos(ang) * 170, y1 = 400 - Math.sin(ang) * 170;
+                    const x2 = 600 - Math.cos(ang) * 225, y2 = 400 - Math.sin(ang) * 225;
+                    out += '<path d="M' + x1.toFixed(0) + ' ' + y1.toFixed(0) + ' L' + x2.toFixed(0) + ' '
+                        + y2.toFixed(0) + '" stroke="' + a + '" stroke-width="14" stroke-linecap="round" opacity="0.75"/>';
+                }
+                return out + '<path d="M300 400 L900 400" stroke="' + a + '" stroke-width="18" stroke-linecap="round"/>'
+                    + '<path d="M360 452 L560 452 M660 452 L840 452" stroke="' + a
+                    + '" stroke-width="12" stroke-linecap="round" opacity="0.45"/>';
+            }],
+            constellation: ['Finding it', 'Something ahead', '#0a1030', '#06081c', '#93c5fd', (a) => {
+                const pts = [[430, 420], [520, 320], [620, 372], [700, 250], [800, 300], [760, 430], [620, 372]];
+                let out = '<path d="M' + pts.map((p) => p.join(' ')).join(' L') + '" fill="none" stroke="' + a
+                    + '" stroke-width="7" opacity="0.5" stroke-linejoin="round"/>';
+                for (let i = 0; i < pts.length - 1; i++) {
+                    out += '<circle cx="' + pts[i][0] + '" cy="' + pts[i][1] + '" r="' + (i % 2 ? 11 : 16)
+                        + '" fill="' + a + '"/>';
+                }
+                for (const [x, y, r] of [[470, 190, 5], [880, 200, 6], [380, 300, 4], [860, 470, 5], [540, 500, 4]]) {
+                    out += '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + a + '" opacity="0.6"/>';
+                }
+                return out;
+            }],
+            bridge: ['A way across', 'Something ahead', '#0a2235', '#123b52', '#5eead4', (a) => {
+                let out = '<path d="M330 400 L870 400" stroke="' + a + '" stroke-width="18" stroke-linecap="round"/>'
+                    + '<path d="M330 400 C450 250 750 250 870 400" fill="none" stroke="' + a
+                    + '" stroke-width="16" stroke-linecap="round"/>';
+                for (let i = 1; i < 8; i++) {
+                    const t = i / 8, x = 330 + 540 * t;
+                    const y = 400 - 150 * (4 * t * (1 - t)) * 1.0;
+                    out += '<path d="M' + x.toFixed(0) + ' ' + y.toFixed(0) + ' L' + x.toFixed(0)
+                        + ' 400" stroke="' + a + '" stroke-width="9" stroke-linecap="round" opacity="0.6"/>';
+                }
+                return out + '<path d="M390 400 L390 500 M810 400 L810 500" stroke="' + a
+                    + '" stroke-width="16" stroke-linecap="round" opacity="0.8"/>';
+            }],
         };
         const artSvg = (id) => {
-            const a = ART[id];
-            if (!a) return '';
+            const t = ART[id];
+            if (!t) return '';
             return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">'
                 + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
-                + '<stop offset="0" stop-color="' + a[1] + '"/>'
-                + '<stop offset="1" stop-color="' + a[2] + '"/></linearGradient></defs>'
+                + '<stop offset="0" stop-color="' + t[2] + '"/>'
+                + '<stop offset="1" stop-color="' + t[3] + '"/></linearGradient></defs>'
                 + '<rect width="1200" height="630" fill="url(#g)"/>'
-                + '<g transform="translate(0,20)">' + a[3]('#5ee3a6') + '</g></svg>';
+                + '<g transform="translate(0,20)">' + t[5](t[4]) + '</g></svg>';
         };
         const artUri = (id) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(artSvg(id));
         const artJpeg = (id) => new Promise((resolve, reject) => {
@@ -870,12 +1129,24 @@ function (path, config) {
         (() => {
             const box = $('fc-stock');
             if (!box) return;
-            box.innerHTML = Object.keys(ART).map((id) =>
-                '<button type="button" data-art="' + id + '" title="' + esc(ART[id][0]) + '"'
-                + ' aria-label="Use the picture: ' + esc(ART[id][0]) + '"'
-                + ' style="width:84px;height:47px;padding:0;border-radius:7px;cursor:pointer;'
-                + 'border:1px solid rgba(255,255,255,0.18);background:#0a1e3a center/cover no-repeat;'
-                + 'background-image:url(&quot;' + artUri(id) + '&quot;);"></button>').join('');
+            let out = '', group = '';
+            for (const id of Object.keys(ART)) {
+                const t = ART[id];
+                if (t[1] !== group) {
+                    group = t[1];
+                    // A full-width line in a wrapping row is what breaks it: thirty
+                    // thumbnails in one block is a wall, and in six named groups it is a
+                    // choice.
+                    out += '<div style="flex:1 1 100%;margin:8px 0 1px;font:600 10.5px system-ui;'
+                        + 'letter-spacing:.07em;text-transform:uppercase;color:#7fa3b8;">' + esc(group) + '</div>';
+                }
+                out += '<button type="button" data-art="' + id + '" title="' + esc(t[0]) + '"'
+                    + ' aria-label="Use the picture: ' + esc(t[0]) + '"'
+                    + ' style="width:84px;height:47px;padding:0;border-radius:7px;cursor:pointer;'
+                    + 'border:1px solid rgba(255,255,255,0.18);background:#0a1e3a center/cover no-repeat;'
+                    + 'background-image:url(&quot;' + artUri(id) + '&quot;);"></button>';
+            }
+            box.innerHTML = out;
             for (const bn of box.querySelectorAll('[data-art]')) {
                 bn.onclick = async () => {
                     const id = bn.getAttribute('data-art');
