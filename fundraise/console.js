@@ -417,11 +417,15 @@ function (path, config) {
             + btn('fc-tl-add', '+ Add') + '</div>'
             + '<textarea id="fc-tl-text" rows="2" placeholder="a sentence or two about it (optional)" '
             + 'style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
-            + '<div style="margin-top:9px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;">'
-            + btn('fc-tl-ai', 'Draft one with AI')
-            + '<span style="font:11.5px/1.5 system-ui;color:#6f93a6;max-width:40ch;">'
-            + 'A first draft from what you have written, for you to correct. Nothing is published '
-            + 'until you publish it.</span></div>'
+            + '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+            + '<input id="fc-tl-brief" style="' + inp + 'flex:1 1 230px;" '
+            + 'placeholder="anything the draft should know (optional)"/>'
+            + btn('fc-tl-ai', 'Draft one with AI') + '</div>'
+            + '<div style="margin-top:5px;font:11.5px/1.55 system-ui;color:#6f93a6;max-width:52ch;">'
+            + 'The draft is written from the campaign name and what you put under "About this '
+            + 'campaign". Use the box to steer it: how long the work runs, what the stages are, '
+            + 'what to leave out. It is a first draft for you to correct, and nothing is published '
+            + 'until you publish it.</div>'
             + '<div id="fc-tl-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
             + '<label style="' + lbl + '">Post an update (optional)</label>'
             + '<input id="fc-upd-title" placeholder="headline (optional)" style="' + inp + '"/>'
@@ -1277,7 +1281,7 @@ function (path, config) {
                     campaign: {
                         title: doc.title, subtitle: doc.subtitle, story: doc.story, note: doc.note,
                         goal: doc.goal, raised: doc.raised, currency: doc.currency,
-                        brief: ('' + $('fc-tl-text').value).trim(),
+                        brief: ('' + $('fc-tl-brief').value).trim(),
                     },
                 }, host + '/fundraise/timeline');
                 const rows = (r && Array.isArray(r.timeline)) ? r.timeline : null;
