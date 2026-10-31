@@ -711,6 +711,19 @@ function (path, config) {
             const raised = Math.max(0, +d.raised || 0);
             const pct = goal > 0 ? Math.max(0, Math.min(100, (raised / goal) * 100)) : 0;
             const over = goal > 0 && raised >= goal;
+            // THE WAY IN TO THE REST OF IT. Under the thermometer, which is where
+            // somebody's eye already is once they have read the number, rather than at the
+            // bottom of the card under the Donate button where it was competing with it.
+            const moreBtn = hasDetail(d)
+                ? '<div style="margin-top:clamp(12px,2.2vmin,20px);">'
+                    + '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);'
+                    + 'background:rgba(255,255,255,0.06);color:#eaf6f9;border-radius:999px;'
+                    + 'padding:9px 20px;font:600 clamp(12px,1.6vmin,15px) system-ui;">'
+                    + 'Campaign details'
+                    + (listOf(d, 'updates').length ? ' \u00b7 ' + listOf(d, 'updates').length + ' update'
+                        + (listOf(d, 'updates').length === 1 ? '' : 's') : '')
+                    + '</button></div>'
+                : '';
             const upd = d.updated ? new Date(d.updated) : null;
             const when = upd && !isNaN(+upd) ? upd.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
             card().innerHTML = '<div style="' + panel + '">'
@@ -730,6 +743,7 @@ function (path, config) {
                     + 'background:linear-gradient(90deg,#1aa3bd,#22c55e);transition:width .9s cubic-bezier(.22,.9,.26,1);"></div></div>'
                     + '<div id="fd-pct" style="margin-top:8px;font:700 clamp(14px,2.2vmin,22px) system-ui;color:' + (over ? '#86efac' : '#bfe6f0') + ';">'
                     + pct.toFixed(pct < 10 ? 1 : 0) + '%' + (over ? ' — goal reached' : '') + '</div></div>') : '')
+                + moreBtn
                 + (d.donors ? '<div style="margin-top:clamp(10px,2vmin,20px);font:500 clamp(13px,1.9vmin,19px) system-ui;color:#9fc4d4;">'
                     + esc((+d.donors).toLocaleString()) + ' ' + (Math.abs(+d.donors) === 1 ? 'donor' : 'donors') + '</div>' : '')
                 + (d.note ? '<div style="margin-top:clamp(12px,2.4vmin,24px);font:400 clamp(13px,1.9vmin,19px) system-ui;color:#cfe6ef;max-width:60ch;margin-left:auto;margin-right:auto;">' + esc(d.note) + '</div>' : '')
@@ -742,11 +756,7 @@ function (path, config) {
                     + 'Thank you. Your receipt is on its way from VRI.</div>' : '')
                 + (donateBtn(d, true) ? '<div style="margin-top:clamp(14px,2.6vmin,26px);">' + donateBtn(d, true)
                     + safeLine(d) + '</div>' : '')
-                + (hasDetail(d) ? '<div style="margin-top:clamp(12px,2.4vmin,22px);">'
-                    + '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);'
-                    + 'color:#eaf6f9;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.6vmin,15px) system-ui;">'
-                    + 'Campaign details' + (listOf(d, 'updates').length ? ' · ' + listOf(d, 'updates').length + ' update'
-                        + (listOf(d, 'updates').length === 1 ? '' : 's') : '') + '</button></div>' : '');
+                ;
             const more = document.getElementById('fd-more');
             if (more) more.onclick = () => go('detail');
             const give = document.getElementById('fd-give');
