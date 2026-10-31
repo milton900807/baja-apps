@@ -57,6 +57,23 @@ function (path, config) {
                 host + '/save-user-data');
         };
 
+        // What went wrong, in words. An HttpErrorResponse keeps the server's own JSON
+        // under .error, so the naive read of this is "[object Object]".
+        const problemText = (r) => {
+            try {
+                if (!r) return 'no answer from the server';
+                const b2 = (r.error && typeof r.error === 'object') ? r.error : r;
+                const said = ('' + (b2.error_description || b2.message || '')).trim();
+                if (said) return said;
+                const code = ('' + (b2.error || '')).trim();
+                if (code === 'not_signed_in') return 'you are not signed in';
+                if (code === 'not_your_campaign') return 'that campaign belongs to another account';
+                if (code) return code;
+                const st = +(r.status || 0);
+                return st ? ('the server answered ' + st) : 'the server did not say why';
+            } catch (e) { return 'the server did not say why'; }
+        };
+
         const CUR = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'CHF', 'JPY'];
         const money = (n, cur) => {
             const v = (+n || 0);
@@ -198,14 +215,38 @@ function (path, config) {
             } catch (e) { }
         }
 
+        // READING THE CAMPAIGN BACK, which has to work or this screen is dangerous.
+        //
+        // It used to be one call in a try with an empty catch. When that call did not come
+        // back with a campaign -- a reload, where the page had not been handed anything and
+        // had to find it by name -- the console carried on with its DEFAULTS: "Our
+        // campaign", no goal, nothing raised, over a campaign that was live. The status
+        // said Live, because it knew a campaign was there, and Publish would have written
+        // that blank over somebody's fundraiser.
+        //
+        // So: ask more than one way, because /load-file takes more than one shape and which
+        // one answers depends on how the file was written; and if none of them answers,
+        // SAY SO and refuse to publish, rather than quietly offering a blank page.
+        let loadTrouble = '';
         if (docPath) {
-            try {
-                const rs = await POSTJSON({ path: docPath, key: 'user', user: user }, host + '/load-file');
-                let d = rs;
-                if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
-                if (d && typeof d === 'object' && (d.kind === 'fundraise' || d.goal != null)) doc = Object.assign(doc, d);
-                fileName = docPath.substring(docPath.lastIndexOf('/') + 1);
-            } catch (e) { }
+            const shapes = [
+                { path: docPath, key: 'user', user: user },
+                { path: docPath, user: 'public' },
+                { path: '/user' + docPath, key: 'user', user: user },
+            ];
+            let got = null, last = null;
+            for (const body of shapes) {
+                try {
+                    const rs = await POSTJSON(body, host + '/load-file');
+                    let d = rs;
+                    if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
+                    if (d && typeof d === 'object' && (d.kind === 'fundraise' || d.goal != null)) { got = d; break; }
+                    last = rs;
+                } catch (e) { last = e; }
+            }
+            fileName = docPath.substring(docPath.lastIndexOf('/') + 1);
+            if (got) doc = Object.assign(doc, got);
+            else loadTrouble = problemText(last);
         }
 
         // The address bar, tidied. A campaign of one's own is named by its file; somebody
@@ -298,10 +339,19 @@ function (path, config) {
             }).join('')
             + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;">'
-            + '<span id="fc-live" style="display:inline-flex;align-items:center;gap:7px;border-radius:999px;'
-            + 'padding:7px 13px;font:600 12px system-ui;white-space:nowrap;"></span>'
+            + '<span id="fc-live-wrap" style="position:relative;display:inline-flex;">'
+            + '<button type="button" id="fc-live" aria-haspopup="true" aria-expanded="false"'
+            + ' style="display:inline-flex;align-items:center;gap:7px;border-radius:999px;'
+            + 'padding:7px 13px;font:600 12px system-ui;white-space:nowrap;cursor:pointer;"></button>'
+            + '<div id="fc-live-menu" role="menu" style="display:none;position:absolute;top:calc(100% + 8px);right:0;'
+            + 'min-width:250px;background:#0b2545;border:1px solid rgba(255,255,255,0.18);border-radius:10px;'
+            + 'box-shadow:0 18px 44px rgba(0,0,0,0.5);overflow:hidden;z-index:6;text-align:left;"></div></span>'
             + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
             + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
+            + '<div id="fc-alarm" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
+            + 'border:1px solid rgba(252,165,165,0.5);background:rgba(127,29,29,0.35);font:13px/1.6 system-ui;color:#fecaca;"></div>'
+            + '<div id="fc-draft" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
+            + 'border:1px solid rgba(251,191,36,0.5);background:rgba(120,83,10,0.28);font:13px/1.6 system-ui;color:#fde68a;"></div>'
             + '<div class="fc-body" style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div class="fc-col" style="flex:1 1 420px;max-width:560px;">'
             + '<label style="' + lbl + '">Campaign <span style="color:#7fb0c4;font-weight:600;">(required)</span></label><input id="fc-title" style="' + inp + '"/>'
@@ -468,6 +518,10 @@ function (path, config) {
                 '#' + WRAP + ' #fc-who-wrap{margin-left:0!important;flex:1 1 100%!important;}',
                 '#' + WRAP + ' #fc-who{width:100%!important;}',
                 '#' + WRAP + ' #fc-who-menu{left:0!important;right:auto!important;width:100%!important;}',
+                // The status menu hangs off a pill that is no longer on the right of a wide
+                // header: anchored to its right edge it runs off the left of the screen.
+                '#' + WRAP + ' #fc-live-menu{left:0!important;right:auto!important;'
+                    + 'min-width:0!important;width:calc(100vw - 28px)!important;max-width:calc(100vw - 28px)!important;}',
                 '#' + WRAP + ' .fc-head > div:last-child{flex:1 1 100%!important;flex-wrap:wrap!important;}',
                 '#' + WRAP + ' .fc-body{padding:14px!important;gap:16px!important;}',
                 '#' + WRAP + ' .fc-col{flex:1 1 100%!important;max-width:100%!important;min-width:0!important;}',
@@ -972,6 +1026,51 @@ function (path, config) {
         // one that asks an unnecessary question.
         let dirty = false;
 
+        // WHAT YOU TYPED SURVIVES A RELOAD.
+        //
+        // Everything on this screen lives in one object that is only written to the server
+        // when Publish is pressed, so a reload, a closed tab or a flat battery used to take
+        // all of it. A copy goes into this browser on every change instead, under a key
+        // naming the account and the campaign, and is offered back when the screen next
+        // opens. It is never sent anywhere: it is in this browser, for this person.
+        //
+        // The chosen picture rides along only when it is small enough to be sure of fitting
+        // in the few megabytes a browser allows; a draft that fails to save because of a
+        // photograph would cost the words as well, which is the wrong trade.
+        const DRAFT_IMG_MAX = 300 * 1024;
+        const draftKey = 'baja.fundraise.draft|' + (user || 'anon') + '|'
+            + (forOther ? forOther.enc + '/' : '') + (fileName || 'new');
+        let draftTimer = null;
+        const saveDraft = () => {
+            const body = { at: Date.now(), doc: doc };
+            try {
+                if (pendingImage && pendingImage.dataUri && pendingImage.dataUri.length < DRAFT_IMG_MAX) {
+                    body.image = pendingImage;
+                }
+                localStorage.setItem(draftKey, JSON.stringify(body));
+            } catch (e) {
+                // Out of room, or storage refused altogether (a private window). The words
+                // are worth more than the picture, so try again without it.
+                try { delete body.image; localStorage.setItem(draftKey, JSON.stringify(body)); } catch (e2) { }
+            }
+        };
+        const dropDraft = () => {
+            // The timer first. Publishing calls sync(), sync() calls touch(), and touch()
+            // schedules a save half a second out: without this, the draft that was just
+            // thrown away writes itself back and the next visit asks about changes that
+            // are already published.
+            clearTimeout(draftTimer);
+            try { localStorage.removeItem(draftKey); } catch (e) { }
+        };
+        const readDraft = () => {
+            try {
+                const raw = localStorage.getItem(draftKey);
+                if (!raw) return null;
+                const d = JSON.parse(raw);
+                return (d && d.doc && typeof d.doc === 'object') ? d : null;
+            } catch (e) { return null; }
+        };
+
         // IS THIS CAMPAIGN LIVE, AND IS WHAT I AM LOOKING AT WHAT THE WORLD SEES.
         //
         // Two different questions, and the console used to answer neither. A campaign that
@@ -986,26 +1085,30 @@ function (path, config) {
         const liveUI = () => {
             const el = $('fc-live');
             if (!el) return;
-            const live = !!docPath, state = (live ? 'L' : 'N') + (dirty ? 'D' : '');
+            const live = !!docPath, hidden = doc.unlisted === true;
+            const state = (live ? 'L' : 'N') + (dirty ? 'D' : '') + (hidden ? 'H' : '');
             if (state === liveWas) return;      // touch() runs on every keystroke
             liveWas = state;
+            const grey = ['#64748b', 'rgba(148,163,184,0.12)', 'rgba(148,163,184,0.32)', '#cbd5e1'];
             const skin = dirty
                 ? ['#fbbf24', 'rgba(251,191,36,0.14)', 'rgba(251,191,36,0.45)', '#fde68a']
-                : (live ? ['#22c55e', 'rgba(34,197,94,0.14)', 'rgba(34,197,94,0.4)', '#bbf7d0']
-                    : ['#64748b', 'rgba(148,163,184,0.12)', 'rgba(148,163,184,0.32)', '#cbd5e1']);
+                : (live ? (hidden ? ['#94a3b8', 'rgba(148,163,184,0.16)', 'rgba(148,163,184,0.4)', '#e2e8f0']
+                    : ['#22c55e', 'rgba(34,197,94,0.14)', 'rgba(34,197,94,0.4)', '#bbf7d0']) : grey);
             const words = live
-                ? (dirty ? 'Live, edits not published' : 'Live')
+                ? (dirty ? 'Live, edits not published' : (hidden ? 'Live, not listed' : 'Live'))
                 : (dirty ? 'Not live, nothing published yet' : 'Not live');
             el.style.background = skin[1];
             el.style.border = '1px solid ' + skin[2];
             el.style.color = skin[3];
             el.title = live
                 ? (dirty ? 'The display is up, but what you have changed here is not on it yet.'
-                    : 'The display is up and showing what is on this screen.')
+                    : (hidden ? 'The link works, but the campaign is not on the campaigns page.'
+                        : 'The display is up and showing what is on this screen.'))
                 : 'Nothing is published. Nobody can open this campaign yet.';
             el.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:' + skin[0]
                 + ';display:inline-block;' + (dirty ? 'animation:fcWait 1.6s ease-in-out infinite;' : '') + '"></span>'
-                + esc(words);
+                + esc(words)
+                + '<span style="opacity:0.7;font-size:10px;margin-left:1px;">\u25be</span>';
             for (const id of ['fc-publish', 'fc-publish2']) {
                 const b = $(id);
                 if (b) b.style.boxShadow = dirty ? '0 0 0 3px rgba(251,191,36,0.45)' : '';
@@ -1019,9 +1122,71 @@ function (path, config) {
                 note.style.color = dirty ? '#fde68a' : '#6f93a6';
             }
         };
-        const touch = () => { dirty = true; liveUI(); };
+        const touch = () => {
+            dirty = true;
+            liveUI();
+            clearTimeout(draftTimer);
+            draftTimer = setTimeout(saveDraft, 500);   // a keystroke is not a save
+        };
         const sync = () => { fromForm(); preview(); donUI(); touch(); };
         toForm(); preview(); lists(); dirty = false; liveUI();
+
+        // A CAMPAIGN THAT IS THERE BUT WOULD NOT COME BACK. Publishing over it would
+        // replace a live fundraiser with this screen's defaults, so publishing is off
+        // until it has been read or the person has said to start again deliberately.
+        let locked = false;
+        if (loadTrouble) {
+            locked = true;
+            const al = $('fc-alarm');
+            al.style.display = '';
+            al.innerHTML = '<b>This campaign could not be read.</b> It is published and people may be '
+                + 'watching it, but the server did not hand it back: ' + esc(loadTrouble) + '.<br>'
+                + 'Publishing is switched off, so nothing here can be written over it. '
+                + '<button id="fc-retry" style="margin-top:9px;cursor:pointer;border:1px solid rgba(255,255,255,0.3);'
+                + 'background:transparent;color:#fff;border-radius:8px;padding:7px 13px;font:700 12px system-ui;">'
+                + 'Try again</button>';
+            for (const id of ['fc-publish', 'fc-publish2']) {
+                const b = $(id);
+                if (b) { b.disabled = true; b.style.opacity = '0.45'; b.style.cursor = 'not-allowed'; }
+            }
+            const again = $('fc-retry');
+            if (again) again.onclick = () => { try { window.location.reload(); } catch (e) { } };
+        }
+
+        // WHAT YOU HAD LAST TIME. Offered, never applied behind your back: the copy in this
+        // browser can be older than the campaign if it was published from somewhere else,
+        // and silently preferring one over the other is how people lose work either way.
+        (() => {
+            const d = readDraft();
+            if (!d) return;
+            let same = false;
+            try { same = JSON.stringify(d.doc) === JSON.stringify(doc); } catch (e) { same = false; }
+            if (same) { dropDraft(); return; }
+            const bar = $('fc-draft');
+            const mins = Math.max(0, Math.round((Date.now() - (+d.at || 0)) / 60000));
+            const ago = mins < 1 ? 'a moment ago' : (mins < 60 ? (mins + (mins === 1 ? ' minute' : ' minutes') + ' ago')
+                : (Math.round(mins / 60) + (Math.round(mins / 60) === 1 ? ' hour' : ' hours') + ' ago'));
+            bar.style.display = '';
+            bar.innerHTML = '<b>You have unpublished changes from ' + esc(ago) + '.</b> '
+                + 'They were kept in this browser when the page closed'
+                + (d.image ? '' : ', though a picture you had chosen was not')
+                + '. ' + (docPath ? 'The campaign below is what is published.' : '')
+                + '<div style="margin-top:9px;display:flex;gap:9px;flex-wrap:wrap;">'
+                + '<button id="fc-draft-yes" style="cursor:pointer;border:1px solid #fbbf24;background:#fbbf24;'
+                + 'color:#2a1a02;border-radius:8px;padding:7px 13px;font:700 12px system-ui;">Put them back</button>'
+                + '<button id="fc-draft-no" style="cursor:pointer;border:1px solid rgba(255,255,255,0.3);'
+                + 'background:transparent;color:#fff;border-radius:8px;padding:7px 13px;font:700 12px system-ui;">'
+                + 'Throw them away</button></div>';
+            $('fc-draft-yes').onclick = () => {
+                doc = Object.assign(doc, d.doc);
+                if (d.image && d.image.dataUri) { pendingImage = d.image; imageGone = false; }
+                toForm(); lists(); imgUI(); preview();
+                dirty = true; liveUI();
+                bar.style.display = 'none';
+                $('fc-status').textContent = 'Your changes are back. Publish to put them on the display.';
+            };
+            $('fc-draft-no').onclick = () => { dropDraft(); bar.style.display = 'none'; };
+        })();
         for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story',
             'fc-don-label', 'fc-don-amts']) $(id).addEventListener('input', sync);
         for (const id of ['fc-don-on', 'fc-don-custom', 'fc-don-names']) $(id).addEventListener('change', sync);
@@ -1176,7 +1341,17 @@ function (path, config) {
             try { const f = document.getElementById('fl-url'); f.focus(); f.select(); } catch (e) { }
         };
 
-        const publish = async () => {
+        // `quiet` is passed by the status menu, which publishes to carry a hide or a show
+        // and has no business throwing the share dialog in somebody's face for it. It is
+        // read off an object, never off the argument itself: these are also assigned
+        // straight to onclick, where the argument is a DOM event.
+        const publish = async (opts) => {
+            const quiet = !!(opts && opts.quiet === true);
+            if (locked) {
+                $('fc-status').innerHTML = '<span style="color:#fca5a5;">This campaign could not be read, so '
+                    + 'publishing is switched off. Reload the page, or open it from All campaigns.</span>';
+                return;
+            }
             sync();
             if (!doc.title) { $('fc-status').textContent = 'Give the campaign a name first.'; return; }
             // Re-read rather than trust the list from a minute ago: this is the check that
@@ -1254,11 +1429,15 @@ function (path, config) {
                 publicLink = link;
                 let copied = false;
                 try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); copied = true; } } catch (e) { }
-                dirty = false; liveUI();
-                $('fc-status').textContent = 'Published. Anyone with the link can watch it, and it updates itself.';
+                dirty = false; dropDraft(); liveUI();
+                $('fc-status').textContent = quiet
+                    ? (doc.unlisted === true
+                        ? 'Hidden. The link still works, and it comes off the campaigns page within a minute.'
+                        : 'Listed. It appears on the campaigns page within a minute.')
+                    : 'Published. Anyone with the link can watch it, and it updates itself.';
                 $('fc-link').innerHTML = (copied ? 'Copied to your clipboard: ' : 'The link: ')
                     + '<a href="' + esc(link) + '" target="_blank" rel="noopener" style="color:#4fd0e6;">' + esc(link) + '</a>';
-                linkDialog(link, doc.title);
+                if (!quiet) linkDialog(link, doc.title);
             } catch (e) {
                 $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not publish: ' + esc(e && e.message ? e.message : e) + '</span>';
             }
@@ -1266,6 +1445,112 @@ function (path, config) {
         };
         $('fc-publish').onclick = publish;
         $('fc-publish2').onclick = publish;
+
+        // ---- THE STATUS MENU ------------------------------------------------------------
+        //
+        // The pill says whether the campaign is live; pressing it is where the two things
+        // you might want to do about that live. Both are built here rather than as buttons
+        // on the form, because neither is an edit: they take effect at once, and one of
+        // them cannot be undone.
+        //
+        // HIDE takes the campaign off the campaigns page and leaves the link working. It is
+        // a field in the document (`unlisted`), so it is carried by a publish like any other
+        // change, and the directory's index is cached for half a minute: hence "within a
+        // minute" rather than a promise it is already gone.
+        //
+        // DELETE removes the campaign and its picture and team files, and breaks the link
+        // for anybody watching. It asks twice, and the second press is the one that does it.
+        const liveMenu = () => $('fc-live-menu');
+        const closeLive = () => {
+            const m = liveMenu();
+            if (m) { m.style.display = 'none'; m.innerHTML = ''; }
+            try { $('fc-live').setAttribute('aria-expanded', 'false'); } catch (e) { }
+            delArmed = false; clearTimeout(delTimer);
+        };
+        let delArmed = false, delTimer = null;
+        const liveItem = (id, label, note, bad) =>
+            '<button type="button" id="' + id + '" role="menuitem" style="display:block;width:100%;text-align:left;'
+            + 'cursor:pointer;border:0;background:none;padding:11px 14px;font:600 13px system-ui;'
+            + 'color:' + (bad ? '#fca5a5' : '#eaf6f9') + ';'
+            + (bad ? 'border-top:1px solid rgba(255,255,255,0.12);' : '') + '">' + esc(label)
+            + (note ? '<span style="display:block;margin-top:3px;font:400 11.5px system-ui;color:#8fb0c4;">'
+                + esc(note) + '</span>' : '') + '</button>';
+
+        const drawLiveMenu = () => {
+            const m = liveMenu();
+            if (!m) return;
+            const live = !!docPath, hidden = doc.unlisted === true;
+            if (!live) {
+                m.innerHTML = '<div style="padding:11px 14px;font:400 12px system-ui;color:#9fb3c8;">'
+                    + 'Nothing is published yet, so there is nothing to hide or delete.</div>'
+                    + liveItem('fc-lm-pub', 'Publish it now', 'Then anyone with the link can watch it.');
+            } else {
+                m.innerHTML = hidden
+                    ? liveItem('fc-lm-hide', 'Put it back on the campaigns page',
+                        'Anyone browsing gene.clinic can find it again.')
+                    : liveItem('fc-lm-hide', 'Hide from the campaigns page',
+                        'The link keeps working. It just stops being listed.');
+                m.innerHTML += liveItem('fc-lm-del', 'Delete this campaign',
+                    'The link stops working. An administrator can still put it back.', true);
+            }
+            const pub = $('fc-lm-pub');
+            if (pub) pub.onclick = () => { closeLive(); publish(); };
+            const hide = $('fc-lm-hide');
+            if (hide) hide.onclick = async () => {
+                closeLive();
+                doc.unlisted = !hidden;
+                if (!doc.unlisted) delete doc.unlisted;   // the absence IS listed; do not store a false
+                liveUI();
+                await publish({ quiet: true });
+            };
+            const del = $('fc-lm-del');
+            if (del) del.onclick = async () => {
+                if (!delArmed) {
+                    delArmed = true;
+                    del.innerHTML = 'Really delete it?'
+                        + '<span style="display:block;margin-top:3px;font:400 11.5px system-ui;color:#fca5a5;">'
+                        + 'It comes off the directory and the link stops working.</span>';
+                    clearTimeout(delTimer);
+                    delTimer = setTimeout(() => { delArmed = false; drawLiveMenu(); }, 6000);
+                    return;
+                }
+                clearTimeout(delTimer); delArmed = false;
+                closeLive();
+                $('fc-status').textContent = 'Deleting…';
+                try {
+                    // NOT /rm. /fundraise/retire moves the campaign and its picture and
+                    // team files out of the public folder into the account's own
+                    // deleted-campaigns folder: the link stops working and nobody can read
+                    // it, and an administrator can put the whole thing back, at the same
+                    // path, so the links start working again. A campaign is somebody's
+                    // fundraiser for a sick child, often with the only copy of its story in
+                    // it, and "are you sure" pressed twice is not a backup.
+                    const r = await POSTJSON({ path: docPath, key: 'user', user: user }, host + '/fundraise/retire');
+                    if (!r || r.ok !== true) throw new Error(problemText(r));
+                    dirty = false;
+                    return leave('/app/fundraise/admin', 'fundraise/admin');
+                } catch (e) {
+                    $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not delete it: '
+                        + esc((e && e.message) ? e.message : e) + '</span>';
+                }
+            };
+        };
+        $('fc-live').onclick = (e) => {
+            try { e.stopPropagation(); } catch (x) { }
+            const m = liveMenu();
+            if (!m) return;
+            if (m.style.display !== 'none') { closeLive(); return; }
+            drawLiveMenu();
+            m.style.display = '';
+            try { $('fc-live').setAttribute('aria-expanded', 'true'); } catch (x) { }
+        };
+        document.addEventListener('pointerdown', (e) => {
+            try {
+                const w = $('fc-live-wrap');
+                if (w && e.target && w.contains(e.target)) return;
+                if (liveMenu() && liveMenu().style.display !== 'none') closeLive();
+            } catch (x) { }
+        }, true);
         const openDisplay = () => {
             if (!publicLink) { $('fc-status').textContent = 'Publish it first, then the display has something to read.'; return; }
             try { window.open(publicLink, '_blank', 'noopener'); } catch (e) { }

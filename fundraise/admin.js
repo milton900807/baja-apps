@@ -278,14 +278,20 @@ function (path, config) {
             $('fa-del').onclick = async () => {
                 if (!armed) {
                     armed = true; $('fa-del').textContent = 'Really delete?';
-                    out().textContent = 'This removes the campaign and breaks the link for anyone watching it.';
+                    out().textContent = 'This takes the campaign down and breaks the link for anyone watching it. '
+                        + 'An administrator can still put it back.';
                     armTimer = setTimeout(() => { armed = false; try { $('fa-del').textContent = 'Delete'; } catch (e) { } }, 6000);
                     return;
                 }
                 clearTimeout(armTimer); armed = false;
                 out().textContent = 'Deleting…';
                 try {
-                    const r = await POSTJSON({ path: c.path, key: 'user', user: user }, host + '/rm');
+                    // /fundraise/retire, not /rm: the campaign and its picture and team
+                    // files move out of the public folder into the account's own
+                    // deleted-campaigns folder rather than being unlinked. The link stops
+                    // working either way; this way an administrator can put it back at the
+                    // same path and every link handed out starts working again.
+                    const r = await POSTJSON({ path: c.path, key: 'user', user: user }, host + '/fundraise/retire');
                     if (failed(r)) throw new Error(problem(r));
                     picked = null; report = null; await load(); drawDetail();
                     say('Deleted ' + c.title + '.');
