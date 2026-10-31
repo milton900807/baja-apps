@@ -106,12 +106,45 @@ function (path, config) {
         // behind the whole display or as a banner over the title. The picture is NOT in the
         // campaign document -- that is re-read every few seconds -- but in a file beside it,
         // fetched once and again only when the campaign says the version changed.
-        const THEME = {
-            deep: 'radial-gradient(1200px 700px at 50% -10%,#123a63 0%,#0a1e3a 55%,#071526 100%)',
-            midnight: 'radial-gradient(1100px 700px at 50% -10%,#241b4e 0%,#140f2e 55%,#0a0718 100%)',
-            forest: 'radial-gradient(1100px 700px at 50% -10%,#14492f 0%,#0b2a1d 55%,#061712 100%)',
-            warm: 'radial-gradient(1100px 700px at 50% -10%,#5a2b1b 0%,#311611 55%,#1a0c08 100%)',
-            plain: 'linear-gradient(#0d1420,#0a0f18)',
+        // id, then the three colours of the background: inner, middle, outer. An empty
+        // middle means a flat background rather than a glow. All dark: a white total goes
+        // over them and has to carry to the back of a room.
+        //
+        // THE SAME TABLE IS IN fundraise/console.js, which previews it. Two modules with no
+        // import between them: change one and change the other.
+        const THEMES = [
+            ['deep', '#123a63', '#0a1e3a', '#071526'],
+            ['ocean', '#0e4a6b', '#063149', '#04202f'],
+            ['teal', '#0d5157', '#06333a', '#032126'],
+            ['ice', '#27456b', '#142742', '#0a1424'],
+            ['steel', '#2c3f52', '#16222e', '#0a1016'],
+            ['forest', '#14492f', '#0b2a1d', '#061712'],
+            ['moss', '#2d5132', '#16291b', '#0a150e'],
+            ['mint', '#0f5742', '#073228', '#04211a'],
+            ['warm', '#5a2b1b', '#311611', '#1a0c08'],
+            ['ember', '#6b2a14', '#38140a', '#1c0906'],
+            ['amber', '#6b4c12', '#3a2808', '#1c1304'],
+            ['sand', '#4a4030', '#262013', '#13100a'],
+            ['coral', '#7a2f2a', '#42140f', '#210907'],
+            ['wine', '#5c1533', '#30091b', '#19050e'],
+            ['rose', '#6b2342', '#3a1124', '#1e0812'],
+            ['violet', '#43236b', '#251241', '#130a22'],
+            ['plum', '#4e1a56', '#2a0c2f', '#16061a'],
+            ['berry', '#591a4a', '#300d28', '#190615'],
+            ['indigo', '#2b2b6e', '#15153a', '#0a0a1f'],
+            ['midnight', '#241b4e', '#140f2e', '#0a0718'],
+            ['slate', '#1e2733', '#121923', '#0a0e14'],
+            ['night', '#0b1020', '#080c18', '#05070f'],
+            ['graphite', '#23272e', '', '#0b0c0f'],
+            ['plain', '#0d1420', '', '#0a0f18'],
+        ];
+        const THEME_BY = {};
+        for (const t of THEMES) THEME_BY[t[0]] = t;
+        const themeCss = (id) => {
+            const t = THEME_BY[id] || THEME_BY.deep;
+            return t[2]
+                ? 'radial-gradient(1200px 700px at 50% -10%,' + t[1] + ' 0%,' + t[2] + ' 55%,' + t[3] + ' 100%)'
+                : 'linear-gradient(' + t[1] + ',' + t[3] + ')';
         };
         const medOf = (d) => ((d && d.media && typeof d.media === 'object') ? d.media : {});
         let pictureUri = '', pictureKey = '';
@@ -164,8 +197,10 @@ function (path, config) {
 
         const paintBackground = (d) => {
             const m = medOf(d);
-            const base = THEME[m.theme] || THEME.deep;
-            const asBg = pictureUri && m.imageMode !== 'banner';
+            const base = themeCss(m.theme);
+            // Behind the whole display only when the campaign asked for that. Unset means
+            // above the title, which is how the console publishes by default.
+            const asBg = pictureUri && m.imageMode === 'background';
             try {
                 // The photograph goes UNDER a dark wash: a total has to stay readable from the
                 // back of a room, and white numbers on someone's sunny garden party do not.
@@ -180,7 +215,7 @@ function (path, config) {
         };
         const bannerHtml = (d, big) => {
             const m = medOf(d);
-            if (!pictureUri || m.imageMode !== 'banner') return '';
+            if (!pictureUri || m.imageMode === 'background') return '';
             return '<div style="margin:0 auto ' + (big ? 'clamp(12px,2.4vmin,26px)' : '14px') + ';">'
                 + '<img src="' + esc(pictureUri) + '" alt="" style="max-width:' + (big ? 'min(760px,86vw)' : '100%')
                 + ';max-height:' + (big ? '26vh' : '200px') + ';border-radius:14px;display:block;margin:0 auto;'
@@ -291,7 +326,7 @@ function (path, config) {
         };
         // Is a photograph sitting behind the whole display? Everything that has to stay
         // readable asks this, because over a picture the answer is more contrast, not less.
-        const overPic = (d) => !!(pictureUri && medOf(d).imageMode !== 'banner');
+        const overPic = (d) => !!(pictureUri && medOf(d).imageMode === 'background');
         // A padlock drawn rather than fetched, and in currentColor so it is the same ink as
         // the words beside it. Trust marks that arrive over the network are the first thing
         // to fail on a hall's wifi, and a broken padlock is worse than none.
@@ -543,7 +578,11 @@ function (path, config) {
                     + '</div>').join('') + '</div>' : '')
 
                 + '<div style="margin-top:28px;font:400 12.5px system-ui;color:#6f93a6;">'
-                + (d.updated ? 'Updated ' + esc(ago(d.updated)) : '') + (d.by ? (d.updated ? ' · ' : '') + esc(d.by) : '')
+                // WHO PUBLISHED IT is not shown. This page is open to anyone with the
+                // link, and the organiser's sign-in address used to be printed under the
+                // total: an email address handed to every visitor, every crawler and
+                // every scraper that follows a shared campaign link.
+                + (d.updated ? 'Updated ' + esc(ago(d.updated)) : '')
                 + (every ? '<span style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div></div>';
             const b = document.getElementById('fd-back');
@@ -592,7 +631,7 @@ function (path, config) {
                     + esc((+d.donors).toLocaleString()) + ' ' + (Math.abs(+d.donors) === 1 ? 'donor' : 'donors') + '</div>' : '')
                 + (d.note ? '<div style="margin-top:clamp(12px,2.4vmin,24px);font:400 clamp(13px,1.9vmin,19px) system-ui;color:#cfe6ef;max-width:60ch;margin-left:auto;margin-right:auto;">' + esc(d.note) + '</div>' : '')
                 + '<div style="margin-top:clamp(16px,3vmin,30px);font:400 12.5px system-ui;color:#6f93a6;">'
-                + (when ? 'Updated ' + esc(when) : '') + (d.by ? (when ? ' · ' : '') + esc(d.by) : '')
+                + (when ? 'Updated ' + esc(when) : '')          // not who: see renderDetail
                 + (every ? '<span id="fd-live" style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div></div>'
                 + (thanked ? '<div style="margin-top:clamp(12px,2vmin,20px);display:inline-block;border:1px solid rgba(134,239,172,0.5);'

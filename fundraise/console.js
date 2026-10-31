@@ -85,7 +85,7 @@ function (path, config) {
         // ---- state ------------------------------------------------------------------------
         let doc = {
             kind: 'fundraise', title: 'Our campaign', subtitle: '', currency: 'USD',
-            goal: 100000, raised: 0, donors: 0, note: '', updated: '', by: '',
+            goal: 100000, raised: 0, donors: 0, note: '', updated: '',
             story: '', hideGiftAmounts: false, gifts: [], updates: [],
             // How a visitor gives. 'checkout' asks this server for a Stripe Checkout session
             // with the amount the donor picked; 'link' opens a Payment Link made in the Stripe
@@ -101,7 +101,7 @@ function (path, config) {
             // seconds, and a photograph in it would be re-downloaded on every one of those
             // reads, on every screen. The document names a sibling file instead, and the
             // display fetches that once and again only when imageV changes.
-            media: { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'background', youtube: '' },
+            media: { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'banner', youtube: '' },
             // The people behind the campaign. Their faces are NOT in here either, for the
             // same reason the campaign photograph is not: this document is re-read every few
             // seconds. Names and roles are a few bytes and stay; the portraits live in a
@@ -111,11 +111,52 @@ function (path, config) {
         const TEAM_MAX = 16;
         const teamArr = () => (Array.isArray(doc.team) ? doc.team : (doc.team = []));
         const med = () => (doc.media && typeof doc.media === 'object' ? doc.media
-            : (doc.media = { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'background', youtube: '' }));
+            : (doc.media = { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'banner', youtube: '' }));
+        // THE LOOKS A CAMPAIGN CAN WEAR. id, label, the group it is listed under, then the
+        // three colours of its background: inner, middle, outer. An empty middle means a
+        // flat background rather than a glow.
+        //
+        // All of them are dark, because the display puts a white total over the background
+        // and that has to carry to the back of a room. A pale theme is not a theme here, it
+        // is a rewrite of the display's type colours.
+        //
+        // THE SAME TABLE IS IN manchester/viewer-fundraise.js. Two modules with no import
+        // between them: change one and change the other, or this console's preview stops
+        // telling the truth about what gets published.
         const THEMES = [
-            ['deep', 'Deep blue'], ['midnight', 'Midnight'], ['forest', 'Forest'],
-            ['warm', 'Warm'], ['plain', 'Plain dark'],
+            ['deep', 'Deep blue', 'Blues and teals', '#123a63', '#0a1e3a', '#071526'],
+            ['ocean', 'Ocean', 'Blues and teals', '#0e4a6b', '#063149', '#04202f'],
+            ['teal', 'Teal', 'Blues and teals', '#0d5157', '#06333a', '#032126'],
+            ['ice', 'Ice', 'Blues and teals', '#27456b', '#142742', '#0a1424'],
+            ['steel', 'Steel', 'Blues and teals', '#2c3f52', '#16222e', '#0a1016'],
+            ['forest', 'Forest', 'Greens', '#14492f', '#0b2a1d', '#061712'],
+            ['moss', 'Moss', 'Greens', '#2d5132', '#16291b', '#0a150e'],
+            ['mint', 'Mint', 'Greens', '#0f5742', '#073228', '#04211a'],
+            ['warm', 'Warm', 'Warm', '#5a2b1b', '#311611', '#1a0c08'],
+            ['ember', 'Ember', 'Warm', '#6b2a14', '#38140a', '#1c0906'],
+            ['amber', 'Amber', 'Warm', '#6b4c12', '#3a2808', '#1c1304'],
+            ['sand', 'Sand', 'Warm', '#4a4030', '#262013', '#13100a'],
+            ['coral', 'Coral', 'Reds and pinks', '#7a2f2a', '#42140f', '#210907'],
+            ['wine', 'Wine', 'Reds and pinks', '#5c1533', '#30091b', '#19050e'],
+            ['rose', 'Rose', 'Reds and pinks', '#6b2342', '#3a1124', '#1e0812'],
+            ['violet', 'Violet', 'Purples', '#43236b', '#251241', '#130a22'],
+            ['plum', 'Plum', 'Purples', '#4e1a56', '#2a0c2f', '#16061a'],
+            ['berry', 'Berry', 'Purples', '#591a4a', '#300d28', '#190615'],
+            ['indigo', 'Indigo', 'Purples', '#2b2b6e', '#15153a', '#0a0a1f'],
+            ['midnight', 'Midnight', 'Purples', '#241b4e', '#140f2e', '#0a0718'],
+            ['slate', 'Slate', 'Darks', '#1e2733', '#121923', '#0a0e14'],
+            ['night', 'Night', 'Darks', '#0b1020', '#080c18', '#05070f'],
+            ['graphite', 'Graphite', 'Darks', '#23272e', '', '#0b0c0f'],
+            ['plain', 'Plain dark', 'Darks', '#0d1420', '', '#0a0f18'],
         ];
+        const THEME_BY = {};
+        for (const t of THEMES) THEME_BY[t[0]] = t;
+        const themeCss = (id) => {
+            const t = THEME_BY[id] || THEME_BY.deep;
+            return t[4]
+                ? 'radial-gradient(600px 300px at 50% -20%,' + t[3] + ' 0%,' + t[4] + ' 55%,' + t[5] + ' 100%)'
+                : 'linear-gradient(' + t[3] + ',' + t[5] + ')';
+        };
         // youtu.be/ID, watch?v=ID, /embed/ID, /shorts/ID, or the id on its own.
         const ytId = (v) => {
             const t = ('' + (v || '')).trim();
@@ -256,7 +297,10 @@ function (path, config) {
                     + (k === 'out' ? 'border-top:1px solid rgba(255,255,255,0.12);' : '') + '">' + label + '</button>';
             }).join('')
             + '</div></div>'
-            + '<div style="margin-left:auto;display:flex;gap:10px;">' + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
+            + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;">'
+            + '<span id="fc-live" style="display:inline-flex;align-items:center;gap:7px;border-radius:999px;'
+            + 'padding:7px 13px;font:600 12px system-ui;white-space:nowrap;"></span>'
+            + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
             + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div class="fc-body" style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div class="fc-col" style="flex:1 1 420px;max-width:560px;">'
@@ -295,7 +339,15 @@ function (path, config) {
             + '<div style="margin-top:8px;">' + btn('fc-post', 'Post update') + '</div>'
             + '<div id="fc-updates" style="margin-top:10px;"></div>'
             + '<label style="' + lbl + '">Look of the display</label>'
-            + '<select id="fc-theme" style="' + inp + '">' + THEMES.map((t) => '<option value="' + t[0] + '">' + t[1] + '</option>').join('') + '</select>'
+            + '<select id="fc-theme" style="' + inp + '">'
+            + (() => {   // grouped: two dozen in one flat list is a list nobody reads to the end of
+                let out = '', group = '';
+                for (const t of THEMES) {
+                    if (t[2] !== group) { if (group) out += '</optgroup>'; group = t[2]; out += '<optgroup label="' + esc(group) + '">'; }
+                    out += '<option value="' + t[0] + '">' + esc(t[1]) + '</option>';
+                }
+                return out + (group ? '</optgroup>' : '');
+            })() + '</select>'
             + '<label style="' + lbl + '">A picture (optional)</label>'
             + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             + '<input id="fc-img" type="file" accept="image/*" style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/>'
@@ -348,7 +400,7 @@ function (path, config) {
             + '<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);'
             + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
-            + '<span style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
+            + '<span id="fc-pub-note" style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
             // WHAT PUBLISHING COMMITS YOU TO. Said next to the button rather than buried in
             // terms nobody opens: a campaign that claims a cure, or dresses up something
             // that is not science, costs the next family on the directory their trust in
@@ -374,6 +426,16 @@ function (path, config) {
             + 'so raising the total here moves it on screen without anyone reloading the page.</div>'
             + '</div></div>';
         document.body.appendChild(wrap);
+
+        // One always-on rule: the slow pulse on the "edits not published" dot. Everything
+        // else this console styles is inline on the element that needs it; an animation
+        // cannot be.
+        if (!document.getElementById('fc-anim')) {
+            const an = document.createElement('style');
+            an.id = 'fc-anim';
+            an.textContent = '@keyframes fcWait{0%,100%{opacity:1}50%{opacity:0.35}}';
+            document.head.appendChild(an);
+        }
 
         // ---- ON A PHONE ----------------------------------------------------------------
         //
@@ -754,7 +816,10 @@ function (path, config) {
             $('fc-don-names').checked = !!dcfg.showNames;
             const m = med();
             $('fc-theme').value = m.theme || 'deep';
-            $('fc-img-mode').value = (m.imageMode === 'banner') ? 'banner' : 'background';
+            // Above the title is the default. Only an explicit 'background' puts the
+            // picture behind the whole display, so a campaign that never chose, and one
+            // published before there was a choice, both open with the picture up top.
+            $('fc-img-mode').value = (m.imageMode === 'background') ? 'background' : 'banner';
             $('fc-yt').value = m.youtube || '';
             imgUI(); ytUI();
             donUI();
@@ -800,7 +865,7 @@ function (path, config) {
             dcfg.showNames = !!$('fc-don-names').checked;
             const m = med();
             m.theme = $('fc-theme').value || 'deep';
-            m.imageMode = ($('fc-img-mode').value === 'banner') ? 'banner' : 'background';
+            m.imageMode = ($('fc-img-mode').value === 'background') ? 'background' : 'banner';
             m.youtube = ytId($('fc-yt').value);
             dcfg.amounts = ('' + $('fc-don-amts').value).split(/[,;\s]+/).map((x) => parseMoney(x))
                 .filter((v) => isFinite(v) && v > 0).slice(0, 6);
@@ -863,30 +928,23 @@ function (path, config) {
                 };
             }
         };
-        const PREV_THEME = {
-            deep: 'radial-gradient(600px 300px at 50% -20%,#123a63 0%,#0a1e3a 60%,#071526 100%)',
-            midnight: 'radial-gradient(600px 300px at 50% -20%,#241b4e 0%,#140f2e 60%,#0a0718 100%)',
-            forest: 'radial-gradient(600px 300px at 50% -20%,#14492f 0%,#0b2a1d 60%,#061712 100%)',
-            warm: 'radial-gradient(600px 300px at 50% -20%,#5a2b1b 0%,#311611 60%,#1a0c08 100%)',
-            plain: 'linear-gradient(#0d1420,#0a0f18)',
-        };
         const preview = () => {
             const cur = doc.currency, goal = Math.max(0, +doc.goal || 0), raised = Math.max(0, +doc.raised || 0);
             const pct = goal > 0 ? Math.max(0, Math.min(100, raised / goal * 100)) : 0;
             const over = goal > 0 && raised >= goal;
             // The preview wears the same clothes as the display, or it is not a preview.
             const m = med(), pic = currentImage();
-            const asBg = pic && m.imageMode !== 'banner';
+            const asBg = pic && m.imageMode === 'background';
             try {
                 const pv = $('fc-prev');
                 pv.style.backgroundImage = asBg
                     ? 'linear-gradient(rgba(5,14,26,0.72),rgba(5,14,26,0.86)), url("' + pic + '")'
-                    : (PREV_THEME[m.theme] || PREV_THEME.deep);
+                    : themeCss(m.theme);
                 pv.style.backgroundSize = asBg ? 'cover' : '';
                 pv.style.backgroundPosition = asBg ? 'center' : '';
             } catch (e) { }
             $('fc-prev').innerHTML = ''
-                + ((pic && m.imageMode === 'banner')
+                + ((pic && m.imageMode !== 'background')
                     ? '<img src="' + esc(pic) + '" alt="" style="max-width:100%;max-height:90px;border-radius:10px;display:block;margin:0 auto 10px;"/>' : '')
                 + (doc.title ? '<div style="font:800 22px system-ui;">' + esc(doc.title) + '</div>' : '')
                 + (doc.subtitle ? '<div style="margin-top:4px;font:400 13px system-ui;color:#9fc4d4;">' + esc(doc.subtitle) + '</div>' : '')
@@ -913,9 +971,57 @@ function (path, config) {
         // stored: a form that says "no changes" while the gift list has moved is worse than
         // one that asks an unnecessary question.
         let dirty = false;
-        const touch = () => { dirty = true; };
+
+        // IS THIS CAMPAIGN LIVE, AND IS WHAT I AM LOOKING AT WHAT THE WORLD SEES.
+        //
+        // Two different questions, and the console used to answer neither. A campaign that
+        // exists on the server is live: anyone with its link is watching it right now, which
+        // is worth knowing before you start editing. And an edit in this form changes nothing
+        // out there until Publish, which is easy to forget when the preview beside you has
+        // already moved.
+        //
+        // So: a grey pill while nothing is published, green once it is, and amber the moment
+        // there is something unpublished, with the same amber around the Publish buttons.
+        let liveWas = '';
+        const liveUI = () => {
+            const el = $('fc-live');
+            if (!el) return;
+            const live = !!docPath, state = (live ? 'L' : 'N') + (dirty ? 'D' : '');
+            if (state === liveWas) return;      // touch() runs on every keystroke
+            liveWas = state;
+            const skin = dirty
+                ? ['#fbbf24', 'rgba(251,191,36,0.14)', 'rgba(251,191,36,0.45)', '#fde68a']
+                : (live ? ['#22c55e', 'rgba(34,197,94,0.14)', 'rgba(34,197,94,0.4)', '#bbf7d0']
+                    : ['#64748b', 'rgba(148,163,184,0.12)', 'rgba(148,163,184,0.32)', '#cbd5e1']);
+            const words = live
+                ? (dirty ? 'Live, edits not published' : 'Live')
+                : (dirty ? 'Not live, nothing published yet' : 'Not live');
+            el.style.background = skin[1];
+            el.style.border = '1px solid ' + skin[2];
+            el.style.color = skin[3];
+            el.title = live
+                ? (dirty ? 'The display is up, but what you have changed here is not on it yet.'
+                    : 'The display is up and showing what is on this screen.')
+                : 'Nothing is published. Nobody can open this campaign yet.';
+            el.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:' + skin[0]
+                + ';display:inline-block;' + (dirty ? 'animation:fcWait 1.6s ease-in-out infinite;' : '') + '"></span>'
+                + esc(words);
+            for (const id of ['fc-publish', 'fc-publish2']) {
+                const b = $(id);
+                if (b) b.style.boxShadow = dirty ? '0 0 0 3px rgba(251,191,36,0.45)' : '';
+            }
+            const note = $('fc-pub-note');
+            if (note) {
+                note.textContent = dirty
+                    ? 'You have changes that are not on the display yet. Publish to put them there.'
+                    : (live ? 'The display is showing what is on this screen.'
+                        : 'Nothing on the display changes until you publish.');
+                note.style.color = dirty ? '#fde68a' : '#6f93a6';
+            }
+        };
+        const touch = () => { dirty = true; liveUI(); };
         const sync = () => { fromForm(); preview(); donUI(); touch(); };
-        toForm(); preview(); lists(); dirty = false;
+        toForm(); preview(); lists(); dirty = false; liveUI();
         for (const id of ['fc-title', 'fc-sub', 'fc-raised', 'fc-goal', 'fc-donors', 'fc-note', 'fc-story',
             'fc-don-label', 'fc-don-amts']) $(id).addEventListener('input', sync);
         for (const id of ['fc-don-on', 'fc-don-custom', 'fc-don-names']) $(id).addEventListener('change', sync);
@@ -1088,7 +1194,12 @@ function (path, config) {
             const busy = (v) => { for (const id of ['fc-publish', 'fc-publish2']) { const el = $(id); if (el) el.disabled = v; } };
             busy(true); $('fc-status').textContent = 'Publishing…';
             doc.updated = new Date().toISOString();
-            doc.by = user;
+            // The publisher's address is NOT written into the campaign. The document is
+            // fetched by anyone who opens the public display, so a field here is a field
+            // on the open web. Ownership is the folder the file sits in, which the server
+            // checks; it was never this line's job. An address put there by an earlier
+            // version of this console is cleared on the next publish.
+            if (doc.by) delete doc.by;
             if (!fileName) fileName = slug(doc.title) + '.fund';
             // The picture goes first: a campaign pointing at a file that is not there yet
             // would show a broken display for however long the two writes are apart.
@@ -1143,7 +1254,7 @@ function (path, config) {
                 publicLink = link;
                 let copied = false;
                 try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); copied = true; } } catch (e) { }
-                dirty = false;
+                dirty = false; liveUI();
                 $('fc-status').textContent = 'Published. Anyone with the link can watch it, and it updates itself.';
                 $('fc-link').innerHTML = (copied ? 'Copied to your clipboard: ' : 'The link: ')
                     + '<a href="' + esc(link) + '" target="_blank" rel="noopener" style="color:#4fd0e6;">' + esc(link) + '</a>';
@@ -1174,6 +1285,15 @@ function (path, config) {
                 const el = document.getElementById('baja-fundraise-console');
                 if (el && el.parentNode) el.parentNode.removeChild(el);
             } catch (e) { }
+            // The sheets this console put in <head> go with it. They are harmless left
+            // behind, but a page that collects a style element every time somebody opens
+            // the console is a page that collects them forever.
+            for (const id of ['fc-anim', 'fc-phone']) {
+                try {
+                    const st = document.getElementById(id);
+                    if (st && st.parentNode) st.parentNode.removeChild(st);
+                } catch (e) { }
+            }
         };
         const leave = async (where, mod) => {
             takeDown();
