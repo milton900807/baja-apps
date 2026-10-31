@@ -216,7 +216,11 @@ function (path, config) {
             d.innerHTML = '<div style="border:1px solid rgba(255,255,255,0.14);border-radius:12px;padding:18px;background:#0b2545;">'
                 + '<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
                 + '<div style="font:700 17px system-ui;">' + esc(c.title) + '</div>'
-                + '<div style="font:12.5px system-ui;color:#9fb3c8;">' + esc(c.path) + '</div></div>'
+                // The FILE, not the path. A campaign's full path begins with the AES
+                // encoding of the owner's address, sixty-four characters of hex that mean
+                // nothing to anyone and are the first thing on screen in a screenshot. The
+                // file name is the part that identifies the campaign to a person.
+                + '<div style="font:12.5px system-ui;color:#9fb3c8;">' + esc(c.file) + '</div></div>'
                 + '<div style="margin-top:12px;display:flex;gap:9px;flex-wrap:wrap;">'
                 + btn('fa-edit', 'Edit campaign') + btn('fa-view', 'Open the display') + btn('fa-copy', 'Copy the link')
                 + btn('fa-pull', 'Pull donations') + btn('fa-recon', 'Reconcile', 'go') + btn('fa-csv', 'Export CSV')
