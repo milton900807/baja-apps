@@ -218,7 +218,7 @@ function (path, config) {
                 + '<div style="font:700 17px system-ui;">' + esc(c.title) + '</div>'
                 + '<div style="font:12.5px system-ui;color:#9fb3c8;">' + esc(c.path) + '</div></div>'
                 + '<div style="margin-top:12px;display:flex;gap:9px;flex-wrap:wrap;">'
-                + btn('fa-edit', 'Open in the console') + btn('fa-view', 'Open the display') + btn('fa-copy', 'Copy the link')
+                + btn('fa-edit', 'Edit campaign') + btn('fa-view', 'Open the display') + btn('fa-copy', 'Copy the link')
                 + btn('fa-pull', 'Pull donations') + btn('fa-recon', 'Reconcile', 'go') + btn('fa-csv', 'Export CSV')
                 + '<span style="flex:1 1 20px;"></span>' + btn('fa-del', 'Delete', 'bad')
                 + '</div>'
