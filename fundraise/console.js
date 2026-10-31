@@ -92,7 +92,11 @@ function (path, config) {
             // dashboard. Which payment methods appear -- card, Apple Pay, Google Pay, Link,
             // Cash App, Klarna, bank debits -- is a Stripe dashboard setting in both cases,
             // not something this page chooses, so turning one on there turns it on here.
-            donate: { on: false, mode: 'checkout', label: 'Donate', url: '', amounts: [25, 50, 100, 250], custom: true },
+            // ON. A campaign exists to be given to, and a display with no way to give is
+            // the one thing nobody wants to discover after sharing the link. It is still a
+            // checkbox: turning it off is one click, and the screen says in as many words
+            // what a donor is offered.
+            donate: { on: true, mode: 'checkout', label: 'Donate', url: '', amounts: [25, 50, 100, 250], custom: true },
             // A picture is NOT kept in here. The display re-reads this document every few
             // seconds, and a photograph in it would be re-downloaded on every one of those
             // reads, on every screen. The document names a sibling file instead, and the
@@ -121,7 +125,7 @@ function (path, config) {
             return m ? m[1] : '';
         };
         const don = () => (doc.donate && typeof doc.donate === 'object' ? doc.donate
-            : (doc.donate = { on: false, mode: 'checkout', label: 'Donate', url: '', amounts: [], custom: true }));
+            : (doc.donate = { on: true, mode: 'checkout', label: 'Donate', url: '', amounts: [25, 50, 100, 250], custom: true }));
         // Both lists are newest first, and capped: a document that grows without a bound is
         // one the display eventually cannot load.
         const CAP = 200;
@@ -169,6 +173,12 @@ function (path, config) {
         wrap.id = WRAP;
         wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483000;overflow:auto;background:#071a30;color:#eaf6f9;'
             + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
+        // WHICH OF THESE HAVE TO BE FILLED IN: one, the name. Everything else has a sensible
+        // nothing -- no goal draws no goal, no picture draws the theme, no story hides the
+        // details page -- but nobody can tell that by looking at a form, and a screen with
+        // fourteen fields reads as fourteen obligations. So each one says "(optional)" and
+        // the single required field says that instead. Currency and the look of the display
+        // are not marked: they are choices between given values, never blank.
         const lbl = 'display:block;font:600 12px system-ui;color:#9fb3c8;margin:14px 0 5px;';
         const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);'
             + 'border-radius:8px;padding:9px 11px;font:14px system-ui;';
@@ -215,16 +225,16 @@ function (path, config) {
             + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div class="fc-body" style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div class="fc-col" style="flex:1 1 420px;max-width:560px;">'
-            + '<label style="' + lbl + '">Campaign</label><input id="fc-title" style="' + inp + '"/>'
+            + '<label style="' + lbl + '">Campaign <span style="color:#7fb0c4;font-weight:600;">(required)</span></label><input id="fc-title" style="' + inp + '"/>'
             + '<div id="fc-name-out" style="margin-top:5px;font:12px system-ui;min-height:15px;"></div>'
             + '<label style="' + lbl + '">A line under it (optional)</label><input id="fc-sub" style="' + inp + '"/>'
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + '<div style="flex:1 1 120px;"><label style="' + lbl + '">Currency</label><select id="fc-cur" style="' + inp + '">'
             + CUR.map((c) => '<option value="' + c + '">' + c + '</option>').join('') + '</select></div>'
-            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Raised so far</label><input id="fc-raised" inputmode="decimal" style="' + inp + '"/></div>'
-            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Goal</label><input id="fc-goal" inputmode="decimal" style="' + inp + '"/></div>'
+            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Raised so far (optional)</label><input id="fc-raised" inputmode="decimal" style="' + inp + '"/></div>'
+            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Goal (optional)</label><input id="fc-goal" inputmode="decimal" style="' + inp + '"/></div>'
             + '</div>'
-            + '<label style="' + lbl + '">Add a gift</label>'
+            + '<label style="' + lbl + '">Add a gift (optional)</label>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
             + '<input id="fc-gift" inputmode="decimal" placeholder="amount" style="' + inp + 'flex:0 0 120px;"/>'
             + '<input id="fc-gift-name" placeholder="who gave it (optional)" style="' + inp + 'flex:1 1 150px;"/>'
@@ -242,16 +252,16 @@ function (path, config) {
             + '<div style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">The details page</div>'
             + '<div style="margin-top:5px;font:12.5px system-ui;color:#9fb3c8;">One button away from the total, for everything that '
             + 'wants reading up close rather than from the back of a room.</div></div>'
-            + '<label style="' + lbl + '">About this campaign</label>'
+            + '<label style="' + lbl + '">About this campaign (optional)</label>'
             + '<textarea id="fc-story" rows="5" placeholder="What the money is for. Blank lines start new paragraphs." style="' + inp + 'resize:vertical;"></textarea>'
-            + '<label style="' + lbl + '">Post an update</label>'
+            + '<label style="' + lbl + '">Post an update (optional)</label>'
             + '<input id="fc-upd-title" placeholder="headline (optional)" style="' + inp + '"/>'
             + '<textarea id="fc-upd" rows="3" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
             + '<div style="margin-top:8px;">' + btn('fc-post', 'Post update') + '</div>'
             + '<div id="fc-updates" style="margin-top:10px;"></div>'
             + '<label style="' + lbl + '">Look of the display</label>'
             + '<select id="fc-theme" style="' + inp + '">' + THEMES.map((t) => '<option value="' + t[0] + '">' + t[1] + '</option>').join('') + '</select>'
-            + '<label style="' + lbl + '">A picture</label>'
+            + '<label style="' + lbl + '">A picture (optional)</label>'
             + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             + '<input id="fc-img" type="file" accept="image/*" style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/>'
             + '<select id="fc-img-mode" style="' + inp + 'flex:0 0 185px;">'
@@ -260,7 +270,7 @@ function (path, config) {
             + btn('fc-img-clear', 'Remove') + '</div>'
             + '<div id="fc-img-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
             + '<div id="fc-img-prev" style="margin-top:8px;"></div>'
-            + '<label style="' + lbl + '">The team</label>'
+            + '<label style="' + lbl + '">The team (optional)</label>'
             + '<div style="font:12px system-ui;color:#9fb3c8;margin-bottom:7px;">Who is behind the campaign. Shown on the details page.</div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
             + '<input id="fc-tm-name" placeholder="name" style="' + inp + 'flex:1 1 140px;"/>'
@@ -272,7 +282,7 @@ function (path, config) {
             + btn('fc-tm-add', '+ Add') + '</div>'
             + '<div id="fc-tm-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
             + '<div id="fc-team" style="margin-top:8px;"></div>'
-            + '<label style="' + lbl + '">A film (YouTube)</label>'
+            + '<label style="' + lbl + '">A film (YouTube, optional)</label>'
             + '<input id="fc-yt" placeholder="https://youtu.be/… — shown on the details page" style="' + inp + '"/>'
             + '<div id="fc-yt-out" style="margin-top:5px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
             + '<div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);">'
@@ -286,9 +296,9 @@ function (path, config) {
             + 'device and country: Apple Pay shows for someone in Safari with a card in their wallet, and needs nothing '
             + 'from this page.</div>'
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-            + '<div style="flex:1 1 150px;"><label style="' + lbl + '">Button</label><input id="fc-don-label" style="' + inp + '"/></div>'
+            + '<div style="flex:1 1 150px;"><label style="' + lbl + '">Button label (optional)</label><input id="fc-don-label" style="' + inp + '"/></div>'
             + '</div>'
-            + '<label style="' + lbl + '">Suggested amounts</label>'
+            + '<label style="' + lbl + '">Suggested amounts (optional)</label>'
             + '<input id="fc-don-amts" placeholder="25, 50, 100, 250" style="' + inp + '"/>'
             + '<label style="margin-top:8px;font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
             + '<input id="fc-don-custom" type="checkbox" style="accent-color:#22c55e;"/> let a donor type their own amount</label>'
