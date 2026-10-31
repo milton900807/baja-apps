@@ -80,21 +80,60 @@ function () {
         const DESIGN = '<div style="display:flex;gap:12px;flex-wrap:wrap;">' + APPS.map(tile).join('') + '</div>';
 
         const ID = 'baja-home';
-        const html = '<div id="' + ID + '" style="font-family:Arial,Helvetica,sans-serif;max-width:1180px;margin:0 auto;padding:26px 18px 40px;">'
-            + '<div style="font:800 26px Arial;color:#12242c;">' + (who ? 'Welcome back' : 'Welcome') + '</div>'
-            + '<div style="font:14px Arial;color:#6b8793;margin:6px 0 20px;">' + esc(who) + '</div>'
+
+        // ON A PHONE, A DOOR IS A PAGE. On a desktop the choices drop down under the three
+        // doors, which works because there is room beside them for the doors to stay in
+        // view. On a phone there is no beside: a panel hanging under the doors pushes them
+        // off the top, leaves the choices half on screen, and has to be dismissed by
+        // tapping somewhere that is not anything. A page is the shape a phone already
+        // knows -- it fills the screen, it has a way back at the top, and the back button
+        // is a thing to press rather than a patch of nothing to find.
+        const phone = (() => {
+            try { return typeof isMobile === 'function' && !!isMobile(); } catch (e) { return false; }
+        })();
+
+        const shell = (inner) => '<div id="' + ID + '" style="font-family:Arial,Helvetica,sans-serif;'
+            + 'max-width:1180px;margin:0 auto;padding:' + (phone ? '16px 14px 36px' : '26px 18px 40px') + ';">' + inner + '</div>';
+
+        const draw = (inner) => showWidget({
+            wid: 'card', width: '100%', height: '100%',
+            data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: shell(inner) } }]] }
+        });
+
+        const DOORS = '<div style="font:800 ' + (phone ? '22px' : '26px') + ' Arial;color:#12242c;">'
+            + (who ? 'Welcome back' : 'Welcome') + '</div>'
+            + '<div style="font:14px Arial;color:#6b8793;margin:6px 0 20px;word-break:break-word;">' + esc(who) + '</div>'
             + '<div style="display:flex;gap:14px;flex-wrap:wrap;">'
             + door('funds', 'Funds', 'Raise money for a rare disease', '#16a34a')
             + door('design', 'Design', 'The tools for designing a therapy', '#0f6e7a')
             + door('files', 'My Files', 'Everything you have saved', '#5b7d86')
             + '</div>'
-            + '<div data-panel style="display:none;margin-top:18px;padding:18px;border:1px solid #e1e8ed;'
-            + 'border-radius:14px;background:#f7fafc;"></div></div>';
+            + (phone ? '' : '<div data-panel style="display:none;margin-top:18px;padding:18px;'
+                + 'border:1px solid #e1e8ed;border-radius:14px;background:#f7fafc;"></div>');
 
-        showWidget({
-            wid: 'card', width: '100%', height: '100%',
-            data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: html } }]] }
-        });
+        // The sub-page: a way back, a title, and the same choices the panel would have
+        // shown. The back button is first in the markup as well as first on the screen, so
+        // it is also the first thing a screen reader reaches.
+        const SUB = {
+            funds: { title: 'Funds', line: 'Raise money for a rare disease', body: () => FUNDS },
+            design: { title: 'Design', line: 'The tools for designing a therapy', body: () => DESIGN },
+        };
+        const subPage = (k) => {
+            const d = SUB[k];
+            return '<button data-back="1" style="cursor:pointer;border:1px solid #cfdbe2;background:#fff;'
+                + 'border-radius:10px;padding:9px 14px 9px 10px;font:700 14px Arial;color:#2a4551;'
+                + 'display:inline-flex;align-items:center;gap:7px;margin-bottom:14px;">'
+                + '<span style="font:800 16px Arial;line-height:1;">\u2190</span> Home</button>'
+                + '<div style="font:800 22px Arial;color:#12242c;">' + esc(d.title) + '</div>'
+                + '<div style="font:13.5px Arial;color:#6b8793;margin:5px 0 16px;">' + esc(d.line) + '</div>'
+                + d.body();
+        };
+
+        let page = '';                       // '' is the doors; otherwise the door being shown
+        const showDoors = () => { page = ''; draw(DOORS); };
+        const showSub = (k) => { page = k; draw(subPage(k)); };
+
+        showDoors();
 
         // POINTERDOWN ON THE DOCUMENT. NOT CLICK, AND NOT ON THE BUTTONS.
         //
@@ -151,6 +190,9 @@ function () {
             } catch (e) { }
         };
         const paint = () => {
+            // On a phone there is no panel to paint: a door is a page of its own, and
+            // panelEl() would put an element on the body that nothing ever shows.
+            if (phone) return;
             for (const b of document.querySelectorAll('[data-door]')) {
                 const on = b.getAttribute('data-door') === openDoor;
                 b.style.background = on ? '#eef6fb' : '#fff';
@@ -189,6 +231,8 @@ function () {
                     try { e.preventDefault(); } catch (x) { }
                     fn();
                 };
+                const bk = t.closest('[data-back]');
+                if (bk) return act(() => h.back());
                 const d = t.closest('[data-door]');
                 if (d) return act(() => h.door(d.getAttribute('data-door')));
                 const a = t.closest('[data-app]');
@@ -209,17 +253,28 @@ function () {
         }
         window.__bajaHomeHandlers = {
             door: async (k) => {
-                // My Files is the file browser, a page of its own, so that door goes there.
+                // My Files is the file browser, a page of its own, so that door goes there
+                // on any screen. The other two are a page on a phone and a panel otherwise.
                 if (k === 'files') { await leaveFor('manchester/fb.js', '/app/baja/fb'); return; }
+                if (phone) {
+                    if (page === k) { showDoors(); return; }
+                    showSub(k);
+                    return;
+                }
                 openDoor = (k === openDoor) ? '' : k;
                 paint();
             },
+            // The way back from a sub-page. It redraws the doors rather than going through
+            // the router: this is the same module and the same screen, and a history entry
+            // per door would make the phone's own back button walk through them one at a
+            // time before it ever left the home screen.
+            back: () => { if (page) showDoors(); },
             app: async (i) => { const a = APPS[i]; if (a) await leaveFor(a.path, '/app/' + a.path, a.args); },
             fund: async (w) => {
                 if (w === 'new') await leaveFor('fundraise/console', '/app/fundraise/console');
                 else await leaveFor('fundraise/admin', '/app/fundraise/admin');
             },
-            away: () => { if (openDoor) { openDoor = ''; paint(); } },
+            away: () => { if (!phone && openDoor) { openDoor = ''; paint(); } },
             moved: () => { if (openDoor) place(); },
         };
 

@@ -11,9 +11,11 @@
 #  WHAT IT DEPLOYS
 #    1. baja-server    the fundraising endpoints, including the two-Stripe-key split,
 #                      patched into dist/index.js (and src/index.ts when it is there).
-#    2. baja-apps      the lionscript modules: the home screen whose doors answer a
-#                      press, the fundraising console, viewer, admin and icons, and the
-#                      Apps menu entries.
+#    2. baja-apps      the lionscript modules: the home screen, whose doors answer a
+#                      press and open a page of their own on a phone, the fundraising
+#                      console, viewer, admin and icons, and the Apps menu entries. Then
+#                      Home and the funds options into the header menu, which lives in
+#                      env.js on the server rather than in the bundle.
 #    3. the frontend   (--frontend only) the Angular shell: the widget markup that stops
 #                      being rebuilt several times a second, the header's authoring
 #                      buttons behind one account, and the landing page that scrolls on
@@ -25,9 +27,11 @@
 #  Options:
 #      --frontend          also build and install the Angular app (needs node and npm)
 #      --frontend-only     only that
+#      --no-menu           leave the header menu in env.js alone
 #      --no-restart        leave the service alone
 #      SERVER_DIR=/opt/baja-server  APPS_DIR=/opt/baja-apps  PORT=8080
 #      WEB_DIR=<where the built app is served from>   SRC_DIR=<a git checkout of baja>
+#      ENVJS=<path to the deployed assets/env.js>
 #      REF=<git sha of baja-apps>   BRANCH=<frontend branch, default main>
 # =============================================================================
 set -euo pipefail
@@ -38,13 +42,14 @@ PORT="${PORT:-8080}"
 BRANCH="${BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
 REF="${REF:-85c63baf9abe8772f6bb9d4459bf2f05907e4df0}"
-DO_API=1; DO_WEB=0; DO_RESTART=1
+DO_API=1; DO_WEB=0; DO_RESTART=1; DO_MENU=1
 
 while [[ $# -gt 0 ]]; do case "$1" in
   --frontend)      DO_WEB=1; shift ;;
   --frontend-only) DO_WEB=1; DO_API=0; shift ;;
   --no-restart)    DO_RESTART=0; shift ;;
-  -h|--help)       sed -n '2,32p' "$0"; exit 0 ;;
+  --no-menu)       DO_MENU=0; shift ;;
+  -h|--help)       sed -n '2,35p' "$0"; exit 0 ;;
   *) echo "Unknown option: $1" >&2; exit 2 ;;
 esac; done
 
@@ -75,6 +80,27 @@ if [[ $DO_API -eq 1 ]]; then
   curl -fsSL "$RAW/$REF/tools/hotfix/install-fundraise-app.py" -o "$TMP/b.py" \
     || die "Could not download install-fundraise-app.py"
   python3 "$TMP/b.py" "$APPS_DIR"
+
+  # The header menu lives in env.js on the server, not in the bundle: a list of labels and
+  # module paths the shell execs. Adding Home and the funds options is a file edit, so it
+  # happens here rather than waiting for a frontend build. Not finding env.js is a thing to
+  # say and carry on from, not a reason to stop: everything above it is already installed.
+  if [[ $DO_MENU -eq 1 ]]; then
+    step "The header menu"
+    ENVJS="${ENVJS:-}"
+    if [[ -z "$ENVJS" ]]; then
+      for d in "${WEB_DIR:-}" /opt/baja/eln /opt/baja /var/www/eln /var/www/html/eln /usr/share/nginx/html/eln /srv/eln; do
+        [[ -n "$d" && -f "$d/assets/env.js" ]] && { ENVJS="$d/assets/env.js"; break; }
+      done
+    fi
+    if [[ -n "$ENVJS" ]]; then
+      curl -fsSL "$RAW/$REF/tools/ops/set-menu.py" -o "$TMP/m.py" || die "Could not download set-menu.py"
+      python3 "$TMP/m.py" "$ENVJS"
+    else
+      say "No assets/env.js found, so the menu was left alone."
+      say "Find it and run:  sudo python3 set-menu.py <path to env.js>   (or set ENVJS=…)"
+    fi
+  fi
 fi
 
 # ---- 3: the Angular app ------------------------------------------------------
