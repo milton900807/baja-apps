@@ -53,6 +53,25 @@ while [[ $# -gt 0 ]]; do case "$1" in
   *) echo "Unknown option: $1" >&2; exit 2 ;;
 esac; done
 
+# WHERE THE BUILT APP LIVES. A fixed list of likely paths was not enough -- this box
+# serves it from somewhere else -- so the app is found by what it IS: an index.html with
+# <app-root> in it, which is the Angular shell and nothing else on a web server. The search
+# is bounded to the places a site is served from, skips this script's own backups, and
+# refuses to choose when it finds more than one.
+find_web_dir() {
+  local hits d out=()
+  hits="$(grep -rl --include=index.html -m1 'app-root' \
+            /opt /var/www /srv /usr/share/nginx /home 2>/dev/null | head -40 || true)"
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    case "$f" in *.before-*|*/node_modules/*|*/src/*) continue ;; esac
+    d="$(dirname "$f")"
+    case " ${out[*]-} " in *" $d "*) ;; *) out+=("$d") ;; esac
+  done <<< "$hits"
+  [[ ${#out[@]} -eq 1 ]] || return 1
+  printf '%s' "${out[0]}"
+}
+
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
 die()  { printf '%s\n' "$*" >&2; exit 1; }
@@ -89,7 +108,8 @@ if [[ $DO_API -eq 1 ]]; then
     step "The header menu"
     ENVJS="${ENVJS:-}"
     if [[ -z "$ENVJS" ]]; then
-      for d in "${WEB_DIR:-}" /opt/baja/eln /opt/baja /var/www/eln /var/www/html/eln /usr/share/nginx/html/eln /srv/eln; do
+      W="${WEB_DIR:-$(find_web_dir || true)}"
+      for d in "$W" /opt/baja/eln /opt/baja /var/www/eln /var/www/html/eln /usr/share/nginx/html/eln /srv/eln; do
         [[ -n "$d" && -f "$d/assets/env.js" ]] && { ENVJS="$d/assets/env.js"; break; }
       done
     fi
@@ -115,18 +135,15 @@ if [[ $DO_WEB -eq 1 ]]; then
   # Where the built app is served from. A guess here would overwrite a live site, so an
   # ambiguous answer stops rather than picking one.
   if [[ -z "${WEB_DIR:-}" ]]; then
-    FOUND=()
-    for d in /opt/baja/eln /opt/baja /var/www/eln /var/www/html/eln /usr/share/nginx/html/eln /srv/eln; do
-      [[ -f "$d/index.html" ]] && FOUND+=("$d")
-    done
-    if [[ ${#FOUND[@]} -eq 1 ]]; then
-      WEB_DIR="${FOUND[0]}"
+    WEB_DIR="$(find_web_dir)" || true
+    if [[ -n "$WEB_DIR" ]]; then
       say "Serving directory: $WEB_DIR (found; set WEB_DIR= to override)"
     else
       say "I could not tell where the built app is served from."
-      [[ ${#FOUND[@]} -gt 1 ]] && say "More than one candidate: ${FOUND[*]}"
-      say "Find it with:   grep -R --include='*.conf' -n 'root ' /etc/nginx | head"
-      die "Then re-run with WEB_DIR=<that directory>."
+      say "nginx will say. Both of these print it:"
+      say "  sudo nginx -T 2>/dev/null | grep -nE 'server_name|root '"
+      say "  sudo grep -rl --include=index.html app-root /opt /var/www /srv /usr/share/nginx"
+      die "Then re-run with WEB_DIR=<the directory holding index.html>."
     fi
   fi
   [[ -f "$WEB_DIR/index.html" ]] || die "$WEB_DIR has no index.html in it. That is probably not the serving directory."
