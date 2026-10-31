@@ -10,9 +10,13 @@ to what is compiled into the bundle. env.js is a runtime file that the deploy sc
 so changing it is a file edit and a reload rather than an Angular build and a deploy.
 
 WHAT TAKES EFFECT WHEN. The deployed bundle already reads clinicFeatures, so the bullet list
-changes as soon as this runs. clinicBanner, clinicTag, clinicTitle and clinicNote are read by
-the newer bundle (baja, commit c020fe9): writing them now is harmless, and they start showing
-the moment the front end is next built and deployed.
+changes as soon as this runs. clinicBanner, clinicTag and clinicNote are read by the newer
+bundle: writing them now is harmless, and they start showing the moment the front end is next
+built and deployed.
+
+clinicTitle is deliberately not written. The heading above the list is gone, and the newer
+bundle draws no heading unless env.js names one -- so the way to have it back is to add
+clinicTitle here, not to delete something.
 
 The medical disclaimer is not settable here. It is compiled into the page on purpose: a
 sentence that exists to stop someone reading a treatment decision into a gene drawing should
@@ -30,17 +34,14 @@ MARK_CLOSE = '  /* ---- end gene.clinic sign-in wording ---- */'
 COPY = {
     'clinicBanner': 'No charge to run a campaign, 100% of the funds you raise go right into your cause.',
     'clinicTag': 'Understand it. Share it. Fund it.',
-    'clinicTitle': 'Raise money for a rare disease, and keep all of it',
     # Exact rather than "free": this site takes nothing, and the card processor's fee is
     # not ours to waive. Both halves, in the same sentence, on a page about money.
     'clinicNote': 'There is no charge for this and no share of what you raise. '
                   'Gifts arrive in your own payment account, less the fee the card processor charges.',
     'clinicFeatures': [
-        'No charge to run a campaign, and no share of what you raise',
-        'A live page to share, and a display for the room, with no account needed to watch it',
+        # All that is left after the owner went through this list: the one line that
+        # says something the banner above it does not, which is where the money lands.
         "Donations go straight to your own account, minus the card processor's own fee",
-        'See the gene, and the change in it, drawn in plain language',
-        'Follow the work being done towards a therapy for it',
     ],
 }
 
