@@ -113,6 +113,9 @@ function (path, config) {
             kind: 'fundraise', title: 'Our campaign', subtitle: '', currency: 'USD',
             goal: 100000, raised: 0, donors: 0, note: '', updated: '',
             story: '', hideGiftAmounts: false, gifts: [], updates: [],
+            // What happens with the money, and roughly when. Rows of {when, title, text};
+            // small enough to ride in the document the display re-reads.
+            timeline: [],
             // How a visitor gives. 'checkout' asks this server for a Stripe Checkout session
             // with the amount the donor picked; 'link' opens a Payment Link made in the Stripe
             // dashboard. Which payment methods appear -- card, Apple Pay, Google Pay, Link,
@@ -404,6 +407,22 @@ function (path, config) {
             + 'wants reading up close rather than from the back of a room.</div></div>'
             + '<label style="' + lbl + '">About this campaign (optional)</label>'
             + '<textarea id="fc-story" rows="5" placeholder="What the money is for. Blank lines start new paragraphs." style="' + inp + 'resize:vertical;"></textarea>'
+            + '<label style="' + lbl + '">A timeline (optional)</label>'
+            + '<div style="font:12px/1.55 system-ui;color:#9fb3c8;margin-bottom:7px;">'
+            + 'What happens with the money, and roughly when. Shown on the details page.</div>'
+            + '<div id="fc-tl" style="margin-bottom:8px;"></div>'
+            + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+            + '<input id="fc-tl-when" placeholder="when (First 3 months)" style="' + inp + 'flex:1 1 150px;"/>'
+            + '<input id="fc-tl-title" placeholder="what happens" style="' + inp + 'flex:2 1 200px;"/>'
+            + btn('fc-tl-add', '+ Add') + '</div>'
+            + '<textarea id="fc-tl-text" rows="2" placeholder="a sentence or two about it (optional)" '
+            + 'style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
+            + '<div style="margin-top:9px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;">'
+            + btn('fc-tl-ai', 'Draft one with AI')
+            + '<span style="font:11.5px/1.5 system-ui;color:#6f93a6;max-width:40ch;">'
+            + 'A first draft from what you have written, for you to correct. Nothing is published '
+            + 'until you publish it.</span></div>'
+            + '<div id="fc-tl-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
             + '<label style="' + lbl + '">Post an update (optional)</label>'
             + '<input id="fc-upd-title" placeholder="headline (optional)" style="' + inp + '"/>'
             + '<textarea id="fc-upd" rows="3" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
@@ -1209,6 +1228,74 @@ function (path, config) {
             $('fc-img-out').textContent = 'The picture comes off the display when you publish.';
             imgUI(); preview(); touch();
         };
+        $('fc-tl-add').onclick = () => {
+            const when_ = ('' + $('fc-tl-when').value).trim();
+            const title = ('' + $('fc-tl-title').value).trim();
+            const text = ('' + $('fc-tl-text').value).trim();
+            if (!title && !text) { $('fc-tl-title').focus(); return; }
+            if (tlArr().length >= TL_MAX) {
+                $('fc-tl-out').textContent = 'That is as many stages as a timeline can hold. '
+                    + 'A longer one is a document, not a timeline.';
+                return;
+            }
+            tlArr().push({ when: when_, title: title, text: text });
+            $('fc-tl-when').value = ''; $('fc-tl-title').value = ''; $('fc-tl-text').value = '';
+            tlList(); preview(); touch();
+            $('fc-tl-out').textContent = 'Added. Publish to put it on the details page.';
+        };
+
+        // A FIRST DRAFT, WHICH IS ALL IT IS. The server asks Claude from what is already
+        // typed here and hands back rows; they land in the fields above, editable, and
+        // nothing reaches the display until Publish. An existing timeline is not thrown
+        // away without being asked twice: it is somebody's own writing.
+        let tlArmed = false, tlTimer = null;
+        $('fc-tl-ai').onclick = async () => {
+            fromForm();
+            if (!('' + doc.title).trim() && !('' + (doc.story || '')).trim()) {
+                $('fc-tl-out').textContent = 'Give the campaign a name, or write something under '
+                    + '"About this campaign", and there will be something to go on.';
+                return;
+            }
+            if (tlArr().length && !tlArmed) {
+                tlArmed = true;
+                $('fc-tl-ai').textContent = 'Replace what is there?';
+                $('fc-tl-out').textContent = 'A draft replaces the stages above. They are not kept.';
+                clearTimeout(tlTimer);
+                tlTimer = setTimeout(() => {
+                    tlArmed = false;
+                    try { $('fc-tl-ai').textContent = 'Draft one with AI'; $('fc-tl-out').textContent = ''; } catch (e) { }
+                }, 6000);
+                return;
+            }
+            clearTimeout(tlTimer); tlArmed = false;
+            $('fc-tl-ai').textContent = 'Draft one with AI';
+            $('fc-tl-ai').disabled = true;
+            $('fc-tl-out').textContent = 'Writing a draft…';
+            try {
+                const r = await POSTJSON({
+                    user: user,
+                    campaign: {
+                        title: doc.title, subtitle: doc.subtitle, story: doc.story, note: doc.note,
+                        goal: doc.goal, raised: doc.raised, currency: doc.currency,
+                        brief: ('' + $('fc-tl-text').value).trim(),
+                    },
+                }, host + '/fundraise/timeline');
+                const rows = (r && Array.isArray(r.timeline)) ? r.timeline : null;
+                if (!rows || !rows.length) throw new Error(problemText(r));
+                doc.timeline = rows.slice(0, TL_MAX).map((x) => ({
+                    when: '' + (x.when || ''), title: '' + (x.title || ''), text: '' + (x.text || ''),
+                }));
+                tlList(); preview(); touch();
+                $('fc-tl-out').textContent = 'A draft of ' + doc.timeline.length + ' stage'
+                    + (doc.timeline.length === 1 ? '' : 's') + '. Read it, change what is wrong, '
+                    + 'and publish when it says what you mean.';
+            } catch (e) {
+                $('fc-tl-out').innerHTML = '<span style="color:#fca5a5;">Could not draft one: '
+                    + esc((e && e.message) ? e.message : e) + '</span>';
+            }
+            $('fc-tl-ai').disabled = false;
+        };
+
         $('fc-tm-add').onclick = async () => {
             const name = ('' + $('fc-tm-name').value).trim();
             if (!name) { $('fc-tm-out').textContent = 'A name first.'; return; }
@@ -1309,6 +1396,67 @@ function (path, config) {
             ? t.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
         const del = (kind, i) => '<button data-del="' + kind + ':' + i + '" title="Remove" style="cursor:pointer;border:0;background:transparent;'
             + 'color:#7fb0c4;font:700 15px system-ui;line-height:1;padding:0 2px;">×</button>';
+        // THE TIMELINE. Rows of {when, title, text}, in the order they are shown. Order is
+        // the whole point of a timeline, so each row can move; everything is editable in
+        // place, because the AI draft lands here and a draft nobody can correct is worse
+        // than no draft.
+        const TL_MAX = 10;
+        const tlArr = () => (Array.isArray(doc.timeline) ? doc.timeline : (doc.timeline = []));
+        const tlList = () => {
+            const t = tlArr();
+            const box = $('fc-tl');
+            if (!box) return;
+            box.innerHTML = !t.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;">'
+                + t.map((m, i) => '<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;'
+                    + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
+                    + '<div style="flex:1 1 auto;min-width:0;">'
+                    + '<input data-tl="when:' + i + '" value="' + esc(m.when || '') + '" placeholder="when" '
+                    + 'style="width:100%;box-sizing:border-box;background:transparent;border:0;color:#7fb0c4;'
+                    + 'font:600 11.5px system-ui;padding:0 0 2px;"/>'
+                    + '<input data-tl="title:' + i + '" value="' + esc(m.title || '') + '" placeholder="what happens" '
+                    + 'style="width:100%;box-sizing:border-box;background:transparent;border:0;color:#eaf6f9;'
+                    + 'font:700 13.5px system-ui;padding:0 0 2px;"/>'
+                    + '<textarea data-tl="text:' + i + '" rows="2" placeholder="a sentence or two (optional)" '
+                    + 'style="width:100%;box-sizing:border-box;background:transparent;border:0;color:#cfe0f5;'
+                    + 'font:12.5px/1.5 system-ui;resize:vertical;padding:0;">' + esc(m.text || '') + '</textarea></div>'
+                    + '<div style="display:flex;flex-direction:column;gap:2px;flex:0 0 auto;">'
+                    + '<button data-tlmove="' + i + ':-1" title="Move up"' + (i === 0 ? ' disabled' : '')
+                    + ' style="cursor:pointer;border:0;background:transparent;color:' + (i === 0 ? '#3c5a6b' : '#7fb0c4')
+                    + ';font:700 12px system-ui;line-height:1;padding:2px 3px;">\u25b2</button>'
+                    + '<button data-tlmove="' + i + ':1" title="Move down"' + (i === t.length - 1 ? ' disabled' : '')
+                    + ' style="cursor:pointer;border:0;background:transparent;color:' + (i === t.length - 1 ? '#3c5a6b' : '#7fb0c4')
+                    + ';font:700 12px system-ui;line-height:1;padding:2px 3px;">\u25bc</button>'
+                    + '<button data-tldel="' + i + '" title="Remove" style="cursor:pointer;border:0;background:transparent;'
+                    + 'color:#7fb0c4;font:700 15px system-ui;line-height:1;padding:0 3px;">\u00d7</button>'
+                    + '</div></div>').join('') + '</div>';
+            for (const el of box.querySelectorAll('[data-tl]')) {
+                el.addEventListener('input', () => {
+                    const [k, idx] = ('' + el.getAttribute('data-tl')).split(':');
+                    const row = tlArr()[parseInt(idx, 10)];
+                    if (!row) return;
+                    row[k] = el.value;
+                    preview(); touch();     // not tlList(): redrawing would take the cursor
+                });
+            }
+            for (const b of box.querySelectorAll('[data-tlmove]')) {
+                b.onclick = () => {
+                    const [idx, dir] = ('' + b.getAttribute('data-tlmove')).split(':').map(Number);
+                    const t2 = tlArr(), j = idx + dir;
+                    if (j < 0 || j >= t2.length) return;
+                    const m = t2[idx]; t2[idx] = t2[j]; t2[j] = m;
+                    tlList(); preview(); touch();
+                };
+            }
+            for (const b of box.querySelectorAll('[data-tldel]')) {
+                b.onclick = () => {
+                    const i = parseInt('' + b.getAttribute('data-tldel'), 10);
+                    tlArr().splice(i, 1);
+                    tlList(); preview(); touch();
+                    $('fc-tl-out').textContent = 'Removed. Publish to put that on the details page.';
+                };
+            }
+        };
+
         const lists = () => {
             const gs = arr('gifts'), us = arr('updates');
             $('fc-gifts').innerHTML = !gs.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;max-height:210px;overflow:auto;">'
@@ -1511,7 +1659,7 @@ function (path, config) {
             draftTimer = setTimeout(saveDraft, 500);   // a keystroke is not a save
         };
         const sync = () => { fromForm(); preview(); donUI(); touch(); };
-        toForm(); preview(); lists(); dirty = false; liveUI();
+        toForm(); preview(); lists(); tlList(); dirty = false; liveUI();
 
         // A CAMPAIGN THAT IS THERE BUT WOULD NOT COME BACK. Publishing over it would
         // replace a live fundraiser with this screen's defaults, so publishing is off
@@ -1619,7 +1767,7 @@ function (path, config) {
                 note: ('' + $('fc-gift-note').value).trim(), at: new Date().toISOString(), counted: true
             });
             if (doc.gifts.length > CAP) doc.gifts.length = CAP;
-            toForm(); preview(); lists(); touch();
+            toForm(); preview(); lists(); tlList(); touch();
             $('fc-gift').value = ''; $('fc-gift-name').value = ''; $('fc-gift-note').value = '';
             try { $('fc-gift').focus(); } catch (e) { }
             $('fc-status').textContent = 'Added ' + money(g, doc.currency) + '. Publish to put it on the display.';

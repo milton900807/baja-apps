@@ -405,7 +405,7 @@ function (path, config) {
         };
         const listOf = (d, k) => (Array.isArray(d && d[k]) ? d[k] : []).filter((x) => x && typeof x === 'object');
         const hasDetail = (d) => !!(('' + ((d && d.story) || '')).trim() || listOf(d, 'gifts').length
-            || listOf(d, 'updates').length || listOf(d, 'team').length
+            || listOf(d, 'updates').length || listOf(d, 'team').length || listOf(d, 'timeline').length
             || ('' + ((d && d.media && d.media.docFile) || '')).trim()
             || /^[\w-]{11}$/.test('' + ((d && d.media && d.media.youtube) || '')));
         // Paragraphs, not a block of run-on text, and still escaped: everything here was typed
@@ -642,6 +642,23 @@ function (path, config) {
                 + (('' + (d.story || '')).trim() ? sect('About this campaign')
                     + '<div style="font:400 15.5px/1.6 system-ui;color:#dceef5;">' + paras(d.story) + '</div>' : '')
                 + (filmHtml(d) ? sect('Watch') + filmHtml(d) : '')
+                + (listOf(d, 'timeline').length ? sect('What happens next')
+                    + '<div style="position:relative;padding-left:26px;">'
+                    // One line down the left, and a dot per stage sitting on it. Drawn
+                    // rather than listed because the order is the content.
+                    + '<div style="position:absolute;left:5px;top:6px;bottom:6px;width:2px;'
+                    + 'background:linear-gradient(#1aa3bd,rgba(34,197,94,0.25));"></div>'
+                    + listOf(d, 'timeline').map((m) => ''
+                        + '<div style="position:relative;margin:0 0 20px;">'
+                        + '<div style="position:absolute;left:-26px;top:5px;width:12px;height:12px;'
+                        + 'border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,0.18);"></div>'
+                        + (m.when ? '<div style="font:600 12px system-ui;color:#7fb0c4;letter-spacing:.04em;'
+                            + 'text-transform:uppercase;">' + esc(m.when) + '</div>' : '')
+                        + (m.title ? '<div style="margin-top:3px;font:700 15.5px system-ui;">' + esc(m.title) + '</div>' : '')
+                        + (m.text ? '<div style="margin-top:4px;font:400 15px/1.55 system-ui;color:#dceef5;">'
+                            + esc(m.text) + '</div>' : '')
+                        + '</div>').join('')
+                    + '</div>' : '')
                 + (deckHtml(d) ? sect('The presentation') + deckHtml(d) : '')
 
                 + (updates.length ? sect('Updates') + updates.map((u) => ''
@@ -839,7 +856,7 @@ function (path, config) {
             }
             missed = 0;
             const stamp = JSON.stringify([d.title, d.subtitle, d.goal, d.raised, d.donors, d.note, d.updated,
-                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media, d.team, d.teamV]);
+                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media, d.team, d.teamV, d.timeline]);
             if (stamp !== lastStamp) { lastStamp = stamp; await readPicture(d); await readFaces(d); draw(d, firstTime); }
         };
 
