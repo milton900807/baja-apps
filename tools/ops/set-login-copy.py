@@ -14,9 +14,11 @@ changes as soon as this runs. clinicBanner, clinicTag and clinicNote are read by
 bundle: writing them now is harmless, and they start showing the moment the front end is next
 built and deployed.
 
-clinicTitle is deliberately not written. The heading above the list is gone, and the newer
-bundle draws no heading unless env.js names one -- so the way to have it back is to add
-clinicTitle here, not to delete something.
+clinicTitle, clinicFeatures and clinicNote are deliberately not written. The heading, the
+bullets and the yellow-barred note are all off the card, and the newer bundle draws each one
+only when env.js names it -- so the way to have any of them back is to add it here, not to
+delete something. Running this on a server where an older version of this script wrote them
+takes them away, because the whole block is replaced rather than added to.
 
 The medical disclaimer is not settable here. It is compiled into the page on purpose: a
 sentence that exists to stop someone reading a treatment decision into a gene drawing should
@@ -34,15 +36,11 @@ MARK_CLOSE = '  /* ---- end gene.clinic sign-in wording ---- */'
 COPY = {
     'clinicBanner': 'No charge to run a campaign, 100% of the funds you raise go right into your cause.',
     'clinicTag': 'Understand it. Share it. Fund it.',
-    # Exact rather than "free": this site takes nothing, and the card processor's fee is
-    # not ours to waive. Both halves, in the same sentence, on a page about money.
-    'clinicNote': 'There is no charge for this and no share of what you raise. '
-                  'Gifts arrive in your own payment account, less the fee the card processor charges.',
-    'clinicFeatures': [
-        # All that is left after the owner went through this list: the one line that
-        # says something the banner above it does not, which is where the money lands.
-        "Donations go straight to your own account, minus the card processor's own fee",
-    ],
+    # clinicTitle, clinicFeatures and clinicNote are deliberately absent. The heading, the
+    # bullets and the yellow-barred note have all been taken off the sign-in card: each was
+    # a version of what the banner and the tagline already say, and the page is better
+    # without them. Writing them here would put them straight back, because this block runs
+    # after env.js has set everything else. Adding a line here is how they come back.
 }
 
 def js(v):
