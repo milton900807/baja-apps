@@ -4,6 +4,7 @@ The gene.clinic sign-in card's words, without rebuilding the front end.
 
     sudo python3 set-login-copy.py /eln/assets/env.js        # write them
     python3 set-login-copy.py /eln/assets/env.js --show      # just look
+    sudo python3 set-login-copy.py /eln/assets/env.js --keep-clinic-block   # see below
 
 The sign-in page reads its gene.clinic wording from window.env when it is there and falls back
 to what is compiled into the bundle. env.js is a runtime file that the deploy script preserves,
@@ -43,23 +44,58 @@ COPY = {
     # after env.js has set everything else. Adding a line here is how they come back.
 }
 
+# UNTIL THE FRONT END CATCHES UP.
+#
+# The bundle on gene.clinic predates all of this: it still draws the heading, the bullets
+# and the yellow-barred note from its OWN compiled defaults whenever env.js is silent, so
+# deleting those keys here makes the old text reappear rather than go away. Two things
+# close that gap without a build:
+#
+#   clinicFeatures = []   an empty ARRAY is truthy in JavaScript, so it beats the
+#                         compiled list and renders no bullets at all. "" would not: an
+#                         empty string is falsy and falls straight back to the default.
+#   a style rule          the heading and the note have no such trick available, so they
+#                         are hidden with CSS instead.
+#
+# Both are harmless once the front end is rebuilt, because the new bundle draws none of
+# the three unless env.js names it. The only thing they cost is this: if you later want a
+# heading, bullets or a note BACK from env.js, run this with --keep-clinic-block, which
+# leaves both out.
+HIDE_CSS = '.cl-title,.cl-list,.cl-note{display:none!important}'
+
+
+def hide_block():
+    return '\n'.join([
+        '  window["env"]["clinicFeatures"] = [];',
+        '  try {',
+        '    var __s = document.createElement("style");',
+        '    __s.id = "baja-hide-clinic-block";',
+        '    __s.textContent = ' + '"' + HIDE_CSS + '"' + ';',
+        '    (document.head || document.documentElement).appendChild(__s);',
+        '  } catch (e) { }',
+    ])
+
+
 def js(v):
     if isinstance(v, list):
         return '[\n' + ''.join('    ' + js(x) + ',\n' for x in v) + '  ]'
     return '"' + str(v).replace('\\', '\\\\').replace('"', '\\"') + '"'
 
-def block():
+def block(hide=True):
     out = [MARK_OPEN]
     for k, v in COPY.items():
         out.append('  window["env"]["%s"] = %s;' % (k, js(v)))
+    if hide:
+        out.append(hide_block())
     out.append(MARK_CLOSE)
     return '\n'.join(out) + '\n'
 
 path = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else '/eln/assets/env.js')
 show = '--show' in sys.argv
+hide = '--keep-clinic-block' not in sys.argv
 
 if show:
-    print(block())
+    print(block(hide))
     sys.exit(0)
 
 if not os.path.isfile(path):
@@ -72,7 +108,7 @@ s = raw.replace('\r\n', '\n')
 if MARK_OPEN in s:
     # Replace the block this script wrote before, so running it again updates the words
     # instead of leaving two sets where the later one silently wins.
-    s = re.sub(re.escape(MARK_OPEN) + r'.*?' + re.escape(MARK_CLOSE) + r'\n?', block(), s, count=1, flags=re.S)
+    s = re.sub(re.escape(MARK_OPEN) + r'.*?' + re.escape(MARK_CLOSE) + r'\n?', lambda m: block(hide), s, count=1, flags=re.S)
     what = 'Updated'
 else:
     if 'window["env"]' not in s and "window['env']" not in s:
@@ -84,7 +120,7 @@ else:
     # the hard way, by a file that no longer parsed.
     close = list(re.finditer(r'^\s*\}\)\s*\(.*\)\s*;?\s*$', s, flags=re.M))
     at = close[-1].start() if close else len(s)
-    s = s[:at] + '\n' + block() + '\n' + s[at:]
+    s = s[:at] + '\n' + block(hide) + '\n' + s[at:]
     what = 'Added to'
 
 # This file is loaded by every page of the app before anything else runs: a syntax error in
@@ -108,5 +144,9 @@ if not os.path.exists(path + '.before-login-copy'):
     shutil.copyfile(path, path + '.before-login-copy')
 open(path, 'w', encoding='utf-8', newline='').write(s.replace('\n', '\r\n') if crlf else s)
 print(what, path)
+if hide:
+    print('The heading, the bullets and the yellow note are hidden from here as well, because')
+    print('the bundle on this server still has its own copies of them. Harmless once the front')
+    print('end is rebuilt; --keep-clinic-block leaves it out if you want them back from env.js.')
 print('The bullet list changes on the next load of the sign-in page.')
 print('The banner, tagline, title and note need the newer front end (baja 456c16c) built and deployed.')
