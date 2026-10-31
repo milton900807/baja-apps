@@ -127,7 +127,11 @@ function (path, config) {
             // seconds, and a photograph in it would be re-downloaded on every one of those
             // reads, on every screen. The document names a sibling file instead, and the
             // display fetches that once and again only when imageV changes.
-            media: { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'banner', youtube: '' },
+            // docFile is the slide deck, kept in a sibling file for the same reason the
+            // picture is: a presentation is megabytes, and this document is re-read every
+            // few seconds by every screen watching the campaign.
+            media: { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'banner', youtube: '',
+                docFile: '', docV: 0, docName: '', docKind: '', docBytes: 0 },
             // The people behind the campaign. Their faces are NOT in here either, for the
             // same reason the campaign photograph is not: this document is re-read every few
             // seconds. Names and roles are a few bytes and stay; the portraits live in a
@@ -424,6 +428,17 @@ function (path, config) {
             + btn('fc-img-clear', 'Remove') + '</div>'
             + '<div id="fc-img-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
             + '<div id="fc-img-prev" style="margin-top:8px;"></div>'
+            + '<label style="' + lbl + '">A presentation (optional)</label>'
+            + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + '<input id="fc-doc" type="file" accept=".pdf,.ppt,.pptx,application/pdf,'
+            + 'application/vnd.ms-powerpoint,'
+            + 'application/vnd.openxmlformats-officedocument.presentationml.presentation" '
+            + 'style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/>'
+            + btn('fc-doc-clear', 'Remove') + '</div>'
+            + '<div style="margin-top:5px;font:11.5px/1.5 system-ui;color:#6f93a6;">'
+            + 'A PDF opens in the page itself. A PowerPoint can only be offered as a download, '
+            + 'so save it as a PDF if you want people to read it where they are.</div>'
+            + '<div id="fc-doc-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
             + '<div style="margin-top:10px;font:12px system-ui;color:#9fb3c8;">No picture of your own? '
             + 'Pick one of these.</div>'
             + '<div id="fc-stock" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px;"></div>'
@@ -576,6 +591,44 @@ function (path, config) {
                 if (d && d.dataUri) { loadedImage = '' + d.dataUri; imgUI(); preview(); }
             } catch (e) { }
         };
+
+        // THE PRESENTATION. Whatever somebody would have handed round the room: the deck,
+        // the one-pager, the protocol summary. It rides in its own sibling file, like the
+        // picture, and the display fetches it only when a reader asks for it rather than on
+        // the refresh everybody gets.
+        //
+        // 12MB, which is a long deck of slides or a short one with photographs in it. The
+        // limit is here rather than left to the server because a 60MB upload that fails
+        // after two minutes of waiting is a worse answer than a refusal in the same second.
+        const DOC_BYTES = 12 * 1024 * 1024;
+        const docFileFor = () => (fileName || (slug(doc.title) + '.fund')).replace(/\.fund$/i, '') + '.funddoc';
+        let pendingDoc = null, docGone = false;
+        const niceBytes = (n) => (n >= 1024 * 1024
+            ? ((n / 1024 / 1024).toFixed(1) + 'MB')
+            : (Math.max(1, Math.round(n / 1024)) + 'KB'));
+        const docUI = () => {
+            const m = med();
+            const have = pendingDoc || (!docGone && m.docFile);
+            const name = pendingDoc ? pendingDoc.name : (m.docName || m.docFile);
+            const kind = pendingDoc ? pendingDoc.kind : m.docKind;
+            const bytes = pendingDoc ? pendingDoc.bytes : (+m.docBytes || 0);
+            // Describes the published one, and otherwise says nothing: the handlers put
+            // their own sentence here (what was taken, what Remove will do) and this runs
+            // after them, so clearing the line here would wipe what they just said.
+            const el = $('fc-doc-out');
+            if (el && have && !pendingDoc) {
+                el.textContent = name + ' · ' + (bytes ? niceBytes(bytes) + ' · ' : '')
+                    + (kind === 'pdf' ? 'opens in the page' : 'offered as a download');
+            }
+            const b = $('fc-doc-clear');
+            if (b) b.style.display = have ? '' : 'none';
+        };
+        const readFileAsDataUri = (f) => new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onerror = () => reject(new Error('that file could not be read'));
+            fr.onload = () => resolve('' + fr.result);
+            fr.readAsDataURL(f);
+        });
 
         // THE TEAM. Names and roles ride in the campaign document; the portraits go in one
         // sibling file, as a square each, so a page of faces costs one fetch rather than one
@@ -841,6 +894,43 @@ function (path, config) {
             }
         })();
 
+        $('fc-doc').addEventListener('change', async () => {
+            const f = $('fc-doc').files && $('fc-doc').files[0];
+            if (!f) return;
+            const name = ('' + f.name);
+            const kind = /\.pdf$/i.test(name) ? 'pdf' : (/\.pptx?$/i.test(name) ? 'ppt' : '');
+            if (!kind) {
+                $('fc-doc-out').textContent = 'That has to be a PDF or a PowerPoint.';
+                try { $('fc-doc').value = ''; } catch (e) { }
+                return;
+            }
+            if (f.size > DOC_BYTES) {
+                $('fc-doc-out').textContent = 'That is ' + niceBytes(f.size) + ', and the limit is '
+                    + niceBytes(DOC_BYTES) + '. A PDF saved for screen rather than print is usually '
+                    + 'a fraction of one saved for print.';
+                try { $('fc-doc').value = ''; } catch (e) { }
+                return;
+            }
+            $('fc-doc-out').textContent = 'Reading it…';
+            try {
+                const dataUri = await readFileAsDataUri(f);
+                pendingDoc = { name: name, kind: kind, bytes: f.size, dataUri: dataUri };
+                docGone = false;
+                $('fc-doc-out').textContent = name + ' · ' + niceBytes(f.size) + ' · '
+                    + (kind === 'pdf' ? 'opens in the page' : 'offered as a download')
+                    + '. Publish to put it on the details page.';
+                docUI(); touch();
+            } catch (e) {
+                $('fc-doc-out').textContent = 'Could not use that file: ' + ((e && e.message) ? e.message : e);
+            }
+        });
+        $('fc-doc-clear').onclick = () => {
+            pendingDoc = null; docGone = true;
+            try { $('fc-doc').value = ''; } catch (e) { }
+            $('fc-doc-out').textContent = 'The presentation comes off the details page when you publish.';
+            docUI(); touch();
+        };
+
         $('fc-img-clear').onclick = () => {
             pendingImage = null; imageGone = true;
             try { $('fc-img').value = ''; } catch (e) { }
@@ -892,7 +982,7 @@ function (path, config) {
             // published before there was a choice, both open with the picture up top.
             $('fc-img-mode').value = (m.imageMode === 'background') ? 'background' : 'banner';
             $('fc-yt').value = m.youtube || '';
-            imgUI(); ytUI();
+            imgUI(); docUI(); ytUI();
             donUI();
         };
 
@@ -1059,8 +1149,11 @@ function (path, config) {
             + (forOther ? forOther.enc + '/' : '') + (fileName || 'new');
         let draftTimer = null;
         const saveDraft = () => {
-            const body = { at: Date.now(), doc: doc };
+            // A chosen presentation is megabytes and never goes in here; the bar that
+            // offers the draft back says so rather than letting somebody find out.
+            const body = { at: Date.now(), doc: doc, hadDoc: !!pendingDoc };
             try {
+                body.hadImage = !!pendingImage;
                 if (pendingImage && pendingImage.dataUri && pendingImage.dataUri.length < DRAFT_IMG_MAX) {
                     body.image = pendingImage;
                 }
@@ -1186,7 +1279,9 @@ function (path, config) {
             bar.style.display = '';
             bar.innerHTML = '<b>You have unpublished changes from ' + esc(ago) + '.</b> '
                 + 'They were kept in this browser when the page closed'
-                + (d.image ? '' : ', though a picture you had chosen was not')
+                + ((d.image || !d.hadImage) && !d.hadDoc ? ''
+                    : (', though the ' + [d.image ? '' : 'picture', d.hadDoc ? 'presentation' : '']
+                        .filter(Boolean).join(' and the ') + ' you had chosen was not'))
                 + '. ' + (docPath ? 'The campaign below is what is published.' : '')
                 + '<div style="margin-top:9px;display:flex;gap:9px;flex-wrap:wrap;">'
                 + '<button id="fc-draft-yes" style="cursor:pointer;border:1px solid #fbbf24;background:#fbbf24;'
@@ -1496,6 +1591,21 @@ function (path, config) {
                     if (!rsT || !(rsT.status === 'saved' || rsT.path)) throw new Error('the team photographs could not be saved');
                     teamFaces = keep; doc.teamFile = tName; doc.teamV = Date.now(); teamDirty = false;
                 }
+                if (docGone && !pendingDoc) { m.docFile = ''; m.docV = 0; m.docName = ''; m.docKind = ''; m.docBytes = 0; }
+                if (pendingDoc) {
+                    $('fc-status').textContent = 'Saving the presentation…';
+                    const dName = docFileFor();
+                    const rsD = await putFile(dName, JSON.stringify({
+                        kind: 'fundraise-doc', name: pendingDoc.name, docKind: pendingDoc.kind,
+                        bytes: pendingDoc.bytes, dataUri: pendingDoc.dataUri,
+                    }));
+                    if (!rsD || !(rsD.status === 'saved' || rsD.path)) throw new Error('the presentation could not be saved');
+                    m.docFile = dName; m.docV = Date.now(); m.docName = pendingDoc.name;
+                    m.docKind = pendingDoc.kind; m.docBytes = pendingDoc.bytes;
+                    pendingDoc = null; docGone = false;
+                    try { $('fc-doc').value = ''; } catch (e) { }
+                    $('fc-doc-out').textContent = 'Presentation saved.';
+                }
                 if (pendingImage) {
                     $('fc-status').textContent = 'Saving the picture…';
                     const imgName = imgFileFor();
@@ -1507,7 +1617,7 @@ function (path, config) {
                     $('fc-img-out').textContent = 'Picture saved.';
                 }
             } catch (e) {
-                $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not save the picture: '
+                $('fc-status').innerHTML = '<span style="color:#fca5a5;">Could not save it: '
                     + esc(e && e.message ? e.message : e) + '. Nothing else was published.</span>';
                 busy(false); return;
             }

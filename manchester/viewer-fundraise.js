@@ -221,6 +221,106 @@ function (path, config) {
                 + ';max-height:' + (big ? '26vh' : '200px') + ';border-radius:14px;display:block;margin:0 auto;'
                 + 'box-shadow:0 10px 34px rgba(0,0,0,0.4);"/></div>';
         };
+        // THE PRESENTATION, which is fetched only when somebody asks for it.
+        //
+        // It is megabytes, and this page re-reads the campaign every few seconds for a room
+        // watching a total go up. Pulling a deck down on that schedule, or even once on
+        // arrival for the many readers who never open it, is the wrong trade. So: a button
+        // that says what it is and how big, and the file comes over on the press.
+        //
+        // A PDF is shown through a BLOB url rather than the data: url it arrives as, because
+        // browsers refuse to render a data: document in a frame. A PowerPoint is offered as a
+        // download, since no browser renders one; the console says so when it is chosen.
+        let deckUrl = '', deckKey = '';
+        const deckInfo = (d) => {
+            const m = medOf(d);
+            const file = ('' + (m.docFile || '')).trim();
+            if (!file) return null;
+            return {
+                file: file,
+                name: ('' + (m.docName || file)).trim(),
+                kind: (m.docKind === 'ppt') ? 'ppt' : 'pdf',
+                bytes: +m.docBytes || 0,
+                key: file + '@' + ('' + (m.docV || '')),
+            };
+        };
+        const deckSize = (n) => (n >= 1024 * 1024 ? ((n / 1024 / 1024).toFixed(1) + 'MB')
+            : (n > 0 ? (Math.max(1, Math.round(n / 1024)) + 'KB') : ''));
+        const fetchDeck = async (d) => {
+            const info = deckInfo(d);
+            if (!info) return '';
+            if (deckUrl && deckKey === info.key) return deckUrl;
+            const base = ('' + docPath).replace(/[^/]*$/, '');
+            if (!base) return '';
+            const rs = await POSTJSON({ path: base + info.file, user: 'public' }, host + '/load-file');
+            let v = rs;
+            if (v && typeof v.value === 'string') { try { v = JSON.parse(v.value); } catch (e) { } }
+            if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+            const uri = (v && v.dataUri) ? ('' + v.dataUri) : '';
+            if (!uri) throw new Error('the presentation could not be read');
+            // data: into a Blob, because a frame will not render a data: document.
+            const comma = uri.indexOf(',');
+            const head = uri.slice(0, comma);
+            const mime = (head.split(':')[1] || '').split(';')[0] || 'application/octet-stream';
+            const bin = atob(uri.slice(comma + 1));
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            try { if (deckUrl) URL.revokeObjectURL(deckUrl); } catch (e) { }
+            deckUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+            deckKey = info.key;
+            return deckUrl;
+        };
+        const deckHtml = (d) => {
+            const info = deckInfo(d);
+            if (!info) return '';
+            const size = deckSize(info.bytes);
+            return '<div id="fd-deck">'
+                + '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">'
+                + '<button id="fd-deck-go" type="button" style="cursor:pointer;border-radius:10px;padding:11px 18px;'
+                + 'font:700 13px system-ui;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);'
+                + 'color:#eaf6f9;">' + (info.kind === 'pdf' ? 'Open the presentation' : 'Download the presentation')
+                + '</button>'
+                + '<span style="font:12.5px system-ui;color:#8fb6c6;">' + esc(info.name)
+                + (size ? ' · ' + size : '') + (info.kind === 'ppt' ? ' · PowerPoint' : '') + '</span></div>'
+                + '<div id="fd-deck-out" style="margin-top:8px;font:12.5px system-ui;color:#8fb6c6;"></div>'
+                + '<div id="fd-deck-box" style="margin-top:12px;"></div></div>';
+        };
+        const wireDeck = (d) => {
+            const go = document.getElementById('fd-deck-go');
+            if (!go) return;
+            const info = deckInfo(d);
+            go.onclick = async () => {
+                const out = document.getElementById('fd-deck-out');
+                out.textContent = 'Fetching it…';
+                go.disabled = true;
+                try {
+                    const url = await fetchDeck(d);
+                    out.textContent = '';
+                    go.disabled = false;
+                    if (info.kind === 'pdf') {
+                        document.getElementById('fd-deck-box').innerHTML =
+                            '<iframe src="' + esc(url) + '" title="' + esc(info.name) + '" '
+                            + 'style="width:100%;height:min(74vh,720px);border:1px solid rgba(255,255,255,0.16);'
+                            + 'border-radius:12px;background:#0b1b2c;"></iframe>'
+                            + '<div style="margin-top:8px;"><a href="' + esc(url) + '" download="' + esc(info.name) + '" '
+                            + 'style="color:#4fd0e6;font:12.5px system-ui;">Download it instead</a></div>';
+                        go.style.display = 'none';
+                    } else {
+                        // A download cannot be started from a frame the way a PDF is shown,
+                        // so this is a real link, clicked.
+                        const a = document.createElement('a');
+                        a.href = url; a.download = info.name;
+                        document.body.appendChild(a); a.click();
+                        setTimeout(() => { try { a.remove(); } catch (e) { } }, 500);
+                        out.textContent = 'Downloading ' + info.name + '.';
+                    }
+                } catch (e) {
+                    go.disabled = false;
+                    out.textContent = 'Could not open it: ' + ((e && e.message) ? e.message : e);
+                }
+            };
+        };
+
         const filmHtml = (d) => {
             const id = ('' + (medOf(d).youtube || '')).trim();
             if (!/^[\w-]{11}$/.test(id)) return '';
@@ -306,6 +406,7 @@ function (path, config) {
         const listOf = (d, k) => (Array.isArray(d && d[k]) ? d[k] : []).filter((x) => x && typeof x === 'object');
         const hasDetail = (d) => !!(('' + ((d && d.story) || '')).trim() || listOf(d, 'gifts').length
             || listOf(d, 'updates').length || listOf(d, 'team').length
+            || ('' + ((d && d.media && d.media.docFile) || '')).trim()
             || /^[\w-]{11}$/.test('' + ((d && d.media && d.media.youtube) || '')));
         // Paragraphs, not a block of run-on text, and still escaped: everything here was typed
         // by the organiser but arrives through a document anyone could in principle write to.
@@ -541,6 +642,7 @@ function (path, config) {
                 + (('' + (d.story || '')).trim() ? sect('About this campaign')
                     + '<div style="font:400 15.5px/1.6 system-ui;color:#dceef5;">' + paras(d.story) + '</div>' : '')
                 + (filmHtml(d) ? sect('Watch') + filmHtml(d) : '')
+                + (deckHtml(d) ? sect('The presentation') + deckHtml(d) : '')
 
                 + (updates.length ? sect('Updates') + updates.map((u) => ''
                     + '<div style="border-left:2px solid rgba(79,208,230,0.5);padding:2px 0 2px 14px;margin:0 0 18px;">'
@@ -585,6 +687,7 @@ function (path, config) {
                 + (d.updated ? 'Updated ' + esc(ago(d.updated)) : '')
                 + (every ? '<span style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div></div>';
+            wireDeck(d);
             const b = document.getElementById('fd-back');
             if (b) b.onclick = () => go('main');
             const give = document.getElementById('fd-give');
