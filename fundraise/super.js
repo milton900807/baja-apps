@@ -205,7 +205,9 @@ function (path, config) {
                     return;
                 }
                 if (what === 'edit') {
-                    return openApp('/app/fundraise/console?path=' + encodeURIComponent(c.path), 'fundraise/console',
+                    // No path and no file in the address bar: this is another account's campaign,
+                    // and the console is told which one rather than the URL saying so.
+                    return openApp('/app/fundraise/console', 'fundraise/console',
                         ['', { path: c.path, owner: u.user, enc: u.enc }]);
                 }
                 if (what === 'del') {

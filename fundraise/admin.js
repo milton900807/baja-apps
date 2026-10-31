@@ -226,7 +226,7 @@ function (path, config) {
                 + '<div id="fa-reportbox"></div></div>';
             const out = () => $('fa-out');
 
-            $('fa-edit').onclick = () => openApp('/app/fundraise/console?path=' + encodeURIComponent(c.path), 'fundraise/console', ['', { path: c.path }]);
+            $('fa-edit').onclick = () => openApp('/app/fundraise/console?c=' + encodeURIComponent(c.file), 'fundraise/console', ['', { path: c.path }]);
             $('fa-view').onclick = () => { try { window.open(link, '_blank', 'noopener'); } catch (e) { } };
             $('fa-copy').onclick = async () => {
                 let ok = false;

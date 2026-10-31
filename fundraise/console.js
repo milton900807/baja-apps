@@ -130,9 +130,32 @@ function (path, config) {
         // one the display eventually cannot load.
         const CAP = 200;
         const arr = (k) => (Array.isArray(doc[k]) ? doc[k] : (doc[k] = []));
-        let docPath = '' + (qp('path') || (config && config.path) || path || '');
+        // WHICH CAMPAIGN IS OPEN, WITHOUT PUTTING ITS FOLDER IN THE ADDRESS BAR.
+        //
+        // The full path of a campaign is /<64 hex characters>/public/<name>.fund, where the
+        // hex is the AES encoding of the owner's address. It carries nothing a person can
+        // read or needs, it is the first thing anyone sees if a screen is shared or a
+        // screenshot is sent, and it was sitting in the URL because that was the easy way to
+        // tell this screen which campaign to open.
+        //
+        // The screen is told by the caller instead, as an argument. The address bar keeps
+        // only the file name -- ?c=stxbp1-related-disorders.fund -- which is enough to find
+        // the campaign again after a reload, since /fundraise/campaigns lists the signed-in
+        // account's own and nobody else's. An old ?path= link still works and is cleaned out
+        // of the address bar on sight.
+        let docPath = '' + ((config && config.path) || path || qp('path') || '');
         let fileName = '';
         let publicLink = '';
+
+        if (!docPath && qp('c')) {
+            const want = ('' + qp('c')).trim();
+            try {
+                const r = await POSTJSON({ user: user }, host + '/fundraise/campaigns');
+                const list = (r && Array.isArray(r.campaigns)) ? r.campaigns : [];
+                const hit = list.filter((x) => x && x.file === want)[0];
+                if (hit) docPath = hit.path;
+            } catch (e) { }
+        }
 
         if (docPath) {
             try {
@@ -143,6 +166,18 @@ function (path, config) {
                 fileName = docPath.substring(docPath.lastIndexOf('/') + 1);
             } catch (e) { }
         }
+
+        // The address bar, tidied. A campaign of one's own is named by its file; somebody
+        // else's, open from the superadmin page, is named by nothing at all -- the console
+        // was handed it, and a reload has no business guessing its way back into another
+        // account's folder.
+        try {
+            const clean = '/app/fundraise/console'
+                + ((fileName && !forOther) ? ('?c=' + encodeURIComponent(fileName)) : '');
+            if (window.location.pathname + window.location.search !== clean) {
+                window.history.replaceState({}, '', clean);
+            }
+        } catch (e) { }
 
         // ---- the screen --------------------------------------------------------------------
         // NOT A PAGE FOR A STRANGER. Everything here writes into someone's own folder and
