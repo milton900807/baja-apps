@@ -479,11 +479,6 @@ function (path, config) {
             + '<input id="fc-tl-brief" style="' + inp + 'flex:1 1 230px;" '
             + 'placeholder="anything the draft should know (optional)"/>'
             + btn('fc-tl-ai', 'Draft one with AI') + '</div>'
-            + '<div style="margin-top:5px;font:11.5px/1.55 system-ui;color:#6f93a6;max-width:52ch;">'
-            + 'The draft is written from the campaign name and what you put under "About this '
-            + 'campaign". Use the box to steer it: how long the work runs, what the stages are, '
-            + 'what to leave out. It is a first draft for you to correct, and nothing is published '
-            + 'until you publish it.</div>'
             + '<div id="fc-tl-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
             + sec('Program plan', { tag: 'optional', sub: 'The budget and timeline behind the campaign, as a picture on the '
                 + 'details page: each stage on a calendar, what it costs, and how far the goal carries it.' })
@@ -757,7 +752,7 @@ function (path, config) {
                     doc.team = teamArr().filter((m) => m.id !== id);
                     if (teamFaces[id]) { delete teamFaces[id]; teamDirty = true; }
                     teamList(); preview(); touch();
-                    $('fc-tm-out').textContent = 'Removed. Publish to put that on the details page.';
+                    $('fc-tm-out').textContent = '';
                 };
             }
         };
@@ -1502,7 +1497,7 @@ function (path, config) {
                     const i = parseInt('' + b.getAttribute('data-tldel'), 10);
                     tlArr().splice(i, 1);
                     tlList(); preview(); touch();
-                    $('fc-tl-out').textContent = 'Removed. Publish to put that on the details page.';
+                    $('fc-tl-out').textContent = '';
                 };
             }
         };
