@@ -97,11 +97,33 @@ function () {
         const open = async (path, url, args, label) => {
             const h = opening(label, path);
             try { clear(); } catch (e) { }
+            // AN APP THAT DOES NOT SIGNAL: the card goes when the app puts something on the
+            // screen. Not when its module returns -- some never do: manchester/library.js
+            // returns a promise it never resolves, so the card used to stay up the whole
+            // 30 seconds over a library that was already showing. Anything added to the page
+            // outside the card counts, once things have been quiet for a moment, so a screen
+            // drawn in several steps is not uncovered half-built.
+            let obs = null, quiet = null;
+            const stopWatching = () => { try { if (obs) obs.disconnect(); } catch (e) { } obs = null; clearTimeout(quiet); };
+            if (!h.waits) {
+                try {
+                    const card = document.getElementById('baja-opening');
+                    obs = new MutationObserver((list) => {
+                        const drawn = list.some((m) => m.addedNodes && m.addedNodes.length
+                            && !(card && (card === m.target || card.contains(m.target))));
+                        if (!drawn) return;
+                        clearTimeout(quiet);
+                        quiet = setTimeout(() => { stopWatching(); h.done(); }, 350);
+                    });
+                    obs.observe(document.body, { childList: true, subtree: true });
+                } catch (e) { obs = null; }
+            }
+            const done0 = h.done;
+            h.done = () => { stopWatching(); done0(); };
             try { if (url) window.history.pushState({}, '', url); } catch (e) { }
             try { await exec.apply(null, [path].concat(args || [])); }
             catch (e) { h.done(); try { if (url) window.location.href = url; } catch (e2) { } return; }
-            // An app that signals keeps the card until its own bar is up; any other has drawn
-            // its screen by the time its module returns.
+            // Returned without drawing anything we could see: nothing more to wait for.
             if (!h.waits) setTimeout(h.done, 250);
         };
 
