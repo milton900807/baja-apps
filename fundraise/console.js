@@ -224,6 +224,15 @@ function (path, config) {
         // account's own and nobody else's. An old ?path= link still works and is cleaned out
         // of the address bar on sight.
         let docPath = '' + ((config && config.path) || path || qp('path') || '');
+        // A RELOAD HANDS THE QUERY VALUES IN BY POSITION. Opened from a link, the app's router
+        // passes ?c=<file> to this function as its FIRST argument (io-engine.ts run(): the
+        // query values, positionally, because minified parameter names no longer match). So
+        // on a reload `path` was "lafora.fund", which is a file name and not a path: it was
+        // taken for the campaign's location, the ?c lookup below was skipped, every read
+        // failed, and the console showed "This campaign could not be read" with the defaults
+        // under it. A campaign's path always has folders in it (/<owner>/public/<file>);
+        // anything without a slash is not one, and the name in ?c is used to find it instead.
+        if (docPath && docPath.indexOf('/') < 0) docPath = '';
         let fileName = '';
         let publicLink = '';
 
@@ -403,7 +412,7 @@ function (path, config) {
             + 'min-width:250px;background:#0b2545;border:1px solid rgba(255,255,255,0.18);border-radius:10px;'
             + 'box-shadow:0 18px 44px rgba(0,0,0,0.5);overflow:hidden;z-index:6;text-align:left;"></div></span>'
             + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
-            + btn('fc-upd-open', 'Post an update') + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
+            + btn('fc-upd-open', 'Post an update') + btn('fc-open', 'Open the display') + btn('fc-preview', 'Preview') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div id="fc-alarm" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
             + 'border:1px solid rgba(252,165,165,0.5);background:rgba(127,29,29,0.35);font:13px/1.6 system-ui;color:#fecaca;"></div>'
             + '<div id="fc-draft" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
@@ -537,7 +546,7 @@ function (path, config) {
             + '</div></div>'
             + '<div style="margin-top:34px;padding-top:24px;border-top:2px dotted rgba(159,195,214,0.28);'
             + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-            + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
+            + btn('fc-preview2', 'Preview') + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
             + '<span id="fc-pub-note" style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
             // WHAT PUBLISHING COMMITS YOU TO. Said next to the button rather than buried in
             // terms nobody opens: a campaign that claims a cure, or dresses up something
@@ -1940,6 +1949,31 @@ function (path, config) {
             try { (canPost ? q('fc-uw-text') : q('fc-uw-close')).focus(); } catch (e) { }
         };
         $('fc-upd-open').onclick = updateWindow;
+
+        // PREVIEW: the public display, drawn by the display's own code from what is on this
+        // screen now -- published or not, the chosen picture and team photographs included --
+        // so what you see is what a visitor will see once you publish. Nothing is saved.
+        const openPreview = async () => {
+            fromForm();
+            if (!doc.title) {
+                $('fc-status').textContent = 'Give the campaign a name first.';
+                try { reqUI(); $('fc-title').focus(); } catch (e) { }
+                return;
+            }
+            let snap;
+            try { snap = JSON.parse(JSON.stringify(doc)); } catch (e) { return; }
+            snap.updated = snap.updated || new Date().toISOString();
+            try {
+                await exec('manchester/viewer-fundraise', '', {
+                    preview: { doc: snap, picture: currentImage() || '', faces: teamFaces, docPath: docPath || '' },
+                });
+            } catch (e) {
+                $('fc-status').innerHTML = '<span style="color:#fca5a5;">The preview could not open: '
+                    + esc((e && e.message) ? e.message : e) + '</span>';
+            }
+        };
+        $('fc-preview').onclick = openPreview;
+        $('fc-preview2').onclick = openPreview;
 
         // ONE NAME, ONE CAMPAIGN. The file is named from the title, so two campaigns called
         // the same thing are one file: publishing the second would overwrite the first, and

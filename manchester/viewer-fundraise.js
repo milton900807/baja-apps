@@ -63,27 +63,35 @@ function (path, config) {
             try { return (PV && d && d.plan) ? PV.clean(d.plan) : null; } catch (e) { return null; }
         };
 
-        let every = 10;
-        const rq = qp('refresh');
+        // A PREVIEW FROM THE CONSOLE: the campaign as it stands on the organiser's screen,
+        // published or not, drawn by this same page so it is exactly what a visitor will see.
+        //   exec('manchester/viewer-fundraise', '', { preview: { doc, picture, faces, docPath, onClose } })
+        // Nothing is read from or written to the server for the campaign itself, it never
+        // refreshes, the address bar is left alone, and the donate button explains instead of
+        // taking money. A bar across the top says it is a preview and closes it.
+        const P = (config && config.preview && typeof config.preview === 'object' && config.preview.doc) ? config.preview : null;
+
+        let every = P ? 0 : 10;
+        const rq = P ? null : qp('refresh');
         if (rq != null && rq !== '') { const v = parseFloat(rq); if (isFinite(v)) every = Math.max(0, Math.min(3600, v)); }
 
         // Where the document lives: a share code first, so the owner's email -- which is part
         // of the stored path -- never appears in the address bar of a screen in a room.
-        let docPath = '';
-        const code = qp('s') || qp('share') || '';
+        let docPath = P ? ('' + (P.docPath || '')) : '';
+        const code = P ? '' : (qp('s') || qp('share') || '');
         if (code) {
             try {
                 const r = await GETJSON(host + '/share-resolve?code=' + encodeURIComponent(code));
                 if (r && r.path) docPath = '' + r.path;
             } catch (e) { }
         }
-        if (!docPath) docPath = '' + (qp('path') || (config && config.path) || path || '');
+        if (!docPath && !P) docPath = '' + (qp('path') || (config && config.path) || path || '');
 
         // ---- the screen ------------------------------------------------------------------
         try { const old = document.getElementById('baja-fundraise-display'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
         const el = document.createElement('div');
         el.id = 'baja-fundraise-display';
-        el.style.cssText = 'position:fixed;inset:0;z-index:2147483000;overflow:auto;'
+        el.style.cssText = 'position:fixed;inset:0;z-index:' + (P ? '2147483300' : '2147483000') + ';overflow:auto;'
             + 'background:radial-gradient(1200px 700px at 50% -10%,#123a63 0%,#0a1e3a 55%,#071526 100%);'
             + 'color:#eaf6f9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;'
             + 'display:flex;align-items:center;justify-content:center;padding:4vmin;box-sizing:border-box;';
@@ -158,6 +166,11 @@ function (path, config) {
         const medOf = (d) => ((d && d.media && typeof d.media === 'object') ? d.media : {});
         let pictureUri = '', pictureKey = '';
         const readPicture = async (d) => {
+            if (P && P.picture !== undefined) {
+                const u = '' + (P.picture || '');
+                pictureUri = /^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(u) ? u : '';
+                return;
+            }
             const m = medOf(d);
             const key = ('' + (m.imageFile || '')) + '@' + ('' + (m.imageV || ''));
             if (!m.imageFile) { pictureUri = ''; pictureKey = ''; return; }
@@ -181,6 +194,15 @@ function (path, config) {
         // says the team changed.
         let faces = {}, facesKey = '';
         const readFaces = async (d) => {
+            if (P && P.faces && typeof P.faces === 'object') {
+                const clean = {};
+                for (const k of Object.keys(P.faces)) {
+                    const u = '' + P.faces[k];
+                    if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(u)) clean[k] = u;
+                }
+                faces = clean;
+                return;
+            }
             const file = '' + ((d && d.teamFile) || '');
             const key = file + '@' + ('' + ((d && d.teamV) || ''));
             if (!file || !listOf(d, 'team').length) { faces = {}; facesKey = ''; return; }
@@ -354,7 +376,7 @@ function (path, config) {
         // organiser's arrangement, not the donor's business, and a page that belongs to the
         // campaign should speak in the campaign's name. The comments below still say Stripe
         // because that is what the code talks to.
-        const thanked = (qp('donated') === '1');
+        const thanked = !P && (qp('donated') === '1');
         // THE ADDRESS BAR SHOWS THE SHORT LINK, NOT THIS ONE. /f/<code> sends a browser here,
         // which leaves the long URL on screen -- and the long URL is the one that gets
         // copied, pasted into Facebook, and shows the shell's card instead of the campaign's.
@@ -722,7 +744,7 @@ function (path, config) {
             const b = document.getElementById('fd-back');
             if (b) b.onclick = () => go('main');
             const give = document.getElementById('fd-give');
-            if (give) give.onclick = () => openSheet(d);
+            if (give) give.onclick = () => (P ? previewNote() : openSheet(d));
         };
 
         const renderMain = (d, firstTime) => {
@@ -791,7 +813,7 @@ function (path, config) {
             const more = document.getElementById('fd-more');
             if (more) more.onclick = () => go('detail');
             const give = document.getElementById('fd-give');
-            if (give) give.onclick = () => openSheet(d);
+            if (give) give.onclick = () => (P ? previewNote() : openSheet(d));
             const amt = document.getElementById('fd-amount');
             if (!firstTime && shownRaised != null && shownRaised !== raised && amt) {
                 amt.style.animation = 'fdPop .5s ease';
@@ -817,7 +839,7 @@ function (path, config) {
         // forget: it is an optimisation on the read that follows, never a reason not to read.
         let syncing = false;
         const syncDonations = async () => {
-            if (syncing || !docPath) return;
+            if (P || syncing || !docPath) return;
             const c = lastDoc && donCfg(lastDoc);
             if (!c || c.mode !== 'checkout') return;     // a Payment Link has no session to match
             syncing = true;
@@ -829,6 +851,11 @@ function (path, config) {
         // a few, because one is normal and three means something is actually wrong.
         let missed = 0;
         const load = async (firstTime) => {
+            if (P) {
+                const d = JSON.parse(JSON.stringify(P.doc));
+                await readPicture(d); await readFaces(d); draw(d, firstTime);
+                return;
+            }
             if (!docPath) { fail('This display has no campaign link. Open it from the fundraising console, or use the link the organiser sent you.'); return; }
             let rs = null;
             try { rs = await POSTJSON({ path: docPath, user: 'public' }, host + '/load-file'); } catch (e) { rs = null; }
@@ -874,15 +901,43 @@ function (path, config) {
             if (stamp !== lastStamp) { lastStamp = stamp; await readPicture(d); await readFaces(d); draw(d, firstTime); }
         };
 
-        try {
-            document.addEventListener('keydown', (e) => {
-                if (!e || e.key !== 'Escape') return;
-                if (sheet) { try { e.stopPropagation(); } catch (e2) { } closeSheet(); return; }
-                if (view === 'detail') { try { e.stopPropagation(); } catch (e2) { } go('main'); }
-            }, true);
-        } catch (e) { }
+        // The preview's own bar, and its way out.
+        let bar = null;
+        const closePreview = () => {
+            try { document.removeEventListener('keydown', onEsc, true); } catch (e) { }
+            try { if (bar) bar.remove(); } catch (e) { }
+            try { el.remove(); } catch (e) { }
+            try { if (P && typeof P.onClose === 'function') P.onClose(); } catch (e) { }
+        };
+        const previewNote = () => {
+            const n = document.getElementById('fd-pv-note');
+            if (n) { n.textContent = 'Donations are off in a preview. On the published display this opens the giving sheet.'; n.style.color = '#fde68a'; }
+        };
+        if (P) {
+            bar = document.createElement('div');
+            bar.id = 'fd-pv-bar';
+            bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483301;display:flex;align-items:center;gap:12px;'
+                + 'flex-wrap:wrap;padding:9px 16px;background:rgba(120,83,10,0.92);border-bottom:1px solid rgba(251,191,36,0.6);'
+                + 'color:#fde68a;font:600 13px system-ui,-apple-system,"Segoe UI",Arial,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,0.4);';
+            bar.innerHTML = '<span style="padding:2px 9px;border-radius:999px;background:#fbbf24;color:#3a2600;font:800 10.5px system-ui;'
+                + 'letter-spacing:.08em;text-transform:uppercase;">Preview</span>'
+                + '<span id="fd-pv-note">What visitors will see once you publish. Nothing here is published yet.</span>'
+                + '<button id="fd-pv-close" style="margin-left:auto;cursor:pointer;border:1px solid rgba(253,230,138,0.6);background:transparent;'
+                + 'color:#fff;border-radius:8px;padding:6px 14px;font:700 12.5px system-ui;white-space:nowrap;">Close preview</button>';
+            document.body.appendChild(bar);
+            document.getElementById('fd-pv-close').onclick = closePreview;
+            el.style.paddingTop = 'calc(4vmin + 44px)';
+        }
+        const onEsc = (e) => {
+            if (!e || e.key !== 'Escape') return;
+            if (sheet) { try { e.stopPropagation(); } catch (e2) { } closeSheet(); return; }
+            if (view === 'detail') { try { e.stopPropagation(); } catch (e2) { } go('main'); return; }
+            if (P) { try { e.stopPropagation(); } catch (e2) { } closePreview(); }
+        };
+        try { document.addEventListener('keydown', onEsc, true); } catch (e) { }
 
         await load(true);
+        if (P) return { close: closePreview };
         // Someone just came back from paying: reconcile at once rather than at the next tick,
         // so they see their own donation land.
         if (thanked) { await syncDonations(); await load(false); }
