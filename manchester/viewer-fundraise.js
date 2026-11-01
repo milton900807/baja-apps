@@ -94,7 +94,22 @@ function (path, config) {
         el.style.cssText = 'position:fixed;inset:0;z-index:' + (P ? '2147483300' : '2147483000') + ';overflow:auto;'
             + 'background:radial-gradient(1200px 700px at 50% -10%,#123a63 0%,#0a1e3a 55%,#071526 100%);'
             + 'color:#eaf6f9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;'
-            + 'display:flex;align-items:center;justify-content:center;padding:4vmin;box-sizing:border-box;';
+            // CENTRED, BUT NEVER ABOVE THE TOP OF THE SCREEN.
+            //
+            // A flex item centred in a box it is taller than overflows BOTH ways, and the
+            // half that goes off the top cannot be scrolled back to: the scrollbar starts
+            // at the top of the box, and the card starts above it. On a laptop the card
+            // fits and nobody sees this; on a phone the details page is twice the height
+            // of the screen and the title was simply gone. `safe center` keeps the
+            // centring when it fits and falls back to the top when it does not. The plain
+            // value is declared first for anything that does not know the safe one.
+            + 'display:flex;align-items:center;align-items:safe center;justify-content:center;'
+            // 4vmin is fifteen pixels on a phone, and under a notch it is none. A real
+            // margin, and the inset the device asks for on top of it.
+            + 'padding:max(20px,4vmin) max(14px,4vmin) max(28px,4vmin);'
+            + 'padding-top:max(28px,4vmin,calc(env(safe-area-inset-top,0px) + 20px));'
+            + 'padding-bottom:max(28px,4vmin,calc(env(safe-area-inset-bottom,0px) + 18px));'
+            + 'box-sizing:border-box;';
         el.innerHTML = '<div id="fd-card" style="width:min(1100px,96vw);text-align:center;">'
             + '<div id="fd-state" style="font:500 15px system-ui;color:#9fc4d4;">Loading…</div></div>';
         document.body.appendChild(el);
@@ -503,8 +518,16 @@ function (path, config) {
             const cur = d.currency || 'USD';
             closeSheet();
             sheet = document.createElement('div');
-            sheet.style.cssText = 'position:fixed;inset:0;z-index:2147483100;background:rgba(3,11,22,0.72);display:flex;'
-                + 'align-items:center;justify-content:center;padding:4vmin;box-sizing:border-box;';
+            // The same rule as the display behind it: a donate sheet taller than the
+            // phone must scroll to its own top, not off it. Asking for an amount is the
+            // one moment where losing the top of the panel costs the campaign the money.
+            sheet.style.cssText = 'position:fixed;inset:0;z-index:2147483100;background:rgba(3,11,22,0.72);'
+                + 'overflow:auto;display:flex;align-items:center;align-items:safe center;'
+                + 'justify-content:center;'
+                + 'padding:max(20px,4vmin) max(14px,4vmin) max(28px,4vmin);'
+                + 'padding-top:max(28px,4vmin,calc(env(safe-area-inset-top,0px) + 20px));'
+                + 'padding-bottom:max(28px,4vmin,calc(env(safe-area-inset-bottom,0px) + 18px));'
+                + 'box-sizing:border-box;';
             const fld = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;'
                 + 'border:1px solid rgba(255,255,255,0.18);border-radius:10px;padding:11px 13px;font:15px system-ui;';
             const chip = (v) => '<button class="fd-amt" data-amt="' + v + '" style="cursor:pointer;border:1px solid rgba(255,255,255,0.25);'
