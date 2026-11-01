@@ -220,9 +220,19 @@ function (opts) {
         const btn = (id, label, kind) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px system-ui;'
             + (kind === 'go' ? 'border:1px solid #22c55e;background:#22c55e;color:#04210f;'
                 : 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;') + '">' + label + '</button>';
-        const sectHead = (t, sub) => '<div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);">'
-            + '<div style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">' + t + '</div>'
-            + (sub ? '<div style="margin-top:5px;font:12.5px/1.5 system-ui;color:#9fb3c8;">' + sub + '</div>' : '') + '</div>';
+        // Sections as in the console: a dotted rule, room above it, a heading, and whether it
+        // has to be filled in said once beside the heading.
+        const tag = (kind) => kind === 'required'
+            ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:#fbbf24;color:#3a2600;'
+                + 'font:800 10px system-ui;letter-spacing:.08em;text-transform:uppercase;vertical-align:1px;">Required</span>'
+            : (kind === 'optional' ? '<span style="margin-left:8px;font:600 10.5px system-ui;letter-spacing:.06em;'
+                + 'text-transform:uppercase;color:#5f8599;vertical-align:1px;">optional</span>' : '');
+        const sectHead = (t, sub, kind, first) => '<div style="' + (first ? '' : 'margin-top:34px;padding-top:24px;'
+            + 'border-top:2px dotted rgba(159,195,214,0.28);') + '">'
+            + '<div style="font:700 13px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#a9d3e3;">' + t + tag(kind) + '</div>'
+            + (sub ? '<div style="margin-top:6px;font:12.5px/1.55 system-ui;color:#9fb3c8;max-width:60ch;">' + sub + '</div>' : '') + '</div>';
+        const reqBox = (id, inner) => '<div id="' + id + '" style="margin-top:12px;padding:10px 12px;border-radius:10px;'
+            + 'border-left:4px solid #fbbf24;background:rgba(251,191,36,0.07);">' + inner + '</div>';
 
         wrap.innerHTML = ''
             + '<div style="display:flex;align-items:center;gap:16px;padding:16px 22px 14px;background:#0b2545;'
@@ -236,7 +246,8 @@ function (opts) {
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div style="flex:1 1 460px;max-width:620px;">'
 
-            + '<label style="' + lbl + 'margin-top:0;">Describe the program</label>'
+            + sectHead('Describe the program', 'For the AI draft. Not kept and not published.', 'optional', true)
+            + '<div style="height:10px;"></div>'
             + '<textarea id="pe-prompt" rows="4" style="' + inp + 'resize:vertical;" placeholder="An antisense oligonucleotide for Rett syndrome, '
             + 'from design through an IND filing, for a patient population of about 6,000."></textarea>'
             + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
@@ -247,22 +258,23 @@ function (opts) {
             + '<div id="pe-ai-out" style="margin-top:7px;font:12.5px system-ui;color:#6f93a6;min-height:16px;"></div>'
 
             + sectHead('The program')
-            + '<label style="' + lbl + '">Name (optional)</label><input id="pe-name" style="' + inp + '"/>'
-            + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-            + '<div style="flex:1 1 140px;"><label style="' + lbl + '">Starts</label><input id="pe-start" type="date" style="' + inp + 'color-scheme:dark;"/></div>'
+            + '<label style="' + lbl + '">Name' + tag('optional') + '</label><input id="pe-name" style="' + inp + '"/>'
+            + '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">'
+            + '<div style="flex:1 1 200px;">' + reqBox('pe-start-box', '<label style="' + lbl + 'margin-top:0;color:#fde68a;">Starts' + tag('required') + '</label>'
+                + '<input id="pe-start" type="date" aria-required="true" style="' + inp + 'color-scheme:dark;border:1.5px solid #fbbf24;"/>') + '</div>'
             + '<div style="flex:1 1 120px;"><label style="' + lbl + '">Currency</label><select id="pe-cur" style="' + inp + '">'
             + CUR.map((c) => '<option value="' + c + '">' + c + '</option>').join('') + '</select></div></div>'
 
             + sectHead('Stages', 'In the order they happen. Each starts when the one before ends; a gap delays it, '
-                + 'and a negative gap overlaps it with the stage before.')
-            + '<div id="pe-stages" style="margin-top:10px;"></div>'
+                + 'and a negative gap overlaps it with the stage before. At least one stage needs a name and a number of weeks.', 'required')
+            + reqBox('pe-stages-box', '<div id="pe-stages"></div>')
             + '<div style="margin-top:8px;">' + btn('pe-add-stage', '+ Add a stage') + '</div>'
 
-            + sectHead('Other costs', 'Paid for by the campaign but not a stage of their own: transfers, logistics, writing.')
+            + sectHead('Other costs', 'Paid for by the campaign but not a stage of their own: transfers, logistics, writing.', 'optional')
             + '<div id="pe-others" style="margin-top:10px;"></div>'
             + '<div style="margin-top:8px;">' + btn('pe-add-other', '+ Add a cost') + '</div>'
 
-            + sectHead('Contingency and fees', 'A percentage of everything above, shown as its own part of the budget.')
+            + sectHead('Contingency and fees', 'A percentage of everything above, shown as its own part of the budget.', 'optional')
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + '<div style="flex:1 1 160px;"><label style="' + lbl + '">Contingency (%)</label><input id="pe-cont" inputmode="decimal" style="' + inp + '"/></div>'
             + '<div style="flex:1 1 160px;"><label style="' + lbl + '">Management and oversight fees (%)</label><input id="pe-fees" inputmode="decimal" style="' + inp + '"/></div>'
@@ -374,6 +386,14 @@ function (opts) {
             if (o.currency && plan.currency !== o.currency) warn.push('The campaign is in ' + o.currency + '; the plan is in ' + plan.currency + '. Figures are not converted.');
             $('pe-check').textContent = warn.join(' ');
             $('pe-use').disabled = !ok; $('pe-use').style.opacity = ok ? '1' : '0.5';
+            const frame = (id, good) => {
+                const b = $(id); if (!b) return;
+                b.style.borderLeftColor = good ? '#22c55e' : '#fbbf24';
+                b.style.background = good ? 'rgba(34,197,94,0.05)' : 'rgba(251,191,36,0.07)';
+            };
+            frame('pe-start-box', !!$('pe-start').value);
+            try { $('pe-start').style.borderColor = $('pe-start').value ? 'rgba(34,197,94,0.6)' : '#fbbf24'; } catch (e) { }
+            frame('pe-stages-box', ok);
         };
         const all = () => { toFields(); stagesUI(); othersUI(); redraw(); };
         for (const id of ['pe-name', 'pe-start', 'pe-cont', 'pe-fees']) $(id).addEventListener('input', redraw);

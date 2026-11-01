@@ -326,6 +326,32 @@ function (path, config) {
         const lbl = 'display:block;font:600 12px system-ui;color:#9fb3c8;margin:14px 0 5px;';
         const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);'
             + 'border-radius:8px;padding:9px 11px;font:14px system-ui;';
+        // SECTIONS. The form is long, and with every field the same label over the same box
+        // it ran together into one column nobody could find their place in. Each group now
+        // opens with a dotted rule, room above it, and a heading that says what it is for;
+        // whether it is optional is said once, beside the heading, rather than on every label.
+        const tag = (kind) => kind === 'required'
+            ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:#fbbf24;color:#3a2600;'
+                + 'font:800 10px system-ui;letter-spacing:.08em;text-transform:uppercase;vertical-align:1px;">Required</span>'
+            : (kind === 'optional' ? '<span style="margin-left:8px;font:600 10.5px system-ui;letter-spacing:.06em;'
+                + 'text-transform:uppercase;color:#5f8599;vertical-align:1px;">optional</span>' : '');
+        const sec = (title, o2) => {
+            const o3 = o2 || {};
+            return '<div style="' + (o3.first ? 'margin-top:4px;' : 'margin-top:34px;padding-top:24px;'
+                + 'border-top:2px dotted rgba(159,195,214,0.28);') + '">'
+                + '<div style="font:700 13px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#a9d3e3;">'
+                + title + tag(o3.tag) + '</div>'
+                + (o3.sub ? '<div style="margin-top:6px;font:12.5px/1.55 system-ui;color:#9fb3c8;max-width:60ch;">' + o3.sub + '</div>' : '')
+                + '</div>';
+        };
+        // A part of the form that holds several sections: a banner rather than a rule.
+        const part = (title, sub) => '<div style="margin-top:40px;padding:14px 16px;border-radius:10px;'
+            + 'background:rgba(79,208,230,0.07);border:1px solid rgba(79,208,230,0.22);">'
+            + '<div style="font:800 14px system-ui;letter-spacing:.06em;text-transform:uppercase;color:#cfeef6;">' + title + '</div>'
+            + (sub ? '<div style="margin-top:4px;font:12.5px/1.5 system-ui;color:#9fc4d4;">' + sub + '</div>' : '') + '</div>';
+        // THE REQUIRED FIELD LOOKS REQUIRED: an amber frame and a "Required" badge while it is
+        // empty, a quiet green one once it is filled (see reqUI below).
+        const reqInp = inp + 'border:1.5px solid #fbbf24;box-shadow:0 0 0 3px rgba(251,191,36,0.16);';
         const btn = (id, label, kind) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px system-ui;'
             + (kind === 'go' ? 'border:1px solid #22c55e;background:#22c55e;color:#04210f;'
                 : 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;') + '">' + label + '</button>';
@@ -384,16 +410,22 @@ function (path, config) {
             + 'border:1px solid rgba(251,191,36,0.5);background:rgba(120,83,10,0.28);font:13px/1.6 system-ui;color:#fde68a;"></div>'
             + '<div class="fc-body" style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div class="fc-col" style="flex:1 1 420px;max-width:560px;">'
-            + '<label style="' + lbl + '">Campaign <span style="color:#7fb0c4;font-weight:600;">(required)</span></label><input id="fc-title" style="' + inp + '"/>'
-            + '<div id="fc-name-out" style="margin-top:5px;font:12px system-ui;min-height:15px;"></div>'
-            + '<label style="' + lbl + '">A line under it (optional)</label><input id="fc-sub" style="' + inp + '"/>'
+            + sec('The campaign', { first: true })
+            + '<div id="fc-title-box" style="margin-top:12px;padding:12px 14px 10px;border-radius:10px;border-left:4px solid #fbbf24;'
+            + 'background:rgba(251,191,36,0.07);">'
+            + '<label for="fc-title" style="' + lbl + 'margin-top:0;color:#fde68a;">Campaign name<span id="fc-title-tag">' + tag('required') + '</span></label>'
+            + '<input id="fc-title" aria-required="true" placeholder="What people will see at the top of the display" style="' + reqInp + '"/>'
+            + '<div id="fc-name-out" style="margin-top:5px;font:12px system-ui;min-height:15px;"></div></div>'
+            + '<label style="' + lbl + '">A line under it' + tag('optional') + '</label><input id="fc-sub" style="' + inp + '"/>'
+
+            + sec('The money', { sub: 'The total on the display, the goal it climbs towards, and gifts taken by hand.' })
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + '<div style="flex:1 1 120px;"><label style="' + lbl + '">Currency</label><select id="fc-cur" style="' + inp + '">'
             + CUR.map((c) => '<option value="' + c + '">' + c + '</option>').join('') + '</select></div>'
-            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Raised so far (optional)</label><input id="fc-raised" inputmode="decimal" style="' + inp + '"/></div>'
-            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Goal (optional)</label><input id="fc-goal" inputmode="decimal" style="' + inp + '"/></div>'
+            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Raised so far' + tag('optional') + '</label><input id="fc-raised" inputmode="decimal" style="' + inp + '"/></div>'
+            + '<div style="flex:2 1 180px;"><label style="' + lbl + '">Goal' + tag('optional') + '</label><input id="fc-goal" inputmode="decimal" style="' + inp + '"/></div>'
             + '</div>'
-            + '<label style="' + lbl + '">Add a gift (optional)</label>'
+            + '<label style="' + lbl + '">Add a gift' + tag('optional') + '</label>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
             + '<input id="fc-gift" inputmode="decimal" placeholder="amount" style="' + inp + 'flex:0 0 120px;"/>'
             + '<input id="fc-gift-name" placeholder="who gave it (optional)" style="' + inp + 'flex:1 1 150px;"/>'
@@ -405,17 +437,38 @@ function (path, config) {
             + '<input id="fc-hide" type="checkbox" style="accent-color:#22c55e;"/> hide amounts on the details page</label>'
             + '</div>'
             + '<div id="fc-gifts" style="margin-top:10px;"></div>'
-            + '<label style="' + lbl + '">A message on the display (optional)</label>'
+            + sec('The display', { sub: 'What a room sees on the screen: a message under the total, the colours, and a picture.' })
+            + '<label style="' + lbl + '">A message on the display' + tag('optional') + '</label>'
             + '<textarea id="fc-note" rows="3" style="' + inp + 'resize:vertical;"></textarea>'
-            + '<div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);">'
-            + '<div style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">The details page</div>'
-            + '<div style="margin-top:5px;font:12.5px system-ui;color:#9fb3c8;">One button away from the total, for everything that '
-            + 'wants reading up close rather than from the back of a room.</div></div>'
-            + '<label style="' + lbl + '">About this campaign (optional)</label>'
-            + '<textarea id="fc-story" rows="5" placeholder="What the money is for. Blank lines start new paragraphs." style="' + inp + 'resize:vertical;"></textarea>'
-            + '<label style="' + lbl + '">A timeline (optional)</label>'
-            + '<div style="font:12px/1.55 system-ui;color:#9fb3c8;margin-bottom:7px;">'
-            + 'What happens with the money, and roughly when. Shown on the details page.</div>'
+            + '<label style="' + lbl + '">Colours</label>'
+            + '<select id="fc-theme" style="' + inp + '">'
+            + (() => {   // grouped: two dozen in one flat list is a list nobody reads to the end of
+                let out = '', group = '';
+                for (const t of THEMES) {
+                    if (t[2] !== group) { if (group) out += '</optgroup>'; group = t[2]; out += '<optgroup label="' + esc(group) + '">'; }
+                    out += '<option value="' + t[0] + '">' + esc(t[1]) + '</option>';
+                }
+                return out + (group ? '</optgroup>' : '');
+            })() + '</select>'
+            + '<label style="' + lbl + '">A picture' + tag('optional') + '</label>'
+            + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + '<input id="fc-img" type="file" accept="image/*" style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/>'
+            + '<select id="fc-img-mode" style="' + inp + 'flex:0 0 185px;">'
+            + '<option value="background">behind the whole display</option>'
+            + '<option value="banner">above the title</option></select>'
+            + btn('fc-img-clear', 'Remove') + '</div>'
+            + '<div id="fc-img-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
+            + '<div id="fc-img-prev" style="margin-top:8px;"></div>'
+            + '<div style="margin-top:10px;font:12px system-ui;color:#9fb3c8;">No picture of your own? '
+            + 'Pick one of these.</div>'
+            + '<div id="fc-stock" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px;"></div>'
+            + part('The details page', 'One button away from the total, for everything that wants reading up close rather than '
+                + 'from the back of a room.')
+            + sec('About this campaign', { tag: 'optional' })
+            + '<textarea id="fc-story" rows="5" placeholder="What the money is for. Blank lines start new paragraphs." style="' + inp + 'resize:vertical;margin-top:12px;"></textarea>'
+            + sec('Timeline', { tag: 'optional' })
+            + '<div style="font:12px/1.55 system-ui;color:#9fb3c8;margin:8px 0 7px;">'
+            + 'What happens with the money, and roughly when, in words. For a costed plan, use the program plan below.</div>'
             + '<div id="fc-tl" style="margin-bottom:8px;"></div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
             + '<input id="fc-tl-when" placeholder="when (First 3 months)" style="' + inp + 'flex:1 1 150px;"/>'
@@ -433,37 +486,19 @@ function (path, config) {
             + 'what to leave out. It is a first draft for you to correct, and nothing is published '
             + 'until you publish it.</div>'
             + '<div id="fc-tl-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
-            + '<label style="' + lbl + '">The program plan (optional)</label>'
-            + '<div style="font:12px/1.55 system-ui;color:#9fb3c8;margin-bottom:7px;">'
-            + 'The budget and timeline behind the campaign, as a picture on the details page: each stage '
-            + 'on a calendar, what it costs, and how far the goal carries it.</div>'
+            + sec('Program plan', { tag: 'optional', sub: 'The budget and timeline behind the campaign, as a picture on the '
+                + 'details page: each stage on a calendar, what it costs, and how far the goal carries it.' })
+            + '<div style="height:10px;"></div>'
             + '<div id="fc-plan"></div>'
             + '<div id="fc-plan-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
-            + '<label style="' + lbl + '">Post an update (optional)</label>'
+            + sec('Updates', { tag: 'optional', sub: 'Dated posts on the details page: what happened, while it is happening.' })
+            + '<div style="height:10px;"></div>'
             + '<input id="fc-upd-title" placeholder="headline (optional)" style="' + inp + '"/>'
             + '<textarea id="fc-upd" rows="3" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
             + '<div style="margin-top:8px;">' + btn('fc-post', 'Post update') + '</div>'
             + '<div id="fc-updates" style="margin-top:10px;"></div>'
-            + '<label style="' + lbl + '">Look of the display</label>'
-            + '<select id="fc-theme" style="' + inp + '">'
-            + (() => {   // grouped: two dozen in one flat list is a list nobody reads to the end of
-                let out = '', group = '';
-                for (const t of THEMES) {
-                    if (t[2] !== group) { if (group) out += '</optgroup>'; group = t[2]; out += '<optgroup label="' + esc(group) + '">'; }
-                    out += '<option value="' + t[0] + '">' + esc(t[1]) + '</option>';
-                }
-                return out + (group ? '</optgroup>' : '');
-            })() + '</select>'
-            + '<label style="' + lbl + '">A picture (optional)</label>'
-            + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-            + '<input id="fc-img" type="file" accept="image/*" style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/>'
-            + '<select id="fc-img-mode" style="' + inp + 'flex:0 0 185px;">'
-            + '<option value="background">behind the whole display</option>'
-            + '<option value="banner">above the title</option></select>'
-            + btn('fc-img-clear', 'Remove') + '</div>'
-            + '<div id="fc-img-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
-            + '<div id="fc-img-prev" style="margin-top:8px;"></div>'
-            + '<label style="' + lbl + '">A presentation (optional)</label>'
+            + sec('Presentation', { tag: 'optional' })
+            + '<div style="height:10px;"></div>'
             + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             + '<input id="fc-doc" type="file" accept=".pdf,.ppt,.pptx,application/pdf,'
             + 'application/vnd.ms-powerpoint,'
@@ -474,11 +509,8 @@ function (path, config) {
             + 'A PDF opens in the page itself. A PowerPoint can only be offered as a download, '
             + 'so save it as a PDF if you want people to read it where they are.</div>'
             + '<div id="fc-doc-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
-            + '<div style="margin-top:10px;font:12px system-ui;color:#9fb3c8;">No picture of your own? '
-            + 'Pick one of these.</div>'
-            + '<div id="fc-stock" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px;"></div>'
-            + '<label style="' + lbl + '">The team (optional)</label>'
-            + '<div style="font:12px system-ui;color:#9fb3c8;margin-bottom:7px;">Who is behind the campaign. Shown on the details page.</div>'
+            + sec('The team', { tag: 'optional', sub: 'Who is behind the campaign.' })
+            + '<div style="height:10px;"></div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
             + '<input id="fc-tm-name" placeholder="name" style="' + inp + 'flex:1 1 140px;"/>'
             + '<input id="fc-tm-role" placeholder="role (optional)" style="' + inp + 'flex:1 1 140px;"/>'
@@ -489,13 +521,15 @@ function (path, config) {
             + btn('fc-tm-add', '+ Add') + '</div>'
             + '<div id="fc-tm-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
             + '<div id="fc-team" style="margin-top:8px;"></div>'
-            + '<label style="' + lbl + '">A film (YouTube, optional)</label>'
+            + sec('Film', { tag: 'optional', sub: 'A YouTube link, played on the details page.' })
+            + '<div style="height:10px;"></div>'
             + '<input id="fc-yt" placeholder="https://youtu.be/… — shown on the details page" style="' + inp + '"/>'
             + '<div id="fc-yt-out" style="margin-top:5px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
-            + '<div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);">'
-            + '<label style="font:12.5px system-ui;color:#eaf6f9;display:flex;align-items:center;gap:8px;cursor:pointer;">'
-            + '<input id="fc-don-on" type="checkbox" style="accent-color:#22c55e;"/>'
-            + '<span style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;">Take donations</span></label>'
+            + part('Giving', 'How a visitor gives from the display and the details page.')
+            + '<div style="margin-top:18px;">'
+            + '<label style="font:12.5px system-ui;color:#eaf6f9;display:flex;align-items:center;gap:9px;cursor:pointer;">'
+            + '<input id="fc-don-on" type="checkbox" style="accent-color:#22c55e;width:17px;height:17px;"/>'
+            + '<span style="font:700 13px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#a9d3e3;">Take donations</span></label>'
             + '<div id="fc-don-box" style="display:none;">'
             // The paragraph that used to be here said the money arrives in your own
             // account. It does not: every donation is charged to the Gene.Clinic Stripe
@@ -504,9 +538,9 @@ function (path, config) {
             // honest version until the money actually moves the way a sentence here would
             // have to claim.
             + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-            + '<div style="flex:1 1 150px;"><label style="' + lbl + '">Button label (optional)</label><input id="fc-don-label" style="' + inp + '"/></div>'
+            + '<div style="flex:1 1 150px;"><label style="' + lbl + '">Button label' + tag('optional') + '</label><input id="fc-don-label" style="' + inp + '"/></div>'
             + '</div>'
-            + '<label style="' + lbl + '">Suggested amounts (optional)</label>'
+            + '<label style="' + lbl + '">Suggested amounts' + tag('optional') + '</label>'
             + '<input id="fc-don-amts" placeholder="25, 50, 100, 250" style="' + inp + '"/>'
             + '<label style="margin-top:8px;font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
             + '<input id="fc-don-custom" type="checkbox" style="accent-color:#22c55e;"/> let a donor type their own amount</label>'
@@ -515,7 +549,7 @@ function (path, config) {
             + '<span style="color:#6f93a6;">(off: they appear as Anonymous)</span></label>'
             + '<div id="fc-don-warn" style="margin-top:8px;font:12.5px system-ui;color:#fca5a5;"></div>'
             + '</div></div>'
-            + '<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);'
+            + '<div style="margin-top:34px;padding-top:24px;border-top:2px dotted rgba(159,195,214,0.28);'
             + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
             + '<span id="fc-pub-note" style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
@@ -1358,6 +1392,7 @@ function (path, config) {
             $('fc-img-mode').value = (m.imageMode === 'background') ? 'background' : 'banner';
             $('fc-yt').value = m.youtube || '';
             imgUI(); docUI(); ytUI();
+            try { reqUI(); } catch (e) { }   // declared further down; absent on the very first call
             donUI();
         };
 
@@ -1674,8 +1709,18 @@ function (path, config) {
             clearTimeout(draftTimer);
             draftTimer = setTimeout(saveDraft, 500);   // a keystroke is not a save
         };
-        const sync = () => { fromForm(); preview(); donUI(); touch(); try { if (typeof planUI === 'function' && doc.plan) planUI(); } catch (e) { } };
-        toForm(); preview(); lists(); tlList(); dirty = false; liveUI();
+        const reqUI = () => {
+            const v = ('' + (($('fc-title') || {}).value || '')).trim();
+            const box = $('fc-title-box'), el = $('fc-title'), t = $('fc-title-tag');
+            if (!box || !el) return;
+            box.style.borderLeftColor = v ? '#22c55e' : '#fbbf24';
+            box.style.background = v ? 'rgba(34,197,94,0.06)' : 'rgba(251,191,36,0.07)';
+            el.style.borderColor = v ? 'rgba(34,197,94,0.6)' : '#fbbf24';
+            el.style.boxShadow = v ? 'none' : '0 0 0 3px rgba(251,191,36,0.16)';
+            if (t) t.innerHTML = v ? '<span style="margin-left:8px;font:700 10.5px system-ui;color:#86efac;">\u2713</span>' : tag('required');
+        };
+        const sync = () => { fromForm(); reqUI(); preview(); donUI(); touch(); try { if (typeof planUI === 'function' && doc.plan) planUI(); } catch (e) { } };
+        toForm(); preview(); lists(); tlList(); reqUI(); dirty = false; liveUI();
 
         // A CAMPAIGN THAT IS THERE BUT WOULD NOT COME BACK. Publishing over it would
         // replace a live fundraiser with this screen's defaults, so publishing is off
@@ -2100,7 +2145,11 @@ function (path, config) {
                 return;
             }
             sync();
-            if (!doc.title) { $('fc-status').textContent = 'Give the campaign a name first.'; return; }
+            if (!doc.title) {
+                $('fc-status').textContent = 'Give the campaign a name first.';
+                try { reqUI(); $('fc-title').focus(); $('fc-title-box').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { }
+                return;
+            }
             // Re-read rather than trust the list from a minute ago: this is the check that
             // stands between a second campaign and the first one's money.
             await loadKnown();
