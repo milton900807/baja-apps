@@ -276,8 +276,8 @@ function (opts) {
             + CUR.map((c) => '<option value="' + c + '">' + c + '</option>').join('') + '</select></div></div>'
 
             + sectHead('Stages', 'In the order they happen. Each starts when the one before ends; a gap delays it, '
-                + 'and a negative gap overlaps it with the stage before. Without stages the plan is a budget with no calendar.', 'optional')
-            + '<div id="pe-stages" style="margin-top:12px;"></div>'
+                + 'and a negative gap overlaps it with the stage before. At least one stage needs a name and a number of weeks.', 'required')
+            + reqBox('pe-stages-box', '<div id="pe-stages"></div>')
             + '<div style="margin-top:8px;">' + btn('pe-add-stage', '+ Add a stage') + '</div>'
 
             + sectHead('Other costs', 'Paid for by the campaign but not a stage of their own: transfers, logistics, writing.', 'optional')
@@ -379,11 +379,11 @@ function (opts) {
             // No contingency or fees section: a budget is the sum of its stages and costs.
             model.contingency = 0; model.fees = 0;
             plan = toPlan(model);
-            // Stages are optional: a plan needs a stage on the calendar or a cost in the budget.
-            const ok = plan.phases.length > 0 || plan.total > 0;
+            // Stages are required: a plan needs at least one stage on the calendar.
+            const ok = plan.phases.length > 0;
             $('pe-prev').innerHTML = ok && PV ? PV.html(plan, { goal: o.goal, raised: o.raised })
-                : '<div style="font:13px system-ui;color:#9fb3c8;">Add a stage or a cost and the plan appears here.</div>';
-            $('pe-total').textContent = ok ? ((plan.phases.length ? plan.phases.length + ' stages · ' : '') + money(plan.total, plan.currency)) : '';
+                : '<div style="font:13px system-ui;color:#9fb3c8;">Add a stage with a number of weeks and the plan appears here.</div>';
+            $('pe-total').textContent = ok ? (plan.phases.length + ' stages · ' + money(plan.total, plan.currency)) : '';
             const warn = [];
             if (model.stages.some((s) => ('' + s.name).trim() && !(s.weeks > 0))) warn.push('A stage with no weeks is left off the calendar.');
             if (o.currency && plan.currency !== o.currency) warn.push('The campaign is in ' + o.currency + '; the plan is in ' + plan.currency + '. Figures are not converted.');
@@ -396,6 +396,7 @@ function (opts) {
             };
             frame('pe-start-box', !!$('pe-start').value);
             try { $('pe-start').style.borderColor = $('pe-start').value ? 'rgba(34,197,94,0.6)' : '#fbbf24'; } catch (e) { }
+            frame('pe-stages-box', ok);
 
         };
         const all = () => { toFields(); stagesUI(); othersUI(); redraw(); };
@@ -475,7 +476,7 @@ function (opts) {
             const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
             document.addEventListener('keydown', onKey, true);
             $('pe-cancel').onclick = () => done(null);
-            $('pe-use').onclick = () => { redraw(); if (plan && (plan.phases.length || plan.total > 0)) done(plan); };
+            $('pe-use').onclick = () => { redraw(); if (plan && plan.phases.length) done(plan); };
         });
     })();
     })();
