@@ -434,7 +434,7 @@ function (path, config) {
             + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             + '<input id="fc-donors" inputmode="numeric" placeholder="donors (optional)" style="' + inp + 'flex:0 0 170px;"/>'
             + '<label style="font:12.5px system-ui;color:#9fb3c8;display:flex;align-items:center;gap:7px;cursor:pointer;">'
-            + '<input id="fc-hide" type="checkbox" style="accent-color:#22c55e;"/> hide amounts on the details page</label>'
+            + '<input id="fc-hide" type="checkbox" style="accent-color:#22c55e;"/> hide amounts on the campaign details page</label>'
             + '</div>'
             + '<div id="fc-gifts" style="margin-top:10px;"></div>'
             + sec('The display', { sub: 'What a room sees on the screen: a message under the total, the colours, and a picture.' })
@@ -462,8 +462,7 @@ function (path, config) {
             + '<div style="margin-top:10px;font:12px system-ui;color:#9fb3c8;">No picture of your own? '
             + 'Pick one of these.</div>'
             + '<div id="fc-stock" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px;"></div>'
-            + part('The details page', 'One button away from the total, for everything that wants reading up close rather than '
-                + 'from the back of a room.')
+            + part('Campaign details page')
             + sec('About this campaign', { tag: 'optional' })
             + '<textarea id="fc-story" rows="5" placeholder="What the money is for. Blank lines start new paragraphs." style="' + inp + 'resize:vertical;margin-top:12px;"></textarea>'
             + sec('Timeline', { tag: 'optional' })
@@ -510,9 +509,9 @@ function (path, config) {
             + '<div id="fc-team" style="margin-top:8px;"></div>'
             + sec('YouTube', { tag: 'optional' })
             + '<div style="height:10px;"></div>'
-            + '<input id="fc-yt" placeholder="https://youtu.be/… — shown on the details page" style="' + inp + '"/>'
+            + '<input id="fc-yt" placeholder="https://youtu.be/… — shown on the campaign details page" style="' + inp + '"/>'
             + '<div id="fc-yt-out" style="margin-top:5px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
-            + part('Giving', 'How a visitor gives from the display and the details page.')
+            + part('Giving', 'How a visitor gives from the display and the campaign details page.')
             + '<div style="margin-top:18px;">'
             + '<label style="font:12.5px system-ui;color:#eaf6f9;display:flex;align-items:center;gap:9px;cursor:pointer;">'
             + '<input id="fc-don-on" type="checkbox" style="accent-color:#22c55e;width:17px;height:17px;"/>'
@@ -1164,7 +1163,7 @@ function (path, config) {
         const ytUI = () => {
             const raw = ('' + $('fc-yt').value).trim(), id = ytId(raw);
             $('fc-yt-out').innerHTML = !raw ? ''
-                : (id ? '<span style="color:#86efac;">The film will play on the details page.</span>'
+                : (id ? '<span style="color:#86efac;">The film will play on the campaign details page.</span>'
                     : '<span style="color:#fcd34d;">That does not look like a YouTube link.</span>');
         };
         $('fc-img').addEventListener('change', async () => {
@@ -1246,7 +1245,7 @@ function (path, config) {
                 docGone = false;
                 $('fc-doc-out').textContent = name + ' · ' + niceBytes(f.size) + ' · '
                     + (kind === 'pdf' ? 'opens in the page' : 'offered as a download')
-                    + '. Publish to put it on the details page.';
+                    + '. Publish to put it on the campaign details page.';
                 docUI(); touch();
             } catch (e) {
                 $('fc-doc-out').textContent = 'Could not use that file: ' + ((e && e.message) ? e.message : e);
@@ -1255,7 +1254,7 @@ function (path, config) {
         $('fc-doc-clear').onclick = () => {
             pendingDoc = null; docGone = true;
             try { $('fc-doc').value = ''; } catch (e) { }
-            $('fc-doc-out').textContent = 'The presentation comes off the details page when you publish.';
+            $('fc-doc-out').textContent = 'The presentation comes off the campaign details page when you publish.';
             docUI(); touch();
         };
 
@@ -1278,7 +1277,7 @@ function (path, config) {
             tlArr().push({ when: when_, title: title, text: text });
             $('fc-tl-when').value = ''; $('fc-tl-title').value = ''; $('fc-tl-text').value = '';
             tlList(); preview(); touch();
-            $('fc-tl-out').textContent = 'Added. Publish to put it on the details page.';
+            $('fc-tl-out').textContent = 'Added. Publish to put it on the campaign details page.';
         };
 
         // A FIRST DRAFT, WHICH IS ALL IT IS. The server asks Claude from what is already
@@ -1348,7 +1347,7 @@ function (path, config) {
             $('fc-tm-name').value = ''; $('fc-tm-role').value = ''; $('fc-tm-note').value = '';
             try { $('fc-tm-img').value = ''; } catch (e) { }
             teamList(); preview(); touch();
-            $('fc-tm-out').textContent = 'Added ' + name + '. Publish to put them on the details page.';
+            $('fc-tm-out').textContent = 'Added ' + name + '. Publish to put them on the campaign details page.';
             try { $('fc-tm-name').focus(); } catch (e) { }
         };
         $('fc-yt').addEventListener('input', () => { ytUI(); sync(); });
@@ -1868,7 +1867,7 @@ function (path, config) {
                 + 'border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,0.55);padding:18px 20px 16px;">'
                 + '<div style="display:flex;align-items:flex-start;gap:12px;">'
                 + '<div style="flex:1 1 auto;"><div style="font:700 18px system-ui;">Post an update</div>'
-                + '<div style="margin-top:4px;font:12.5px/1.5 system-ui;color:#9fb3c8;">A dated post on the details page. It goes live as soon as you '
+                + '<div style="margin-top:4px;font:12.5px/1.5 system-ui;color:#9fb3c8;">A dated post on the campaign details page. It goes live as soon as you '
                 + 'post it, on its own: anything else you have changed on this screen stays unpublished.</div></div>'
                 + '<button id="fc-uw-x" title="Close" style="cursor:pointer;border:0;background:transparent;color:#9fb3c8;font:700 20px system-ui;line-height:1;">×</button></div>'
                 + (canPost ? ''
@@ -1883,7 +1882,7 @@ function (path, config) {
                 + btn('fc-uw-post', 'Post now', 'go') + btn('fc-uw-close', 'Close')
                 + '<span id="fc-uw-out" style="font:12.5px system-ui;color:#9fb3c8;"></span></div>'
                 + '<div style="margin-top:18px;padding-top:14px;border-top:2px dotted rgba(159,195,214,0.28);">'
-                + '<div style="font:700 12px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#a9d3e3;">On the details page</div>'
+                + '<div style="font:700 12px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#a9d3e3;">On the campaign details page</div>'
                 + '<div id="fc-uw-list" style="margin-top:10px;"></div></div></div>';
             document.body.appendChild(back);
             const q = (id) => document.getElementById(id);
@@ -1899,7 +1898,7 @@ function (path, config) {
                             + '<div style="font:11.5px system-ui;color:#6f93a6;">' + esc(when(u.at)) + '</div>'
                             + (u.title ? '<div style="font:700 13.5px system-ui;margin-top:2px;">' + esc(u.title) + '</div>' : '')
                             + '<div style="font:13.5px system-ui;color:#cfe0f5;margin-top:2px;white-space:pre-wrap;">' + esc(u.text || '') + '</div></div>'
-                            + (canPost ? '<button data-urm="' + esc(u.at || '') + '" title="Take it off the details page" style="cursor:pointer;border:0;'
+                            + (canPost ? '<button data-urm="' + esc(u.at || '') + '" title="Take it off the campaign details page" style="cursor:pointer;border:0;'
                                 + 'background:transparent;color:#7fb0c4;font:700 15px system-ui;line-height:1;padding:0 2px;">×</button>' : '')
                             + '</div>').join('') + '</div>';
                 for (const b of q('fc-uw-list').querySelectorAll('[data-urm]')) {
@@ -1909,7 +1908,7 @@ function (path, config) {
                         q('fc-uw-out').textContent = 'Taking it down…';
                         try {
                             await writeUpdates((ups) => ups.filter((u) => ('' + (u && u.at)) !== at));
-                            q('fc-uw-out').innerHTML = '<span style="color:#86efac;">Taken off the details page.</span>';
+                            q('fc-uw-out').innerHTML = '<span style="color:#86efac;">Taken off the campaign details page.</span>';
                         } catch (e) {
                             q('fc-uw-out').innerHTML = '<span style="color:#fca5a5;">Could not take it down: ' + esc(e && e.message ? e.message : e) + '</span>';
                         }
@@ -1931,7 +1930,7 @@ function (path, config) {
                 try {
                     await writeUpdates((ups) => [{ at: new Date().toISOString(), title: title, text: text }].concat(ups));
                     q('fc-uw-title').value = ''; q('fc-uw-text').value = '';
-                    q('fc-uw-out').innerHTML = '<span style="color:#86efac;">Posted. It is on the details page now.</span>';
+                    q('fc-uw-out').innerHTML = '<span style="color:#86efac;">Posted. It is on the campaign details page now.</span>';
                 } catch (e) {
                     q('fc-uw-out').innerHTML = '<span style="color:#fca5a5;">Could not post it: ' + esc(e && e.message ? e.message : e) + '</span>';
                 }
@@ -2146,7 +2145,7 @@ function (path, config) {
             doc.plan = pl;
             planUI(); preview(); touch();
             $('fc-plan-out').innerHTML = '<span style="color:#fde68a;">' + (had ? 'Plan updated.' : 'Plan attached.')
-                + ' Publish to put it on the details page.</span>';
+                + ' Publish to put it on the campaign details page.</span>';
             try { $('fc-plan').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { }
         };
         const planUI = () => {
@@ -2198,7 +2197,7 @@ function (path, config) {
             if (d) d.onclick = () => {
                 delete doc.plan;
                 planUI(); preview(); touch();
-                $('fc-plan-out').textContent = 'Removed. Publish to take it off the details page.';
+                $('fc-plan-out').textContent = 'Removed. Publish to take it off the campaign details page.';
             };
         };
 
@@ -2228,7 +2227,7 @@ function (path, config) {
             }
             planUI(); preview(); touch();
             $('fc-plan-out').innerHTML = '<span style="color:#fde68a;">' + (had ? 'The plan was replaced with the one from Baja Project. '
-                : 'The plan from Baja Project is attached. ') + 'Look it over, then publish to put it on the details page.</span>';
+                : 'The plan from Baja Project is attached. ') + 'Look it over, then publish to put it on the campaign details page.</span>';
             setTimeout(() => { try { $('fc-plan').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { } }, 300);
         })();
 

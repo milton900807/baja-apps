@@ -271,7 +271,7 @@ function (opts) {
             + '<span style="padding:3px 10px;border-radius:999px;background:rgba(167,139,250,0.16);border:1px solid rgba(167,139,250,0.45);'
             + 'color:#ddd6fe;font:700 11px system-ui;letter-spacing:.04em;">Part of: ' + esc(campShort) + '</span></div>'
             + '<div style="font:12.5px system-ui;color:#a5b4d8;margin-top:3px;">What the money will pay for, and when. '
-            + 'Shown on the campaign\u2019s details page.</div></div>'
+            + 'Shown on the campaign details page.</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">'
             + '<span id="pe-total" style="font:600 13px system-ui;color:#cfe6ef;white-space:nowrap;"></span>'
             + btn('pe-cancel', '\u2190 Back to ' + esc(campShort)) + btn('pe-use', 'Use this plan', 'go') + '</div></div>'
@@ -314,7 +314,7 @@ function (opts) {
             // The picture, which stays in view while the numbers change.
             + '<div style="flex:1 1 420px;min-width:300px;position:sticky;top:110px;">'
             + '<div style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;margin-bottom:10px;">'
-            + 'On the details page</div>'
+            + 'On the campaign details page</div>'
             + '<div id="pe-prev" style="padding:16px;border:1px solid rgba(255,255,255,0.14);border-radius:12px;'
             + 'background:radial-gradient(600px 300px at 50% -20%,#123a63 0%,#0a1e3a 55%,#071526 100%);"></div>'
             + '<div id="pe-check" style="margin-top:10px;font:12.5px/1.55 system-ui;color:#fde68a;"></div>'
