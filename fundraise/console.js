@@ -1755,7 +1755,6 @@ function (path, config) {
                 try { planUI(); } catch (e) { }
                 dirty = true; liveUI();
                 bar.style.display = 'none';
-                $('fc-status').textContent = 'Your changes are back. Publish to put them on the display.';
             };
             $('fc-draft-no').onclick = () => { dropDraft(); bar.style.display = 'none'; };
         })();
