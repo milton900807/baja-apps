@@ -43,11 +43,63 @@ function () {
         // An icon store that cannot be reached must not cost anyone the page.
         for (const a of APPS) { try { a.svg = await exec(a.icon); } catch (e) { a.svg = null; } }
 
-        const open = async (path, url, args) => {
+        // "OPENING PROJECT…" THE MOMENT A TILE IS PRESSED. Project and Analytics are megabytes
+        // of code; before this, pressing one cleared the page and left it blank until their own
+        // progress bar arrived, seconds later, and people decided nothing was happening. This
+        // card goes up first, on the body (clear() empties the app's area, not the body), and
+        // comes down when the app says its own bar is showing (window.__bajaOpening.done(),
+        // called by cpd/baja-project.js and cpd/baja-analytics.js). An app that does not say
+        // so takes it down when its module has run; and nothing leaves it up past 30 seconds.
+        const SIGNALS = { 'cpd/baja-project': 1, 'cpd/baja-analytics': 1 };
+        const opening = (label, path) => {
+            try { const old = document.getElementById('baja-opening'); if (old) old.remove(); } catch (e) { }
+            if (!document.getElementById('baja-opening-css')) {
+                const st = document.createElement('style');
+                st.id = 'baja-opening-css';
+                st.textContent = '@keyframes bajaOpenSlide{0%{left:-40%}100%{left:100%}}'
+                    + '@keyframes bajaOpenSpin{to{transform:rotate(360deg)}}';
+                document.head.appendChild(st);
+            }
+            const el = document.createElement('div');
+            el.id = 'baja-opening';
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
+            el.style.cssText = 'position:fixed;inset:0;z-index:2147482500;display:flex;align-items:center;justify-content:center;'
+                + 'background:rgba(244,247,249,0.96);font-family:Arial,Helvetica,sans-serif;transition:opacity .25s ease;';
+            el.innerHTML = '<div style="width:min(360px,86vw);background:#fff;border:1px solid #dbe4ea;border-radius:14px;'
+                + 'padding:22px 22px 20px;box-shadow:0 18px 50px rgba(16,40,56,0.16);text-align:left;">'
+                + '<div style="display:flex;align-items:center;gap:12px;">'
+                + '<span style="width:22px;height:22px;border-radius:50%;border:3px solid #dbe4ea;border-top-color:#0f6e7a;'
+                + 'animation:bajaOpenSpin .8s linear infinite;flex:0 0 auto;"></span>'
+                + '<span style="font:700 16px Arial;color:#12242c;">Opening ' + esc(label || 'the app') + '\u2026</span></div>'
+                + '<div style="position:relative;height:6px;margin-top:16px;border-radius:3px;background:#e7eef2;overflow:hidden;">'
+                + '<span style="position:absolute;top:0;bottom:0;width:40%;border-radius:3px;'
+                + 'background:linear-gradient(90deg,#4fd0e6,#0f6e7a);animation:bajaOpenSlide 1.1s ease-in-out infinite;"></span></div>'
+                + '<div style="margin-top:10px;font:12.5px Arial;color:#6b8793;">Loading the tools. This takes a few seconds the first time.</div>'
+                + '</div>';
+            document.body.appendChild(el);
+            let gone_ = false;
+            const close = () => {
+                if (gone_) return;
+                gone_ = true;
+                try { el.style.opacity = '0'; } catch (e) { }
+                setTimeout(() => { try { el.remove(); } catch (e) { } }, 260);
+                if (window.__bajaOpening === handle) window.__bajaOpening = null;
+            };
+            const handle = { done: close, waits: !!SIGNALS[('' + path).replace(/\.js$/, '')] };
+            window.__bajaOpening = handle;
+            setTimeout(close, 30000);
+            return handle;
+        };
+        const open = async (path, url, args, label) => {
+            const h = opening(label, path);
             try { clear(); } catch (e) { }
             try { if (url) window.history.pushState({}, '', url); } catch (e) { }
             try { await exec.apply(null, [path].concat(args || [])); }
-            catch (e) { try { if (url) window.location.href = url; } catch (e2) { } }
+            catch (e) { h.done(); try { if (url) window.location.href = url; } catch (e2) { } return; }
+            // An app that signals keeps the card until its own bar is up; any other has drawn
+            // its screen by the time its module returns.
+            if (!h.waits) setTimeout(h.done, 250);
         };
 
         const door = (k, label, line, accent) => '<button data-door="' + k + '" class="baja-home-door" style="flex:1 1 260px;cursor:pointer;'
@@ -240,10 +292,10 @@ function () {
             el.style.display = openDoor ? '' : 'none';
             if (openDoor) place();
         };
-        const leaveFor = async (path, url, args) => {
+        const leaveFor = async (path, url, args, label) => {
             openDoor = ''; gone();
             window.__bajaHomeHandlers = null;
-            await open(path, url, args);
+            await open(path, url, args, label);
         };
 
         // One set of listeners for the life of the window, pointed at whichever home page
@@ -292,7 +344,7 @@ function () {
                 // My Files is the file browser, a page of its own, so it goes there on any
                 // screen; it is a tile under Tools now, with the same hook. The doors are a
                 // page on a phone and a panel otherwise.
-                if (k === 'files') { await leaveFor('manchester/fb.js', '/app/baja/fb'); return; }
+                if (k === 'files') { await leaveFor('manchester/fb.js', '/app/baja/fb', null, 'My Files'); return; }
                 if (phone) {
                     if (page === k) { showDoors(); return; }
                     showSub(k);
@@ -306,10 +358,10 @@ function () {
             // per door would make the phone's own back button walk through them one at a
             // time before it ever left the home screen.
             back: () => { if (page) showDoors(); },
-            app: async (i) => { const a = APPS[i]; if (a) await leaveFor(a.path, '/app/' + a.path, a.args); },
+            app: async (i) => { const a = APPS[i]; if (a) await leaveFor(a.path, '/app/' + a.path, a.args, a.label); },
             fund: async (w) => {
-                if (w === 'new') await leaveFor('fundraise/console', '/app/fundraise/console');
-                else await leaveFor('fundraise/admin', '/app/fundraise/admin');
+                if (w === 'new') await leaveFor('fundraise/console', '/app/fundraise/console', null, 'Fundraising');
+                else await leaveFor('fundraise/admin', '/app/fundraise/admin', null, 'your campaigns');
             },
             away: () => { if (!phone && openDoor) { openDoor = ''; paint(); } },
             moved: () => { if (openDoor) place(); },

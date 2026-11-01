@@ -61,14 +61,44 @@ function (path, config) {
         data: '<hr>  '
     }).then(async working => {
 
+        // THE PROGRESS BAR FIRST, THEN THE CODE. It used to be put up only after the six
+        // modules below had been fetched -- plate-track.js alone is 1.4 MB -- so for the
+        // first seconds after pressing Project the screen was blank, and people pressed it
+        // again or decided nothing was happening. Now the bar is on screen at once and moves
+        // as each module arrives, and the home page's "Opening Project" card is told it can
+        // go (window.__bajaOpening, see baja/home.js).
+        let progressBar;
+        let w = {
+            wid: 'progress',
+            componentRef: 'progressBar',
+            data: {
+                'progress': 1,
+                'progressBar': createIonFunction((progessBar) => {
+                    progressBar = progessBar;
+                })
+            }
+        }
+
+        clear();
+        await showWidget(w)
+        const __tick = (v) => { try { if (typeof progressBar === 'function') progressBar(v); } catch (e) { } };
+        __tick(1);
+        try { if (window.__bajaOpening && window.__bajaOpening.done) window.__bajaOpening.done(); } catch (e) { }
+
         console.log(" HML ")
         let HM = await exec('baja/history/HM')
+        __tick(3);
         let AnimateGrid = await exec('flexigraph/animate-it.js')
+        __tick(5);
         let PlateTrack = await exec('baja/plate/plate-track.js')
+        __tick(14);
         let MGrid = await exec('flexigraph/grid.js')
+        __tick(16);
 
         let Plate = await exec('baja/plate/plate.js');
+        __tick(22);
         let GenericWell = await exec('baja/plate/well.js')
+        __tick(24);
 
         console.log(" step ")
 
@@ -88,22 +118,6 @@ function (path, config) {
             visible: false
         };
 
-        let progressBar;
-        let w = {
-            wid: 'progress',
-            componentRef: 'progressBar',
-            data: {
-                'progress': 1,
-                'progressBar': createIonFunction((progessBar) => {
-                    progressBar = progessBar;
-                })
-            }
-        }
-
-        clear();
-        await showWidget(w)
-
-        progressBar(0);
         path = decodeURIComponent(path)
         let obs = path;
         path = path.trim();
@@ -277,7 +291,7 @@ function (path, config) {
         let pm = new PlateManager()
         if (config && config.app)
             pm.app = config.app;
-        exec('flexigraph/gene2plates.js', pm, progressBar).then(async (graph) => {
+        exec('flexigraph/gene2plates.js', pm, (v) => __tick(24 + Math.max(0, Math.min(35, +v || 0)) * (21 / 35))).then(async (graph) => {
             cacheOn()
             let io;
             let tracks;
