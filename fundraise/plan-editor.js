@@ -26,8 +26,12 @@ function (opts) {
     // The returned plan carries its own assumptions under `model`, so opening the editor
     // again picks up exactly where it was left. What is typed into the description box is
     // NOT kept: the plan rides in a public document, and a prompt is a working note.
+    // EVERYTHING BELOW LIVES IN ITS OWN SCOPE. The module loader pastes lib/core.js in
+    // front of this function's body (function-util.ts getFunction), so a name declared at
+    // the top of the body collides with any the library declares -- `host` did, and the
+    // module failed to compile. Inside an inner function a name may shadow the library's.
+    return (() => {
     const o = opts || {};
-    const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
     const user = ('' + ((typeof getUser === 'function' ? getUser() : '') || '')).trim();
     const esc = (t) => ('' + (t == null ? '' : t)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const WEEK = 7 * 86400000;
@@ -474,5 +478,6 @@ function (opts) {
             $('pe-cancel').onclick = () => done(null);
             $('pe-use').onclick = () => { redraw(); if (plan && plan.phases.length) done(plan); };
         });
+    })();
     })();
 }
