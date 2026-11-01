@@ -278,8 +278,12 @@ function (opts) {
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div style="flex:1 1 460px;max-width:620px;">'
 
-            + sectHead('Describe the program', 'For the AI draft. Not kept and not published.', 'optional', true)
-            + '<div style="height:10px;"></div>'
+            + sectHead('Describe the program', 'In a sentence or two: what you are developing, for whom, and how far '
+                + 'this money takes it. The AI drafts the stages from this.', 'optional', true)
+            + '<div style="margin-top:8px;"><button id="pe-ex" style="cursor:pointer;border:0;background:none;padding:0;'
+            + 'color:#c4b5fd;font:600 12.5px system-ui;text-decoration:underline;text-underline-offset:3px;">'
+            + '\u2728 Show me some examples</button></div>'
+            + '<div style="height:8px;"></div>'
             + '<textarea id="pe-prompt" rows="4" style="' + inp + 'resize:vertical;" placeholder="An antisense oligonucleotide for Rett syndrome, '
             + 'from design through an IND filing, for a patient population of about 6,000."></textarea>'
             + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
@@ -319,6 +323,44 @@ function (opts) {
         const $ = (id) => document.getElementById(id);
 
         $('pe-prompt').value = seededPrompt;
+
+        // SHOW ME SOME EXAMPLES. A blank box asks a question most people have not had to answer
+        // before -- how do you describe a drug program? -- so this types one out, a character at
+        // a time, the way Baja Project's Tx builder introduces itself. Each press types the next
+        // one. Clicking into the box, or typing, stops it where it is and leaves the text to edit.
+        const EXAMPLES = [
+            'An antisense oligonucleotide for Rett syndrome that restores MECP2 balance, taken from compound '
+            + 'design through screening, GMP manufacture and GLP toxicology to an IND filing. About 6,000 patients in the US.',
+            'An allele-selective ASO for a single child with DNM1 R237W encephalopathy: design and screening in patient '
+            + 'cells, a small GMP batch, 13-week toxicology in two species, and an individual-patient IND.',
+            'AAV gene therapy for a recessive retinal dystrophy: capsid and construct selection, a mouse efficacy study, '
+            + 'GMP vector production, a GLP toxicology study and an IND filing within two years.',
+            'Repurposing an approved drug for a rare mitochondrial disease: dose-response screening in patient '
+            + 'fibroblasts, a formulation change, a bridging toxicology study and an IND for a small open-label trial.',
+            'A natural history study and biomarker program for a rare neuromuscular disease, to make a future '
+            + 'treatment trial possible: 18 months of data collection at three sites and a validated outcome measure.',
+        ];
+        let exAt = -1, exTimer = null;
+        const exStop = () => { if (exTimer) { clearInterval(exTimer); exTimer = null; } };
+        const typeOut = (text) => {
+            exStop();
+            const box = $('pe-prompt');
+            box.value = '';
+            let i = 0;
+            exTimer = setInterval(() => {
+                // Type in small bursts: one character per tick reads as slow on a long example.
+                i = Math.min(text.length, i + 2);
+                box.value = text.slice(0, i);
+                box.scrollTop = box.scrollHeight;
+                if (i >= text.length) exStop();
+            }, 22);
+        };
+        $('pe-ex').onclick = () => {
+            exAt = (exAt + 1) % EXAMPLES.length;
+            typeOut(EXAMPLES[exAt]);
+            $('pe-ex').textContent = '\u2728 Show me another example (' + (exAt + 1) + ' of ' + EXAMPLES.length + ')';
+        };
+        for (const ev of ['mousedown', 'keydown', 'paste']) $('pe-prompt').addEventListener(ev, exStop);
         const toFields = () => {
             $('pe-name').value = model.name || '';
             $('pe-start').value = model.start || nextMonth();
@@ -459,6 +501,7 @@ function (opts) {
             $('pe-ai-out').textContent = 'The standard template: ten stages from design to an IND filing. Change what does not fit.';
         };
         $('pe-ai').onclick = async () => {
+            exStop();
             const prompt = ('' + $('pe-prompt').value).trim();
             if (!prompt) { $('pe-ai-out').textContent = 'Describe the program first: what it is, for whom, and how far the money takes it.'; $('pe-prompt').focus(); return; }
             if (!confirmTwice('ai', $('pe-ai'), 'Draft with AI', 'Replace what is there?')) return;
@@ -491,6 +534,7 @@ function (opts) {
         // ---- leaving -------------------------------------------------------------------
         return await new Promise((resolve) => {
             const done = (v) => {
+                exStop();
                 document.removeEventListener('keydown', onKey, true);
                 try { wrap.remove(); } catch (e) { }
                 resolve(v);
