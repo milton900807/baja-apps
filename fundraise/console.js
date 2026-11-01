@@ -1685,7 +1685,7 @@ function (path, config) {
             if (note) {
                 note.textContent = dirty
                     ? 'You have changes that are not on the display yet. Publish to put them there.'
-                    : (live ? 'The display is showing what is on this screen.'
+                    : (live ? ''
                         : 'Nothing on the display changes until you publish.');
                 note.style.color = dirty ? '#fde68a' : '#6f93a6';
             }
