@@ -352,7 +352,7 @@ function (path, config) {
         // THE REQUIRED FIELD LOOKS REQUIRED: an amber frame and a "Required" badge while it is
         // empty, a quiet green one once it is filled (see reqUI below).
         const reqInp = inp + 'border:1.5px solid #fbbf24;box-shadow:0 0 0 3px rgba(251,191,36,0.16);';
-        const btn = (id, label, kind) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px system-ui;'
+        const btn = (id, label, kind) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px system-ui;white-space:nowrap;'
             + (kind === 'go' ? 'border:1px solid #22c55e;background:#22c55e;color:#04210f;'
                 : 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;') + '">' + label + '</button>';
 
@@ -394,7 +394,7 @@ function (path, config) {
                     + (k === 'out' ? 'border-top:1px solid rgba(255,255,255,0.12);' : '') + '">' + label + '</button>';
             }).join('')
             + '</div></div>'
-            + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;">'
+            + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">'
             + '<span id="fc-live-wrap" style="position:relative;display:inline-flex;">'
             + '<button type="button" id="fc-live" aria-haspopup="true" aria-expanded="false"'
             + ' style="display:inline-flex;align-items:center;gap:7px;border-radius:999px;'
@@ -403,7 +403,7 @@ function (path, config) {
             + 'min-width:250px;background:#0b2545;border:1px solid rgba(255,255,255,0.18);border-radius:10px;'
             + 'box-shadow:0 18px 44px rgba(0,0,0,0.5);overflow:hidden;z-index:6;text-align:left;"></div></span>'
             + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
-            + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
+            + btn('fc-upd-open', 'Post an update') + btn('fc-open', 'Open the display') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div id="fc-alarm" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
             + 'border:1px solid rgba(252,165,165,0.5);background:rgba(127,29,29,0.35);font:13px/1.6 system-ui;color:#fecaca;"></div>'
             + '<div id="fc-draft" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
@@ -485,12 +485,6 @@ function (path, config) {
             + '<div style="height:10px;"></div>'
             + '<div id="fc-plan"></div>'
             + '<div id="fc-plan-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
-            + sec('Updates', { tag: 'optional', sub: 'Dated posts on the details page: what happened, while it is happening.' })
-            + '<div style="height:10px;"></div>'
-            + '<input id="fc-upd-title" placeholder="headline (optional)" style="' + inp + '"/>'
-            + '<textarea id="fc-upd" rows="3" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
-            + '<div style="margin-top:8px;">' + btn('fc-post', 'Post update') + '</div>'
-            + '<div id="fc-updates" style="margin-top:10px;"></div>'
             + sec('Presentation', { tag: 'optional' })
             + '<div style="height:10px;"></div>'
             + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
@@ -515,7 +509,7 @@ function (path, config) {
             + btn('fc-tm-add', '+ Add') + '</div>'
             + '<div id="fc-tm-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
             + '<div id="fc-team" style="margin-top:8px;"></div>'
-            + sec('Film', { tag: 'optional', sub: 'A YouTube link, played on the details page.' })
+            + sec('YouTube', { tag: 'optional' })
             + '<div style="height:10px;"></div>'
             + '<input id="fc-yt" placeholder="https://youtu.be/… — shown on the details page" style="' + inp + '"/>'
             + '<div id="fc-yt-out" style="margin-top:5px;font:12px system-ui;color:#6f93a6;min-height:15px;"></div>'
@@ -1503,7 +1497,7 @@ function (path, config) {
         };
 
         const lists = () => {
-            const gs = arr('gifts'), us = arr('updates');
+            const gs = arr('gifts');
             $('fc-gifts').innerHTML = !gs.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;max-height:210px;overflow:auto;">'
                 + gs.map((g, i) => '<div style="display:flex;gap:10px;align-items:baseline;padding:7px 10px;'
                     + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
@@ -1512,14 +1506,6 @@ function (path, config) {
                     + '<div style="font:700 13.5px system-ui;color:#86efac;white-space:nowrap;">' + esc(money(+g.amount || 0, doc.currency)) + '</div>'
                     + '<div style="font:11.5px system-ui;color:#6f93a6;white-space:nowrap;">' + esc(when(g.at)) + '</div>'
                     + del('g', i) + '</div>').join('') + '</div>';
-            $('fc-updates').innerHTML = !us.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;max-height:230px;overflow:auto;">'
-                + us.map((u, i) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;'
-                    + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
-                    + '<div style="flex:1 1 auto;min-width:0;">'
-                    + '<div style="font:11.5px system-ui;color:#6f93a6;">' + esc(when(u.at)) + '</div>'
-                    + (u.title ? '<div style="font:700 13.5px system-ui;margin-top:2px;">' + esc(u.title) + '</div>' : '')
-                    + '<div style="font:13.5px system-ui;color:#cfe0f5;margin-top:2px;white-space:pre-wrap;">' + esc(u.text || '') + '</div></div>'
-                    + del('u', i) + '</div>').join('') + '</div>';
             for (const b of wrap.querySelectorAll('[data-del]')) {
                 b.onclick = () => {
                     const [k, idx] = ('' + b.getAttribute('data-del')).split(':');
@@ -1829,18 +1815,134 @@ function (path, config) {
             $('fc-status').textContent = 'Added ' + money(g, doc.currency) + '. Publish to put it on the display.';
         };
 
-        // An update is a dated post on the details page: what happened, while it is happening.
-        $('fc-post').onclick = () => {
-            const text = ('' + $('fc-upd').value).trim();
-            const title = ('' + $('fc-upd-title').value).trim();
-            if (!text && !title) { $('fc-status').textContent = 'Write the update first.'; return; }
-            fromForm();
-            arr('updates').unshift({ at: new Date().toISOString(), title: title, text: text });
-            if (doc.updates.length > CAP) doc.updates.length = CAP;
-            $('fc-upd').value = ''; $('fc-upd-title').value = '';
-            preview(); lists(); touch();
-            $('fc-status').textContent = 'Update written. Publish to put it on the details page.';
+        // UPDATES ARE POSTED ON THEIR OWN. An update is a dated post on the details page --
+        // "we passed halfway at 9pm" -- and it is written while the campaign is running, often
+        // with other edits half-made on this screen. So it is not part of Publish: the window
+        // reads the campaign as it is live on the server, adds the one post, and writes that
+        // back. Nothing else on this screen goes out with it, and nothing on this screen is
+        // marked as published because of it. Removing an update works the same way.
+        const readLive = async () => {
+            const shapes = [
+                { __to: '/fundraise/read-file', path: docPath, user: user },
+                { path: docPath, key: 'user', user: user },
+                { path: docPath, user: 'public' },
+                { path: '/user' + docPath, key: 'user', user: user },
+            ];
+            let last = null;
+            for (const body of shapes) {
+                try {
+                    const to = body.__to || '/load-file';
+                    if (body.__to) delete body.__to;
+                    const rs = await POSTJSON(body, host + to);
+                    let d = rs;
+                    if (d && typeof d.value === 'string') { try { d = JSON.parse(d.value); } catch (e) { } }
+                    if (d && typeof d === 'object' && (d.kind === 'fundraise' || d.goal != null)) return d;
+                    last = rs;
+                } catch (e) { last = e; }
+            }
+            throw new Error(problemText(last));
         };
+        // Change the live document's updates and nothing else.
+        const writeUpdates = async (change) => {
+            const live = await readLive();
+            const ups = Array.isArray(live.updates) ? live.updates : [];
+            live.updates = change(ups.slice());
+            if (live.updates.length > CAP) live.updates.length = CAP;
+            live.updated = new Date().toISOString();
+            const rs = await putFile(fileName, JSON.stringify(live));
+            if (!rs || !(rs.status === 'saved' || rs.path)) throw new Error(problemText(rs));
+            // This screen now knows the same list, without counting it as an unpublished edit.
+            const wasDirty = dirty;
+            doc.updates = live.updates;
+            preview();
+            dirty = wasDirty; liveUI();
+            return live.updates;
+        };
+        const updateWindow = () => {
+            try { const old = document.getElementById('fc-upd-win'); if (old) old.remove(); } catch (e) { }
+            const back = document.createElement('div');
+            back.id = 'fc-upd-win';
+            back.style.cssText = 'position:fixed;inset:0;z-index:2147483200;background:rgba(3,10,20,0.6);display:flex;'
+                + 'align-items:flex-start;justify-content:center;padding:8vh 16px 16px;box-sizing:border-box;overflow:auto;';
+            const canPost = !!docPath && !locked;
+            back.innerHTML = '<div style="width:min(560px,100%);background:#0b2545;color:#eaf6f9;border:1px solid rgba(255,255,255,0.16);'
+                + 'border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,0.55);padding:18px 20px 16px;">'
+                + '<div style="display:flex;align-items:flex-start;gap:12px;">'
+                + '<div style="flex:1 1 auto;"><div style="font:700 18px system-ui;">Post an update</div>'
+                + '<div style="margin-top:4px;font:12.5px/1.5 system-ui;color:#9fb3c8;">A dated post on the details page. It goes live as soon as you '
+                + 'post it, on its own: anything else you have changed on this screen stays unpublished.</div></div>'
+                + '<button id="fc-uw-x" title="Close" style="cursor:pointer;border:0;background:transparent;color:#9fb3c8;font:700 20px system-ui;line-height:1;">×</button></div>'
+                + (canPost ? ''
+                    : '<div style="margin-top:14px;padding:11px 13px;border-radius:9px;border:1px solid rgba(251,191,36,0.5);'
+                        + 'background:rgba(120,83,10,0.28);font:13px/1.55 system-ui;color:#fde68a;">'
+                        + (locked ? 'This campaign could not be read, so nothing can be posted to it right now.'
+                            : 'Publish the campaign once first. After that, updates go out on their own from here.') + '</div>')
+                + '<input id="fc-uw-title" placeholder="headline (optional)" style="' + inp + 'margin-top:14px;"' + (canPost ? '' : ' disabled') + '/>'
+                + '<textarea id="fc-uw-text" rows="4" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"'
+                + (canPost ? '' : ' disabled') + '></textarea>'
+                + '<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+                + btn('fc-uw-post', 'Post now', 'go') + btn('fc-uw-close', 'Close')
+                + '<span id="fc-uw-out" style="font:12.5px system-ui;color:#9fb3c8;"></span></div>'
+                + '<div style="margin-top:18px;padding-top:14px;border-top:2px dotted rgba(159,195,214,0.28);">'
+                + '<div style="font:700 12px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#a9d3e3;">On the details page</div>'
+                + '<div id="fc-uw-list" style="margin-top:10px;"></div></div></div>';
+            document.body.appendChild(back);
+            const q = (id) => document.getElementById(id);
+            if (!canPost) { const pb = q('fc-uw-post'); pb.disabled = true; pb.style.opacity = '0.45'; pb.style.cursor = 'not-allowed'; }
+            const draw = () => {
+                const us = arr('updates');
+                q('fc-uw-list').innerHTML = !us.length
+                    ? '<div style="font:12.5px system-ui;color:#6f93a6;">No updates yet.</div>'
+                    : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;max-height:300px;overflow:auto;">'
+                        + us.map((u, i) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;'
+                            + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
+                            + '<div style="flex:1 1 auto;min-width:0;">'
+                            + '<div style="font:11.5px system-ui;color:#6f93a6;">' + esc(when(u.at)) + '</div>'
+                            + (u.title ? '<div style="font:700 13.5px system-ui;margin-top:2px;">' + esc(u.title) + '</div>' : '')
+                            + '<div style="font:13.5px system-ui;color:#cfe0f5;margin-top:2px;white-space:pre-wrap;">' + esc(u.text || '') + '</div></div>'
+                            + (canPost ? '<button data-urm="' + esc(u.at || '') + '" title="Take it off the details page" style="cursor:pointer;border:0;'
+                                + 'background:transparent;color:#7fb0c4;font:700 15px system-ui;line-height:1;padding:0 2px;">×</button>' : '')
+                            + '</div>').join('') + '</div>';
+                for (const b of q('fc-uw-list').querySelectorAll('[data-urm]')) {
+                    b.onclick = async () => {
+                        const at = b.getAttribute('data-urm');
+                        b.disabled = true;
+                        q('fc-uw-out').textContent = 'Taking it down…';
+                        try {
+                            await writeUpdates((ups) => ups.filter((u) => ('' + (u && u.at)) !== at));
+                            q('fc-uw-out').innerHTML = '<span style="color:#86efac;">Taken off the details page.</span>';
+                        } catch (e) {
+                            q('fc-uw-out').innerHTML = '<span style="color:#fca5a5;">Could not take it down: ' + esc(e && e.message ? e.message : e) + '</span>';
+                        }
+                        draw();
+                    };
+                }
+            };
+            const close = () => { document.removeEventListener('keydown', onKey, true); try { back.remove(); } catch (e) { } };
+            const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+            document.addEventListener('keydown', onKey, true);
+            back.addEventListener('mousedown', (e) => { if (e.target === back) close(); });
+            q('fc-uw-x').onclick = close; q('fc-uw-close').onclick = close;
+            q('fc-uw-post').onclick = async () => {
+                const title = ('' + q('fc-uw-title').value).trim(), text = ('' + q('fc-uw-text').value).trim();
+                if (!title && !text) { q('fc-uw-out').textContent = 'Write the update first.'; q('fc-uw-text').focus(); return; }
+                const pb = q('fc-uw-post');
+                pb.disabled = true;
+                q('fc-uw-out').textContent = 'Posting…';
+                try {
+                    await writeUpdates((ups) => [{ at: new Date().toISOString(), title: title, text: text }].concat(ups));
+                    q('fc-uw-title').value = ''; q('fc-uw-text').value = '';
+                    q('fc-uw-out').innerHTML = '<span style="color:#86efac;">Posted. It is on the details page now.</span>';
+                } catch (e) {
+                    q('fc-uw-out').innerHTML = '<span style="color:#fca5a5;">Could not post it: ' + esc(e && e.message ? e.message : e) + '</span>';
+                }
+                pb.disabled = false;
+                draw();
+            };
+            draw();
+            try { (canPost ? q('fc-uw-text') : q('fc-uw-close')).focus(); } catch (e) { }
+        };
+        $('fc-upd-open').onclick = updateWindow;
 
         // ONE NAME, ONE CAMPAIGN. The file is named from the title, so two campaigns called
         // the same thing are one file: publishing the second would overwrite the first, and
