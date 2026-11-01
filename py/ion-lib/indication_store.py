@@ -363,9 +363,135 @@ def get_run(run_id):
         out["findings"] = json.loads(row["findings"])
         out["found"] = json.loads(row["found"] or "[]")
         out["info"] = json.loads(row["info"] or "{}")
+        # How the run was done and how often it has been leaned on since. These are added
+        # here rather than in _summary() because _summary() also builds the candidate list
+        # that is put to the model, and that list should carry nothing it does not need.
+        for k in ("searched", "searches", "seconds", "model", "hits", "last_hit_at"):
+            try:
+                out[k] = row[k]
+            except Exception:
+                pass
         return out
     except Exception:
         return None
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------- browsing
+
+def _row_card(row, want_counts=True):
+    """One run as the Research panel lists it: who asked what, when, and how big the
+    answer turned out to be. The findings are parsed only for their counts, never
+    returned here: a list of forty runs carrying forty full research documents is a
+    megabyte of JSON to draw twelve lines of text."""
+    out = _summary(row)
+    out["hits"] = row["hits"] if "hits" in row.keys() else 0
+    out["last_hit_at"] = row["last_hit_at"] if "last_hit_at" in row.keys() else None
+    out["searched"] = bool(row["searched"]) if "searched" in row.keys() else False
+    out["searches"] = row["searches"] if "searches" in row.keys() else 0
+    out["seconds"] = row["seconds"] if "seconds" in row.keys() else 0
+    out["model"] = row["model"] if "model" in row.keys() else ""
+    out["email"] = row["email"] if "email" in row.keys() else ""
+    if want_counts:
+        counts = {}
+        try:
+            f = json.loads(row["findings"] or "{}")
+            if isinstance(f, dict):
+                inds = [i for i in (f.get("indications") or []) if isinstance(i, dict)]
+                counts = {
+                    "indications": len(inds),
+                    "requested": len([i for i in inds if (i.get("type") or "") == "requested"]),
+                    "expansions": len([i for i in inds if (i.get("type") or "") == "expansion"]),
+                    "history": len(f.get("history") or []),
+                    "genetics": len(f.get("genetics") or []),
+                    "competitors": len(f.get("competitors") or []),
+                    "companies": len(f.get("companies") or []),
+                }
+                out["summary_text"] = ("" + (f.get("summary") or "")).strip()
+                out["approach"] = ("" + (f.get("approach") or "")).strip()
+                # The names as the research settled on them, which read better in a list
+                # than the prompt does: a prompt says "HD, siRNA, US".
+                out["names"] = [("" + (i.get("name") or "")).strip() for i in inds
+                                if ("" + (i.get("name") or "")).strip()][:8]
+        except Exception:
+            counts = {}
+        out["counts"] = counts
+        try:
+            out["sources"] = len(json.loads(row["found"] or "[]"))
+        except Exception:
+            out["sources"] = 0
+    return out
+
+
+def browse(q="", limit=40, offset=0, sort="recent"):
+    """The stored research, newest first or most reused first, narrowed by a search.
+
+    A search term matches a run when it appears in the prompt or in one of the keys the
+    run was indexed under -- its indications, their aliases, the target, the modality. All
+    the terms have to match, because narrowing is what a search box is for.
+    """
+    con = _conn()
+    if con is None:
+        return {"enabled": False, "total": 0, "rows": []}
+    try:
+        where, args = [], []
+        for tok in tokens(q)[:6]:
+            where.append("(prompt_norm LIKE ? OR EXISTS (SELECT 1 FROM run_keys k "
+                         "WHERE k.run_id = runs.id AND k.key LIKE ?))")
+            args.extend(["%" + tok + "%", tok + "%"])
+        sql_where = (" WHERE " + " AND ".join(where)) if where else ""
+        order = "hits DESC, id DESC" if sort == "reused" else "id DESC"
+        total = con.execute("SELECT COUNT(*) FROM runs" + sql_where, args).fetchone()[0]
+        rows = con.execute(
+            "SELECT * FROM runs" + sql_where + " ORDER BY " + order + " LIMIT ? OFFSET ?",
+            args + [max(1, min(int(limit or 40), 200)), max(0, int(offset or 0))]).fetchall()
+        return {"enabled": True, "total": total, "offset": max(0, int(offset or 0)),
+                "rows": [_row_card(r) for r in rows]}
+    except Exception as ex:
+        return {"enabled": True, "total": 0, "rows": [], "error": str(ex)}
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+def shelves(limit=12):
+    """What is in the store, grouped, so somebody who does not know what to search for has
+    something to press: the indications researched most often, and the targets and
+    modalities they were researched with."""
+    con = _conn()
+    if con is None:
+        return {"enabled": False}
+    try:
+        names, targets, modalities, regions = {}, {}, {}, {}
+        for row in con.execute("SELECT structured, region FROM runs"):
+            try:
+                s = json.loads(row["structured"] or "{}")
+            except Exception:
+                s = {}
+            if not isinstance(s, dict):
+                s = {}
+            for n in (s.get("indications") or []):
+                if isinstance(n, str) and n.strip():
+                    names[n.strip()] = names.get(n.strip(), 0) + 1
+            for field, bag in (("target", targets), ("modality", modalities)):
+                v = s.get(field)
+                if isinstance(v, str) and v.strip():
+                    bag[v.strip()] = bag.get(v.strip(), 0) + 1
+            r = ("" + (row["region"] or "")).strip()
+            if r:
+                regions[r] = regions.get(r, 0) + 1
+        top = lambda d: [{"name": k, "runs": v} for k, v in
+                         sorted(d.items(), key=lambda kv: (-kv[1], kv[0]))[:int(limit)]]
+        return {"enabled": True, "indications": top(names), "targets": top(targets),
+                "modalities": top(modalities), "regions": top(regions)}
+    except Exception as ex:
+        return {"enabled": True, "error": str(ex)}
     finally:
         try:
             con.close()

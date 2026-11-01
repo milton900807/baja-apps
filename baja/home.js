@@ -5,7 +5,7 @@ function () {
     //   Funds      start a campaign, or open one already running
     //   Design     the design and analysis tools
     //   Tools      My Files (the file browser, which is what this page used to be),
-    //              Project, Analytics, Financial Modeling, and Research (coming soon)
+    //              Project, Analytics, Financial Modeling, and Research
     //
     // WHY THIS IS A PAGE AND NOT A STRIP ABOVE THE FILE LIST. It was that first: the
     // launcher was handed to manchester/fb.js as a header row. The browser's layout gives
@@ -131,10 +131,10 @@ function () {
         const DESIGN = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + APPS.map((a, i) => (a.tools ? '' : tile(a, i))).join('') + '</div>';
 
-        // TOOLS: My Files and Research. My Files carries data-door="files", the hook the
-        // document listener already answers by opening the file browser, so it works in a
-        // window whose listener was wired by an older copy of this page. Research is not
-        // built yet: it is shown, marked "Coming soon", and is not a button.
+        // TOOLS: My Files and Research. Both carry a data-door hook, which the document
+        // listener already answers, so they work in a window whose listener was wired by an
+        // older copy of this page. Research reads the market research the team has already
+        // done rather than running any.
         const toolIcon = (path) => '<svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" style="flex:0 0 auto;">'
             + '<rect x="1" y="1" width="38" height="38" rx="9" fill="#eef4f7" stroke="#cfdbe2"/>' + path + '</svg>';
         const TOOLS = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
@@ -145,15 +145,13 @@ function () {
             + '<span style="display:block;font:12.5px/1.45 Arial;color:#6b8793;margin-top:2px;">Everything you have saved: '
             + 'workbooks, designs, data and campaigns.</span></span></button>'
             + APPS.map((a, i) => (a.tools ? tile(a, i) : '')).join('')
-            + '<div aria-disabled="true" style="flex:1 1 300px;max-width:430px;text-align:left;display:flex;gap:12px;'
-            + 'align-items:flex-start;border:1px dashed #cfdbe2;background:#fbfdfe;border-radius:10px;padding:13px 15px;cursor:default;">'
-            + toolIcon('<circle cx="18" cy="18" r="7" fill="none" stroke="#8aa3ad" stroke-width="2.6"/>'
-                + '<path d="M23.5 23.5 30 30" stroke="#8aa3ad" stroke-width="2.8" stroke-linecap="round"/>')
-            + '<span style="min-width:0;"><span style="display:flex;align-items:center;gap:8px;font:700 15px Arial;color:#6b8793;">Research'
-            + '<span style="padding:2px 8px;border-radius:999px;background:#fff4d6;border:1px solid #f5d27a;color:#8a6100;'
-            + 'font:800 10px Arial;letter-spacing:.06em;text-transform:uppercase;">Coming soon</span></span>'
-            + '<span style="display:block;font:12.5px/1.45 Arial;color:#8aa3ad;margin-top:2px;">Literature, data and evidence '
-            + 'for a target or a disease.</span></span></div>'
+            + '<button data-door="research" class="baja-home-app" style="flex:1 1 300px;max-width:430px;cursor:pointer;text-align:left;'
+            + 'display:flex;gap:12px;align-items:flex-start;border:1px solid #dbe4ea;background:#fff;border-radius:10px;padding:13px 15px;">'
+            + toolIcon('<circle cx="18" cy="18" r="7" fill="none" stroke="#5b7d86" stroke-width="2.6"/>'
+                + '<path d="M23.5 23.5 30 30" stroke="#5b7d86" stroke-width="2.8" stroke-linecap="round"/>')
+            + '<span style="min-width:0;"><span style="display:block;font:700 15px Arial;color:#12242c;">Research</span>'
+            + '<span style="display:block;font:12.5px/1.45 Arial;color:#6b8793;margin-top:2px;">Market research this team has '
+            + 'already done, with the sources behind it.</span></span></button>'
             + '</div>';
 
         const ID = 'baja-home';
@@ -345,6 +343,7 @@ function () {
                 // screen; it is a tile under Tools now, with the same hook. The doors are a
                 // page on a phone and a panel otherwise.
                 if (k === 'files') { await leaveFor('manchester/fb.js', '/app/baja/fb', null, 'My Files'); return; }
+                if (k === 'research') { await leaveFor('baja/research.js', '/app/baja/research', null, 'Research'); return; }
                 if (phone) {
                     if (page === k) { showDoors(); return; }
                     showSub(k);

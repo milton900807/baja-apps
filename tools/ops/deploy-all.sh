@@ -189,6 +189,14 @@ if [[ $DO_API -eq 1 ]]; then
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \
     "cpd/baja-analytics.js:__bajaOpening"
+  # The Research panel: Home > Tools > Research reads the indication-market store rather
+  # than running any research. All four or none, so Home never gets a live tile with
+  # nothing behind it.
+  install_group "Research panel" \
+    "py/ion-lib/indication_store.py:def browse(" \
+    "py/analytics/indication-browse.py:Reading the indication-market store" \
+    "baja/research.js:baja-research" \
+    "baja/home.js:data-door=\"research\""
 fi
 
 # ---- 3: the Angular app ------------------------------------------------------
