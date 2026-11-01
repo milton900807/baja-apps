@@ -24,17 +24,72 @@ function () {
         const ID = 'baja-research';
         const phone = (typeof isMobile === 'function') ? !!isMobile() : (window.innerWidth < 760);
 
-        const shell = (inner) => '<div id="' + ID + '" style="font-family:Arial,Helvetica,sans-serif;'
+        const shell = (inner, n) => '<div id="' + ID + '" data-draw="' + n + '" '
+            + 'style="font-family:Arial,Helvetica,sans-serif;'
             + 'max-width:1180px;margin:0 auto;padding:' + (phone ? '16px 14px 36px' : '26px 18px 40px') + ';">'
             + inner + '</div>';
-        // clear() first, every time: showWidget appends rather than replaces, so a second
-        // screen drawn without it leaves both, the new one below the old.
+
+        // DRAWING, and why it is not just clear() then showWidget.
+        //
+        // showWidget APPENDS, so a clear() has to come first or two screens stack. But the
+        // markup does not arrive synchronously: the shell puts it on the page a tick or more
+        // later, and may replace those nodes again on a repaint. Two things follow, and both
+        // of them were bugs here first.
+        //
+        //   A clear() can land BEFORE the screen it was meant to remove has arrived, which
+        //   leaves the loading screen sitting under the results. So every screen is stamped
+        //   with the number of the draw that made it and a reaper takes away any that is not
+        //   the current one, whenever it turns up.
+        //
+        //   Nothing can touch the markup in the same breath as drawing it, because it is not
+        //   there yet. afterDraw() waits for the current screen and then hands it over; a
+        //   newer draw cancels it. (Clicks do not go through this at all: they are handled on
+        //   the document, further down.)
+        // The count lives on the window, not in this closure, because this module is run
+        // again every time somebody comes back to Research. A second instance with its own
+        // counter starting at one, and a reaper from the first instance still watching for
+        // its own last number, means the old reaper tears down the new panel the moment it
+        // is drawn: a blank page, and no way to tell why. One counter and one reaper per
+        // window is the whole fix.
+        const seen = () => +window.__bajaResearchDraw || 0;
+        const reap = () => {
+            if (window.__bajaResearchReaping) return;
+            window.__bajaResearchReaping = true;
+            let left = 60;                                   // about three seconds of watching
+            const tick = () => {
+                try {
+                    const all = document.querySelectorAll('#' + ID + '[data-draw]');
+                    for (let i = 0; i < all.length; i++) {
+                        if (+all[i].getAttribute('data-draw') !== seen()) all[i].remove();
+                    }
+                } catch (e) { }
+                if (--left > 0 && window.__bajaResearchHandlers) { setTimeout(tick, 50); return; }
+                window.__bajaResearchReaping = false;
+            };
+            setTimeout(tick, 0);
+        };
         const draw = (inner) => {
+            const n = seen() + 1;
+            window.__bajaResearchDraw = n;
             try { clear(); } catch (e) { }
-            return showWidget({
+            const r = showWidget({
                 wid: 'card', width: '100%', height: '100%',
-                data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: shell(inner) } }]] }
+                data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: shell(inner, n) } }]] }
             });
+            reap();
+            return r;
+        };
+        const afterDraw = (fn) => {
+            const n = seen();
+            let tries = 0;
+            const tick = () => {
+                if (seen() !== n) return;                    // a newer screen has taken over
+                let el = null;
+                try { el = document.querySelector('#' + ID + '[data-draw="' + n + '"]'); } catch (e) { }
+                if (el) { try { fn(el); } catch (e) { } return; }
+                if (++tries < 60) setTimeout(tick, 50);
+            };
+            setTimeout(tick, 0);
         };
 
         // ---- the look, which is Home's ---------------------------------------------------
@@ -86,6 +141,16 @@ function () {
             return r;
         };
 
+        // After a redraw the search box is a new element, so somebody who pressed Search and
+        // then reached for the keyboard would find the caret gone. Put it back, at the end of
+        // what they already typed.
+        const keepTyping = () => afterDraw((root) => {
+            const v = root.querySelector('#rp-q');
+            if (!v || !q) return;
+            v.focus({ preventScroll: true });
+            v.setSelectionRange(v.value.length, v.value.length);
+        });
+
         // ---- state -----------------------------------------------------------------------
         let q = '', sort = 'recent', rows = [], total = 0, offset = 0, shelf = null, trouble = '';
         const PAGE = 25;
@@ -98,13 +163,13 @@ function () {
 
         // ---- the list --------------------------------------------------------------------
         const searchBar = () => '<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:18px 0 0;">'
-            + '<input id="rp-q" value="' + esc(q) + '" placeholder="a disease, a gene, a modality" '
+            + '<input id="rp-q" data-keep="1" value="' + esc(q) + '" placeholder="a disease, a gene, a modality" '
             + 'style="flex:1 1 280px;box-sizing:border-box;border:1px solid ' + C.edge + ';border-radius:9px;'
             + 'padding:10px 12px;font:16px Arial;color:' + C.ink + ';background:#fff;"/>'
-            + btn('id="rp-search"', 'Search', 'go')
-            + (q ? btn('id="rp-clear"', 'Clear') : '')
+            + btn('data-do="search" id="rp-search"', 'Search', 'go')
+            + (q ? btn('data-do="clear"', 'Clear') : '')
             + '<span style="margin-left:auto;display:flex;gap:6px;align-items:center;font:12.5px Arial;color:' + C.dim + ';">'
-            + 'Order' + '<select id="rp-sort" style="border:1px solid ' + C.edge + ';border-radius:8px;padding:7px 9px;'
+            + 'Order' + '<select id="rp-sort" data-sort="1" style="border:1px solid ' + C.edge + ';border-radius:8px;padding:7px 9px;'
             + 'font:13px Arial;background:#fff;color:' + C.ink + ';">'
             + '<option value="recent"' + (sort === 'recent' ? ' selected' : '') + '>Most recent</option>'
             + '<option value="reused"' + (sort === 'reused' ? ' selected' : '') + '>Most reused</option>'
@@ -191,7 +256,7 @@ function () {
             draw(header('What this team has already looked into: the market research behind every '
                 + 'Indication market run, with its sources. Nothing here is researched again.')
                 + searchBar() + shelfBar() + '<div style="margin-top:4px;">' + body + '</div>');
-            wireList();
+            keepTyping();
         };
 
         const load = async () => {
@@ -217,41 +282,92 @@ function () {
         // undoing first; if the module will not run, the browser still goes there rather than
         // leaving somebody on an empty screen.
         const go = async () => {
+            window.__bajaResearchHandlers = null;
             try { clear(); } catch (e) { }
             try { window.history.pushState({}, '', '/app/baja/init'); } catch (e) { }
             try { await exec('baja/init'); }
             catch (e) { try { window.location.href = '/app/baja/init'; } catch (e2) { } }
         };
 
-        const wireList = () => {
-            const el = (id) => document.getElementById(id);
-            const search = () => {
-                const v = el('rp-q');
-                q = v ? ('' + v.value).trim() : '';
-                offset = 0;
-                load();
-            };
-            if (el('rp-search')) el('rp-search').onclick = search;
-            if (el('rp-clear')) el('rp-clear').onclick = () => { q = ''; offset = 0; load(); };
-            if (el('rp-q')) el('rp-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
-            if (el('rp-sort')) el('rp-sort').onchange = () => { sort = el('rp-sort').value; offset = 0; load(); };
-            const root = document.getElementById(ID);
-            if (!root) return;
-            for (const b of root.querySelectorAll('[data-q]')) {
-                b.onclick = () => { q = b.getAttribute('data-q'); offset = 0; load(); };
-            }
-            for (const b of root.querySelectorAll('[data-page]')) {
-                b.onclick = () => {
-                    offset = Math.max(0, offset + (+b.getAttribute('data-page') * PAGE));
-                    load();
+        // ---- the clicks -----------------------------------------------------------------
+        // Handlers go on the document, not on the buttons, for the reason Home found the
+        // hard way: the shell can redraw this markup at any moment, and a listener attached
+        // to an element that has since been replaced is a button that does nothing. The
+        // page is identified by its data- hooks instead, which survive any redraw. One set
+        // of listeners for the life of the window, pointed at whichever panel is current;
+        // a panel that has been left sets the handlers to null and its clicks stop being
+        // acted on.
+        const typed = () => {
+            try {
+                const root = document.querySelector('#' + ID + '[data-draw="' + seen() + '"]');
+                const v = root ? root.querySelector('#rp-q') : null;
+                if (v) return ('' + v.value).trim();
+            } catch (e) { }
+            return q;
+        };
+        const search = () => { q = typed(); offset = 0; load(); };
+
+        if (!window.__bajaResearchWired) {
+            window.__bajaResearchWired = true;
+            let pressed = 0;
+            const hit = (e) => {
+                const h = window.__bajaResearchHandlers;
+                const target = e && e.target;
+                if (!h || !target || !target.closest) return;
+                const panel = target.closest('#' + ID);
+                if (!panel || +panel.getAttribute('data-draw') !== seen()) return;
+                // One press, one action. A pointerdown is always a new press; the mousedown
+                // and click the browser sends after it are part of the same press and are
+                // ignored. A browser with no pointer events never sets the stamp, so its
+                // mousedown is the press.
+                const now = Date.now();
+                if (e.type !== 'pointerdown' && now - pressed < 700) return;
+                const act = (fn) => {
+                    pressed = now;
+                    try { e.preventDefault(); } catch (x) { }
+                    fn();
                 };
-            }
-            for (const b of root.querySelectorAll('[data-open]')) {
-                b.onclick = () => openRun(+b.getAttribute('data-open'));
-            }
-            for (const b of root.querySelectorAll('[data-go]')) {
-                b.onclick = () => go();
-            }
+                const op = target.closest('[data-open]');
+                if (op) return act(() => h.open(+op.getAttribute('data-open')));
+                const dq = target.closest('[data-q]');
+                if (dq) return act(() => h.chip(dq.getAttribute('data-q')));
+                const pg = target.closest('[data-page]');
+                if (pg) return act(() => h.page(+pg.getAttribute('data-page')));
+                const dd = target.closest('[data-do]');
+                if (dd) return act(() => h.did(dd.getAttribute('data-do')));
+                const bk = target.closest('[data-back]');
+                if (bk) return act(() => h.back());
+                const gh = target.closest('[data-go]');
+                if (gh) return act(() => h.home());
+            };
+            document.addEventListener('pointerdown', hit, true);
+            document.addEventListener('mousedown', hit, true);
+            document.addEventListener('click', hit, true);
+            // Enter in the search box searches, and the order menu reloads on a change.
+            document.addEventListener('keydown', (e) => {
+                const h = window.__bajaResearchHandlers;
+                if (!h || !e || e.key !== 'Enter') return;
+                const tg = e.target;
+                if (tg && tg.id === 'rp-q') { try { e.preventDefault(); } catch (x) { } h.did('search'); }
+            }, true);
+            document.addEventListener('change', (e) => {
+                const h = window.__bajaResearchHandlers;
+                const tg = e && e.target;
+                if (!h || !tg || !tg.closest || !tg.closest('[data-sort]')) return;
+                h.sorted(tg.value);
+            }, true);
+        }
+        window.__bajaResearchHandlers = {
+            open: (id) => { openRun(id); },
+            chip: (text) => { q = text; offset = 0; load(); },
+            page: (n) => { offset = Math.max(0, offset + (n * PAGE)); load(); },
+            did: (what) => {
+                if (what === 'search') return search();
+                if (what === 'clear') { q = ''; offset = 0; return load(); }
+            },
+            sorted: (v) => { sort = v; q = typed(); offset = 0; load(); },
+            back: () => { load(); },
+            home: () => { go(); },
         };
 
         // ---- one run ---------------------------------------------------------------------
@@ -310,8 +426,6 @@ function () {
                     + card('<div style="font:700 16px Arial;">Could not open it</div>'
                         + '<div style="margin-top:7px;font:13.5px Arial;color:' + C.dim + ';">' + esc(bad) + '</div>')
                     + '</div><div style="margin-top:14px;">' + btn('data-back="1"', '&larr; All research') + '</div>');
-                const b = document.querySelector('[data-back]');
-                if (b) b.onclick = () => load();
                 return;
             }
             const f = (run.findings && typeof run.findings === 'object') ? run.findings : {};
@@ -475,10 +589,6 @@ function () {
 
             draw(head + summary + indications + genetics + history + development + competitors
                 + companies + noteBlock + sources + how);
-            const root = document.getElementById(ID);
-            if (!root) return;
-            for (const b of root.querySelectorAll('[data-back]')) b.onclick = () => load();
-            for (const b of root.querySelectorAll('[data-go]')) b.onclick = () => go();
         };
 
         await load();
