@@ -2,7 +2,7 @@ function () {
 
     // RESEARCH: the market research this team has already done, to read rather than re-run.
     //
-    //   /app/baja/research          (Home > Tools > Research)
+    //   /app/baja/research          (Home > Tools > Rare Disease DB)
     //
     // Every run of Analytics > Build > Indication market is kept in a store on the server
     // (py/ion-lib/indication_store.py), so that asking the same question twice does not cost
@@ -143,7 +143,7 @@ function () {
 
         const header = (sub) => '<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;">'
             + '<div style="flex:1 1 320px;min-width:0;">'
-            + '<div style="font:800 ' + (phone ? '22px' : '26px') + ' Arial;color:' + C.ink + ';">Research</div>'
+            + '<div style="font:800 ' + (phone ? '22px' : '26px') + ' Arial;color:' + C.ink + ';">Rare Disease DB</div>'
             + '<div style="font:14px/1.5 Arial;color:' + C.dim + ';margin-top:5px;max-width:62ch;">' + sub + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:9px;">' + btn('data-go="home"', '← Home') + '</div></div>';
 
@@ -408,7 +408,7 @@ function () {
             try { run = (await ask({ action: 'get', id: id })).run; }
             catch (e) { bad = (e && e.message) ? e.message : ('' + e); }
             if (!run) {
-                draw(header('Research') + '<div style="margin-top:20px;">'
+                draw(header('Rare Disease DB') + '<div style="margin-top:20px;">'
                     + card('<div style="font:700 16px Arial;">Could not open it</div>'
                         + '<div style="margin-top:7px;font:13.5px Arial;color:' + C.dim + ';">' + esc(bad) + '</div>')
                     + '</div><div style="margin-top:14px;">' + btn('data-back="1"', '&larr; All research') + '</div>');

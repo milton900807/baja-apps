@@ -5,7 +5,7 @@ function () {
     //   Funds      start a campaign, or open one already running
     //   Design     the design and analysis tools
     //   Tools      My Files (the file browser, which is what this page used to be),
-    //              Project, Analytics, Financial Modeling, and Research
+    //              Project, Analytics, Financial Modeling, Library, and Rare Disease DB
     //
     // WHY THIS IS A PAGE AND NOT A STRIP ABOVE THE FILE LIST. It was that first: the
     // launcher was handed to manchester/fb.js as a header row. The browser's layout gives
@@ -25,7 +25,8 @@ function () {
 
         // Everything that can be opened cold. Fundraising is not in here: it has a door.
         // Neoantigen Design (liverpool/editor), mRNA Design (tottenham/editor) and Library
-        // (manchester/library) were taken off the home screen; the modules are still there.
+        // were taken off the home screen; the modules are still there. Library came back,
+        // under Tools, where the reference shelf belongs rather than beside the design apps.
         const APPS = [
             { label: 'Oligo Design', icon: 'icons/svg/oligo-design', path: 'manchester/editor', args: ['', { mode: 'editor' }],
               note: 'Antisense, siRNA, steric-blocking and allele-selective compounds against a transcript.' },
@@ -39,6 +40,8 @@ function () {
               note: 'Experimental data: tables with a formula engine, dose-response and plate layouts.' },
             { label: 'Financial Modeling', tools: true, icon: 'icons/svg/financial-modeling', path: 'cpd/baja-analytics', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-analytics'],
               note: 'Assumptions, profit-and-loss and capital models, with a formula engine and timelines.' },
+            { label: 'Library', tools: true, icon: 'icons/svg/library-shelf', path: 'manchester/library',
+              note: 'The RNA therapeutics reference shelf: chemistry and modality references, read in place.' },
         ];
         // An icon store that cannot be reached must not cost anyone the page.
         for (const a of APPS) { try { a.svg = await exec(a.icon); } catch (e) { a.svg = null; } }
@@ -131,10 +134,10 @@ function () {
         const DESIGN = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
             + APPS.map((a, i) => (a.tools ? '' : tile(a, i))).join('') + '</div>';
 
-        // TOOLS: My Files and Research. Both carry a data-door hook, which the document
-        // listener already answers, so they work in a window whose listener was wired by an
-        // older copy of this page. Research reads the market research the team has already
-        // done rather than running any.
+        // TOOLS: My Files and Rare Disease DB. Both carry a data-door hook, which the
+        // document listener already answers, so they work in a window whose listener was
+        // wired by an older copy of this page. The hook is still "research", which is the
+        // module behind it; only what the tile is called has changed.
         const toolIcon = (path) => '<svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" style="flex:0 0 auto;">'
             + '<rect x="1" y="1" width="38" height="38" rx="9" fill="#eef4f7" stroke="#cfdbe2"/>' + path + '</svg>';
         const TOOLS = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
@@ -149,7 +152,7 @@ function () {
             + 'display:flex;gap:12px;align-items:flex-start;border:1px solid #dbe4ea;background:#fff;border-radius:10px;padding:13px 15px;">'
             + toolIcon('<circle cx="18" cy="18" r="7" fill="none" stroke="#5b7d86" stroke-width="2.6"/>'
                 + '<path d="M23.5 23.5 30 30" stroke="#5b7d86" stroke-width="2.8" stroke-linecap="round"/>')
-            + '<span style="min-width:0;"><span style="display:block;font:700 15px Arial;color:#12242c;">Research</span>'
+            + '<span style="min-width:0;"><span style="display:block;font:700 15px Arial;color:#12242c;">Rare Disease DB</span>'
             + '<span style="display:block;font:12.5px/1.45 Arial;color:#6b8793;margin-top:2px;">Market research this team has '
             + 'already done, with the sources behind it.</span></span></button>'
             + '</div>';
@@ -343,7 +346,7 @@ function () {
                 // screen; it is a tile under Tools now, with the same hook. The doors are a
                 // page on a phone and a panel otherwise.
                 if (k === 'files') { await leaveFor('manchester/fb.js', '/app/baja/fb', null, 'My Files'); return; }
-                if (k === 'research') { await leaveFor('baja/research.js', '/app/baja/research', null, 'Research'); return; }
+                if (k === 'research') { await leaveFor('baja/research.js', '/app/baja/research', null, 'Rare Disease DB'); return; }
                 if (phone) {
                     if (page === k) { showDoors(); return; }
                     showSub(k);
