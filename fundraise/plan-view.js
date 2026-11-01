@@ -30,15 +30,17 @@ function () {
             name: str(x && x.name, 80), group: str(x && x.group, 40) || 'Program',
             start: ms(x && x.start), end: ms(x && x.end), cost: amt(x && x.cost),
         })).filter((x) => x.name && isFinite(x.start) && isFinite(x.end) && x.end >= x.start);
-        if (!phases.length) return null;
         const milestones = (Array.isArray(p.milestones) ? p.milestones : []).slice(0, 12)
             .map((m) => ({ name: str(m && m.name, 60), at: ms(m && m.at) }))
             .filter((m) => m.name && isFinite(m.at));
         const groups = (Array.isArray(p.groups) ? p.groups : []).slice(0, 8)
             .map((g) => ({ name: str(g && g.name, 40), cost: amt(g && g.cost) }))
             .filter((g) => g.name && g.cost != null && g.cost > 0);
+        // STAGES ARE OPTIONAL: a plan may be a budget with nothing on the calendar. It needs
+        // one or the other to be worth drawing.
+        if (!phases.length && !groups.length && !(amt(p.total) > 0)) return null;
         const cur = str(p.currency, 3).toUpperCase();
-        return {
+        return { __clean: true,
             name: str(p.name, 140), currency: /^[A-Z]{3}$/.test(cur) ? cur : 'USD',
             total: amt(p.total) || groups.reduce((s, g) => s + g.cost, 0),
             phases, milestones, groups,
@@ -74,11 +76,76 @@ function () {
         return (Math.round(y * 10) / 10).toString().replace(/\.0$/, '') + ' years';
     };
 
+    // WHERE THE MONEY GOES: the budget bar, its parts, and how far the goal carries it.
+    // Drawn under the calendar, or on its own for a plan with no stages.
+    const fundsHtml = (p, o, top) => {
+        // ---- where the money goes ------------------------------------------------------
+        const total = p.total || 0;
+        const groups = p.groups.length ? p.groups : [];
+        const gsum = groups.reduce((s, g) => s + g.cost, 0) || total;
+        const goal = Math.max(0, +o.goal || 0), raised = Math.max(0, +o.raised || 0);
+        const cur = p.currency;
+        let funds = '';
+        if (total > 0) {
+            const bar = groups.length ? groups.map((g) => '<div title="' + esc(g.name + ': ' + money(g.cost, cur)) + '" style="height:100%;width:'
+                + (g.cost / gsum * 100).toFixed(2) + '%;background:' + colourOf(g.name) + ';"></div>').join('')
+                : '<div style="height:100%;width:100%;background:#1aa3bd;"></div>';
+            const mark = (v, label, colour) => {
+                if (!(v > 0)) return '';
+                const at = Math.min(100, v / total * 100);
+                return '<div style="position:absolute;top:-6px;bottom:-6px;left:calc(' + at.toFixed(2) + '% - 1px);width:2px;background:' + colour + ';"></div>'
+                    + '<div style="position:absolute;top:28px;left:' + at.toFixed(2) + '%;transform:translateX(' + (at > 80 ? '-100%' : at < 20 ? '0' : '-50%')
+                    + ');white-space:nowrap;font:600 11.5px system-ui;color:' + colour + ';">' + esc(label) + '</div>';
+            };
+            const reach = (v) => {
+                // How far into the plan a sum would carry it, walking the stages in order.
+                let left = v, last = null;
+                for (const x of p.phases) {
+                    if (!(x.cost > 0)) continue;
+                    if (left >= x.cost) { left -= x.cost; last = x; } else break;
+                }
+                return last;
+            };
+            const g2 = goal > 0 ? reach(goal) : null;
+            funds = '<div style="margin-top:' + (top || '0') + ';">'
+                + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+                + '<div style="font:700 13px system-ui;color:#e6f2f7;">Where the money goes</div>'
+                + '<div style="font:800 18px system-ui;color:#fff;">' + esc(money(total, cur)) + '<span style="font:500 12.5px system-ui;color:#8fb6c6;"> total plan</span></div></div>'
+                + '<div style="position:relative;margin-top:10px;margin-bottom:' + ((goal > 0 || raised > 0) ? '30px' : '0') + ';">'
+                + '<div style="display:flex;height:16px;border-radius:6px;overflow:hidden;background:rgba(255,255,255,0.08);">' + bar + '</div>'
+                + mark(raised, 'raised ' + money(raised, cur, true), '#86efac')
+                // The goal's mark, unless the raised mark is drawn right beside it and the
+                // two labels would sit on top of each other.
+                + (goal > 0 && (!(raised > 0) || Math.abs(goal - raised) / total > 0.08) ? mark(goal, 'goal ' + money(goal, cur, true), '#fde68a') : '')
+                + '</div>'
+                + (groups.length ? '<div style="display:flex;gap:8px 20px;flex-wrap:wrap;margin-top:10px;font:12.5px system-ui;color:#bcd9e4;">'
+                    + groups.map((g) => '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:3px;background:'
+                        + colourOf(g.name) + ';"></span>' + esc(g.name) + ' <b style="color:#eaf6f9;">' + esc(money(g.cost, cur, true)) + '</b>'
+                        + ' <span style="color:#7fb0c4;">' + Math.round(g.cost / gsum * 100) + '%</span></span>').join('') + '</div>' : '')
+                + (goal > 0 ? '<div style="margin-top:10px;font:13px/1.55 system-ui;color:#cfe6ef;">'
+                    + (goal >= total
+                        ? 'The goal covers the whole plan.'
+                        : ('The goal covers ' + Math.round(goal / total * 100) + '% of the plan'
+                            + (g2 ? ', through <b>' + esc(g2.name) + '</b> (' + esc(month(g2.end)) + ').' : '.')))
+                    + '</div>' : '')
+                + '</div>';
+        }
+        return funds;
+    };
+
     const html = (plan, opts) => {
-        const p = (plan && plan.phases && typeof plan.phases[0].start === 'number') ? plan : clean(plan);
+        const p = (plan && plan.__clean) ? plan : clean(plan);
         if (!p) return '';
         const o = opts || {};
         const cur = p.currency;
+        const hasCal = p.phases.length > 0;
+        if (!hasCal) {
+            const f = fundsHtml(p, o, null);
+            return f ? '<div class="baja-plan" style="text-align:left;">'
+                + (p.name ? '<div style="font:500 13.5px/1.5 system-ui;color:#bcd9e4;margin-bottom:14px;"><b style="color:#eaf6f9;">'
+                    + esc(p.name) + '</b> · budget</div>' : '')
+                + f + '</div>' : '';
+        }
         const t0 = Math.min.apply(null, p.phases.map((x) => x.start));
         const t1 = Math.max.apply(null, p.phases.map((x) => x.end).concat(p.milestones.map((m) => m.at)));
         const range = Math.max(1, t1 - t0);
@@ -138,56 +205,7 @@ function () {
             + groupsSeen.map((g) => '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;'
                 + 'border-radius:3px;background:' + colourOf(g) + ';"></span>' + esc(g) + '</span>').join('') + '</div>' : '';
 
-        // ---- where the money goes ------------------------------------------------------
-        const total = p.total || 0;
-        const groups = p.groups.length ? p.groups : [];
-        const gsum = groups.reduce((s, g) => s + g.cost, 0) || total;
-        const goal = Math.max(0, +o.goal || 0), raised = Math.max(0, +o.raised || 0);
-        let funds = '';
-        if (total > 0) {
-            const bar = groups.length ? groups.map((g) => '<div title="' + esc(g.name + ': ' + money(g.cost, cur)) + '" style="height:100%;width:'
-                + (g.cost / gsum * 100).toFixed(2) + '%;background:' + colourOf(g.name) + ';"></div>').join('')
-                : '<div style="height:100%;width:100%;background:#1aa3bd;"></div>';
-            const mark = (v, label, colour) => {
-                if (!(v > 0)) return '';
-                const at = Math.min(100, v / total * 100);
-                return '<div style="position:absolute;top:-6px;bottom:-6px;left:calc(' + at.toFixed(2) + '% - 1px);width:2px;background:' + colour + ';"></div>'
-                    + '<div style="position:absolute;top:28px;left:' + at.toFixed(2) + '%;transform:translateX(' + (at > 80 ? '-100%' : at < 20 ? '0' : '-50%')
-                    + ');white-space:nowrap;font:600 11.5px system-ui;color:' + colour + ';">' + esc(label) + '</div>';
-            };
-            const reach = (v) => {
-                // How far into the plan a sum would carry it, walking the stages in order.
-                let left = v, last = null;
-                for (const x of p.phases) {
-                    if (!(x.cost > 0)) continue;
-                    if (left >= x.cost) { left -= x.cost; last = x; } else break;
-                }
-                return last;
-            };
-            const g2 = goal > 0 ? reach(goal) : null;
-            funds = '<div style="margin-top:22px;">'
-                + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">'
-                + '<div style="font:700 13px system-ui;color:#e6f2f7;">Where the money goes</div>'
-                + '<div style="font:800 18px system-ui;color:#fff;">' + esc(money(total, cur)) + '<span style="font:500 12.5px system-ui;color:#8fb6c6;"> total plan</span></div></div>'
-                + '<div style="position:relative;margin-top:10px;margin-bottom:' + ((goal > 0 || raised > 0) ? '30px' : '0') + ';">'
-                + '<div style="display:flex;height:16px;border-radius:6px;overflow:hidden;background:rgba(255,255,255,0.08);">' + bar + '</div>'
-                + mark(raised, 'raised ' + money(raised, cur, true), '#86efac')
-                // The goal's mark, unless the raised mark is drawn right beside it and the
-                // two labels would sit on top of each other.
-                + (goal > 0 && (!(raised > 0) || Math.abs(goal - raised) / total > 0.08) ? mark(goal, 'goal ' + money(goal, cur, true), '#fde68a') : '')
-                + '</div>'
-                + (groups.length ? '<div style="display:flex;gap:8px 20px;flex-wrap:wrap;margin-top:10px;font:12.5px system-ui;color:#bcd9e4;">'
-                    + groups.map((g) => '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:3px;background:'
-                        + colourOf(g.name) + ';"></span>' + esc(g.name) + ' <b style="color:#eaf6f9;">' + esc(money(g.cost, cur, true)) + '</b>'
-                        + ' <span style="color:#7fb0c4;">' + Math.round(g.cost / gsum * 100) + '%</span></span>').join('') + '</div>' : '')
-                + (goal > 0 ? '<div style="margin-top:10px;font:13px/1.55 system-ui;color:#cfe6ef;">'
-                    + (goal >= total
-                        ? 'The goal covers the whole plan.'
-                        : ('The goal covers ' + Math.round(goal / total * 100) + '% of the plan'
-                            + (g2 ? ', through <b>' + esc(g2.name) + '</b> (' + esc(month(g2.end)) + ').' : '.')))
-                    + '</div>' : '')
-                + '</div>';
-        }
+        const funds = fundsHtml(p, o, '22px');
 
         return '<div class="baja-plan" style="text-align:left;">'
             + (p.name || !o.noHead ? '<div style="font:500 13.5px/1.5 system-ui;color:#bcd9e4;margin-bottom:14px;">'

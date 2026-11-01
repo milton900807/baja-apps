@@ -14,7 +14,7 @@ function (opts) {
     //      Project runs first (py/openai/assumptions-create-therapy.py). Or start from the
     //      standard template, which needs no AI at all.
     //   2. Edit them: the stages in order with their weeks and cost, costs that sit off the
-    //      calendar, contingency and fees, the start date.
+    //      calendar, and the start date.
     //   3. The timeline and the budget are worked out from those as you type and drawn on the
     //      right exactly as the campaign's details page will draw them (fundraise/plan-view.js).
     //
@@ -69,7 +69,7 @@ function (opts) {
         name: ('' + (o.title || '')).trim(), currency: o.currency || 'USD', start: nextMonth(),
         stages: TEMPLATE.map((t) => ({ name: pretty(t[0]), part: t[1], weeks: t[2], cost: t[3], gap: 0 })),
         others: OTHER_TEMPLATE.map((t) => ({ name: pretty(t[0]), part: t[1], cost: t[2] })),
-        contingency: 10, fees: 10,
+        contingency: 0, fees: 0,
     });
 
     // An existing plan: its own assumptions if it carries them, otherwise worked back out of
@@ -84,10 +84,17 @@ function (opts) {
                     weeks: Math.max(0, numOf(s.weeks)), cost: Math.max(0, numOf(s.cost)), gap: numOf(s.gap) })),
                 others: (Array.isArray(m.others) ? m.others : []).map((s) => ({ name: '' + (s.name || ''),
                     part: PARTS.indexOf(s.part) >= 0 ? s.part : 'Other', cost: Math.max(0, numOf(s.cost)) })),
-                contingency: Math.max(0, numOf(m.contingency)), fees: Math.max(0, numOf(m.fees)),
+                contingency: 0, fees: 0,
             };
         }
-        if (!Array.isArray(p.phases) || !p.phases.length) return null;
+        if (!Array.isArray(p.phases) || !p.phases.length) {
+            // A budget-only plan without its assumptions: its parts come back as costs.
+            const gs = (Array.isArray(p.groups) ? p.groups : []).filter((g) => g && numOf(g.cost) > 0);
+            if (!gs.length) return null;
+            return { name: '' + (p.name || ''), currency: p.currency || 'USD', start: nextMonth(), stages: [],
+                others: gs.map((g) => ({ name: '' + g.name, part: PARTS.indexOf(g.name) >= 0 ? g.name : 'Other', cost: Math.round(numOf(g.cost)) })),
+                contingency: 0, fees: 0 };
+        }
         const ph = p.phases.map((x) => ({ x, s: Date.parse(x.start), e: Date.parse(x.end) }))
             .filter((x) => isFinite(x.s) && isFinite(x.e)).sort((a, b) => a.s - b.s);
         if (!ph.length) return null;
@@ -151,8 +158,7 @@ function (opts) {
             name: (nm && !/^therapeutic_development_program$/i.test(nm)) ? pretty(nm) : ('' + (o.title || '')).trim(),
             currency: CUR.indexOf(cur) >= 0 ? cur : 'USD', start,
             stages: stages.length ? stages : fromTemplate().stages,
-            others, contingency: rate('contingency_rate'),
-            fees: Math.round((rate('program_management_fee_rate') + rate('quality_oversight_fee_rate')) * 10) / 10,
+            others, contingency: 0, fees: 0,
         };
     };
 
@@ -270,19 +276,13 @@ function (opts) {
             + CUR.map((c) => '<option value="' + c + '">' + c + '</option>').join('') + '</select></div></div>'
 
             + sectHead('Stages', 'In the order they happen. Each starts when the one before ends; a gap delays it, '
-                + 'and a negative gap overlaps it with the stage before. At least one stage needs a name and a number of weeks.', 'required')
-            + reqBox('pe-stages-box', '<div id="pe-stages"></div>')
+                + 'and a negative gap overlaps it with the stage before. Without stages the plan is a budget with no calendar.', 'optional')
+            + '<div id="pe-stages" style="margin-top:12px;"></div>'
             + '<div style="margin-top:8px;">' + btn('pe-add-stage', '+ Add a stage') + '</div>'
 
             + sectHead('Other costs', 'Paid for by the campaign but not a stage of their own: transfers, logistics, writing.', 'optional')
             + '<div id="pe-others" style="margin-top:10px;"></div>'
             + '<div style="margin-top:8px;">' + btn('pe-add-other', '+ Add a cost') + '</div>'
-
-            + sectHead('Contingency and fees', 'A percentage of everything above, shown as its own part of the budget.', 'optional')
-            + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-            + '<div style="flex:1 1 160px;"><label style="' + lbl + '">Contingency (%)</label><input id="pe-cont" inputmode="decimal" style="' + inp + '"/></div>'
-            + '<div style="flex:1 1 160px;"><label style="' + lbl + '">Management and oversight fees (%)</label><input id="pe-fees" inputmode="decimal" style="' + inp + '"/></div>'
-            + '</div>'
             + '</div>'
 
             // The picture, which stays in view while the numbers change.
@@ -301,8 +301,6 @@ function (opts) {
             $('pe-name').value = model.name || '';
             $('pe-start').value = model.start || nextMonth();
             $('pe-cur').value = CUR.indexOf(model.currency) >= 0 ? model.currency : 'USD';
-            $('pe-cont').value = model.contingency ? ('' + model.contingency) : '';
-            $('pe-fees').value = model.fees ? ('' + model.fees) : '';
         };
 
         // ---- the two lists -----------------------------------------------------------
@@ -378,13 +376,14 @@ function (opts) {
             model.name = ('' + $('pe-name').value).trim();
             model.start = $('pe-start').value || nextMonth();
             model.currency = $('pe-cur').value || 'USD';
-            model.contingency = Math.max(0, numOf($('pe-cont').value));
-            model.fees = Math.max(0, numOf($('pe-fees').value));
+            // No contingency or fees section: a budget is the sum of its stages and costs.
+            model.contingency = 0; model.fees = 0;
             plan = toPlan(model);
-            const ok = plan.phases.length > 0;
+            // Stages are optional: a plan needs a stage on the calendar or a cost in the budget.
+            const ok = plan.phases.length > 0 || plan.total > 0;
             $('pe-prev').innerHTML = ok && PV ? PV.html(plan, { goal: o.goal, raised: o.raised })
-                : '<div style="font:13px system-ui;color:#9fb3c8;">Add a stage with a number of weeks and the plan appears here.</div>';
-            $('pe-total').textContent = ok ? (plan.phases.length + ' stages · ' + money(plan.total, plan.currency)) : '';
+                : '<div style="font:13px system-ui;color:#9fb3c8;">Add a stage or a cost and the plan appears here.</div>';
+            $('pe-total').textContent = ok ? ((plan.phases.length ? plan.phases.length + ' stages · ' : '') + money(plan.total, plan.currency)) : '';
             const warn = [];
             if (model.stages.some((s) => ('' + s.name).trim() && !(s.weeks > 0))) warn.push('A stage with no weeks is left off the calendar.');
             if (o.currency && plan.currency !== o.currency) warn.push('The campaign is in ' + o.currency + '; the plan is in ' + plan.currency + '. Figures are not converted.');
@@ -397,10 +396,10 @@ function (opts) {
             };
             frame('pe-start-box', !!$('pe-start').value);
             try { $('pe-start').style.borderColor = $('pe-start').value ? 'rgba(34,197,94,0.6)' : '#fbbf24'; } catch (e) { }
-            frame('pe-stages-box', ok);
+
         };
         const all = () => { toFields(); stagesUI(); othersUI(); redraw(); };
-        for (const id of ['pe-name', 'pe-start', 'pe-cont', 'pe-fees']) $(id).addEventListener('input', redraw);
+        for (const id of ['pe-name', 'pe-start']) $(id).addEventListener('input', redraw);
         $('pe-cur').addEventListener('change', redraw);
         $('pe-add-stage').onclick = () => {
             model.stages.push({ name: '', part: model.stages.length ? model.stages[model.stages.length - 1].part : 'Discovery', weeks: 4, cost: 0, gap: 0 });
@@ -476,7 +475,7 @@ function (opts) {
             const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
             document.addEventListener('keydown', onKey, true);
             $('pe-cancel').onclick = () => done(null);
-            $('pe-use').onclick = () => { redraw(); if (plan && plan.phases.length) done(plan); };
+            $('pe-use').onclick = () => { redraw(); if (plan && (plan.phases.length || plan.total > 0)) done(plan); };
         });
     })();
     })();
