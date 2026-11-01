@@ -160,111 +160,71 @@ function (path, config) {
             }
         }
 
-        // The loading screen: a newspaper that reads the installed news items while the app
-        // downloads, with the load itself as the bar across the bottom of the page. Replaces
-        // the bare '<hr> . . .' placeholder this call used to render.
+        // The loading notification: a small card in the corner with a spinner, what is
+        // loading, and how far along it is. It replaced a full-screen "BajaBio" newspaper
+        // that covered the whole app and cycled the installed news items while the editor
+        // downloaded; a load is not news, and the page underneath should stay visible.
         //
         // Built as DOM here rather than handed to the html widget as a markup string, because
-        // that widget renders `data` through Angular's [innerHTML], which sanitizes: `style`
-        // is not in Angular 17's allowed-attribute set and `<style>` is not an allowed tag, so
-        // a string could only ever have produced an unstyled skeleton. The showWidget call
-        // below stays as the handshake that says the dashboard is mounted.
+        // that widget renders `data` through Angular's [innerHTML], which sanitizes away
+        // `style`. The showWidget call below stays as the handshake that says the dashboard
+        // is mounted.
         //
-        // Exposes set(pct) / setNews(list) / done(). The news arrives a moment after the paper
-        // is on screen (get-news.py, below), so the paper renders first and takes its
-        // headlines when they turn up.
+        // Same API as before: set(pct) / setNews(list) / done(). setNews is kept so the caller
+        // below does not change, and now does nothing: the news is not part of a loader.
         const loadingPaper = (() => {
             const noop = { set: () => { }, setNews: () => { }, done: () => { } };
             try {
                 if (typeof document === 'undefined' || !document.body) return noop;
-                if (document.getElementById('baja-loading-paper')) return noop;
+                if (document.getElementById('baja-loading-notice')) return noop;
 
-                const wrap = document.createElement('div');
-                wrap.id = 'baja-loading-paper';
-                wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;'
-                    + 'justify-content:center;background:radial-gradient(circle at 50% 35%,#123049,#071726 70%);'
-                    + 'transition:opacity .6s ease;font-family:Georgia,"Times New Roman",serif;';
+                if (!document.getElementById('baja-loading-notice-css')) {
+                    const css = document.createElement('style');
+                    css.id = 'baja-loading-notice-css';
+                    css.textContent = '@keyframes bajaLoadSpin{to{transform:rotate(360deg)}}';
+                    document.head.appendChild(css);
+                }
 
-                const paper = document.createElement('div');
-                paper.style.cssText = 'width:min(620px,92vw);background:#f7f3e8;color:#14202b;'
-                    + 'padding:26px 30px 22px;border-radius:2px;'
-                    + 'box-shadow:0 24px 60px rgba(0,0,0,0.45),0 2px 0 rgba(0,0,0,0.15);';
+                const card = document.createElement('div');
+                card.id = 'baja-loading-notice';
+                card.setAttribute('role', 'status');
+                card.setAttribute('aria-live', 'polite');
+                card.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;width:280px;'
+                    + 'box-sizing:border-box;padding:12px 14px 12px;border-radius:10px;'
+                    + 'background:#0b2545;color:#eaf6f9;border:1px solid rgba(255,255,255,0.14);'
+                    + 'box-shadow:0 12px 32px rgba(0,0,0,0.35);'
+                    + 'font:500 13px system-ui,-apple-system,"Segoe UI",Arial,sans-serif;'
+                    + 'opacity:0;transform:translateY(8px);transition:opacity .25s ease,transform .25s ease;';
 
-                // Masthead, then the hairline/thick rule pair a broadsheet puts under it.
-                const mast = document.createElement('div');
-                mast.textContent = 'BajaBio';
-                mast.style.cssText = 'font-size:44px;line-height:1;letter-spacing:2px;text-align:center;'
-                    + 'font-weight:700;';
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;';
+                const spin = document.createElement('div');
+                spin.style.cssText = 'flex:0 0 auto;width:16px;height:16px;border-radius:50%;'
+                    + 'border:2px solid rgba(255,255,255,0.22);border-top-color:#4fd0e6;'
+                    + 'animation:bajaLoadSpin .8s linear infinite;';
+                const label = document.createElement('div');
+                label.style.cssText = 'flex:1 1 auto;';
+                label.textContent = 'Loading the designer\u2026';
+                const pctEl = document.createElement('div');
+                pctEl.style.cssText = 'flex:0 0 auto;color:#8fb8c8;font-variant-numeric:tabular-nums;';
+                pctEl.textContent = '0%';
+                row.appendChild(spin); row.appendChild(label); row.appendChild(pctEl);
 
-                const eyebrow = document.createElement('div');
-                let __when = '';
-                try {
-                    __when = new Date().toLocaleDateString(undefined,
-                        { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                } catch (e) { __when = ''; }
-                eyebrow.textContent = 'RNA THERAPEUTICS' + (__when ? '  \u00b7  ' + __when : '');
-                eyebrow.style.cssText = 'margin-top:8px;text-align:center;font-size:10px;letter-spacing:2.4px;'
-                    + 'text-transform:uppercase;color:#5b6b7d;font-family:Arial,Helvetica,sans-serif;';
-
-                const rule = document.createElement('div');
-                rule.style.cssText = 'margin:12px 0 18px;border-top:3px solid #14202b;'
-                    + 'border-bottom:1px solid #14202b;height:3px;';
-
-                // The headline slot. One news item at a time, cross-faded.
-                const head = document.createElement('div');
-                head.style.cssText = 'min-height:74px;display:flex;align-items:center;justify-content:center;'
-                    + 'text-align:center;font-size:23px;line-height:1.32;font-weight:700;'
-                    + 'transition:opacity .45s ease;opacity:1;';
-                head.textContent = 'The designer is loading';
-
-                const dek = document.createElement('div');
-                dek.style.cssText = 'margin-top:6px;text-align:center;font-size:11px;letter-spacing:1.6px;'
-                    + 'text-transform:uppercase;color:#7b8794;font-family:Arial,Helvetica,sans-serif;';
-                dek.textContent = '';
-
-                // The progress bar, set in the paper as its bottom rule.
                 const barWrap = document.createElement('div');
-                barWrap.style.cssText = 'margin-top:20px;height:6px;background:rgba(20,32,43,0.12);'
-                    + 'border-radius:3px;overflow:hidden;';
+                barWrap.style.cssText = 'margin-top:10px;height:4px;background:rgba(255,255,255,0.12);'
+                    + 'border-radius:2px;overflow:hidden;';
                 const barFill = document.createElement('div');
-                barFill.style.cssText = 'height:100%;width:0%;border-radius:3px;'
-                    + 'background:linear-gradient(90deg,#4fd0e6,#1aa3bd,#0a2540);transition:width .25s ease;';
+                barFill.style.cssText = 'height:100%;width:0%;border-radius:2px;'
+                    + 'background:linear-gradient(90deg,#4fd0e6,#1aa3bd);transition:width .25s ease;';
                 barWrap.appendChild(barFill);
 
-                const foot = document.createElement('div');
-                foot.style.cssText = 'margin-top:9px;display:flex;justify-content:space-between;'
-                    + 'font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:#5b6b7d;'
-                    + 'font-family:Arial,Helvetica,sans-serif;';
-                const footL = document.createElement('span');
-                footL.textContent = 'Loading the designer';
-                const footR = document.createElement('span');
-                footR.textContent = '0%';
-                foot.appendChild(footL); foot.appendChild(footR);
+                card.appendChild(row); card.appendChild(barWrap);
+                document.body.appendChild(card);
+                requestAnimationFrame(() => { card.style.opacity = '1'; card.style.transform = 'translateY(0)'; });
 
-                paper.appendChild(mast); paper.appendChild(eyebrow); paper.appendChild(rule);
-                paper.appendChild(head); paper.appendChild(dek);
-                paper.appendChild(barWrap); paper.appendChild(foot);
-                wrap.appendChild(paper);
-                document.body.appendChild(wrap);
-
-                let items = [], at = 0, timer = null, gone = false;
-                const show = (i) => {
-                    if (!items.length) return;
-                    head.style.opacity = '0';
-                    setTimeout(() => {
-                        try {
-                            head.textContent = items[i % items.length];
-                            dek.textContent = items.length > 1
-                                ? ((i % items.length) + 1) + ' of ' + items.length
-                                : '';
-                            head.style.opacity = '1';
-                        } catch (e) { }
-                    }, 450);
-                };
-                const stop = () => { try { if (timer) clearInterval(timer); } catch (e) { } timer = null; };
-
+                let gone = false;
                 // A load that never reports 100 -- a failed fetch, a thrown error further down --
-                // must not leave the user sealed behind the paper. It lets itself out.
+                // must not leave the notice up for good.
                 const escape = setTimeout(() => { try { api.done(); } catch (e) { } }, 60000);
 
                 const api = {
@@ -272,29 +232,22 @@ function (path, config) {
                         try {
                             const v = Math.max(0, Math.min(100, +pct || 0));
                             barFill.style.width = v + '%';
-                            footR.textContent = Math.round(v) + '%';
+                            pctEl.textContent = Math.round(v) + '%';
                         } catch (e) { }
                     },
-                    setNews: (list) => {
-                        try {
-                            items = (list || []).map((m) => ('' + m).trim()).filter(Boolean);
-                            if (!items.length) return;
-                            at = 0;
-                            head.textContent = items[0];
-                            dek.textContent = items.length > 1 ? ('1 of ' + items.length) : '';
-                            stop();
-                            if (items.length > 1) timer = setInterval(() => { show(++at); }, 4200);
-                        } catch (e) { }
-                    },
+                    setNews: () => { },
                     done: () => {
                         if (gone) return;
                         gone = true;
-                        stop();
                         try { clearTimeout(escape); } catch (e) { }
-                        try { wrap.style.opacity = '0'; } catch (e) { }
+                        try { barFill.style.width = '100%'; pctEl.textContent = '100%'; label.textContent = 'Ready'; } catch (e) { }
+                        try { spin.style.animation = 'none'; spin.style.borderColor = '#4fd0e6'; } catch (e) { }
                         setTimeout(() => {
-                            try { if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { }
-                        }, 700);
+                            try { card.style.opacity = '0'; card.style.transform = 'translateY(8px)'; } catch (e) { }
+                            setTimeout(() => {
+                                try { if (card.parentNode) card.parentNode.removeChild(card); } catch (e) { }
+                            }, 300);
+                        }, 400);
                     }
                 };
                 return api;

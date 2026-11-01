@@ -16,9 +16,8 @@
 #                      console, viewer, admin and icons, and the Apps menu entries. Then
 #                      Home and the funds options into the header menu, which lives in
 #                      env.js on the server rather than in the bundle.
-#                      And the timeline point side panel: a click on a timeline point
-#                      opens its options in a panel docked at the right of the canvas
-#                      instead of a modal menu over it (plate-track.js, point-side-panel.js).
+#                      And single files copied whole (step 2b): the timeline point side
+#                      panel, and the editor's corner loading notification.
 #    3. the frontend   (--frontend only) the Angular shell: the widget markup that stops
 #                      being rebuilt several times a second, the header's authoring
 #                      buttons behind one account, and the landing page that scrolls on
@@ -142,38 +141,47 @@ if [[ $DO_API -eq 1 ]]; then
   fi
 fi
 
-# ---- 2b: the timeline point side panel ---------------------------------------
+# ---- 2b: single lionscript files, copied whole from REF ------------------------
 #
-# Two files, copied whole from REF: the new panel module and the plate track that opens
-# it. A file that is already the same is left alone; one that differs is kept beside the
-# new one as <file>.before-<stamp>. A REF that predates the change is said and skipped
-# rather than installing an older plate-track.js over a newer one.
+#   baja/plots/point-side-panel.js, baja/plate/plate-track.js
+#       a click on a timeline point opens its options in a side panel, not a modal menu
+#   manchester/editor.js
+#       the editor's loading screen is a small corner notification, not the newspaper
+#
+# Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
+# so a REF that predates the change is said and skipped rather than installing an older
+# file over a newer one. A file that is already the same is left alone; one that differs is
+# kept beside the new one as <file>.before-<stamp>.
 if [[ $DO_API -eq 1 ]]; then
-  step "The timeline point side panel"
-  TL_STAMP="$(date +%Y%m%d%H%M%S)"
-  TL_OK=1
-  for f in baja/plots/point-side-panel.js baja/plate/plate-track.js; do
-    curl -fsSL "$RAW/$REF/$f" -o "$TMP/tl.$(basename "$f")" || { say "  $f is not at ${REF:0:12}; skipped."; TL_OK=0; break; }
-  done
-  if [[ $TL_OK -eq 1 ]] && ! grep -q 'point-side-panel' "$TMP/tl.plate-track.js"; then
-    say "  plate-track.js at ${REF:0:12} does not open the side panel; skipped."
-    TL_OK=0
-  fi
-  if [[ $TL_OK -eq 1 ]]; then
-    for f in baja/plots/point-side-panel.js baja/plate/plate-track.js; do
-      src="$TMP/tl.$(basename "$f")"; dst="$APPS_DIR/$f"
+  step "Lionscript files"
+  FL_STAMP="$(date +%Y%m%d%H%M%S)"
+  install_group() {   # install_group "label" file:marker ...  (all or none)
+    local label="$1"; shift
+    local pair f mk src dst owner i=0
+    for pair in "$@"; do
+      f="${pair%%:*}"; mk="${pair#*:}"; src="$TMP/fl.$i"; i=$((i+1))
+      curl -fsSL "$RAW/$REF/$f" -o "$src" 2>/dev/null || { say "  $label: $f is not at ${REF:0:12}; skipped."; return 0; }
+      grep -q -- "$mk" "$src" || { say "  $label: $f at ${REF:0:12} predates the change; skipped."; return 0; }
+    done
+    i=0
+    for pair in "$@"; do
+      f="${pair%%:*}"; src="$TMP/fl.$i"; dst="$APPS_DIR/$f"; i=$((i+1))
       if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then say "  $f: already current"; continue; fi
       mkdir -p "$(dirname "$dst")"
       if [[ -f "$dst" ]]; then
-        cp -p "$dst" "$dst.before-$TL_STAMP"
-        OWNER="$(stat -c '%u:%g' "$dst")"
+        cp -p "$dst" "$dst.before-$FL_STAMP"; owner="$(stat -c '%u:%g' "$dst")"
       else
-        OWNER="$(stat -c '%u:%g' "$(dirname "$dst")")"
+        owner="$(stat -c '%u:%g' "$(dirname "$dst")")"
       fi
-      cp "$src" "$dst"; chmod 644 "$dst"; chown "$OWNER" "$dst" 2>/dev/null || true
+      cp "$src" "$dst"; chmod 644 "$dst"; chown "$owner" "$dst" 2>/dev/null || true
       say "  $f: installed"
     done
-  fi
+  }
+  install_group "timeline side panel" \
+    "baja/plots/point-side-panel.js:baja-point-side-panel" \
+    "baja/plate/plate-track.js:point-side-panel"
+  install_group "editor loading notice" \
+    "manchester/editor.js:baja-loading-notice"
 fi
 
 # ---- 3: the Angular app ------------------------------------------------------
