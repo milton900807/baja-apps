@@ -4,7 +4,8 @@ function () {
     //
     //   Funds      start a campaign, or open one already running
     //   Design     the design and analysis tools
-    //   My Files   the file browser, which is what this page used to be
+    //   Tools      My Files (the file browser, which is what this page used to be) and
+    //              Research (coming soon)
     //
     // WHY THIS IS A PAGE AND NOT A STRIP ABOVE THE FILE LIST. It was that first: the
     // launcher was handed to manchester/fb.js as a header row. The browser's layout gives
@@ -75,6 +76,30 @@ function () {
 
         const DESIGN = '<div style="display:flex;gap:12px;flex-wrap:wrap;">' + APPS.map(tile).join('') + '</div>';
 
+        // TOOLS: My Files and Research. My Files carries data-door="files", the hook the
+        // document listener already answers by opening the file browser, so it works in a
+        // window whose listener was wired by an older copy of this page. Research is not
+        // built yet: it is shown, marked "Coming soon", and is not a button.
+        const toolIcon = (path) => '<svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" style="flex:0 0 auto;">'
+            + '<rect x="1" y="1" width="38" height="38" rx="9" fill="#eef4f7" stroke="#cfdbe2"/>' + path + '</svg>';
+        const TOOLS = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+            + '<button data-door="files" class="baja-home-app" style="flex:1 1 300px;max-width:430px;cursor:pointer;text-align:left;'
+            + 'display:flex;gap:12px;align-items:flex-start;border:1px solid #dbe4ea;background:#fff;border-radius:10px;padding:13px 15px;">'
+            + toolIcon('<path d="M9 14a2 2 0 0 1 2-2h6l2 3h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2z" fill="#5b7d86"/>')
+            + '<span style="min-width:0;"><span style="display:block;font:700 15px Arial;color:#12242c;">My Files</span>'
+            + '<span style="display:block;font:12.5px/1.45 Arial;color:#6b8793;margin-top:2px;">Everything you have saved: '
+            + 'workbooks, designs, data and campaigns.</span></span></button>'
+            + '<div aria-disabled="true" style="flex:1 1 300px;max-width:430px;text-align:left;display:flex;gap:12px;'
+            + 'align-items:flex-start;border:1px dashed #cfdbe2;background:#fbfdfe;border-radius:10px;padding:13px 15px;cursor:default;">'
+            + toolIcon('<circle cx="18" cy="18" r="7" fill="none" stroke="#8aa3ad" stroke-width="2.6"/>'
+                + '<path d="M23.5 23.5 30 30" stroke="#8aa3ad" stroke-width="2.8" stroke-linecap="round"/>')
+            + '<span style="min-width:0;"><span style="display:flex;align-items:center;gap:8px;font:700 15px Arial;color:#6b8793;">Research'
+            + '<span style="padding:2px 8px;border-radius:999px;background:#fff4d6;border:1px solid #f5d27a;color:#8a6100;'
+            + 'font:800 10px Arial;letter-spacing:.06em;text-transform:uppercase;">Coming soon</span></span>'
+            + '<span style="display:block;font:12.5px/1.45 Arial;color:#8aa3ad;margin-top:2px;">Literature, data and evidence '
+            + 'for a target or a disease.</span></span></div>'
+            + '</div>';
+
         const ID = 'baja-home';
 
         // ON A PHONE, A DOOR IS A PAGE. On a desktop the choices drop down under the three
@@ -111,7 +136,7 @@ function () {
             + '<div style="display:flex;gap:14px;flex-wrap:wrap;">'
             + door('funds', 'Funds', 'Raise money for a rare disease', '#16a34a')
             + door('design', 'Design', 'The tools for designing a therapy', '#0f6e7a')
-            + door('files', 'My Files', 'Everything you have saved', '#5b7d86')
+            + door('tools', 'Tools', 'My Files, Research and more', '#5b7d86')
             + '</div>'
             + (phone ? '' : '<div data-panel style="display:none;margin-top:18px;padding:18px;'
                 + 'border:1px solid #e1e8ed;border-radius:14px;background:#f7fafc;"></div>');
@@ -122,6 +147,7 @@ function () {
         const SUB = {
             funds: { title: 'Funds', line: 'Raise money for a rare disease', body: () => FUNDS },
             design: { title: 'Design', line: 'The tools for designing a therapy', body: () => DESIGN },
+            tools: { title: 'Tools', line: 'My Files, Research and more', body: () => TOOLS },
         };
         const subPage = (k) => {
             const d = SUB[k];
@@ -199,12 +225,13 @@ function () {
             // panelEl() would put an element on the body that nothing ever shows.
             if (phone) return;
             for (const b of document.querySelectorAll('[data-door]')) {
+                if (b.classList && b.classList.contains('baja-home-app')) continue;   // a tile, not a door
                 const on = b.getAttribute('data-door') === openDoor;
                 b.style.background = on ? '#eef6fb' : '#fff';
                 b.style.boxShadow = on ? '0 4px 18px rgba(16,40,56,0.16)' : '0 3px 14px rgba(16,40,56,0.09)';
             }
             const el = panelEl();
-            const want = openDoor === 'funds' ? FUNDS : (openDoor === 'design' ? DESIGN : '');
+            const want = openDoor === 'funds' ? FUNDS : (openDoor === 'design' ? DESIGN : (openDoor === 'tools' ? TOOLS : ''));
             if (el.innerHTML !== want) el.innerHTML = want;
             el.style.display = openDoor ? '' : 'none';
             if (openDoor) place();
@@ -258,8 +285,9 @@ function () {
         }
         window.__bajaHomeHandlers = {
             door: async (k) => {
-                // My Files is the file browser, a page of its own, so that door goes there
-                // on any screen. The other two are a page on a phone and a panel otherwise.
+                // My Files is the file browser, a page of its own, so it goes there on any
+                // screen; it is a tile under Tools now, with the same hook. The doors are a
+                // page on a phone and a panel otherwise.
                 if (k === 'files') { await leaveFor('manchester/fb.js', '/app/baja/fb'); return; }
                 if (phone) {
                     if (page === k) { showDoors(); return; }
