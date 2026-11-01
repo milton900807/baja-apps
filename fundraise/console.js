@@ -480,8 +480,7 @@ function (path, config) {
             + 'placeholder="anything the draft should know (optional)"/>'
             + btn('fc-tl-ai', 'Draft one with AI') + '</div>'
             + '<div id="fc-tl-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
-            + sec('Program plan', { tag: 'optional', sub: 'The budget and timeline behind the campaign, as a picture on the '
-                + 'details page: each stage on a calendar, what it costs, and how far the goal carries it.' })
+            + sec('Program plan', { tag: 'optional', sub: 'The budget and timeline behind the campaign' })
             + '<div style="height:10px;"></div>'
             + '<div id="fc-plan"></div>'
             + '<div id="fc-plan-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'

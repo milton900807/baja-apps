@@ -220,14 +220,24 @@ function (opts) {
         try { const old = document.getElementById('baja-plan-editor'); if (old) old.remove(); } catch (e) { }
         const wrap = document.createElement('div');
         wrap.id = 'baja-plan-editor';
-        wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483100;overflow:auto;background:#071a30;color:#eaf6f9;'
+        // A PAGE INSIDE THE CAMPAIGN, AND IT LOOKS LIKE ONE. Drawn full-screen in the
+        // console's own colours it was indistinguishable from the console, and nobody could
+        // tell which screen they were on. So it is a raised sheet over the console, which
+        // stays visible (dimmed) around it; it wears a violet accent of its own; and it says
+        // where it sits -- Fundraising > the campaign > Program plan -- with the way back
+        // named after the campaign rather than a bare Cancel.
+        wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483100;overflow:auto;background:rgba(2,8,18,0.72);'
+            + 'backdrop-filter:blur(2px);padding:22px clamp(8px,2.2vw,28px);box-sizing:border-box;color:#eaf6f9;'
             + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
+        const ACCENT = '#a78bfa';
+        const campName = ('' + (o.title || '')).trim() || 'your campaign';
+        const campShort = campName.length > 28 ? campName.slice(0, 27) + '\u2026' : campName;
         const lbl = 'display:block;font:600 12px system-ui;color:#9fb3c8;margin:14px 0 5px;';
         const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);'
             + 'border-radius:8px;padding:9px 11px;font:14px system-ui;';
         const cell = 'box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.12);'
             + 'border-radius:6px;padding:6px 8px;font:13px system-ui;min-width:0;';
-        const btn = (id, label, kind) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px system-ui;'
+        const btn = (id, label, kind) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px system-ui;white-space:nowrap;'
             + (kind === 'go' ? 'border:1px solid #22c55e;background:#22c55e;color:#04210f;'
                 : 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;') + '">' + label + '</button>';
         // Sections as in the console: a dotted rule, room above it, a heading, and whether it
@@ -245,14 +255,26 @@ function (opts) {
             + 'border-left:4px solid #fbbf24;background:rgba(251,191,36,0.07);">' + inner + '</div>';
 
         wrap.innerHTML = ''
-            + '<div style="display:flex;align-items:center;gap:16px;padding:16px 22px 14px;background:#0b2545;'
-            + 'border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);position:sticky;top:0;z-index:3;">'
-            + '<div><div style="font:700 20px system-ui;">Program plan</div>'
-            + '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:3px;">What the money will pay for, and when. '
-            + 'Shown on the campaign’s details page.</div></div>'
-            + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;">'
+            + '<div id="pe-sheet" style="max-width:1340px;margin:0 auto;background:#0c1b38;border:1px solid rgba(167,139,250,0.32);'
+            + 'border-top:4px solid ' + ACCENT + ';border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,0.6);">'
+            + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 22px 14px;background:#151f45;'
+            + 'border-bottom:1px solid rgba(167,139,250,0.25);border-radius:12px 12px 0 0;position:sticky;top:-22px;z-index:3;">'
+            + '<div style="min-width:0;">'
+            // Where this is.
+            + '<div style="font:600 12px system-ui;color:#a5b4d8;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
+            + '<span>Fundraising</span><span style="opacity:.6;">\u203a</span>'
+            + '<button id="pe-crumb" title="Back to the campaign" style="cursor:pointer;border:0;background:none;padding:0;'
+            + 'color:#d7ccff;font:700 12px system-ui;text-decoration:underline;text-underline-offset:3px;">' + esc(campShort) + '</button>'
+            + '<span style="opacity:.6;">\u203a</span><span style="color:#eaf6f9;">Program plan</span></div>'
+            + '<div style="display:flex;align-items:center;gap:10px;margin-top:5px;flex-wrap:wrap;">'
+            + '<div style="font:700 20px system-ui;">Program plan</div>'
+            + '<span style="padding:3px 10px;border-radius:999px;background:rgba(167,139,250,0.16);border:1px solid rgba(167,139,250,0.45);'
+            + 'color:#ddd6fe;font:700 11px system-ui;letter-spacing:.04em;">Part of: ' + esc(campShort) + '</span></div>'
+            + '<div style="font:12.5px system-ui;color:#a5b4d8;margin-top:3px;">What the money will pay for, and when. '
+            + 'Shown on the campaign\u2019s details page.</div></div>'
+            + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">'
             + '<span id="pe-total" style="font:600 13px system-ui;color:#cfe6ef;white-space:nowrap;"></span>'
-            + btn('pe-cancel', 'Cancel') + btn('pe-use', 'Use this plan', 'go') + '</div></div>'
+            + btn('pe-cancel', '\u2190 Back to ' + esc(campShort)) + btn('pe-use', 'Use this plan', 'go') + '</div></div>'
             + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
             + '<div style="flex:1 1 460px;max-width:620px;">'
 
@@ -286,13 +308,13 @@ function (opts) {
             + '</div>'
 
             // The picture, which stays in view while the numbers change.
-            + '<div style="flex:1 1 420px;min-width:300px;position:sticky;top:86px;">'
+            + '<div style="flex:1 1 420px;min-width:300px;position:sticky;top:110px;">'
             + '<div style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;margin-bottom:10px;">'
             + 'On the details page</div>'
             + '<div id="pe-prev" style="padding:16px;border:1px solid rgba(255,255,255,0.14);border-radius:12px;'
             + 'background:radial-gradient(600px 300px at 50% -20%,#123a63 0%,#0a1e3a 55%,#071526 100%);"></div>'
             + '<div id="pe-check" style="margin-top:10px;font:12.5px/1.55 system-ui;color:#fde68a;"></div>'
-            + '</div></div>';
+            + '</div></div></div>';
         document.body.appendChild(wrap);
         const $ = (id) => document.getElementById(id);
 
@@ -476,6 +498,7 @@ function (opts) {
             const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
             document.addEventListener('keydown', onKey, true);
             $('pe-cancel').onclick = () => done(null);
+            $('pe-crumb').onclick = () => done(null);
             $('pe-use').onclick = () => { redraw(); if (plan && plan.phases.length) done(plan); };
         });
     })();
