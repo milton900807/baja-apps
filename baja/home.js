@@ -4,8 +4,8 @@ function () {
     //
     //   Funds      start a campaign, or open one already running
     //   Design     the design and analysis tools
-    //   Tools      My Files (the file browser, which is what this page used to be) and
-    //              Research (coming soon)
+    //   Tools      My Files (the file browser, which is what this page used to be),
+    //              Project, Analytics, Financial Modeling, and Research (coming soon)
     //
     // WHY THIS IS A PAGE AND NOT A STRIP ABOVE THE FILE LIST. It was that first: the
     // launcher was handed to manchester/fb.js as a header row. The browser's layout gives
@@ -33,11 +33,11 @@ function () {
               note: 'The short path: pick a target, get a compound set, without the full screening canvas.' },
             { label: 'Genome Viewer', icon: 'icons/svg/chromosomes', path: 'manchester/karyotype',
               note: 'Every chromosome at one true scale. Load a VCF, then open a region as tracks.' },
-            { label: 'Project', icon: 'icons/svg/programme', path: 'cpd/baja-project', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-project'],
+            { label: 'Project', tools: true, icon: 'icons/svg/programme', path: 'cpd/baja-project', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-project'],
               note: 'Development timelines, milestones and capital models from plain-language descriptions.' },
-            { label: 'Analytics', icon: 'icons/svg/analytics', path: 'cpd/baja-analytics', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-analytics'],
+            { label: 'Analytics', tools: true, icon: 'icons/svg/analytics', path: 'cpd/baja-analytics', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-analytics'],
               note: 'Experimental data: tables with a formula engine, dose-response and plate layouts.' },
-            { label: 'Financial Modeling', icon: 'icons/svg/financial-modeling', path: 'cpd/baja-analytics', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-analytics'],
+            { label: 'Financial Modeling', tools: true, icon: 'icons/svg/financial-modeling', path: 'cpd/baja-analytics', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-analytics'],
               note: 'Assumptions, profit-and-loss and capital models, with a formula engine and timelines.' },
         ];
         // An icon store that cannot be reached must not cost anyone the page.
@@ -74,7 +74,10 @@ function () {
             + '<span style="display:block;font:13px Arial;color:#6b8793;margin-top:4px;">Open one to edit it, see what it has '
             + 'raised, or pull in donations.</span></button></div>';
 
-        const DESIGN = '<div style="display:flex;gap:12px;flex-wrap:wrap;">' + APPS.map(tile).join('') + '</div>';
+        // An app marked `tools` is listed under Tools rather than Design. Every tile keeps its
+        // index in APPS, which is what its data-app hook opens.
+        const DESIGN = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+            + APPS.map((a, i) => (a.tools ? '' : tile(a, i))).join('') + '</div>';
 
         // TOOLS: My Files and Research. My Files carries data-door="files", the hook the
         // document listener already answers by opening the file browser, so it works in a
@@ -89,6 +92,7 @@ function () {
             + '<span style="min-width:0;"><span style="display:block;font:700 15px Arial;color:#12242c;">My Files</span>'
             + '<span style="display:block;font:12.5px/1.45 Arial;color:#6b8793;margin-top:2px;">Everything you have saved: '
             + 'workbooks, designs, data and campaigns.</span></span></button>'
+            + APPS.map((a, i) => (a.tools ? tile(a, i) : '')).join('')
             + '<div aria-disabled="true" style="flex:1 1 300px;max-width:430px;text-align:left;display:flex;gap:12px;'
             + 'align-items:flex-start;border:1px dashed #cfdbe2;background:#fbfdfe;border-radius:10px;padding:13px 15px;cursor:default;">'
             + toolIcon('<circle cx="18" cy="18" r="7" fill="none" stroke="#8aa3ad" stroke-width="2.6"/>'
@@ -136,7 +140,7 @@ function () {
             + '<div style="display:flex;gap:14px;flex-wrap:wrap;">'
             + door('funds', 'Funds', 'Raise money for a rare disease', '#16a34a')
             + door('design', 'Design', 'The tools for designing a therapy', '#0f6e7a')
-            + door('tools', 'Tools', 'My Files, Research and more', '#5b7d86')
+            + door('tools', 'Tools', 'Files, project planning, analytics and more', '#5b7d86')
             + '</div>'
             + (phone ? '' : '<div data-panel style="display:none;margin-top:18px;padding:18px;'
                 + 'border:1px solid #e1e8ed;border-radius:14px;background:#f7fafc;"></div>');
@@ -147,7 +151,7 @@ function () {
         const SUB = {
             funds: { title: 'Funds', line: 'Raise money for a rare disease', body: () => FUNDS },
             design: { title: 'Design', line: 'The tools for designing a therapy', body: () => DESIGN },
-            tools: { title: 'Tools', line: 'My Files, Research and more', body: () => TOOLS },
+            tools: { title: 'Tools', line: 'Files, project planning, analytics and more', body: () => TOOLS },
         };
         const subPage = (k) => {
             const d = SUB[k];
