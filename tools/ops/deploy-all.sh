@@ -147,6 +147,8 @@ fi
 #       a click on a timeline point opens its options in a side panel, not a modal menu
 #   manchester/editor.js
 #       the editor's loading screen is a small corner notification, not the newspaper
+#   cpd/baja-project.js
+#       Build > Add to a fundraising campaign (the plan modules come with the fundraise app)
 #
 # Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
 # so a REF that predates the change is said and skipped rather than installing an older
@@ -182,6 +184,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor loading notice" \
     "manchester/editor.js:baja-loading-notice"
+  install_group "baja-project: Add to a fundraising campaign" \
+    "cpd/baja-project.js:fundraise/plan-send.js"
 fi
 
 # ---- 3: the Angular app ------------------------------------------------------

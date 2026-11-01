@@ -3929,6 +3929,8 @@ function (path, config) {
 
                                                                                             pt.layoutCompactTetris();
                                                                                             pm.plateTrack.deselectAll();
+                                                                                            // Where this plan can go next.
+                                                                                            try { pm.plateTrack.setMessage('Raising money for this? Build > Add to a fundraising campaign puts the budget and timeline on a campaign page.', 6); } catch (e) { }
 
                                                                                         }, 1000)
 
@@ -3954,6 +3956,17 @@ function (path, config) {
                         }
                         CurrentLayout.setComponent('mainPanel', sequence_input)
 
+                    })
+                })
+
+                // The budget and timeline above, on a fundraising campaign's page: what the
+                // money is for, as stages on a calendar and a budget split by part. The plan is
+                // read from this workbook's Assumptions, Analysis and timeline, and opens in the
+                // chosen campaign's console to be looked over and published (fundraise/plan-send.js).
+                ai_create_file_items.push({
+                    'label': 'Add to a fundraising campaign', 'ionfunction': createIonFunction(async () => {
+                        try { await exec('fundraise/plan-send.js', pm.plateTrack); }
+                        catch (e) { try { pm.plateTrack.setMessage('Could not read a plan from this workbook.', 4); } catch (e2) { } }
                     })
                 })
 

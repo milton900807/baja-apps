@@ -83,6 +83,12 @@ function (path, config) {
             } catch (e) { return 'the server did not say why'; }
         };
 
+        // The program plan's picture, shared with the public display so the console shows
+        // exactly what a donor will see. A plan is optional: if this does not load, the
+        // section says so and nothing else is affected.
+        let PV = null;
+        try { PV = await exec('fundraise/plan-view.js'); } catch (e) { PV = null; }
+
         const CUR = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'CHF', 'JPY'];
         const money = (n, cur) => {
             const v = (+n || 0);
@@ -427,6 +433,12 @@ function (path, config) {
             + 'what to leave out. It is a first draft for you to correct, and nothing is published '
             + 'until you publish it.</div>'
             + '<div id="fc-tl-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
+            + '<label style="' + lbl + '">The program plan (optional)</label>'
+            + '<div style="font:12px/1.55 system-ui;color:#9fb3c8;margin-bottom:7px;">'
+            + 'The budget and timeline behind the campaign, as a picture on the details page: each stage '
+            + 'on a calendar, what it costs, and how far the goal carries it.</div>'
+            + '<div id="fc-plan"></div>'
+            + '<div id="fc-plan-out" style="margin-top:7px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
             + '<label style="' + lbl + '">Post an update (optional)</label>'
             + '<input id="fc-upd-title" placeholder="headline (optional)" style="' + inp + '"/>'
             + '<textarea id="fc-upd" rows="3" placeholder="We passed halfway at 9pm…" style="' + inp + 'resize:vertical;margin-top:8px;"></textarea>'
@@ -1662,7 +1674,7 @@ function (path, config) {
             clearTimeout(draftTimer);
             draftTimer = setTimeout(saveDraft, 500);   // a keystroke is not a save
         };
-        const sync = () => { fromForm(); preview(); donUI(); touch(); };
+        const sync = () => { fromForm(); preview(); donUI(); touch(); try { if (typeof planUI === 'function' && doc.plan) planUI(); } catch (e) { } };
         toForm(); preview(); lists(); tlList(); dirty = false; liveUI();
 
         // A CAMPAIGN THAT IS THERE BUT WOULD NOT COME BACK. Publishing over it would
@@ -1717,6 +1729,7 @@ function (path, config) {
                 doc = Object.assign(doc, d.doc);
                 if (d.image && d.image.dataUri) { pendingImage = d.image; imageGone = false; }
                 toForm(); lists(); imgUI(); preview();
+                try { planUI(); } catch (e) { }
                 dirty = true; liveUI();
                 bar.style.display = 'none';
                 $('fc-status').textContent = 'Your changes are back. Publish to put them on the display.';
@@ -1969,6 +1982,89 @@ function (path, config) {
         // and has no business throwing the share dialog in somebody's face for it. It is
         // read off an object, never off the argument itself: these are also assigned
         // straight to onclick, where the argument is a DOM event.
+        // ---- the program plan ----------------------------------------------------------
+        // Built in Baja Project (Build > Tx discovery & development) and sent here with
+        // Build > Add to a fundraising campaign. It is not edited on this screen: the
+        // workbook is where its numbers live, and sending it again replaces it.
+        const planUI = () => {
+            const box = $('fc-plan');
+            if (!box) return;
+            const pl = (doc.plan && typeof doc.plan === 'object') ? doc.plan : null;
+            if (!pl) {
+                box.innerHTML = '<div style="padding:11px 13px;border:1px dashed rgba(255,255,255,0.18);border-radius:9px;'
+                    + 'font:12.5px/1.6 system-ui;color:#9fb3c8;">No plan attached. In <b style="color:#eaf6f9;">Baja Project</b>, '
+                    + 'build one with <b style="color:#eaf6f9;">Build › Tx discovery &amp; development</b>, adjust the '
+                    + 'assumptions, then choose <b style="color:#eaf6f9;">Build › Add to a fundraising campaign</b>.'
+                    + '<div style="margin-top:9px;">' + btn('fc-plan-open', 'Open Baja Project') + '</div></div>';
+                const ob = $('fc-plan-open');
+                if (ob) ob.onclick = () => { try { window.open('/app/cpd/baja-project', '_blank'); } catch (e) { } };
+                return;
+            }
+            const pic = PV ? PV.html(pl, { goal: doc.goal, raised: doc.raised, currency: doc.currency }) : '';
+            const total = Math.max(0, +pl.total || 0);
+            let built = '';
+            try { if (pl.built) built = new Date(pl.built).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); } catch (e) { }
+            box.innerHTML = '<div style="padding:14px;border:1px solid rgba(255,255,255,0.14);border-radius:10px;background:#0a1e3a;">'
+                + (pic || '<div style="font:12.5px system-ui;color:#fca5a5;">The plan is attached, but its picture could not be drawn here.</div>')
+                + '</div>'
+                + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+                + (total > 0 && Math.round(total) !== Math.round(+doc.goal || 0)
+                    ? btn('fc-plan-goal', 'Set the goal to ' + esc(money(total, pl.currency || doc.currency))) : '')
+                + btn('fc-plan-del', 'Remove the plan')
+                + (built ? '<span style="font:11.5px system-ui;color:#6f93a6;">From Baja Project, ' + esc(built) + '</span>' : '')
+                + '</div>'
+                + ((pl.currency && doc.currency && pl.currency !== doc.currency)
+                    ? '<div style="margin-top:6px;font:12px system-ui;color:#fde68a;">The plan is in ' + esc(pl.currency)
+                        + ' and the campaign in ' + esc(doc.currency) + '. The figures are not converted.</div>' : '');
+            const g = $('fc-plan-goal');
+            if (g) g.onclick = () => {
+                doc.goal = Math.round(total);
+                try { $('fc-goal').value = doc.goal.toLocaleString(); } catch (e) { }
+                if (pl.currency && /^[A-Z]{3}$/.test(pl.currency) && CUR.indexOf(pl.currency) >= 0) {
+                    doc.currency = pl.currency;
+                    try { $('fc-cur').value = pl.currency; } catch (e) { }
+                }
+                preview(); planUI(); touch();
+                $('fc-plan-out').textContent = 'Goal set to the plan’s total. Publish to put it on the display.';
+            };
+            const d = $('fc-plan-del');
+            if (d) d.onclick = () => {
+                delete doc.plan;
+                planUI(); preview(); touch();
+                $('fc-plan-out').textContent = 'Removed. Publish to take it off the details page.';
+            };
+        };
+
+        // A PLAN SENT FROM BAJA PROJECT. Either handed over directly (when the console was
+        // opened in the same tab) or left in this browser for the campaign it was meant for
+        // and taken once. An old one, or one for a different campaign, is left alone.
+        (() => {
+            let incoming = (config && config.plan && typeof config.plan === 'object') ? config.plan : null;
+            if (!incoming && !forOther) {
+                const key = 'baja.fundraise.plan|' + user;
+                try {
+                    const raw = localStorage.getItem(key);
+                    const h = raw ? JSON.parse(raw) : null;
+                    if (h && h.plan && (Date.now() - (+h.at || 0)) < 30 * 60000
+                        && ((h.file && h.file === fileName) || (!h.file && !fileName))) {
+                        incoming = h.plan;
+                        localStorage.removeItem(key);
+                    }
+                } catch (e) { }
+            }
+            if (!incoming) { planUI(); return; }
+            const had = !!doc.plan;
+            doc.plan = incoming;
+            if ((!doc.title || doc.title === 'Our campaign') && incoming.name && !fileName) {
+                doc.title = ('' + incoming.name).slice(0, 80);
+                try { $('fc-title').value = doc.title; } catch (e) { }
+            }
+            planUI(); preview(); touch();
+            $('fc-plan-out').innerHTML = '<span style="color:#fde68a;">' + (had ? 'The plan was replaced with the one from Baja Project. '
+                : 'The plan from Baja Project is attached. ') + 'Look it over, then publish to put it on the details page.</span>';
+            setTimeout(() => { try { $('fc-plan').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { } }, 300);
+        })();
+
         const publish = async (opts) => {
             const quiet = !!(opts && opts.quiet === true);
             if (locked) {

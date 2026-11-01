@@ -54,6 +54,15 @@ function (path, config) {
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         const qp = (k) => { try { return new URL(window.location.href).searchParams.get(k); } catch (e) { return null; } };
 
+        // The program plan's picture (fundraise/plan-view.js), the same one the console
+        // previews. A campaign without a plan never needs it, and one whose module does not
+        // load simply shows no plan section.
+        let PV = null;
+        try { PV = await exec('fundraise/plan-view.js'); } catch (e) { PV = null; }
+        const planOf = (d) => {
+            try { return (PV && d && d.plan) ? PV.clean(d.plan) : null; } catch (e) { return null; }
+        };
+
         let every = 10;
         const rq = qp('refresh');
         if (rq != null && rq !== '') { const v = parseFloat(rq); if (isFinite(v)) every = Math.max(0, Math.min(3600, v)); }
@@ -406,6 +415,7 @@ function (path, config) {
         const listOf = (d, k) => (Array.isArray(d && d[k]) ? d[k] : []).filter((x) => x && typeof x === 'object');
         const hasDetail = (d) => !!(('' + ((d && d.story) || '')).trim() || listOf(d, 'gifts').length
             || listOf(d, 'updates').length || listOf(d, 'team').length || listOf(d, 'timeline').length
+            || !!planOf(d)
             || ('' + ((d && d.media && d.media.docFile) || '')).trim()
             || /^[\w-]{11}$/.test('' + ((d && d.media && d.media.youtube) || '')));
         // Paragraphs, not a block of run-on text, and still escaped: everything here was typed
@@ -659,6 +669,10 @@ function (path, config) {
                             + esc(m.text) + '</div>' : '')
                         + '</div>').join('')
                     + '</div>' : '')
+                // WHAT THE MONEY WILL DO: the budget and timeline from Baja Project, drawn
+                // against this campaign's goal and what it has raised so far.
+                + ((() => { const pl = planOf(d); return pl ? sect('What the money will do')
+                    + PV.html(pl, { goal: d.goal, raised: d.raised }) : ''; })())
                 + (deckHtml(d) ? sect('The presentation') + deckHtml(d) : '')
 
                 + (updates.length ? sect('Updates') + updates.map((u) => ''
@@ -856,7 +870,7 @@ function (path, config) {
             }
             missed = 0;
             const stamp = JSON.stringify([d.title, d.subtitle, d.goal, d.raised, d.donors, d.note, d.updated,
-                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media, d.team, d.teamV, d.timeline]);
+                d.story, d.hideGiftAmounts, d.gifts, d.updates, d.donate, d.media, d.team, d.teamV, d.timeline, d.plan]);
             if (stamp !== lastStamp) { lastStamp = stamp; await readPicture(d); await readFaces(d); draw(d, firstTime); }
         };
 
