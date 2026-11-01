@@ -691,10 +691,22 @@ function (path, config) {
                             + esc(m.text) + '</div>' : '')
                         + '</div>').join('')
                     + '</div>' : '')
-                // WHAT THE MONEY WILL DO: the budget and timeline from Baja Project, drawn
-                // against this campaign's goal and what it has raised so far.
-                + ((() => { const pl = planOf(d); return pl ? sect('What the money will do')
-                    + PV.html(pl, { goal: d.goal, raised: d.raised }) : ''; })())
+                // THE PLAN: the budget and timeline, drawn against this campaign's goal and what it
+                // has raised so far. The one section a donor is weighing the campaign by, so it is
+                // set apart: a larger heading, and a solid card rather than text floating over the
+                // campaign's background (or its photograph).
+                + ((() => {
+                    const pl = planOf(d);
+                    if (!pl) return '';
+                    sectN++;
+                    return '<div style="' + (sectN > 1 ? 'margin-top:44px;padding-top:26px;border-top:1px solid rgba(255,255,255,0.13);' : 'margin-top:32px;') + '">'
+                        + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">'
+                        + '<span style="width:6px;height:22px;border-radius:3px;background:linear-gradient(#4fd0e6,#22c55e);"></span>'
+                        + '<span style="font:800 17px system-ui;letter-spacing:.12em;text-transform:uppercase;color:#eaf6f9;">The plan</span></div>'
+                        + '<div style="background:#0b1c33;border:1px solid rgba(143,192,212,0.28);border-radius:14px;'
+                        + 'padding:clamp(14px,2.4vmin,24px);box-shadow:0 14px 40px rgba(0,0,0,0.45);">'
+                        + PV.html(pl, { goal: d.goal, raised: d.raised }) + '</div></div>';
+                })())
                 + (deckHtml(d) ? sect('The presentation') + deckHtml(d) : '')
 
                 + (updates.length ? sect('Updates') + updates.map((u) => ''
