@@ -1983,21 +1983,44 @@ function (path, config) {
         // read off an object, never off the argument itself: these are also assigned
         // straight to onclick, where the argument is a DOM event.
         // ---- the program plan ----------------------------------------------------------
-        // Built in Baja Project (Build > Tx discovery & development) and sent here with
-        // Build > Add to a fundraising campaign. It is not edited on this screen: the
-        // workbook is where its numbers live, and sending it again replaces it.
+        // Built here, in the plan editor (fundraise/plan-editor.js): describe the program,
+        // let the AI draft the stages, weeks and costs, correct them, and the timeline and
+        // budget are drawn as they will be on the details page. A plan can also arrive from
+        // a Baja Project workbook (Build > Add to a fundraising campaign), and the editor
+        // opens that one too.
+        const openPlanEditor = async () => {
+            fromForm();
+            let pl = null;
+            try {
+                pl = await exec('fundraise/plan-editor.js', {
+                    plan: doc.plan || null, title: doc.title, story: doc.story,
+                    currency: doc.currency, goal: doc.goal, raised: doc.raised,
+                });
+            } catch (e) {
+                $('fc-plan-out').innerHTML = '<span style="color:#fca5a5;">The plan editor could not open: '
+                    + esc((e && e.message) ? e.message : e) + '</span>';
+                return;
+            }
+            if (!pl) return;     // cancelled: nothing changes
+            const had = !!doc.plan;
+            doc.plan = pl;
+            planUI(); preview(); touch();
+            $('fc-plan-out').innerHTML = '<span style="color:#fde68a;">' + (had ? 'Plan updated.' : 'Plan attached.')
+                + ' Publish to put it on the details page.</span>';
+            try { $('fc-plan').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { }
+        };
         const planUI = () => {
             const box = $('fc-plan');
             if (!box) return;
             const pl = (doc.plan && typeof doc.plan === 'object') ? doc.plan : null;
             if (!pl) {
-                box.innerHTML = '<div style="padding:11px 13px;border:1px dashed rgba(255,255,255,0.18);border-radius:9px;'
-                    + 'font:12.5px/1.6 system-ui;color:#9fb3c8;">No plan attached. In <b style="color:#eaf6f9;">Baja Project</b>, '
-                    + 'build one with <b style="color:#eaf6f9;">Build › Tx discovery &amp; development</b>, adjust the '
-                    + 'assumptions, then choose <b style="color:#eaf6f9;">Build › Add to a fundraising campaign</b>.'
-                    + '<div style="margin-top:9px;">' + btn('fc-plan-open', 'Open Baja Project') + '</div></div>';
-                const ob = $('fc-plan-open');
-                if (ob) ob.onclick = () => { try { window.open('/app/cpd/baja-project', '_blank'); } catch (e) { } };
+                box.innerHTML = '<div style="padding:12px 13px;border:1px dashed rgba(255,255,255,0.18);border-radius:9px;'
+                    + 'font:12.5px/1.6 system-ui;color:#9fb3c8;">No plan yet. Describe the program and the AI drafts the '
+                    + 'stages, how long each takes and what it costs; you correct them and see the timeline and budget '
+                    + 'as donors will.'
+                    + '<div style="margin-top:10px;">' + btn('fc-plan-new', 'Build a plan with AI', 'go') + '</div></div>';
+                const nb = $('fc-plan-new');
+                if (nb) nb.onclick = openPlanEditor;
                 return;
             }
             const pic = PV ? PV.html(pl, { goal: doc.goal, raised: doc.raised, currency: doc.currency }) : '';
@@ -2010,8 +2033,10 @@ function (path, config) {
                 + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
                 + (total > 0 && Math.round(total) !== Math.round(+doc.goal || 0)
                     ? btn('fc-plan-goal', 'Set the goal to ' + esc(money(total, pl.currency || doc.currency))) : '')
+                + btn('fc-plan-edit', 'Edit the plan')
                 + btn('fc-plan-del', 'Remove the plan')
-                + (built ? '<span style="font:11.5px system-ui;color:#6f93a6;">From Baja Project, ' + esc(built) + '</span>' : '')
+                + (built ? '<span style="font:11.5px system-ui;color:#6f93a6;">' + (pl.source === 'console' ? 'Built ' : 'From Baja Project, ')
+                    + esc(built) + '</span>' : '')
                 + '</div>'
                 + ((pl.currency && doc.currency && pl.currency !== doc.currency)
                     ? '<div style="margin-top:6px;font:12px system-ui;color:#fde68a;">The plan is in ' + esc(pl.currency)
@@ -2027,6 +2052,8 @@ function (path, config) {
                 preview(); planUI(); touch();
                 $('fc-plan-out').textContent = 'Goal set to the plan’s total. Publish to put it on the display.';
             };
+            const ed = $('fc-plan-edit');
+            if (ed) ed.onclick = openPlanEditor;
             const d = $('fc-plan-del');
             if (d) d.onclick = () => {
                 delete doc.plan;
