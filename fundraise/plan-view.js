@@ -151,6 +151,46 @@ function () {
         const range = Math.max(1, t1 - t0);
         const pos = (t) => Math.max(0, Math.min(100, (t - t0) / range * 100));
 
+        // ON A PHONE the calendar cannot sit beside the stage names: a third of 360px is not
+        // room for "GLP In Vivo Toxicology 13 Weeks", and what is left is not room for bars.
+        // So each stage gets its own row -- name and cost, its dates, and a thin full-width
+        // track with its bar placed on the whole program's span -- and the milestones are
+        // listed. opts.compact forces it either way; otherwise a narrow window chooses it.
+        const compact = (o.compact != null) ? !!o.compact
+            : (() => { try { return window.innerWidth < 600; } catch (e) { return false; } })();
+        if (compact) {
+            const gs = [];
+            for (const x of p.phases) if (gs.indexOf(x.group) < 0) gs.push(x.group);
+            const rowC = (x, i) => {
+                const l = pos(x.start), w = Math.max(1.5, pos(x.end) - l);
+                return '<div style="padding:10px 0;' + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
+                    + '<div style="display:flex;gap:10px;align-items:baseline;">'
+                    + '<div style="flex:1 1 auto;min-width:0;font:600 14px/1.3 system-ui;color:#e6f2f7;">' + esc(x.name) + '</div>'
+                    + (x.cost ? '<div style="flex:0 0 auto;font:700 13.5px system-ui;color:#eaf6f9;">' + esc(money(x.cost, cur, true)) + '</div>' : '')
+                    + '</div>'
+                    + '<div style="font:12px system-ui;color:#8fb6c6;margin-top:2px;">' + esc(month(x.start)) + ' \u2013 ' + esc(month(x.end)) + '</div>'
+                    + '<div style="position:relative;height:8px;margin-top:7px;border-radius:4px;background:rgba(255,255,255,0.07);">'
+                    + '<div style="position:absolute;top:0;bottom:0;left:' + l.toFixed(2) + '%;width:' + w.toFixed(2) + '%;border-radius:4px;'
+                    + 'background:' + colourOf(x.group) + ';"></div></div></div>';
+            };
+            return '<div class="baja-plan" style="text-align:left;">'
+                + '<div style="font:500 13.5px/1.5 system-ui;color:#bcd9e4;margin-bottom:8px;">'
+                + (p.name ? '<b style="color:#eaf6f9;">' + esc(p.name) + '</b><br>' : '')
+                + esc(p.phases.length + (p.phases.length === 1 ? ' stage' : ' stages')) + ' over ' + esc(span(t0, t1))
+                + ', ' + esc(month(t0)) + ' to ' + esc(month(t1)) + '</div>'
+                + '<div style="display:flex;justify-content:space-between;font:600 11px system-ui;color:#7fb0c4;margin-top:6px;">'
+                + '<span>' + esc(month(t0)) + '</span><span>' + esc(month(t1)) + '</span></div>'
+                + '<div>' + p.phases.map(rowC).join('') + '</div>'
+                + (p.milestones.length ? '<div style="margin-top:10px;font:12.5px/1.8 system-ui;color:#bcd9e4;">'
+                    + p.milestones.map((m) => '<div><span style="color:#fbbf24;">\u25c6</span> ' + esc(m.name)
+                        + ' <span style="color:#7fb0c4;">' + esc(month(m.at)) + '</span></div>').join('') + '</div>' : '')
+                + (gs.length > 1 ? '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font:12px system-ui;color:#bcd9e4;">'
+                    + gs.map((g) => '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;'
+                        + 'border-radius:3px;background:' + colourOf(g) + ';"></span>' + esc(g) + '</span>').join('') + '</div>' : '')
+                + fundsHtml(p, o, '20px')
+                + '</div>';
+        }
+
         // Year marks, at 1 January of each year inside the window (or the window's own
         // ends when it is shorter than a year).
         const ticks = [];

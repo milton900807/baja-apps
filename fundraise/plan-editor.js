@@ -230,6 +230,13 @@ function (opts) {
             + 'backdrop-filter:blur(2px);padding:22px clamp(8px,2.2vw,28px);box-sizing:border-box;color:#eaf6f9;'
             + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
         const ACCENT = '#a78bfa';
+        // ON A PHONE the editor takes the whole screen: no sheet with margins, one column, the
+        // stages as cards instead of a seven-column table, the preview under the form (with a
+        // button in the header to jump to it), and the plan drawn in its compact form.
+        const phone = (() => {
+            try { return (typeof isMobile === 'function' && !!isMobile()) || window.innerWidth < 720; }
+            catch (e) { return false; }
+        })();
         const campName = ('' + (o.title || '')).trim() || 'your campaign';
         const campShort = campName.length > 28 ? campName.slice(0, 27) + '\u2026' : campName;
         const lbl = 'display:block;font:600 12px system-ui;color:#9fb3c8;margin:14px 0 5px;';
@@ -257,7 +264,7 @@ function (opts) {
         wrap.innerHTML = ''
             + '<div id="pe-sheet" style="max-width:1340px;margin:0 auto;background:#0c1b38;border:1px solid rgba(167,139,250,0.32);'
             + 'border-top:4px solid ' + ACCENT + ';border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,0.6);">'
-            + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 22px 14px;background:#151f45;'
+            + '<div class="pe-head" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 22px 14px;background:#151f45;'
             + 'border-bottom:1px solid rgba(167,139,250,0.25);border-radius:12px 12px 0 0;position:sticky;top:-22px;z-index:3;">'
             + '<div style="min-width:0;">'
             // Where this is.
@@ -270,13 +277,15 @@ function (opts) {
             + '<div style="font:700 20px system-ui;">Program plan</div>'
             + '<span style="padding:3px 10px;border-radius:999px;background:rgba(167,139,250,0.16);border:1px solid rgba(167,139,250,0.45);'
             + 'color:#ddd6fe;font:700 11px system-ui;letter-spacing:.04em;">Part of: ' + esc(campShort) + '</span></div>'
-            + '<div style="font:12.5px system-ui;color:#a5b4d8;margin-top:3px;">What the money will pay for, and when. '
+            + '<div class="pe-blurb" style="font:12.5px system-ui;color:#a5b4d8;margin-top:3px;">What the money will pay for, and when. '
             + 'Shown on the campaign details page.</div></div>'
-            + '<div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">'
+            + '<div class="pe-actions" style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">'
             + '<span id="pe-total" style="font:600 13px system-ui;color:#cfe6ef;white-space:nowrap;"></span>'
-            + btn('pe-cancel', '\u2190 Back to ' + esc(campShort)) + btn('pe-use', 'Use this plan', 'go') + '</div></div>'
-            + '<div style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
-            + '<div style="flex:1 1 460px;max-width:620px;">'
+            + btn('pe-cancel', phone ? '\u2190 Back' : ('\u2190 Back to ' + esc(campShort)))
+            + (phone ? btn('pe-jump', 'See the plan \u2193') : '')
+            + btn('pe-use', 'Use this plan', 'go') + '</div></div>'
+            + '<div class="pe-body" style="padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;">'
+            + '<div class="pe-col" style="flex:1 1 460px;max-width:620px;">'
 
             + sectHead('Describe the program', 'In a sentence or two: what you are developing, for whom, and how far '
                 + 'this money takes it. The AI drafts the stages from this.', 'optional', true)
@@ -312,7 +321,7 @@ function (opts) {
             + '</div>'
 
             // The picture, which stays in view while the numbers change.
-            + '<div style="flex:1 1 420px;min-width:300px;position:sticky;top:110px;">'
+            + '<div id="pe-side" class="pe-col" style="flex:1 1 420px;min-width:300px;position:sticky;top:110px;">'
             + '<div style="font:700 12px system-ui;letter-spacing:.1em;text-transform:uppercase;color:#7fb0c4;margin-bottom:10px;">'
             + 'On the campaign details page</div>'
             + '<div id="pe-prev" style="padding:16px;border:1px solid rgba(255,255,255,0.14);border-radius:12px;'
@@ -321,6 +330,30 @@ function (opts) {
             + '</div></div></div>';
         document.body.appendChild(wrap);
         const $ = (id) => document.getElementById(id);
+        if (phone) {
+            const W = '#baja-plan-editor';
+            const css = document.createElement('style');
+            css.id = 'pe-phone-css';
+            css.textContent = [
+                W + '{padding:0!important;backdrop-filter:none!important;background:#0c1b38!important;}',
+                W + ' #pe-sheet{max-width:none!important;min-height:100%;border-radius:0!important;border-left:0!important;'
+                    + 'border-right:0!important;border-bottom:0!important;box-shadow:none!important;}',
+                W + ' .pe-head{position:sticky!important;top:0!important;border-radius:0!important;padding:10px 14px!important;gap:8px!important;}',
+                W + ' .pe-blurb{display:none!important;}',
+                W + ' .pe-actions{margin-left:0!important;width:100%!important;justify-content:stretch!important;gap:8px!important;}',
+                W + ' .pe-actions button{flex:1 1 0!important;padding:10px 8px!important;}',
+                W + ' #pe-total{width:100%!important;order:-1;font-size:12.5px!important;}',
+                W + ' .pe-body{padding:14px!important;gap:22px!important;}',
+                W + ' .pe-col{flex:1 1 100%!important;max-width:100%!important;min-width:0!important;position:static!important;}',
+                // "See the plan" lands below the sticky header, not under it.
+                W + ' #pe-side{scroll-margin-top:190px;}',
+                W + ' input,' + W + ' select,' + W + ' textarea{font-size:16px!important;}',
+                W + ' button{min-height:44px;}',
+                W + ' #pe-crumb{min-height:0!important;}',
+                W + ' #pe-ex{min-height:0!important;padding:6px 0!important;}',
+            ].join('\n');
+            document.head.appendChild(css);
+        }
 
         $('pe-prompt').value = seededPrompt;
 
@@ -374,7 +407,48 @@ function (opts) {
             + ' style="cursor:pointer;border:0;background:transparent;color:' + (off ? '#3c5a6b' : '#7fb0c4') + ';'
             + 'font:700 12px system-ui;line-height:1;padding:2px 3px;">' + ch + '</button>';
         const fmtNum = (v) => (v ? Math.round(v).toLocaleString() : '');
+        // On a phone each stage is a card: its name across the top, then its part, weeks, cost
+        // and gap under small captions, then the controls. Same data-* hooks as the table, so
+        // wire() handles both.
+        const cap = (t, inner) => '<label style="display:block;min-width:0;"><span style="display:block;font:600 11px system-ui;'
+            + 'color:#7fb0c4;margin-bottom:3px;">' + t + '</span>' + inner + '</label>';
+        const bigIcon = (attr, label, off, danger) => '<button ' + attr + (off ? ' disabled' : '') + ' style="cursor:pointer;flex:1 1 0;'
+            + 'border:1px solid rgba(255,255,255,0.16);background:transparent;border-radius:8px;padding:8px 6px;min-height:40px;'
+            + 'font:600 12.5px system-ui;color:' + (off ? '#3c5a6b' : (danger ? '#fca5a5' : '#cfe6ef')) + ';">' + label + '</button>';
+        const phoneSel = (k, i, v) => '<select data-f="' + k + ':part:' + i + '" style="' + cell + 'width:100%;padding:9px 8px;">'
+            + PARTS.map((p) => '<option' + (p === v ? ' selected' : '') + '>' + p + '</option>').join('') + '</select>';
+        const phoneIn = (f, val, mode, ph) => '<input data-f="' + f + '" inputmode="' + mode + '" value="' + esc(val) + '"'
+            + (ph ? ' placeholder="' + ph + '"' : '') + ' style="' + cell + 'width:100%;padding:9px 8px;text-align:right;"/>';
+        const stagesPhone = () => {
+            const box = $('pe-stages');
+            box.innerHTML = !model.stages.length ? '<div style="font:13px system-ui;color:#9fb3c8;">No stages yet.</div>'
+                : model.stages.map((s, i) => '<div style="padding:10px;margin-bottom:10px;border-radius:10px;'
+                    + 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);">'
+                    + '<div style="font:600 11px system-ui;color:#7fb0c4;margin-bottom:4px;">Stage ' + (i + 1) + '</div>'
+                    + '<input data-f="s:name:' + i + '" value="' + esc(s.name) + '" placeholder="name" style="' + cell + 'width:100%;padding:9px 10px;"/>'
+                    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">'
+                    + cap('Part', phoneSel('s', i, s.part)) + cap('Weeks', phoneIn('s:weeks:' + i, s.weeks || '', 'numeric'))
+                    + cap('Cost', phoneIn('s:cost:' + i, fmtNum(s.cost), 'decimal')) + cap('Gap (weeks)', phoneIn('s:gap:' + i, s.gap || '', 'numeric', '0'))
+                    + '</div>'
+                    + '<div style="display:flex;gap:8px;margin-top:8px;">'
+                    + bigIcon('data-mv="' + i + ':-1"', '\u25b2 Up', i === 0)
+                    + bigIcon('data-mv="' + i + ':1"', '\u25bc Down', i === model.stages.length - 1)
+                    + bigIcon('data-rm="s:' + i + '"', '\u00d7 Remove', false, true) + '</div></div>').join('');
+            wire(box);
+        };
+        const othersPhone = () => {
+            const box = $('pe-others');
+            box.innerHTML = !model.others.length ? '<div style="font:13px system-ui;color:#9fb3c8;">None.</div>'
+                : model.others.map((s, i) => '<div style="padding:10px;margin-bottom:10px;border-radius:10px;'
+                    + 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);">'
+                    + '<input data-f="c:name:' + i + '" value="' + esc(s.name) + '" placeholder="what it is" style="' + cell + 'width:100%;padding:9px 10px;"/>'
+                    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">'
+                    + cap('Part', phoneSel('c', i, s.part)) + cap('Cost', phoneIn('c:cost:' + i, fmtNum(s.cost), 'decimal')) + '</div>'
+                    + '<div style="display:flex;margin-top:8px;">' + bigIcon('data-rm="c:' + i + '"', '\u00d7 Remove', false, true) + '</div></div>').join('');
+            wire(box);
+        };
         const stagesUI = () => {
+            if (phone) return stagesPhone();
             const box = $('pe-stages');
             const head = '<div style="display:flex;gap:6px;padding:0 0 4px;font:600 11px system-ui;color:#7fb0c4;">'
                 + '<span style="flex:1 1 auto;">Stage</span><span style="flex:0 0 118px;">Part</span>'
@@ -394,6 +468,7 @@ function (opts) {
             wire(box);
         };
         const othersUI = () => {
+            if (phone) return othersPhone();
             const box = $('pe-others');
             box.innerHTML = !model.others.length ? '<div style="font:12.5px system-ui;color:#9fb3c8;">None.</div>'
                 : model.others.map((s, i) => '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">'
@@ -445,7 +520,7 @@ function (opts) {
             plan = toPlan(model);
             // Stages are required: a plan needs at least one stage on the calendar.
             const ok = plan.phases.length > 0;
-            $('pe-prev').innerHTML = ok && PV ? PV.html(plan, { goal: o.goal, raised: o.raised })
+            $('pe-prev').innerHTML = ok && PV ? PV.html(plan, { goal: o.goal, raised: o.raised, compact: phone || undefined })
                 : '<div style="font:13px system-ui;color:#9fb3c8;">Add a stage with a number of weeks and the plan appears here.</div>';
             $('pe-total').textContent = ok ? (plan.phases.length + ' stages · ' + money(plan.total, plan.currency)) : '';
             const warn = [];
@@ -529,12 +604,13 @@ function (opts) {
 
         all();
         if (isNew) $('pe-ai-out').textContent = 'Started from the standard template. Describe the program and draft with AI for one that fits it.';
-        try { $('pe-prompt').focus(); } catch (e) { }
+        if (!phone) { try { $('pe-prompt').focus(); } catch (e) { } }
 
         // ---- leaving -------------------------------------------------------------------
         return await new Promise((resolve) => {
             const done = (v) => {
                 exStop();
+                try { const c = document.getElementById('pe-phone-css'); if (c) c.remove(); } catch (e) { }
                 document.removeEventListener('keydown', onKey, true);
                 try { wrap.remove(); } catch (e) { }
                 resolve(v);
@@ -543,6 +619,7 @@ function (opts) {
             document.addEventListener('keydown', onKey, true);
             $('pe-cancel').onclick = () => done(null);
             $('pe-crumb').onclick = () => done(null);
+            if ($('pe-jump')) $('pe-jump').onclick = () => { try { $('pe-side').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { } };
             $('pe-use').onclick = () => { redraw(); if (plan && plan.phases.length) done(plan); };
         });
     })();
