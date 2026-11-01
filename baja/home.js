@@ -23,19 +23,15 @@ function () {
         const who = ('' + ((typeof getUser === 'function' ? getUser() : '') || '')).trim();
 
         // Everything that can be opened cold. Fundraising is not in here: it has a door.
+        // Neoantigen Design (liverpool/editor), mRNA Design (tottenham/editor) and Library
+        // (manchester/library) were taken off the home screen; the modules are still there.
         const APPS = [
             { label: 'Oligo Design', icon: 'icons/svg/oligo-design', path: 'manchester/editor', args: ['', { mode: 'editor' }],
               note: 'Antisense, siRNA, steric-blocking and allele-selective compounds against a transcript.' },
-            { label: 'Neoantigen Design', icon: 'icons/svg/neoantigen-design', path: 'liverpool/editor',
-              note: 'Peptides a tumour’s mutations present on the patient’s own HLA, assembled into a cassette.' },
-            { label: 'mRNA Design', icon: 'icons/svg/mrna-design', path: 'tottenham/editor',
-              note: 'The transcript itself: codon choice, half-life engineering, cap and nucleoside chemistry.' },
             { label: 'Assay Design', icon: 'icons/svg/assay-design', path: 'manchester/assay-design',
               note: 'The short path: pick a target, get a compound set, without the full screening canvas.' },
             { label: 'Genome Viewer', icon: 'icons/svg/chromosomes', path: 'manchester/karyotype',
               note: 'Every chromosome at one true scale. Load a VCF, then open a region as tracks.' },
-            { label: 'Library', icon: 'icons/svg/library-shelf', path: 'manchester/library',
-              note: 'The RNA therapeutics reference shelf, read in place.' },
             { label: 'Project', icon: 'icons/svg/programme', path: 'cpd/baja-project', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-project'],
               note: 'Development timelines, milestones and capital models from plain-language descriptions.' },
             { label: 'Analytics', icon: 'icons/svg/analytics', path: 'cpd/baja-analytics', args: ['', { silent: true, user: who, mode: 'editor' }, '/app/cpd/baja-analytics'],
