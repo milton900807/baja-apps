@@ -16,6 +16,9 @@
 #                      console, viewer, admin and icons, and the Apps menu entries. Then
 #                      Home and the funds options into the header menu, which lives in
 #                      env.js on the server rather than in the bundle.
+#                      And the timeline point side panel: a click on a timeline point
+#                      opens its options in a panel docked at the right of the canvas
+#                      instead of a modal menu over it (plate-track.js, point-side-panel.js).
 #    3. the frontend   (--frontend only) the Angular shell: the widget markup that stops
 #                      being rebuilt several times a second, the header's authoring
 #                      buttons behind one account, and the landing page that scrolls on
@@ -136,6 +139,40 @@ if [[ $DO_API -eq 1 ]]; then
       say "No assets/env.js found, so the menu was left alone."
       say "Find it and run:  sudo python3 set-menu.py <path to env.js>   (or set ENVJS=…)"
     fi
+  fi
+fi
+
+# ---- 2b: the timeline point side panel ---------------------------------------
+#
+# Two files, copied whole from REF: the new panel module and the plate track that opens
+# it. A file that is already the same is left alone; one that differs is kept beside the
+# new one as <file>.before-<stamp>. A REF that predates the change is said and skipped
+# rather than installing an older plate-track.js over a newer one.
+if [[ $DO_API -eq 1 ]]; then
+  step "The timeline point side panel"
+  TL_STAMP="$(date +%Y%m%d%H%M%S)"
+  TL_OK=1
+  for f in baja/plots/point-side-panel.js baja/plate/plate-track.js; do
+    curl -fsSL "$RAW/$REF/$f" -o "$TMP/tl.$(basename "$f")" || { say "  $f is not at ${REF:0:12}; skipped."; TL_OK=0; break; }
+  done
+  if [[ $TL_OK -eq 1 ]] && ! grep -q 'point-side-panel' "$TMP/tl.plate-track.js"; then
+    say "  plate-track.js at ${REF:0:12} does not open the side panel; skipped."
+    TL_OK=0
+  fi
+  if [[ $TL_OK -eq 1 ]]; then
+    for f in baja/plots/point-side-panel.js baja/plate/plate-track.js; do
+      src="$TMP/tl.$(basename "$f")"; dst="$APPS_DIR/$f"
+      if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then say "  $f: already current"; continue; fi
+      mkdir -p "$(dirname "$dst")"
+      if [[ -f "$dst" ]]; then
+        cp -p "$dst" "$dst.before-$TL_STAMP"
+        OWNER="$(stat -c '%u:%g' "$dst")"
+      else
+        OWNER="$(stat -c '%u:%g' "$(dirname "$dst")")"
+      fi
+      cp "$src" "$dst"; chmod 644 "$dst"; chown "$OWNER" "$dst" 2>/dev/null || true
+      say "  $f: installed"
+    done
   fi
 fi
 
