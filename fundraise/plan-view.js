@@ -112,11 +112,12 @@ function () {
                 + 'background:' + c + ';border-radius:5px;box-shadow:0 0 0 1px rgba(0,0,0,0.25) inset;"></div></div></div>';
         };
 
+        // Year labels only where they clear the start and end labels, which are wider.
         const axis = '<div style="display:flex;gap:10px;margin-bottom:4px;">'
             + '<div style="flex:0 0 ' + LABEL_W + ';"></div>'
             + '<div style="position:relative;flex:1 1 auto;height:16px;font:600 11px system-ui;color:#7fb0c4;">'
             + '<span style="position:absolute;left:0;">' + esc(month(t0)) + '</span>'
-            + ticks.filter((k) => k.at > 15 && k.at < 85)   // clear of the end labels, which are wider.map((k) => '<span style="position:absolute;left:' + k.at.toFixed(2)
+            + ticks.filter((k) => k.at > 15 && k.at < 85).map((k) => '<span style="position:absolute;left:' + k.at.toFixed(2)
                 + '%;transform:translateX(-50%);">' + esc(k.label) + '</span>').join('')
             + '<span style="position:absolute;right:0;">' + esc(month(t1)) + '</span></div></div>';
 
