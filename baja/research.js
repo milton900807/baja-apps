@@ -24,72 +24,58 @@ function () {
         const ID = 'baja-research';
         const phone = (typeof isMobile === 'function') ? !!isMobile() : (window.innerWidth < 760);
 
-        const shell = (inner, n) => '<div id="' + ID + '" data-draw="' + n + '" '
-            + 'style="font-family:Arial,Helvetica,sans-serif;'
-            + 'max-width:1180px;margin:0 auto;padding:' + (phone ? '16px 14px 36px' : '26px 18px 40px') + ';">'
-            + inner + '</div>';
-
-        // DRAWING, and why it is not just clear() then showWidget.
+        // THE PAGE IS A SHEET OF ITS OWN, not something handed to showWidget.
         //
-        // showWidget APPENDS, so a clear() has to come first or two screens stack. But the
-        // markup does not arrive synchronously: the shell puts it on the page a tick or more
-        // later, and may replace those nodes again on a repaint. Two things follow, and both
-        // of them were bugs here first.
+        // It was drawn with showWidget first, the way the home screen is, and a run of
+        // research is far longer than a home screen: the card the shell puts it in is the
+        // height of the window and does not scroll, so everything past the fold was simply
+        // cut off with no way to reach it. The two other long pages here, fundraise/admin.js
+        // and fundraise/super.js, do not use showWidget either; they own a fixed, scrolling
+        // element on document.body, and this is that pattern.
         //
-        //   A clear() can land BEFORE the screen it was meant to remove has arrived, which
-        //   leaves the loading screen sitting under the results. So every screen is stamped
-        //   with the number of the draw that made it and a reaper takes away any that is not
-        //   the current one, whenever it turns up.
-        //
-        //   Nothing can touch the markup in the same breath as drawing it, because it is not
-        //   there yet. afterDraw() waits for the current screen and then hands it over; a
-        //   newer draw cancels it. (Clicks do not go through this at all: they are handled on
-        //   the document, further down.)
-        // The count lives on the window, not in this closure, because this module is run
-        // again every time somebody comes back to Research. A second instance with its own
-        // counter starting at one, and a reaper from the first instance still watching for
-        // its own last number, means the old reaper tears down the new panel the moment it
-        // is drawn: a blank page, and no way to tell why. One counter and one reaper per
-        // window is the whole fix.
-        const seen = () => +window.__bajaResearchDraw || 0;
-        const reap = () => {
-            if (window.__bajaResearchReaping) return;
-            window.__bajaResearchReaping = true;
-            let left = 60;                                   // about three seconds of watching
-            const tick = () => {
-                try {
-                    const all = document.querySelectorAll('#' + ID + '[data-draw]');
-                    for (let i = 0; i < all.length; i++) {
-                        if (+all[i].getAttribute('data-draw') !== seen()) all[i].remove();
-                    }
-                } catch (e) { }
-                if (--left > 0 && window.__bajaResearchHandlers) { setTimeout(tick, 50); return; }
-                window.__bajaResearchReaping = false;
-            };
-            setTimeout(tick, 0);
+        // What comes with owning the element: clear() cannot remove it, so leaving has to
+        // take it down by hand (see go(), below) or the next screen is drawn underneath a
+        // sheet still covering the window. In exchange the markup is on the page the moment
+        // it is written, rather than a tick or more later, so a screen can be drawn and then
+        // touched in the same breath.
+        const sheet = () => {
+            let el = document.getElementById(ID);
+            if (el) return el;
+            el = document.createElement('div');
+            el.id = ID;
+            el.style.cssText = 'position:fixed;inset:0;z-index:2147483000;overflow:auto;'
+                + '-webkit-overflow-scrolling:touch;overscroll-behavior:contain;'
+                + 'background:#f2f6f8;color:#12242c;font-family:Arial,Helvetica,sans-serif;';
+            document.body.appendChild(el);
+            // The shell listens for keys on the document and would otherwise act on what is
+            // typed into the search box, exactly as it would in the admin page.
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
+                el.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (x) { } });
+            }
+            return el;
+        };
+        const gone = () => {
+            try {
+                const el = document.getElementById(ID);
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            } catch (e) { }
         };
         const draw = (inner) => {
-            const n = seen() + 1;
-            window.__bajaResearchDraw = n;
-            try { clear(); } catch (e) { }
-            const r = showWidget({
-                wid: 'card', width: '100%', height: '100%',
-                data: { cards: [[{ 'width': '100%', 'height': '100%', 'component': { wid: 'html', data: shell(inner, n) } }]] }
-            });
-            reap();
-            return r;
+            const el = sheet();
+            el.innerHTML = '<div style="max-width:1180px;margin:0 auto;padding:'
+                + (phone ? '16px 14px 48px' : '26px 18px 56px') + ';">' + inner + '</div>';
+            // A new screen starts at the top. Without this, opening a run from halfway down
+            // the list begins halfway down the run.
+            try { el.scrollTop = 0; } catch (e) { }
+            return true;
         };
+        // Kept so that drawing and then touching the markup reads the same either way; the
+        // markup is already there, so this runs at once.
         const afterDraw = (fn) => {
-            const n = seen();
-            let tries = 0;
-            const tick = () => {
-                if (seen() !== n) return;                    // a newer screen has taken over
-                let el = null;
-                try { el = document.querySelector('#' + ID + '[data-draw="' + n + '"]'); } catch (e) { }
-                if (el) { try { fn(el); } catch (e) { } return; }
-                if (++tries < 60) setTimeout(tick, 50);
-            };
-            setTimeout(tick, 0);
+            try {
+                const el = document.getElementById(ID);
+                if (el) fn(el);
+            } catch (e) { }
         };
 
         // ---- the look, which is Home's ---------------------------------------------------
@@ -283,6 +269,7 @@ function () {
         // leaving somebody on an empty screen.
         const go = async () => {
             window.__bajaResearchHandlers = null;
+            gone();
             try { clear(); } catch (e) { }
             try { window.history.pushState({}, '', '/app/baja/init'); } catch (e) { }
             try { await exec('baja/init'); }
@@ -299,7 +286,7 @@ function () {
         // acted on.
         const typed = () => {
             try {
-                const root = document.querySelector('#' + ID + '[data-draw="' + seen() + '"]');
+                const root = document.getElementById(ID);
                 const v = root ? root.querySelector('#rp-q') : null;
                 if (v) return ('' + v.value).trim();
             } catch (e) { }
@@ -314,8 +301,7 @@ function () {
                 const h = window.__bajaResearchHandlers;
                 const target = e && e.target;
                 if (!h || !target || !target.closest) return;
-                const panel = target.closest('#' + ID);
-                if (!panel || +panel.getAttribute('data-draw') !== seen()) return;
+                if (!target.closest('#' + ID)) return;
                 // One press, one action. A pointerdown is always a new press; the mousedown
                 // and click the browser sends after it are part of the same press and are
                 // ignored. A browser with no pointer events never sets the stamp, so its
