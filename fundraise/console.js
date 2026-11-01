@@ -467,8 +467,7 @@ function (path, config) {
             + sec('About this campaign', { tag: 'optional' })
             + '<textarea id="fc-story" rows="5" placeholder="What the money is for. Blank lines start new paragraphs." style="' + inp + 'resize:vertical;margin-top:12px;"></textarea>'
             + sec('Timeline', { tag: 'optional' })
-            + '<div style="font:12px/1.55 system-ui;color:#9fb3c8;margin:8px 0 7px;">'
-            + 'What happens with the money, and roughly when, in words. For a costed plan, use the program plan below.</div>'
+            + '<div style="height:10px;"></div>'
             + '<div id="fc-tl" style="margin-bottom:8px;"></div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
             + '<input id="fc-tl-when" placeholder="when (First 3 months)" style="' + inp + 'flex:1 1 150px;"/>'
