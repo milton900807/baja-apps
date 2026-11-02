@@ -503,6 +503,133 @@ function (path, config) {
                 + 'and nothing about you is used for anything but this campaign.</div>'
             : '';
 
+        // ---- SHARING ---------------------------------------------------------------------
+        //
+        // The thing that moves a campaign most is people telling people. So: a Share button on
+        // the display and on the details page for anyone, and -- straight after a donation --
+        // a sheet that opens by itself and asks the donor to say they gave, with the words
+        // already written. A donor naming the campaign to their own friends is worth more than
+        // anything this page can say for itself.
+        //
+        // The link is the campaign's short /f/<code> link, which carries the campaign's own
+        // title, picture and description as a preview card on Facebook, X, LinkedIn,
+        // WhatsApp, iMessage and Slack. The phone's own share menu comes first where there is
+        // one; the named services and Copy are there everywhere. Nothing is posted by this
+        // page: each button opens the service with the words in place, for the person to send.
+        let shareEl = null, sharedPrompted = false;
+        const shareUrl = () => {
+            try {
+                if (code) return window.location.origin + '/f/' + encodeURIComponent(code);
+                if (docPath) return window.location.origin + '/app/manchester/viewer-fundraise?path=' + encodeURIComponent(docPath);
+                return window.location.href;
+            } catch (e) { return ''; }
+        };
+        const shareText = (d, gave) => {
+            const t = ('' + ((d && d.title) || 'this campaign')).trim();
+            const sub = ('' + ((d && d.subtitle) || '')).trim();
+            return gave
+                ? 'I just gave to ' + t + '. Every gift moves it closer to the goal. Will you join me?'
+                : t + (sub ? ': ' + sub + '.' : '.') + ' Every gift helps. Please take a look and share it.';
+        };
+        const closeShare = () => {
+            try { if (shareEl && shareEl.parentNode) shareEl.parentNode.removeChild(shareEl); } catch (e) { }
+            shareEl = null;
+        };
+        const ICON = {
+            share: '<path d="M12 3v13"/><path d="m7 8 5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
+            link: '<path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
+            mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+            sms: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+        };
+        const svg = (k) => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" '
+            + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[k] + '</svg>';
+        const openShare = (d, gave) => {
+            closeShare();
+            const url = shareUrl();
+            shareEl = document.createElement('div');
+            shareEl.id = 'fd-share-sheet';
+            shareEl.style.cssText = 'position:fixed;inset:0;z-index:2147483400;background:rgba(2,8,16,0.66);display:flex;'
+                + 'align-items:flex-end;justify-content:center;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
+            const svc = [
+                ['fb', 'Facebook', '#1877f2'], ['x', 'X', '#000000'], ['li', 'LinkedIn', '#0a66c2'],
+                ['wa', 'WhatsApp', '#25d366'], ['bs', 'Bluesky', '#1185fe'], ['sms', 'Text message', '#0f766e'],
+                ['mail', 'Email', '#475569'],
+            ];
+            const tile = (k, label, bg) => '<button type="button" data-share="' + k + '" style="cursor:pointer;display:flex;align-items:center;'
+                + 'gap:9px;justify-content:center;border:0;border-radius:12px;padding:12px 10px;min-height:48px;background:' + bg + ';color:#fff;'
+                + 'font:700 14px system-ui;">' + (ICON[k] ? svg(k) : '') + esc(label) + '</button>';
+            shareEl.innerHTML = '<div role="dialog" aria-label="Share" style="width:min(560px,100%);max-height:92vh;overflow:auto;background:#0b2545;'
+                + 'color:#eaf6f9;border:1px solid rgba(255,255,255,0.16);border-bottom:0;border-radius:18px 18px 0 0;'
+                + 'padding:20px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -20px 60px rgba(0,0,0,0.5);">'
+                + '<div style="display:flex;align-items:flex-start;gap:12px;">'
+                + '<div style="flex:1 1 auto;"><div style="font:800 20px system-ui;">' + (gave ? 'Thank you. Now tell people.' : 'Share this campaign') + '</div>'
+                + '<div style="margin-top:5px;font:14px/1.5 system-ui;color:#bcd9e4;">' + (gave
+                    ? 'Saying that you gave is the most powerful thing you can do for this campaign: people give when someone they know already has.'
+                    : 'One message to your friends reaches people this page never will.') + '</div></div>'
+                + '<button type="button" data-share="close" aria-label="Close" style="cursor:pointer;border:0;background:none;color:#9fc4d4;'
+                + 'font:700 22px system-ui;line-height:1;padding:2px 4px;">×</button></div>'
+                + '<label style="display:block;margin-top:14px;font:600 12px system-ui;color:#9fc4d4;">Your message (change it if you like)</label>'
+                + '<textarea id="fd-share-msg" rows="3" style="width:100%;box-sizing:border-box;margin-top:6px;background:#0a1e3a;color:#eaf6f9;'
+                + 'border:1px solid rgba(255,255,255,0.18);border-radius:10px;padding:10px 12px;font:15px/1.45 system-ui;resize:vertical;">'
+                + esc(shareText(d, gave)) + '</textarea>'
+                + (P ? '<div style="margin-top:10px;font:13px system-ui;color:#fde68a;">Sharing is off in a preview. On the published display these buttons open each service.</div>' : '')
+                + ((typeof navigator !== 'undefined' && navigator.share)
+                    ? '<button type="button" data-share="native" style="margin-top:14px;width:100%;cursor:pointer;display:flex;align-items:center;'
+                        + 'justify-content:center;gap:10px;border:0;border-radius:12px;padding:14px;min-height:52px;background:#22c55e;color:#04210f;'
+                        + 'font:800 16px system-ui;">' + svg('share') + 'Share…</button>' : '')
+                + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px;">'
+                + svc.map((x) => tile(x[0], x[1], x[2])).join('') + '</div>'
+                + '<div style="display:flex;gap:8px;margin-top:12px;align-items:stretch;">'
+                + '<input id="fd-share-url" readonly value="' + esc(url) + '" style="flex:1 1 auto;min-width:0;background:#0a1e3a;color:#cfe6ef;'
+                + 'border:1px solid rgba(255,255,255,0.18);border-radius:10px;padding:10px 12px;font:14px system-ui;"/>'
+                + '<button type="button" data-share="copy" style="cursor:pointer;display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,0.28);'
+                + 'background:transparent;color:#fff;border-radius:10px;padding:10px 14px;font:700 14px system-ui;white-space:nowrap;">' + svg('link') + 'Copy</button></div>'
+                + '<div id="fd-share-out" style="margin-top:8px;min-height:18px;font:13px system-ui;color:#86efac;"></div>'
+                + '</div>';
+            document.body.appendChild(shareEl);
+            const say = (t, bad) => { const o = document.getElementById('fd-share-out'); if (o) { o.textContent = t; o.style.color = bad ? '#fca5a5' : '#86efac'; } };
+            const msg = () => ('' + ((document.getElementById('fd-share-msg') || {}).value || '')).trim();
+            const copy = async (text) => {
+                try { await navigator.clipboard.writeText(text); return true; } catch (e) { }
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+                    document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok;
+                } catch (e) { return false; }
+            };
+            const go = (u) => { try { window.open(u, '_blank', 'noopener,noreferrer,width=680,height=620'); } catch (e) { window.location.href = u; } };
+            shareEl.addEventListener('click', async (e) => {
+                if (e.target === shareEl) { closeShare(); return; }
+                const b = e.target && e.target.closest ? e.target.closest('[data-share]') : null;
+                if (!b) return;
+                const k = b.getAttribute('data-share');
+                if (k === 'close') { closeShare(); return; }
+                if (P) { say('Sharing is off in a preview.', true); return; }
+                const m = msg(), U = encodeURIComponent(url), T = encodeURIComponent(m);
+                if (k === 'native') {
+                    try { await navigator.share({ title: ('' + (d.title || 'Campaign')), text: m, url: url }); say('Shared. Thank you.'); }
+                    catch (err) { /* cancelled: nothing to say */ }
+                    return;
+                }
+                if (k === 'copy') { say((await copy(m ? m + ' ' + url : url)) ? 'Copied. Paste it anywhere.' : 'Could not copy. Select the link and copy it.', false); return; }
+                if (k === 'fb') return go('https://www.facebook.com/sharer/sharer.php?u=' + U);
+                if (k === 'x') return go('https://twitter.com/intent/tweet?text=' + T + '&url=' + U);
+                if (k === 'li') return go('https://www.linkedin.com/sharing/share-offsite/?url=' + U);
+                if (k === 'wa') return go('https://wa.me/?text=' + encodeURIComponent(m + ' ' + url));
+                if (k === 'bs') return go('https://bsky.app/intent/compose?text=' + encodeURIComponent(m + ' ' + url));
+                if (k === 'sms') { window.location.href = 'sms:?&body=' + encodeURIComponent(m + ' ' + url); return; }
+                if (k === 'mail') {
+                    window.location.href = 'mailto:?subject=' + encodeURIComponent('' + (d.title || 'A campaign worth a look'))
+                        + '&body=' + encodeURIComponent(m + '\n\n' + url);
+                }
+            });
+            for (const ev of ['mousedown', 'wheel', 'touchstart']) shareEl.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+        };
+        const shareBtn = (id, label, big) => '<button id="' + id + '" type="button" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;'
+            + 'border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);color:#eaf6f9;border-radius:999px;'
+            + 'padding:9px 18px;font:600 ' + (big ? 'clamp(12px,1.6vmin,15px)' : '13px') + ' system-ui;white-space:nowrap;">'
+            + svg('share') + esc(label) + '</button>';
+
         // The sheet: pick an amount, then Stripe. Nothing is typed here that belongs to a
         // card -- the only field is how much.
         let sheet = null;
@@ -693,6 +820,7 @@ function (path, config) {
                 + (donateBtn(d, false) ? '<div style="margin-top:16px;">' + donateBtn(d, false)
                     + '<div style="margin-top:8px;font:12px system-ui;color:#8fb6c6;">' + LOCK(12, 0.85)
                     + 'Card details are never typed on this page.</div></div>' : '')
+                + '<div style="margin-top:14px;">' + shareBtn('fd-share2', 'Share this campaign', false) + '</div>'
 
                 + (('' + (d.story || '')).trim() ? sect('About this campaign')
                     + '<div style="font:400 15.5px/1.6 system-ui;color:#dceef5;">' + paras(d.story) + '</div>' : '')
@@ -783,6 +911,8 @@ function (path, config) {
                 + (every ? '<span style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div></div>';
             wireDeck(d);
+            const sh2 = document.getElementById('fd-share2');
+            if (sh2) sh2.onclick = () => openShare(d, thanked);
             const pdfB = document.getElementById('fd-plan-pdf');
             if (pdfB) pdfB.onclick = async () => {
                 const was = pdfB.innerHTML;
@@ -826,16 +956,18 @@ function (path, config) {
             // THE WAY IN TO THE REST OF IT. Under the thermometer, which is where
             // somebody's eye already is once they have read the number, rather than at the
             // bottom of the card under the Donate button where it was competing with it.
-            const moreBtn = hasDetail(d)
-                ? '<div style="margin-top:clamp(12px,2.2vmin,20px);">'
-                    + '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);'
-                    + 'background:rgba(255,255,255,0.06);color:#eaf6f9;border-radius:999px;'
-                    + 'padding:9px 20px;font:600 clamp(12px,1.6vmin,15px) system-ui;">'
-                    + 'Campaign details'
-                    + (listOf(d, 'updates').length ? ' \u00b7 ' + listOf(d, 'updates').length + ' update'
-                        + (listOf(d, 'updates').length === 1 ? '' : 's') : '')
-                    + '</button></div>'
-                : '';
+            const moreBtn = '<div style="margin-top:clamp(12px,2.2vmin,20px);display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">'
+                + (hasDetail(d)
+                    ? '<button id="fd-more" style="cursor:pointer;border:1px solid rgba(255,255,255,0.28);'
+                        + 'background:rgba(255,255,255,0.06);color:#eaf6f9;border-radius:999px;'
+                        + 'padding:9px 20px;font:600 clamp(12px,1.6vmin,15px) system-ui;">'
+                        + 'Campaign details'
+                        + (listOf(d, 'updates').length ? ' \u00b7 ' + listOf(d, 'updates').length + ' update'
+                            + (listOf(d, 'updates').length === 1 ? '' : 's') : '')
+                        + '</button>'
+                    : '')
+                + shareBtn('fd-share', 'Share', true)
+                + '</div>';
             const upd = d.updated ? new Date(d.updated) : null;
             const when = upd && !isNaN(+upd) ? upd.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
             card().innerHTML = '<div style="' + panel + '">'
@@ -863,14 +995,28 @@ function (path, config) {
                 + (when ? 'Updated ' + esc(when) : '')          // not who: see renderDetail
                 + (every ? '<span id="fd-live" style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div></div>'
-                + (thanked ? '<div style="margin-top:clamp(12px,2vmin,20px);display:inline-block;border:1px solid rgba(134,239,172,0.5);'
-                    + 'background:rgba(34,197,94,0.14);color:#bbf7d0;border-radius:999px;padding:9px 20px;font:600 clamp(12px,1.7vmin,16px) system-ui;">'
-                    + 'Thank you. Your receipt is on its way from VRI.</div>' : '')
+                + (thanked ? '<div style="margin:clamp(12px,2vmin,20px) auto 0;max-width:560px;border:1px solid rgba(134,239,172,0.5);'
+                    + 'background:rgba(34,197,94,0.14);color:#bbf7d0;border-radius:16px;padding:14px 18px;text-align:center;">'
+                    + '<div style="font:700 clamp(14px,2vmin,18px) system-ui;">Thank you. Your receipt is on its way from VRI.</div>'
+                    + '<div style="margin-top:6px;font:400 clamp(12.5px,1.7vmin,15px)/1.5 system-ui;color:#d9f7e3;">Tell people you gave: '
+                    + 'it is the most powerful thing you can do for this campaign.</div>'
+                    + '<button id="fd-share-gave" type="button" style="margin-top:10px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;'
+                    + 'border:0;border-radius:999px;padding:11px 22px;background:#22c55e;color:#04210f;font:800 clamp(13px,1.8vmin,16px) system-ui;">'
+                    + svg('share') + 'Share that you gave</button></div>' : '')
                 + (donateBtn(d, true) ? '<div style="margin-top:clamp(14px,2.6vmin,26px);">' + donateBtn(d, true)
                     + safeLine(d) + '</div>' : '')
                 ;
             const more = document.getElementById('fd-more');
             if (more) more.onclick = () => go('detail');
+            const sh = document.getElementById('fd-share');
+            if (sh) sh.onclick = () => openShare(d, false);
+            const shg = document.getElementById('fd-share-gave');
+            if (shg) shg.onclick = () => openShare(d, true);
+            // Straight after a donation the sheet opens by itself, once.
+            if (thanked && !sharedPrompted) {
+                sharedPrompted = true;
+                setTimeout(() => { if (!shareEl && !sheet) openShare(d, true); }, 1200);
+            }
             const give = document.getElementById('fd-give');
             if (give) give.onclick = () => (P ? previewNote() : openSheet(d));
             const amt = document.getElementById('fd-amount');
@@ -963,6 +1109,7 @@ function (path, config) {
         // The preview's own bar, and its way out.
         let bar = null;
         const closePreview = () => {
+            closeShare();
             try { document.removeEventListener('keydown', onEsc, true); } catch (e) { }
             try { if (bar) bar.remove(); } catch (e) { }
             try { el.remove(); } catch (e) { }
@@ -989,6 +1136,7 @@ function (path, config) {
         }
         const onEsc = (e) => {
             if (!e || e.key !== 'Escape') return;
+            if (shareEl) { try { e.stopPropagation(); } catch (e2) { } closeShare(); return; }
             if (sheet) { try { e.stopPropagation(); } catch (e2) { } closeSheet(); return; }
             if (view === 'detail') { try { e.stopPropagation(); } catch (e2) { } go('main'); return; }
             if (P) { try { e.stopPropagation(); } catch (e2) { } closePreview(); }
