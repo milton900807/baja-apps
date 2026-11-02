@@ -2206,6 +2206,7 @@ function (path, config) {
                 + (total > 0 && Math.round(total) !== Math.round(+doc.goal || 0)
                     ? btn('fc-plan-goal', 'Set the goal to ' + esc(money(total, pl.currency || doc.currency))) : '')
                 + btn('fc-plan-edit', 'Edit the plan')
+                + btn('fc-plan-pdf', 'Download PDF')
                 + btn('fc-plan-del', 'Remove the plan')
                 + (built ? '<span style="font:11.5px system-ui;color:#6f93a6;">' + (pl.source === 'console' ? 'Built ' : 'From Baja Project, ')
                     + esc(built) + '</span>' : '')
@@ -2226,6 +2227,19 @@ function (path, config) {
             };
             const ed = $('fc-plan-edit');
             if (ed) ed.onclick = openPlanEditor;
+            const pdfB = $('fc-plan-pdf');
+            if (pdfB) pdfB.onclick = async () => {
+                fromForm();
+                pdfB.disabled = true;
+                try {
+                    const PDF = await exec('fundraise/plan-pdf.js');
+                    const name = await PDF.download(pl, { title: doc.title, goal: doc.goal, raised: doc.raised, link: publicLink || '' });
+                    $('fc-plan-out').textContent = 'Saved ' + name + '.';
+                } catch (e) {
+                    $('fc-plan-out').innerHTML = '<span style="color:#fca5a5;">Could not make the PDF: ' + esc((e && e.message) ? e.message : e) + '</span>';
+                }
+                pdfB.disabled = false;
+            };
             const d = $('fc-plan-del');
             if (d) d.onclick = () => {
                 delete doc.plan;

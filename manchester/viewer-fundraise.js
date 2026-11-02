@@ -725,7 +725,14 @@ function (path, config) {
                     return '<div style="' + (sectN > 1 ? 'margin-top:44px;padding-top:26px;border-top:1px solid rgba(255,255,255,0.13);' : 'margin-top:32px;') + '">'
                         + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">'
                         + '<span style="width:6px;height:22px;border-radius:3px;background:linear-gradient(#4fd0e6,#22c55e);"></span>'
-                        + '<span style="font:800 17px system-ui;letter-spacing:.12em;text-transform:uppercase;color:#eaf6f9;">The plan</span></div>'
+                        + '<span style="font:800 17px system-ui;letter-spacing:.12em;text-transform:uppercase;color:#eaf6f9;">The plan</span>'
+                        // The plan as a PDF to keep, print or forward (fundraise/plan-pdf.js).
+                        + '<button id="fd-plan-pdf" type="button" style="margin-left:auto;cursor:pointer;display:inline-flex;align-items:center;gap:7px;'
+                        + 'border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.06);color:#eaf6f9;border-radius:999px;'
+                        + 'padding:7px 14px;font:700 12.5px system-ui;white-space:nowrap;">'
+                        + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" '
+                        + 'stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>'
+                        + 'Download PDF</button></div>'
                         + '<div style="background:#0b1c33;border:1px solid rgba(143,192,212,0.28);border-radius:14px;'
                         + 'padding:clamp(14px,2.4vmin,24px);box-shadow:0 14px 40px rgba(0,0,0,0.45);">'
                         + PV.html(pl, { goal: d.goal, raised: d.raised }) + '</div></div>';
@@ -776,6 +783,23 @@ function (path, config) {
                 + (every ? '<span style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div></div>';
             wireDeck(d);
+            const pdfB = document.getElementById('fd-plan-pdf');
+            if (pdfB) pdfB.onclick = async () => {
+                const was = pdfB.innerHTML;
+                pdfB.disabled = true; pdfB.textContent = 'Making the PDF\u2026';
+                try {
+                    const PDF = await exec('fundraise/plan-pdf.js');
+                    await PDF.download(d.plan, {
+                        title: d.title, goal: d.goal, raised: d.raised,
+                        link: code ? (window.location.origin + '/f/' + code) : '',
+                    });
+                    pdfB.innerHTML = was;
+                } catch (e) {
+                    pdfB.textContent = 'Could not make the PDF';
+                    setTimeout(() => { try { pdfB.innerHTML = was; } catch (e2) { } }, 3000);
+                }
+                pdfB.disabled = false;
+            };
             const b = document.getElementById('fd-back');
             if (b) b.onclick = () => go('main');
             const give = document.getElementById('fd-give');

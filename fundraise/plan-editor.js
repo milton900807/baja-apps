@@ -326,6 +326,9 @@ function (opts) {
             + 'On the campaign details page</div>'
             + '<div id="pe-prev" style="padding:16px;border:1px solid rgba(255,255,255,0.14);border-radius:12px;'
             + 'background:radial-gradient(600px 300px at 50% -20%,#123a63 0%,#0a1e3a 55%,#071526 100%);"></div>'
+            + '<div style="margin-top:10px;"><button id="pe-pdf" type="button" style="cursor:pointer;border:1px solid rgba(255,255,255,0.22);'
+            + 'background:transparent;color:#fff;border-radius:8px;padding:8px 14px;font:700 12.5px system-ui;white-space:nowrap;">'
+            + 'Download PDF</button> <span id="pe-pdf-out" style="font:12px system-ui;color:#9fb3c8;margin-left:6px;"></span></div>'
             + '<div id="pe-check" style="margin-top:10px;font:12.5px/1.55 system-ui;color:#fde68a;"></div>'
             + '</div></div></div>';
         document.body.appendChild(wrap);
@@ -619,6 +622,17 @@ function (opts) {
             document.addEventListener('keydown', onKey, true);
             $('pe-cancel').onclick = () => done(null);
             $('pe-crumb').onclick = () => done(null);
+            $('pe-pdf').onclick = async () => {
+                redraw();
+                if (!plan || !plan.phases.length) { $('pe-pdf-out').textContent = 'Add a stage first.'; return; }
+                $('pe-pdf').disabled = true; $('pe-pdf-out').textContent = 'Making the PDF\u2026';
+                try {
+                    const PDF = await exec('fundraise/plan-pdf.js');
+                    const name = await PDF.download(plan, { title: o.title, goal: o.goal, raised: o.raised });
+                    $('pe-pdf-out').textContent = 'Saved ' + name + '.';
+                } catch (e) { $('pe-pdf-out').textContent = 'Could not make the PDF: ' + ((e && e.message) ? e.message : e); }
+                $('pe-pdf').disabled = false;
+            };
             if ($('pe-jump')) $('pe-jump').onclick = () => { try { $('pe-side').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { } };
             $('pe-use').onclick = () => { redraw(); if (plan && plan.phases.length) done(plan); };
         });
