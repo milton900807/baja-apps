@@ -548,8 +548,10 @@ function (path, config) {
             const url = shareUrl();
             shareEl = document.createElement('div');
             shareEl.id = 'fd-share-sheet';
+            // Centred in the window, on every screen.
             shareEl.style.cssText = 'position:fixed;inset:0;z-index:2147483400;background:rgba(2,8,16,0.66);display:flex;'
-                + 'align-items:flex-end;justify-content:center;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
+                + 'align-items:center;justify-content:center;padding:16px;box-sizing:border-box;'
+                + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;';
             const svc = [
                 ['fb', 'Facebook', '#1877f2'], ['x', 'X', '#000000'], ['li', 'LinkedIn', '#0a66c2'],
                 ['wa', 'WhatsApp', '#25d366'], ['bs', 'Bluesky', '#1185fe'], ['sms', 'Text message', '#0f766e'],
@@ -558,9 +560,9 @@ function (path, config) {
             const tile = (k, label, bg) => '<button type="button" data-share="' + k + '" style="cursor:pointer;display:flex;align-items:center;'
                 + 'gap:9px;justify-content:center;border:0;border-radius:12px;padding:12px 10px;min-height:48px;background:' + bg + ';color:#fff;'
                 + 'font:700 14px system-ui;">' + (ICON[k] ? svg(k) : '') + esc(label) + '</button>';
-            shareEl.innerHTML = '<div role="dialog" aria-label="Share" style="width:min(560px,100%);max-height:92vh;overflow:auto;background:#0b2545;'
-                + 'color:#eaf6f9;border:1px solid rgba(255,255,255,0.16);border-bottom:0;border-radius:18px 18px 0 0;'
-                + 'padding:20px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -20px 60px rgba(0,0,0,0.5);">'
+            shareEl.innerHTML = '<div role="dialog" aria-label="Share" style="width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#0b2545;'
+                + 'color:#eaf6f9;border:1px solid rgba(255,255,255,0.16);border-radius:18px;'
+                + 'padding:20px;box-shadow:0 24px 70px rgba(0,0,0,0.55);">'
                 + '<div style="display:flex;align-items:flex-start;gap:12px;">'
                 + '<div style="flex:1 1 auto;"><div style="font:800 20px system-ui;">' + (gave ? 'Thank you. Now tell people.' : 'Share this campaign') + '</div>'
                 + '<div style="margin-top:5px;font:14px/1.5 system-ui;color:#bcd9e4;">' + (gave
