@@ -503,6 +503,284 @@ function (path, config) {
                 + 'and nothing about you is used for anything but this campaign.</div>'
             : '';
 
+        // A QR encoder, byte mode, error correction level M, versions 1 to 12.
+        // Written out because the campaign display is a public page that must work with nothing
+        // loaded from anywhere else: a <script src> to a CDN is a third party watching every
+        // donor, and a request that can fail is a barcode that sometimes is not there.
+        const makeQr = (text) => {
+            // ---- the bytes to encode -------------------------------------------------------
+            const utf8 = [];
+            for (const ch of unescape(encodeURIComponent('' + text))) utf8.push(ch.charCodeAt(0) & 255);
+
+            // Per version, at level M: error-correction codewords in each block, then the blocks
+            // as (count, data codewords each). Two groups, because most versions have blocks of
+            // two sizes.
+            const SPEC = {
+                1: [10, [[1, 16]]], 2: [16, [[1, 28]]], 3: [26, [[1, 44]]],
+                4: [18, [[2, 32]]], 5: [24, [[2, 43]]], 6: [16, [[4, 27]]],
+                7: [18, [[4, 31]]], 8: [22, [[2, 38], [2, 39]]], 9: [22, [[3, 36], [2, 37]]],
+                10: [26, [[4, 43], [1, 44]]], 11: [30, [[1, 50], [4, 51]]], 12: [22, [[6, 36], [2, 37]]]
+            };
+            const ALIGN = {
+                1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34],
+                7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
+                11: [6, 30, 54], 12: [6, 32, 58]
+            };
+            const capacity = (v) => {
+                let n = 0;
+                for (const [count, each] of SPEC[v][1]) n += count * each;
+                return n;
+            };
+            // The character count is eight bits up to version 9 and sixteen from version 10, so
+            // the header is two bytes longer in the larger versions and the fit must allow for it.
+            const need = (v) => utf8.length + 2 + (v >= 10 ? 1 : 0);
+            let version = 0;
+            for (let v = 1; v <= 12; v++) { if (capacity(v) >= need(v)) { version = v; break; } }
+            if (!version) return null;                      // far longer than any link we make
+
+            // ---- the data bits -------------------------------------------------------------
+            const bits = [];
+            const push = (value, len) => { for (let i = len - 1; i >= 0; i--) bits.push((value >> i) & 1); };
+            push(4, 4);                                      // byte mode
+            push(utf8.length, version >= 10 ? 16 : 8);
+            for (const b of utf8) push(b, 8);
+            const total = capacity(version) * 8;
+            for (let i = 0; i < 4 && bits.length < total; i++) bits.push(0);   // terminator
+            while (bits.length % 8) bits.push(0);
+            const data = [];
+            for (let i = 0; i < bits.length; i += 8) {
+                let b = 0;
+                for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+                data.push(b);
+            }
+            for (let i = 0; data.length < capacity(version); i++) data.push(i % 2 ? 0x11 : 0xEC);
+
+            // ---- Reed-Solomon over GF(256), the polynomial x^8 + x^4 + x^3 + x^2 + 1 --------
+            const EXP = new Array(512), LOG = new Array(256);
+            for (let i = 0, x = 1; i < 255; i++) {
+                EXP[i] = x; LOG[x] = i;
+                x <<= 1; if (x & 0x100) x ^= 0x11D;
+            }
+            for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+            const mul = (a, b) => (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]];
+            const generator = (n) => {
+                let g = [1];
+                for (let i = 0; i < n; i++) {
+                    const next = new Array(g.length + 1).fill(0);
+                    for (let j = 0; j < g.length; j++) {
+                        next[j] ^= mul(g[j], 1);
+                        next[j + 1] ^= mul(g[j], EXP[i]);
+                    }
+                    g = next;
+                }
+                return g;
+            };
+            const ecc = (block, n) => {
+                const g = generator(n);
+                const rest = block.concat(new Array(n).fill(0));
+                for (let i = 0; i < block.length; i++) {
+                    const lead = rest[i];
+                    if (!lead) continue;
+                    for (let j = 0; j < g.length; j++) rest[i + j] ^= mul(g[j], lead);
+                }
+                return rest.slice(block.length);
+            };
+
+            const ecLen = SPEC[version][0];
+            const blocks = [], checks = [];
+            let at = 0;
+            for (const [count, each] of SPEC[version][1]) {
+                for (let i = 0; i < count; i++) {
+                    const b = data.slice(at, at + each); at += each;
+                    blocks.push(b);
+                    checks.push(ecc(b, ecLen));
+                }
+            }
+            // Interleaved: the first codeword of every block, then the second, and so on; then
+            // the same through the error-correction codewords.
+            const out = [];
+            const longest = Math.max.apply(null, blocks.map((b) => b.length));
+            for (let i = 0; i < longest; i++) for (const b of blocks) if (i < b.length) out.push(b[i]);
+            for (let i = 0; i < ecLen; i++) for (const c of checks) out.push(c[i]);
+
+            // ---- the matrix ----------------------------------------------------------------
+            const size = version * 4 + 17;
+            const grid = [], fixed = [];
+            for (let r = 0; r < size; r++) {
+                grid.push(new Array(size).fill(0));
+                fixed.push(new Array(size).fill(false));
+            }
+            const put = (r, c, dark) => { grid[r][c] = dark ? 1 : 0; fixed[r][c] = true; };
+            const finder = (top, left) => {
+                for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+                    const rr = top + r, cc = left + c;
+                    if (rr < 0 || cc < 0 || rr >= size || cc >= size) continue;
+                    const edge = (r >= 0 && r <= 6 && (c === 0 || c === 6)) || (c >= 0 && c <= 6 && (r === 0 || r === 6));
+                    const core = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+                    put(rr, cc, edge || core);
+                }
+            };
+            finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+            for (let i = 8; i < size - 8; i++) {             // timing
+                put(6, i, i % 2 === 0);
+                put(i, 6, i % 2 === 0);
+            }
+            for (const r of ALIGN[version]) for (const c of ALIGN[version]) {
+                if ((r <= 8 && c <= 8) || (r <= 8 && c >= size - 9) || (r >= size - 9 && c <= 8)) continue;
+                for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+                    put(r + dr, c + dc, Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+                }
+            }
+            // The format area is reserved now and written once the mask is chosen. Row 8 and
+            // column 8 skip index 6, which belongs to the timing patterns and not to the format.
+            for (let i = 0; i <= 8; i++) {
+                if (i !== 6) { put(8, i, false); put(i, 8, false); }
+            }
+            for (let i = 0; i < 8; i++) put(8, size - 1 - i, false);
+            for (let i = 0; i < 7; i++) put(size - 1 - i, 8, false);
+            // The one module that is always dark. It sits at the end of the format run down
+            // column 8 and is NOT part of it, so it goes in after that run is reserved.
+            put(size - 8, 8, true);
+            if (version >= 7) {
+                let v = version << 12;
+                for (let i = 0; i < 6; i++) { if (v >> (17 - i) & 1) v ^= 0x1F25 << (5 - i); }
+                const info = (version << 12) | (v & 0xFFF);
+                for (let i = 0; i < 18; i++) {
+                    const bit = (info >> i) & 1;
+                    put(Math.floor(i / 3), size - 11 + (i % 3), bit);
+                    put(size - 11 + (i % 3), Math.floor(i / 3), bit);
+                }
+            }
+
+            // The data, up each pair of columns and then down the next, skipping column 6.
+            let bi = 0;
+            const bitAt = (i) => (i >> 3) < out.length ? (out[i >> 3] >> (7 - (i & 7))) & 1 : 0;
+            for (let right = size - 1; right > 0; right -= 2) {
+                if (right === 6) right = 5;
+                for (let step = 0; step < size; step++) {
+                    const up = ((size - 1 - right) >> 1) % 2 === 0;
+                    const r = up ? size - 1 - step : step;
+                    for (const c of [right, right - 1]) {
+                        if (fixed[r][c]) continue;
+                        grid[r][c] = bitAt(bi++);
+                    }
+                }
+            }
+
+            // ---- the mask ------------------------------------------------------------------
+            const RULE = [
+                (r, c) => (r + c) % 2 === 0,
+                (r) => r % 2 === 0,
+                (r, c) => c % 3 === 0,
+                (r, c) => (r + c) % 3 === 0,
+                (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+                (r, c) => ((r * c) % 2) + ((r * c) % 3) === 0,
+                (r, c) => (((r * c) % 2) + ((r * c) % 3)) % 2 === 0,
+                (r, c) => (((r + c) % 2) + ((r * c) % 3)) % 2 === 0
+            ];
+            const formatBits = (mask) => {
+                const spec = (0 << 3) | mask;                // 00 is level M
+                let v = spec << 10;
+                for (let i = 0; i < 5; i++) { if (v >> (14 - i) & 1) v ^= 0x537 << (4 - i); }
+                return ((spec << 10) | (v & 0x3FF)) ^ 0x5412;
+            };
+            const penalty = (m) => {
+                let score = 0;
+                // Runs of five or more of one colour, in both directions.
+                for (let i = 0; i < size; i++) {
+                    for (const row of [true, false]) {
+                        let run = 1;
+                        for (let j = 1; j < size; j++) {
+                            const a = row ? m[i][j] : m[j][i], b = row ? m[i][j - 1] : m[j - 1][i];
+                            if (a === b) { run++; continue; }
+                            if (run >= 5) score += run - 2;
+                            run = 1;
+                        }
+                        if (run >= 5) score += run - 2;
+                    }
+                }
+                // Any two-by-two block of one colour.
+                for (let r = 0; r < size - 1; r++) for (let c = 0; c < size - 1; c++) {
+                    const v = m[r][c];
+                    if (v === m[r][c + 1] && v === m[r + 1][c] && v === m[r + 1][c + 1]) score += 3;
+                }
+                // The finder-like run, with four light modules either side of it.
+                const PAT1 = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0], PAT2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+                const look = (get) => {
+                    for (let i = 0; i + 11 <= size; i++) {
+                        let a = true, b = true;
+                        for (let k = 0; k < 11; k++) {
+                            const v = get(i + k);
+                            if (v !== PAT1[k]) a = false;
+                            if (v !== PAT2[k]) b = false;
+                        }
+                        if (a || b) score += 40;
+                    }
+                };
+                for (let i = 0; i < size; i++) { look((j) => m[i][j]); look((j) => m[j][i]); }
+                // How far from half the modules are dark.
+                let dark = 0;
+                for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) dark += m[r][c];
+                score += Math.floor(Math.abs((dark * 100) / (size * size) - 50) / 5) * 10;
+                return score;
+            };
+
+            let best = null, bestScore = Infinity;
+            for (let mask = 0; mask < 8; mask++) {
+                const m = grid.map((row) => row.slice());
+                for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+                    if (!fixed[r][c] && RULE[mask](r, c)) m[r][c] ^= 1;
+                }
+                const f = formatBits(mask);
+                for (let i = 0; i < 15; i++) {
+                    // The run below goes most significant bit first: the module beside the
+                    // top-left finder at (8,0) carries bit 14, not bit 0. Writing it the other way
+                    // round produces a code that every reader rejects, and the only way to tell is
+                    // to compare against a reader, which is what the test does.
+                    const bit = (f >> (14 - i)) & 1;
+                    // The copy beside the top-left finder, which runs along row 8 then up column 8.
+                    if (i < 6) m[8][i] = bit;
+                    else if (i === 6) m[8][7] = bit;
+                    else if (i === 7) m[8][8] = bit;
+                    else if (i === 8) m[7][8] = bit;
+                    else m[14 - i][8] = bit;
+                    // And the copy split between the other two finders: seven modules up from the
+                    // bottom-left, stopping short of the always-dark one, then eight across to the
+                    // right-hand edge.
+                    if (i < 7) m[size - 1 - i][8] = bit;
+                    else m[8][size - 15 + i] = bit;
+                }
+                const s = penalty(m);
+                if (s < bestScore) { bestScore = s; best = m; }
+            }
+            return { size: size, version: version, modules: best };
+        };
+
+        // A barcode of the campaign's link, as SVG rather than a canvas: it stays sharp on
+        // a projector and in a screenshot, and one <path> of squares is a fraction of the
+        // markup of one <rect> per module. The quiet zone is four modules of white on every
+        // side and is not decoration: a reader will not see the code without it. The drawn
+        // size follows how dense the code turned out, because what a camera needs is pixels
+        // per module, not pixels overall, and a long link at a fixed size stops being
+        // readable from across a room.
+        const qrSvg = (text) => {
+            const q = makeQr(text);
+            if (!q) return '';
+            const pad = 4, side = q.size + pad * 2;
+            const px = 'min(68vmin, ' + Math.min(640, Math.max(320, side * 12)) + 'px)';
+            let d = '';
+            for (let r = 0; r < q.size; r++) {
+                for (let c = 0; c < q.size; c++) {
+                    if (q.modules[r][c]) d += 'M' + (c + pad) + ' ' + (r + pad) + 'h1v1h-1z';
+                }
+            }
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="' + px + '" height="' + px + '" '
+                + 'viewBox="0 0 ' + side + ' ' + side + '" shape-rendering="crispEdges" '
+                + 'role="img" aria-label="Barcode for this campaign">'
+                + '<rect width="' + side + '" height="' + side + '" fill="#ffffff"/>'
+                + '<path d="' + d + '" fill="#000000"/></svg>';
+        };
+
         // ---- SHARING ---------------------------------------------------------------------
         //
         // The thing that moves a campaign most is people telling people. So: a Share button on
@@ -540,6 +818,9 @@ function (path, config) {
             link: '<path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
             mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
             sms: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+            qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>'
+                + '<rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M20 14v3"/>'
+                + '<path d="M14 20h3"/><path d="M20 20v1"/>',
         };
         const svg = (k) => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" '
             + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[k] + '</svg>';
@@ -587,6 +868,20 @@ function (path, config) {
                 + '<button type="button" data-share="copy" style="cursor:pointer;display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,0.28);'
                 + 'background:transparent;color:#fff;border-radius:10px;padding:10px 14px;font:700 14px system-ui;white-space:nowrap;">' + svg('link') + 'Copy</button></div>'
                 + '<div id="fd-share-out" style="margin-top:8px;min-height:18px;font:13px system-ui;color:#86efac;"></div>'
+                // IN THE ROOM, rather than on the internet. Everything above sends the link
+                // somewhere; this hands it to whoever is looking at the screen. It stays
+                // folded away because most people sharing a campaign are not standing in
+                // front of the person they are sharing it with, and an unfolded barcode
+                // would push the services off a phone.
+                + '<div style="margin-top:10px;border-top:1px solid rgba(255,255,255,0.12);padding-top:12px;">'
+                + '<button type="button" data-share="qr" aria-expanded="false" aria-controls="fd-qr-box" '
+                + 'style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,0.28);'
+                + 'background:transparent;color:#eaf6f9;border-radius:999px;padding:9px 16px;font:700 13.5px system-ui;">'
+                + svg('qr') + 'Show a barcode to scan</button>'
+                + '<div id="fd-qr-box" hidden style="margin-top:12px;text-align:center;">'
+                + '<div style="display:inline-block;background:#fff;border-radius:14px;padding:12px;line-height:0;"></div>'
+                + '<div style="margin-top:9px;font:13px/1.5 system-ui;color:#bcd9e4;">'
+                + 'Someone looking at this screen can point a phone camera at it.</div></div></div>'
                 + '</div>';
             document.body.appendChild(shareEl);
             const say = (t, bad) => { const o = document.getElementById('fd-share-out'); if (o) { o.textContent = t; o.style.color = bad ? '#fca5a5' : '#86efac'; } };
@@ -614,6 +909,24 @@ function (path, config) {
                     return;
                 }
                 if (k === 'copy') { say((await copy(m ? m + ' ' + url : url)) ? 'Copied. Paste it anywhere.' : 'Could not copy. Select the link and copy it.', false); return; }
+                if (k === 'qr') {
+                    const box = document.getElementById('fd-qr-box');
+                    if (!box) return;
+                    const open = box.hasAttribute('hidden');
+                    // Drawn the first time it is asked for, not on every open of this
+                    // window: encoding is real work and most people never press this.
+                    if (open && !box.getAttribute('data-drawn')) {
+                        const art = qrSvg(url);
+                        if (!art) { say('This link is too long to put in a barcode.', true); return; }
+                        box.firstChild.innerHTML = art;
+                        box.setAttribute('data-drawn', '1');
+                    }
+                    if (open) box.removeAttribute('hidden'); else box.setAttribute('hidden', '');
+                    b.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    b.lastChild.textContent = open ? 'Hide the barcode' : 'Show a barcode to scan';
+                    if (open) { try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { } }
+                    return;
+                }
                 if (k === 'fb') return go('https://www.facebook.com/sharer/sharer.php?u=' + U);
                 if (k === 'x') return go('https://twitter.com/intent/tweet?text=' + T + '&url=' + U);
                 if (k === 'li') return go('https://www.linkedin.com/sharing/share-offsite/?url=' + U);
