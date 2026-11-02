@@ -19936,6 +19936,10 @@ function (path, config) {
         // `side`: null or undefined for every variant in the range (the default), 1 for the
         // file on the LEFT only, 0 for the file on the RIGHT only -- so a tumor/normal pair
         // can be opened with one side's variants without the other's in the way.
+        // The group each side's variants travel under when both VCFs go to the editor,
+        // and the file name that labels its tracks.
+        const VCF_GROUP = ['vcf:R', 'vcf:L'];
+        const vcfName = (sd) => (sideFile[sd] ? shortFile(sideFile[sd]) : sideName(sd));
         const openRegions = async (list, focusBp, straight, side) => {
             const regs = (list || []).filter((q) => q && q.i >= 0 && q.i < drawn.length
                 && isFinite(q.lo) && isFinite(q.hi) && q.hi >= q.lo);
@@ -20002,6 +20006,7 @@ function (path, config) {
                             const ph = phaseOf(d, k);
                             if (ph) annots.push('PHASE=' + ph);
                         }
+                        const sdK = d.side ? (d.side[k] ? 1 : 0) : 0;
                         inRange.push({
                             chr: bare2, pos: d.pos[k], ref: ab[0], alt: ab[1],
                             name: (d.names[k] || (c2.name + ':' + d.pos[k])),
@@ -20011,10 +20016,30 @@ function (path, config) {
                             genotypes: gl.map((g) => GT_TEXT[g[1]] || './.'),
                             phase: gl.length ? phaseOf(d, k) : '',
                             annotations: annots,
+                            group: VCF_GROUP[sdK],
+                            vcf: vcfName(sdK),
                         });
                     }
                 }
             }
+            // ONE TRACK PER VCF. With both files open, each transcript goes to the editor
+            // twice -- once per file, labelled "<gene> · <file>" -- and each copy carries
+            // only that file's variants. With one file (or one side asked for) the groups
+            // come off again and the hand-off is the plain one it always was.
+            const bothVcf = inRange.some((v) => v.group === VCF_GROUP[1]) && inRange.some((v) => v.group === VCF_GROUP[0]);
+            if (!bothVcf) for (const v of inRange) { delete v.group; delete v.vcf; }
+            const trackIds = (list) => {
+                if (!bothVcf) return list.map((gn) => gn.transcript).filter(Boolean);
+                const out = [];
+                for (const gn of list) {
+                    if (!gn || !gn.transcript) continue;
+                    const gname = gn.gene || gn.transcript;
+                    for (const sd of [1, 0]) {
+                        out.push({ id: gn.transcript, group: VCF_GROUP[sd], label: gname + ' \u00b7 ' + vcfName(sd) });
+                    }
+                }
+                return out;
+            };
             const one = regs.length === 1 ? regs[0] : null;
             const c = one ? drawn[one.i] : null;
             const lo = one ? one.lo : 0, hi = one ? one.hi : 0;
@@ -20041,7 +20066,7 @@ function (path, config) {
                     graph.setMessage(' Nothing here has a transcript in the annotation to open. ');
                     return;
                 }
-                await handToEditor(pick.map((gn) => gn.transcript), inRange, straight.focus || null);
+                await handToEditor(trackIds(pick), inRange, straight.focus || null);
                 return;
             }
             const spanAll = regs.reduce((t, q) => t + (q.hi - q.lo), 0);
@@ -20285,8 +20310,8 @@ function (path, config) {
             let goBusy = false;
             q2('#kr-go').onclick = async () => {
                 if (goBusy) return;
-                const ids = qa2('.kr-g').filter((cb) => cb.checked)
-                    .map((cb) => genes[+cb.getAttribute('data-i')].transcript).filter(Boolean);
+                const ids = trackIds(qa2('.kr-g').filter((cb) => cb.checked)
+                    .map((cb) => genes[+cb.getAttribute('data-i')]).filter(Boolean));
                 if (!ids.length) { graph.setMessage(' Tick a transcript to open. '); return; }
                 goBusy = true;
                 const go = q2('#kr-go'), sv = q2('#kr-save');

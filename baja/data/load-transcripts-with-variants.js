@@ -188,7 +188,7 @@ function (server, graph, genegraph_panel_layout, ids, variants, options) {
                     // Coding genes first (that is the order the lookup returns), and within a
                     // gene the best isoform first -- but every isoform is a candidate, because
                     // the whole point is that the best one may not contain the variant.
-                    const ids = [];
+                    const ids = [], geneOf = {};
                     for (const g of genes) {
                         const list = (Array.isArray(g.transcripts) && g.transcripts.length)
                             ? g.transcripts : (g.transcript ? [g.transcript] : []);
@@ -197,33 +197,50 @@ function (server, graph, genegraph_panel_layout, ids, variants, options) {
                             if (!key || already.has(key) || tried.has(key)) continue;
                             tried.add(key);
                             ids.push(id);
+                            geneOf[id] = g.gene || '';
                         }
                     }
                     for (const id of ids) {
                         if (rescueTracks >= RESCUE_TRACKS) break;
                         const stillLeft = unplacedOf().filter((v) => ('' + (v.chr || '')).replace(/^chr/i, '') === w.chr);
                         if (!stillLeft.length) break;
-                        const before2 = new Set((graph.track || []));
-                        try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, id); }
-                        catch (e) { continue; }
-                        const fresh2 = (graph.track || []).filter((t) => t && !before2.has(t));
-                        if (!fresh2.length) continue;
-                        let tookHere = 0;
-                        for (const track of fresh2) {
-                            for (const v of stillLeft) { if (placeOn(track, v)) tookHere++; }
-                        }
-                        if (tookHere) {
-                            rescued += tookHere;
-                            rescueTracks += fresh2.length;
-                            loaded += fresh2.length;
-                        } else {
-                            // It carried nothing: take it off again rather than leave an empty
-                            // track behind for a gene nobody asked to see.
-                            for (const t of fresh2) {
-                                try {
-                                    const ix = (graph.track || []).indexOf(t);
-                                    if (ix >= 0) graph.track.splice(ix, 1);
-                                } catch (e) { }
+                        // GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO. A hand-off that puts
+                        // each VCF on its own track (the karyotype's "both sides") would have its
+                        // two files mixed on one rescue track; instead each group still waiting
+                        // gets its own copy of the transcript, labelled "<gene> · <vcf>".
+                        const groups = Array.from(new Set(stillLeft.map((v) => '' + ((v && v.group) || ''))));
+                        const sets = (groups.length === 1 && !groups[0])
+                            ? [{ g: '', list: stillLeft }]
+                            : groups.map((g) => ({ g: g, list: stillLeft.filter((v) => ('' + ((v && v.group) || '')) === g) }));
+                        for (const S of sets) {
+                            if (rescueTracks >= RESCUE_TRACKS) break;
+                            const before2 = new Set((graph.track || []));
+                            try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, id); }
+                            catch (e) { continue; }
+                            const fresh2 = (graph.track || []).filter((t) => t && !before2.has(t));
+                            if (!fresh2.length) continue;
+                            const vcf = S.g ? ('' + ((S.list[0] && S.list[0].vcf) || S.g)) : '';
+                            if (vcf) for (const t of fresh2) {
+                                try { t.description = (geneOf[id] ? geneOf[id] + ' \u00b7 ' : '') + vcf + (t.description ? '  \u00b7  ' + t.description : ''); } catch (e) { }
+                            }
+                            for (const t of fresh2) { try { if (graph.ensureUniqueTrackName) graph.ensureUniqueTrackName(t); } catch (e) { } }
+                            let tookHere = 0;
+                            for (const track of fresh2) {
+                                for (const v of S.list) { if (placeOn(track, v)) tookHere++; }
+                            }
+                            if (tookHere) {
+                                rescued += tookHere;
+                                rescueTracks += fresh2.length;
+                                loaded += fresh2.length;
+                            } else {
+                                // It carried nothing: take it off again rather than leave an empty
+                                // track behind for a gene nobody asked to see.
+                                for (const t of fresh2) {
+                                    try {
+                                        const ix = (graph.track || []).indexOf(t);
+                                        if (ix >= 0) graph.track.splice(ix, 1);
+                                    } catch (e) { }
+                                }
                             }
                         }
                     }

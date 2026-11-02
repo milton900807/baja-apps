@@ -183,6 +183,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "timeline side panel" \
     "baja/plots/point-side-panel.js:baja-point-side-panel" \
     "baja/plate/plate-track.js:point-side-panel"
+  install_group "editor: rescue tracks keep each VCF apart" \
+    "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
   install_group "editor loading notice" \
     "manchester/editor.js:baja-loading-notice"
   install_group "baja-project: progress bar first, Add to a fundraising campaign" \
@@ -210,6 +212,12 @@ if [[ $DO_API -eq 1 ]]; then
     python3 "$TMP/k.py" "$APPS_DIR" || say "  Not applied (see above). Everything else carries on."
   else
     say "  install-karyotype-side-choice.py is not at ${REF:0:12}; skipped."
+  fi
+  step "Karyotype: one editor track per VCF, labelled gene · file"
+  if curl -fsSL "$RAW/$REF/tools/hotfix/install-karyotype-vcf-tracks.py" -o "$TMP/k2.py" 2>/dev/null; then
+    python3 "$TMP/k2.py" "$APPS_DIR" || say "  Not applied (see above). Everything else carries on."
+  else
+    say "  install-karyotype-vcf-tracks.py is not at ${REF:0:12}; skipped."
   fi
 fi
 
