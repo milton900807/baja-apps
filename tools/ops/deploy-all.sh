@@ -199,6 +199,20 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/home.js:data-door=\"research\""
 fi
 
+# ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
+#
+# A patch rather than a copy (manchester/karyotype.js is 20,000 lines and not otherwise part
+# of a deploy). It edits five places in the server's copy, or changes nothing and says why.
+# A refusal here is reported and the rest of the deploy carries on.
+if [[ $DO_API -eq 1 ]]; then
+  step "Karyotype: choose left, right or both variants for the editor"
+  if curl -fsSL "$RAW/$REF/tools/hotfix/install-karyotype-side-choice.py" -o "$TMP/k.py" 2>/dev/null; then
+    python3 "$TMP/k.py" "$APPS_DIR" || say "  Not applied (see above). Everything else carries on."
+  else
+    say "  install-karyotype-side-choice.py is not at ${REF:0:12}; skipped."
+  fi
+fi
+
 # ---- 3: the Angular app ------------------------------------------------------
 #
 # This is the only step that compiles anything, and the only one that can fail for
