@@ -815,11 +815,23 @@ function () {
                 if (wantsTarget) {
                     let __cell = 0;
                     try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }
-                    // Clear the bead letters when those are showing; otherwise sit just above
-                    // the body. Below 11px the beads carry no letters, so the smaller lift is
-                    // enough -- and there is no zoom left with no letters at all, which a gate
-                    // at 5px opened between 5 and 11.
-                    y = y - (__cell >= 11 ? 0.30 : 0.14);
+                    // HOW FAR ABOVE: measured in PIXELS and converted back, because what has to
+                    // be cleared is drawn in pixels. The beads are sized from the per-base width
+                    // (chem-draw's own R and font), while a fixed step in graph units is however
+                    // many pixels the current y-scale makes it -- so one constant either laps the
+                    // row above or lands on the beads, depending on how the graph is scaled.
+                    const __R = Math.max(2, Math.min(10, __cell * 0.42));
+                    const __lift = (__cell >= 11)
+                        ? __R + 2 + Math.max(8, Math.min(13, Math.round(__R * 1.35))) + 4   // over the bead letters
+                        : __R + 6;                                                          // just over the beads
+                    let __dy = 0;
+                    try { __dy = tgraph.worldHeight(graph.worldHeight(__lift)); } catch (e) { __dy = 0; }
+                    if (!isFinite(__dy) || __dy <= 0) __dy = (__cell >= 11 ? 0.30 : 0.14);   // scale unreadable
+                    // PLUS, not minus. grid.Y is originScreen - (y - oy) * yscale, so a bigger
+                    // world y is higher on the canvas; subtracting put the row BELOW the body,
+                    // and at these distances that is on top of the compound stacked beneath
+                    // (the designer steps rows by 0.16).
+                    y = y + __dy;
                 }
 
                 let font = "11px Arial";
