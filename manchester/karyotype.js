@@ -1525,16 +1525,17 @@ function (path, config) {
                         // answer is the same one, and it is what the callout is for.
                         if (onScreen && rh < GENE_ASK_PX) {
                             const gcc = geneCache.get(geneKey(rg));
-                            if (!gcc) geneAsk(rg);
+                            if (!gcc || gcc.state === 'error') geneAsk(rg);
                             callouts.push({
                                 n: q + 1, rg: rg, chrom: c,
                                 ax: x1, ay: rt + rh / 2,
                                 genes: (gcc && gcc.state === 'done') ? gcc.genes : null,
+                                gstate: gcc ? gcc.state : 'pending',
                             });
                         }
                         if (onScreen && rh >= GENE_ASK_PX) {
                             const gc = geneCache.get(geneKey(rg));
-                            if (!gc) { geneAsk(rg); }
+                            if (!gc || gc.state === 'error') { geneAsk(rg); }
                             else if (gc.state === 'done') {
                                 ctx.save();
                                 ctx.textAlign = 'left';
@@ -1729,7 +1730,7 @@ function (path, config) {
                         const qlo = Math.max(1, Math.floor(lo / STEP) * STEP);
                         const qhi = Math.min(c.length, Math.ceil(hi / STEP) * STEP);
                         const wg = winGenes.get(ci + ':' + qlo + ':' + qhi);
-                        if (!wg) { winGenesAsk(ci, qlo, qhi); continue; }
+                        if (!wg || wg.state === 'error') { winGenesAsk(ci, qlo, qhi); continue; }
                         if (wg.state !== 'done' || !wg.genes.length) continue;
                         // Visible genes, ascending by locus. `g` is the graph, so a gene is `gn`.
                         // ONLY WHEN THE GENE IS BIG ENOUGH TO SEE. Zoomed out, a gene is a
@@ -1957,7 +1958,7 @@ function (path, config) {
                             if (qhi > qlo && (qhi - qlo) <= 260000000) {
                                 const kk = patLabelKey(ci, qlo, qhi);
                                 const rec = patLabels.get(kk);
-                                if (!rec) { patLabelsAsk(ci, qlo, qhi); }
+                                if (!rec || rec.state === 'error') { patLabelsAsk(ci, qlo, qhi); }
                                 else if (rec.state === 'done' && rec.list.length) {
                                     // LABELS THAT STAY ON THE CANVAS AND NEAR THEIR STRIP MARK.
                                     //
@@ -2548,6 +2549,10 @@ function (path, config) {
                             if (co.more) co.wrapped.push('+' + co.more + ' more');
                         } else if (co.genes) {
                             co.wrapped = ['no genes annotated'];
+                        } else if (co.gstate === 'error') {
+                            // Say so, rather than leaving it reading forever: it will be
+                            // asked again, and if it keeps failing that is worth seeing.
+                            co.wrapped = ['could not read the genes'];
                         } else {
                             co.wrapped = ['reading the genes…'];
                         }
@@ -3634,10 +3639,17 @@ function (path, config) {
         // chromosome over a few seconds is the correct behavior for a question this
         // expensive; taking the server down to answer it faster is not.
         const PAT_ASK_MAX = 2;
+        // How long a failed lookup rests before it is asked again. Long enough that a server
+        // that is down is not hammered every frame, short enough that a passing failure
+        // heals on its own rather than leaving a hole until the view is rebuilt.
+        const ASK_RETRY_MS = 4000;
         let patAsking = 0;
         const patLabelsAsk = async (ci, lo, hi) => {
             const k = patLabelKey(ci, lo, hi);
-            if (patLabels.has(k)) return;
+            // Same rule as the region genes: a failed call is 'error' and asked again once
+            // the backoff is up, rather than cached as an empty answer nobody revisits.
+            const prevP = patLabels.get(k);
+            if (prevP && (prevP.state !== 'error' || (Date.now() - (prevP.at || 0)) < ASK_RETRY_MS)) return;
             if (patAsking >= PAT_ASK_MAX) return;   // deliberately not marked pending
             patAsking++;
             __setLoad('patents', true);
@@ -3645,18 +3657,21 @@ function (path, config) {
             if (patLabels.size > 60) {
                 for (const kk of Array.from(patLabels.keys()).slice(0, 30)) patLabels.delete(kk);
             }
-            let list = [];
+            let list = null;                     // null = the call did not answer
             try {
                 const em = new EngineMonitor(() => { });
                 const rs = await exec(server + '/py/bio/patents-at.py', em,
                     drawn[ci].name.replace(/^chr/, ''), String(lo), String(hi),
                     PAT_NAME_KEY, (r.species || 'human'), '200');
-                if (rs && rs.ok) { try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = []; } }
-            } catch (e) { list = []; }
+                if (rs && rs.ok) { try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = null; } }
+            } catch (e) { list = null; }
             finally { patAsking = Math.max(0, patAsking - 1); __setLoad('patents', false); }
-            list = list.filter((q) => q && +q.start > 0 && +q.end >= +q.start);
-            list.sort((a, b) => (+a.start) - (+b.start));
-            patLabels.set(k, { state: 'done', list: list });
+            if (!Array.isArray(list)) { patLabels.set(k, { state: 'error', list: [], at: Date.now() }); }
+            else {
+                list = list.filter((q) => q && +q.start > 0 && +q.end >= +q.start);
+                list.sort((a, b) => (+a.start) - (+b.start));
+                patLabels.set(k, { state: 'done', list: list });
+            }
             if (graph.wake) graph.wake();
         };
 
@@ -3667,7 +3682,8 @@ function (path, config) {
         const winGenes = new Map();     // 'ci:qlo:qhi' -> { state, genes:[{gene,start,end}] }
         const winGenesAsk = async (ci, lo, hi) => {
             const key = ci + ':' + lo + ':' + hi;
-            if (winGenes.has(key)) return;
+            const prevW = winGenes.get(key);
+            if (prevW && (prevW.state !== 'error' || (Date.now() - (prevW.at || 0)) < ASK_RETRY_MS)) return;
             if (patAsking >= PAT_ASK_MAX) return;   // shares the patent budget; not marked pending
             patAsking++;
             __setLoad('genes', true);
@@ -3675,17 +3691,22 @@ function (path, config) {
             if (winGenes.size > 60) {
                 for (const kk of Array.from(winGenes.keys()).slice(0, 30)) winGenes.delete(kk);
             }
-            let gs = [];
+            let gs = null;                      // null = the call did not answer
             try {
                 const em = new EngineMonitor(() => { });
                 const res = await exec(server + '/py/bio/genes-in-range.py', em,
                     drawn[ci].name.replace(/^chr/, ''), String(lo), String(hi),
                     (r.species || 'human'), '400');
-                try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = []; }
-            } catch (e) { gs = []; }
+                if (res && res.ok !== false) {
+                    try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = null; }
+                }
+            } catch (e) { gs = null; }
             finally { patAsking = Math.max(0, patAsking - 1); __setLoad('genes', false); }
-            gs = gs.filter((g) => g && +g.start > 0).sort((a, b) => (+a.start) - (+b.start));
-            winGenes.set(key, { state: 'done', genes: gs });
+            if (!Array.isArray(gs)) { winGenes.set(key, { state: 'error', genes: [], at: Date.now() }); }
+            else {
+                gs = gs.filter((g) => g && +g.start > 0).sort((a, b) => (+a.start) - (+b.start));
+                winGenes.set(key, { state: 'done', genes: gs });
+            }
             if (graph.wake) graph.wake();
         };
         // The gene symbols overlapping [s,e], from a fetched window's gene list (ascending by
@@ -3717,28 +3738,61 @@ function (path, config) {
         const GENE_ASK_PX = 24;      // a region smaller than this is not worth a server call
         const geneCache = new Map();                       // 'i:lo:hi' -> {state, genes}
         const geneKey = (rg) => rg.i + ':' + rg.lo + ':' + rg.hi;
-        const geneAsk = async (rg) => {
+        // A CALL THAT FAILED IS NOT AN ANSWER. It used to be stored as an empty gene list,
+        // which cached the failure as "nothing is annotated here" -- and since the key was
+        // then present, nothing ever asked again, so the card sat on "reading the genes…"
+        // for the rest of the session. A failure is kept as 'error' with the time it
+        // happened so the next frame can ask again once the backoff is up; an empty answer
+        // is 'done' like any other and reads as "no genes annotated".
+        //
+        // And they are throttled. Every callout asked at once, which is what overruns the
+        // python bridge and makes these calls fail in the first place -- a genome's worth
+        // of small regions could knock out its own gene lookups.
+        const GENE_ASK_MAX = 3;
+        let geneAsking = 0;
+        const geneInflight = new Map();     // k -> promise, so a caller can await the one in flight
+        const geneAsk = (rg, force) => {
             const k = geneKey(rg);
-            if (geneCache.has(k)) return;
+            if (geneInflight.has(k)) return geneInflight.get(k);
+            const prev = geneCache.get(k);
+            if (prev && prev.state !== 'error') return Promise.resolve();
+            if (prev && !force && (Date.now() - (prev.at || 0)) < ASK_RETRY_MS) return Promise.resolve();
+            // Over budget: deliberately NOT marked pending, so the next frame asks again.
+            if (!force && geneAsking >= GENE_ASK_MAX) return Promise.resolve();
+            geneAsking++;
             geneCache.set(k, { state: 'pending', genes: [] });
             // Deterministic keys, so a region re-added later reuses what was read. The cap
             // is only so a long session cannot grow this without bound.
             if (geneCache.size > 200) {
                 for (const kk of Array.from(geneCache.keys()).slice(0, 100)) geneCache.delete(kk);
             }
-            let gs = [];
-            try {
-                const em = new EngineMonitor(() => { });
-                const res = await exec(server + '/py/bio/genes-in-range.py', em,
-                    drawn[rg.i].name.replace(/^chr/, ''), '' + rg.lo, '' + rg.hi,
-                    (r.species || 'human'), '200');
-                try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = []; }
-            } catch (e) { gs = []; }
-            // Sorted by position, not by the panel's coding-first order: these are drawn
-            // down a chromosome, and the overlap test below only works in that order.
-            gs.sort((a, b) => (+a.start || 0) - (+b.start || 0));
-            geneCache.set(k, { state: gs.length ? 'done' : 'miss', genes: gs });
-            if (graph.wake) graph.wake();
+            const p = (async () => {
+                let gs = null;                      // null = the call did not answer
+                try {
+                    const em = new EngineMonitor(() => { });
+                    const res = await exec(server + '/py/bio/genes-in-range.py', em,
+                        drawn[rg.i].name.replace(/^chr/, ''), '' + rg.lo, '' + rg.hi,
+                        (r.species || 'human'), '200');
+                    // genes-in-range.py answers { ok, genes, error }: ok false is a failure
+                    // that happens to carry an empty list, not a region without genes.
+                    if (res && res.ok !== false) {
+                        try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = null; }
+                    }
+                } catch (e) { gs = null; }
+                geneAsking = Math.max(0, geneAsking - 1);
+                geneInflight.delete(k);
+                if (!Array.isArray(gs)) {
+                    geneCache.set(k, { state: 'error', genes: [], at: Date.now() });
+                } else {
+                    // Sorted by position, not by the panel's coding-first order: these are drawn
+                    // down a chromosome, and the overlap test below only works in that order.
+                    gs.sort((a, b) => (+a.start || 0) - (+b.start || 0));
+                    geneCache.set(k, { state: 'done', genes: gs });
+                }
+                if (graph.wake) graph.wake();
+            })();
+            geneInflight.set(k, p);
+            return p;
         };
 
         // ---- SELECTED REGIONS ---------------------------------------------------
@@ -16562,7 +16616,9 @@ function (path, config) {
             graph.setMessage(' Reading ' + c.name + ':' + human(lo) + '-' + human(hi) + '… ');
 
             let gc = geneCache.get(geneKey(rg));
-            if (!gc || gc.state === 'pending') { await geneAsk(rg); gc = geneCache.get(geneKey(rg)); }
+            // force: this one is worth waiting for, and geneAsk hands back the call already
+            // in flight, so awaiting it now actually waits for the answer.
+            if (!gc || gc.state === 'pending' || gc.state === 'error') { await geneAsk(rg, true); gc = geneCache.get(geneKey(rg)); }
             const genes = (gc && gc.genes) || [];
             const coding = genes.filter((g2) => g2.coding).length;
 
