@@ -799,21 +799,27 @@ function () {
                 // an allele-selective oligo is built against one allele, and which allele that is
                 // can only be read off the target.
                 //
-                // But only while the chemistry is not itself showing. Zoomed in far enough for
-                // the beads to spell out their bases, those letters ARE the synthesis strand and
-                // that is the right thing to be reading; a second row of letters underneath would
-                // be two sequences with nothing saying which is which. Zoomed out past that, the
-                // beads carry no letters and the target is what the compound has to show.
-                // screencell > 5 is the same threshold this file already uses for "zoomed in
-                // enough to draw base letters".
+                // The target row is drawn at EVERY zoom, because the beads never show it. Their
+                // letters come from the HELM monomers (chem-draw's `mo.base`), which spell the
+                // SYNTHESISED strand -- and on a reverse-strand gene that strand is the plus
+                // strand, so it lines up base-for-base with the track underneath and reads like
+                // the target while carrying the complement of the allele. One row of letters is
+                // then genuinely ambiguous, which is the reason for showing the target itself.
+                //
+                // It sits above the body, clearing the beads' own letters (drawn just above each
+                // bead) when the chemistry is spelling them out -- chem-draw's threshold is
+                // per >= 11 screen px per base, and `per` is the same unit as screencell here.
                 const wantsTarget = !!this.showTargetSequence;
                 if (!wantsTarget && (this.type === 'aso' || this.type === 'gapmer'
                     || this.type === 'siRNA' || this.type === 'sirna')) return;
                 if (wantsTarget) {
                     let __cell = 0;
                     try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }
-                    if (__cell > 5) return;      // the chemistry is showing: its letters are the synthesis strand
-                    y = y - 0.14;                // sit above the body rather than on it
+                    // Clear the bead letters when those are showing; otherwise sit just above
+                    // the body. Below 11px the beads carry no letters, so the smaller lift is
+                    // enough -- and there is no zoom left with no letters at all, which a gate
+                    // at 5px opened between 5 and 11.
+                    y = y - (__cell >= 11 ? 0.30 : 0.14);
                 }
 
                 let font = "11px Arial";
