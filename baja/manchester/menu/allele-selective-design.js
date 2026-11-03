@@ -516,6 +516,9 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         }
         // The same mutant, read in TRANSCRIPT orientation, for the scoring.
         const COMPL = { A: 'T', C: 'G', G: 'C', T: 'A', N: 'N' };
+        // Complement without reversing: the two storage orientations of one minus-strand
+        // window differ by exactly this, since both are laid out by ascending x.
+        const COMPL_SEQ = (s) => ('' + s).split('').map((b) => COMPL[b] || 'N').join('');
         const mut = xs.map((x) => {
             const b = mutTrack[x - lo] || 'N';
             return (minus && orient === 'plus') ? (COMPL[b] || 'N') : b;
@@ -608,10 +611,19 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 const xi = Math.min.apply(null, span), xf = Math.max.apply(null, span);
                 const y = FLOOR + (i % ROWS) * ROW_STEP;
                 const nm = (snp.name || 'variant') + ' ' + mode.label + ' P' + c.variant_position + ' #' + c.rank;
-                // The mutant target site as it reads ALONG THE TRACK -- the frame Biopolymer
-                // expects. It carries the alternate allele, so the compound displays the
-                // mutant sequence and its synthesis strand is complementary to that allele.
-                const targetTrack = mutTrack.slice(xi - lo, xf - lo + 1);
+                // The mutant target site as GENOMIC PLUS, which is the frame Biopolymer's
+                // reverse-strand branch is written against: with strand < 0 it takes the
+                // target sequence AS THE ASO, on the reasoning that an oligo antisense to a
+                // minus-strand message reads as the plus strand. That reasoning holds only
+                // if what it is handed really is the plus slice. A 'coding'-orientation
+                // track (the older Ensembl loader) stores the coding bases by ascending x,
+                // which is the plus strand complemented but NOT reversed, and handing that
+                // over unchanged exported the complement of the intended oligo -- a
+                // sequence that is not the ASO, not the message, and not obviously either.
+                // So the frame is converted here rather than assumed.
+                const targetTrack = (minus && orient === 'coding')
+                    ? COMPL_SEQ(mutTrack.slice(xi - lo, xf - lo + 1))
+                    : mutTrack.slice(xi - lo, xf - lo + 1);
                 if (targetTrack.length !== c.length) continue;
                 // Reverse genes need strand < 0 so Biopolymer makes the ASO the genomic-plus
                 // target (antisense to the mRNA). Forward genes keep track.strand EXACTLY as
