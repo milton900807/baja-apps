@@ -238,8 +238,10 @@ function (graph, track, snp) {
                     const hl = await exec('baja/manchester/menu/variant-tools-finder.js', graph)
                     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                     CurrentLayout.setComponent('buttonMenuPanel', hl);
+                    const __pepBefore = track.orf && track.orf.sequence;
                     track.mutateTrackWithSingleMutation(snp)
-                    track.generateORF();
+                    // Re-translate the peptide above the track (if it has one) and say what it did.
+                    await exec('baja/bio/orfs/refresh-orf-after-mutation.js', track, graph, __pepBefore);
                     infoPrompt(" Track sequence has changed. ")
                 },
                 move: () => {
@@ -287,6 +289,74 @@ function (graph, track, snp) {
                 },
             },
         );
+
+        // HOW THIS VARIANT LOOKS. Shape and colour are properties of the variant, saved with
+        // it (SnpIndel.markerShape / markerColor -- no leading underscore, or document JSON
+        // would strip them), so a marker the user picked out comes back looking the same.
+        //
+        // A hand-set colour outranks the clinical one (see SnpIndel.clinsigStyle): the user
+        // is marking something the colour scheme does not know about. "Automatic" gives the
+        // variant back to whichever scheme would otherwise own it.
+        const SI = snp && snp.constructor;
+        const SHAPES = (SI && SI.SHAPES) || { circle: 'Circle' };
+        const COLORS = (SI && SI.MARKER_COLORS) || [];
+        // A glyph in front of each name, where one exists that actually looks like the shape.
+        const GLYPH = {
+            'circle': '\u25cf ', 'square': '\u25a0 ', 'diamond': '\u25c6 ',
+            'triangle': '\u25b2 ', 'triangle-down': '\u25bc ', 'pentagon': '\u2b1f ',
+            'pentagon-down': '\u2b20 ', 'hexagon': '\u2b22 ', 'star': '\u2605 ',
+            'plus': '\u271a ', 'cross': '\u2716 ',
+        };
+        const openAt = (list) => {
+            try { (graph.openMenuAtPointer || graph.showSideMenu).call(graph, list); } catch (e) { }
+        };
+        const applyLook = (what, fn, note) => {
+            try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+            try { fn(); } catch (e) { }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            try { graph.setMessage(' ' + (snp.name || snp.id || 'variant') + ': ' + note + ' '); } catch (e) { }
+        };
+        const appearanceMenu = () => {
+            const cur = snp.markerShape || 'circle';
+            const curCol = snp.markerColor;
+            return [
+                { label: 'Appearance', move: () => { }, click: () => { } },
+                {
+                    label: '  Shape \u25b8  (' + (SHAPES[cur] || cur) + ')', move: () => { },
+                    click: () => openAt([{ label: 'Marker shape', move: () => { }, click: () => { } }].concat(
+                        Object.keys(SHAPES).map((k) => ({
+                            label: '  ' + (GLYPH[k] || '') + SHAPES[k] + (k === cur ? '   \u2713' : ''),
+                            move: () => { },
+                            click: () => applyLook('shape', () => { snp.markerShape = (k === 'circle') ? null : k; },
+                                                   'shape \u2192 ' + SHAPES[k]),
+                        }))))
+                },
+                {
+                    label: '  Colour \u25b8' + (curCol ? ('  (' + curCol + ')') : '  (automatic)'), move: () => { },
+                    click: () => openAt([{ label: 'Marker colour', move: () => { }, click: () => { } },
+                        {
+                            label: '  Automatic' + (curCol ? '' : '   \u2713'), move: () => { },
+                            click: () => applyLook('colour', () => { snp.markerColor = null; },
+                                                   'colour \u2192 automatic'),
+                        }].concat(COLORS.map(([hex, nm]) => ({
+                            label: '  \u25a0 ' + nm + (curCol === hex ? '   \u2713' : ''),
+                            move: () => { },
+                            click: () => applyLook('colour', () => { snp.markerColor = hex; }, 'colour \u2192 ' + nm),
+                        }))))
+                },
+                {
+                    label: '  \u21ba Reset both to automatic', move: () => { },
+                    click: () => applyLook('both', () => { snp.markerShape = null; snp.markerColor = null; },
+                                           'appearance reset'),
+                },
+                { label: '\u2039 Back', move: () => { }, click: () => { } },
+            ];
+        };
+        menuList.push({
+            label: 'Appearance (shape & colour) \u25b8',
+            click: () => { openAt(appearanceMenu()); },
+            move: () => { }
+        });
 
         // Delete this variant from the track. Destructive, so it CONFIRMS first, and pushes
         // onto the history stack before touching anything so an accepted delete is undoable.

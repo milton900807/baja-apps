@@ -1,4 +1,11 @@
 function (server, graph, genegraph_panel_layout, presetQuery) {
+    // MENUS AT THE POINTER, NOT IN THE CORNER. This module is entered from a menubar or a
+    // toolbar, so there is no canvas press behind it and showSideMenu had nothing to anchor
+    // to -- every question it asks came up as the top-left side panel, in a different place
+    // and a different style from every menu reached by clicking the canvas.
+    // graph.openMenuAtPointer (flexigraph/gene.js) draws the same list at the pointer, and
+    // defers to an open floating session when this module is instead reached from a press,
+    // so the mixed-entry callers keep their place. The || keeps older graphs working.
     return new Promise(async (resolve, reject) => {
         const PY = '/py/sequence/prompt-to-transcript.py';
         const host_ = server;
@@ -265,7 +272,7 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
 
             graph.setMessage(" " + list.length + " transcripts for "
                 + (res.gene || query) + " — choose one:");
-            graph.showSideMenu(menu);
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, menu);
             resolve(list);
         };
 

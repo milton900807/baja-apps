@@ -2100,6 +2100,7 @@ function (plateManager, progress) {
                     let SIRNA = await exec('flexigraph/sirna.js')
                     let Amplicon = await exec('flexigraph/amplicon.js')
                     let AttributionSushimiLayer = await exec('baja/bio/attribution-sushimi-layer.js')
+                    const __rehydrateLayer = await exec('baja/bio/rehydrate-layer.js')
 
                     var foo = Object.assign(new Track(), js);
                     let Barchart = await exec('baja/bio/barchart-track.js')
@@ -2134,31 +2135,13 @@ function (plateManager, progress) {
                         let tlayers = []
                         for (let tl of js.track_layers) {
 
-                            console.log(" tl type : " + tl.attribution_type + " for name " + tl.name);
-                            let track_layer = null;
-
-                            if (!tl.attribution_type) {
-                                track_layer = Object.assign(new TrackLayer(), tl)
+                            // Same dispatch as flexigraph/gene.js, same module: the chain that
+                            // was here led with `if (!tl.attribution_type)` and so rebuilt every
+                            // subclass as a plain TrackLayer. See baja/bio/rehydrate-layer.js.
+                            let track_layer = await __rehydrateLayer(tl);
+                            if (track_layer && track_layer.name != null) {
                                 track_layer.name = sanitizeName(track_layer.name)
-
                             }
-                            else if (tl.attribution_type != null && tl.attribution_type.includes('attribution')) {
-                                track_layer = Object.assign(new AttributionLayer(), tl)
-
-                            } else
-                                if (tl.gpts || tl.apts || tl.cpts || tl.tpts) {
-                                    track_layer = Object.assign(new AttributionLayer(), tl)
-
-                                } else
-
-                                    if (tl.type === 'AttributionSushimiLayer') {
-                                        track_layer = Object.assign(new AttributionSushimiLayer(), tl);
-                                    }
-                                    else {
-                                        track_layer = Object.assign(new TrackLayer(), tl)
-                                        track_layer.name = sanitizeName(track_layer.name)
-
-                                    }
                             if (!track_layer) {
                                 track_layer = Object.assign(new TrackLayer(), tl)
                                 track_layer.name = sanitizeName(track_layer.name)

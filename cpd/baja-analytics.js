@@ -84,13 +84,37 @@ function (path, config) {
         data: '<hr>  '
     }).then(async working => {
 
+        // THE PROGRESS BAR FIRST, THEN THE CODE, as in cpd/baja-project.js: the six modules
+        // below are megabytes, and the screen used to stay blank while they arrived.
+        let progressBar;
+        let w = {
+            wid: 'progress',
+            componentRef: 'progressBar',
+            data: {
+                'progress': 1,
+                'progressBar': createIonFunction((progessBar) => {
+                    progressBar = progessBar;
+                })
+            }
+        }
+        await showWidget(w)
+        const __tick = (v) => { try { if (typeof progressBar === 'function') progressBar(v); } catch (e) { } };
+        __tick(1);
+        try { if (window.__bajaOpening && window.__bajaOpening.done) window.__bajaOpening.done(); } catch (e) { }
+
         let HM = await exec('baja/history/HM')
+        __tick(3);
         let AnimateGrid = await exec('flexigraph/animate-it.js')
+        __tick(5);
         let PlateTrack = await exec('baja/plate/plate-track.js')
+        __tick(14);
         let MGrid = await exec('flexigraph/grid.js')
+        __tick(16);
 
         let Plate = await exec('baja/plate/plate.js');
+        __tick(22);
         let GenericWell = await exec('baja/plate/well.js')
+        __tick(24);
         let current_mousex
         let current_mousey
         let tracks = []
@@ -107,19 +131,6 @@ function (path, config) {
             visible: false
         };
 
-        let progressBar;
-        let w = {
-            wid: 'progress',
-            componentRef: 'progressBar',
-            data: {
-                'progress': 1,
-                'progressBar': createIonFunction((progessBar) => {
-                    progressBar = progessBar;
-                })
-            }
-        }
-        await showWidget(w)
-        progressBar(0);
         path = decodeURIComponent(path)
         let obs = path;
         path = path.trim();
@@ -323,7 +334,7 @@ function (path, config) {
         let pm = new PlateManager()
         if (config && config.app)
             pm.app = config.app;
-        exec('flexigraph/gene2plates.js', pm, progressBar).then(async (graph) => {
+        exec('flexigraph/gene2plates.js', pm, (v) => __tick(24 + Math.max(0, Math.min(35, +v || 0)) * (21 / 35))).then(async (graph) => {
             cacheOn()
             let io;
             let tracks;
@@ -2569,7 +2580,7 @@ function (path, config) {
             // lands under "More", so a new builder is never lost.
             const BUILD_GROUPS = [
                 ['Timelines', ['Historical Milestones', 'Scientific Publications Timeline', 'Gantt Chart']],
-                ['Financial models', ['P&L With Capital', 'Project', 'Milestone Budget', 'Product Assumptions', 'Budget Assumptions']],
+                ['Financial models', ['P&L With Capital', 'Simple P&L With Capital', 'Project', 'Milestone Budget', 'Product Assumptions', 'Budget Assumptions']],
                 ['Analysis', ['\u0394\u0394Ct analysis', 'Build Analytics', 'Draw connections']],
                 ['Oligo & molecule design', ['Molecule', 'siRNA', 'ssASO', 'ssASO - Chirality', 'Morpholino', 'SMILEs']],
                 ['Figures', ['SVG', 'High res SVG', 'Molecular mechanism', 'Draw genetic pathways']],
@@ -4045,6 +4056,14 @@ function (path, config) {
                         }
                         CurrentLayout.setComponent('mainPanel', sequence_input)
 
+                    })
+                })
+
+                ai_create_file_items.push({
+                    // The short version of P&L With Capital: one model call, four small tables.
+                    // Shared with the other screens' Build menus; see the module.
+                    'label': 'Simple P&L With Capital', 'ionfunction': createIonFunction(async () => {
+                        await exec('baja/analytics/simple-pnl-capital', pm);
                     })
                 })
 
@@ -7864,6 +7883,13 @@ function (path, config) {
                     {
                         'label': 'Templates', 'ionfunction': createIonFunction(async () => {
                             const templates = [
+                                {
+                                    // Every built-in template with a description and preview, plus the
+                                    // user's own. Tables and Models below are the older folder menus.
+                                    label: 'Template library', click: (async () => {
+                                        await exec('baja/analytics/templates/browser', pm, graph);
+                                    })
+                                },
                                 {
                                     label: 'Tables', click: (async () => {
 

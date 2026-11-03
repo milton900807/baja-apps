@@ -282,7 +282,15 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                             try { vs = JSON.parse(r.variants); } catch (e) { vs = null; }
                         }
                         if (Array.isArray(vs) && (vs.length || !r.error)) {
-                            resp = { variants: vs, source: 'local-exec', total: r.count || vs.length, truncated: false };
+                            // truncated was hardcoded false, so a gene the reader had cut in
+                            // half reported as a complete load. The script now says whether it
+                            // stopped early and at which position; pass both through so the
+                            // message below can warn instead of quietly showing half a gene.
+                            resp = {
+                                variants: vs, source: 'local-exec', total: r.count || vs.length,
+                                truncated: (r.truncated === true || r.truncated === 'true'),
+                                cutAt: (r.cutAt != null && r.cutAt !== '') ? Number(r.cutAt) : null,
+                            };
                         }
                     } catch (e) { resp = null; }
                 }
@@ -460,7 +468,18 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 }
                 restoreHover(); return;
             }
-            const capNote = (resp && resp.truncated) ? ' (capped at ' + list.length + (resp.total ? ' of ' + resp.total : '') + ' — select a smaller range for the rest)' : '';
+            // A CAPPED READ IS NOT A THINNED-OUT ONE. The database is read in ascending
+            // genomic position, so hitting the cap drops a contiguous block at one end of the
+            // region rather than a scattering throughout it -- and on a minus-strand gene that
+            // block is the 5' exons, which is the half a reader is least likely to notice is
+            // absent. Warn separately (orange) rather than only appending to the count, and
+            // name the position it stopped at so the rest can be selected directly.
+            if (resp && resp.truncated) {
+                const at = resp.cutAt ? (' at chr' + chr + ':' + resp.cutAt) : '';
+                fail(' ' + label + ': too many variants in this region — stopped after ' + list.length + at
+                    + '. Everything beyond that point is MISSING, not absent. Select a smaller range to load the rest. ');
+            }
+            const capNote = (resp && resp.truncated) ? ' — TRUNCATED, see warning' : '';
             say(' Loaded ' + added + ' of ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
                 + filterNote + capNote
                 + (skippedFilter ? ' (' + skippedFilter + ' outside that class)' : '')

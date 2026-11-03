@@ -206,8 +206,20 @@ function () {
         // Dashed, very thin, faint light-gray leader from the glyph DOWN to the amino-acid letter
         // it refers to (the peptide row, published by track.js) — not all the way to the track
         // baseline. Falls back to the baseline when the sequence isn't visible.
+        // ANCHOR ON THIS FRAME'S BASELINE, not on last frame's screen y. track.js publishes
+        // the peptide row both ways: __pepTopPx is an absolute y for the frame it was
+        // stamped in, and __pepTopUpPx is the same row as an offset ABOVE the track
+        // baseline. This code runs EARLIER in the pass than the block that stamps them, so
+        // the absolute value is always one frame old and the leader ended in the wrong place
+        // after a pan or zoom. The offset does not move with the view, so adding it to the
+        // baseline we already have is right for the current frame. (Same idiom as the CDD
+        // residue band below, which uses __pepIndexTopUpPx / __pepMidUpPx.)
         let footY = cyTrack;
-        if (screencell > 5 && tgraph && tgraph.__pepTopPx != null) footY = tgraph.__pepTopPx;
+        if (screencell > 5 && tgraph) {
+            const __up = +tgraph.__pepTopUpPx;
+            if (isFinite(__up) && __up > 0 && __up < 400) footY = graph.Y(tgraph.Y(0)) - __up;
+            else if (tgraph.__pepTopPx != null) footY = tgraph.__pepTopPx;
+        }
         ctx.strokeStyle = 'rgba(148,163,184,0.35)'; ctx.lineWidth = 1.0;
         try { ctx.setLineDash([2, 2]); } catch (e) { }
         ctx.beginPath(); ctx.moveTo(cx, footY); ctx.lineTo(cx, gy + r); ctx.stroke();

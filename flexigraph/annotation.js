@@ -161,8 +161,15 @@ function () {
                         const ly = cyBar - pepClear - up;
                         // Leader ends at the amino-acid letter (peptide row) it refers to, not the
                         // track baseline.
+                        // See gene-draw.js drawCddSite: the offset above the baseline, not the
+                        // absolute y, because annotations are drawn before the peptide block
+                        // stamps it and the absolute one is a frame behind.
                         let footY = cyBar;
-                        if (screencell > 5 && tgrid && tgrid.__pepTopPx != null) footY = tgrid.__pepTopPx;
+                        if (screencell > 5 && tgrid) {
+                            const __up = +tgrid.__pepTopUpPx;
+                            if (isFinite(__up) && __up > 0 && __up < 400) footY = graph.Y(tgrid.Y(0)) - __up;
+                            else if (tgrid.__pepTopPx != null) footY = tgrid.__pepTopPx;
+                        }
                         // Skip this name if its box would overlap a name already drawn this frame.
                         const __label = ('' + this.name).slice(0, 46);
                         let __w = __label.length * 5.4;

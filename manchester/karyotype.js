@@ -9651,7 +9651,7 @@ function (path, config) {
                     'Tracts': 'Runs of at least ' + LOH_RUN_MIN + ' lost sites, tolerating ' + LOH_RUN_GAP + ' retained sites inside a run, joined when closer than ' + (LOH_TRACT_JOIN / 1e6) + ' Mb. A tract spans its first to its last lost site, so its true edges lie a little outside.',
                     'Extent': 'Whole chromosome or arm-level when a tract covers at least ' + Math.round(LOH_ARM_COVER * 100) + '% of every informative arm, or of one arm. Acrocentric short arms carry no called sites and are not counted. Large segment >= 10 Mb; focal below that.',
                     'Second hit': 'Each variant inside a tumor suppressor is read on the MANE transcript (frameshift, stop-gained, splice-site, and hotspot or ClinVar-pathogenic missense count as damaging). On the copy left means the tumor\'s reads carry it on all remaining copies; germline means the normal carries it too.',
-                    'What a VCF cannot show': 'Whether a tract is a deletion (one copy) or copy-neutral LOH (two identical copies): that needs copy number. A second hit by deletion, promoter methylation or a structural variant is also invisible here, so "no second hit" means none in these calls.',
+                    'What a VCF cannot show': 'Whether a tract is a deletion (one copy) or copy-neutral LOH (two identical copies) is estimated from read depth: the tumor-to-normal depth ratio over the tract against the genome-wide ratio (about 0.5 is one copy, about 1 is two; an impure tumor pulls a deletion toward 1, so the middle is called a probable deletion). It is not a copy-number call, and a VCF with no depth says so. A second hit by deletion, promoter methylation or a structural variant is also invisible here, so "no second hit" means none in these calls.',
                     'Germline': 'Origins are read against ' + spec.labelN + ': a change it does not carry is somatic. A germline heterozygote the tumor now carries on every remaining copy is the tumor\'s own too, because the tumor lost the other allele.',
                     'Selective lethality': O.claude ? 'Essential genes are those DepMap (CRISPR, Chronos) calls a dependency (effect below -0.5) in at least 20% of cell lines. Only protein-altering changes the tumor carries and the germline does not (or carries on one allele only, with the other lost in the tumor) are considered. The assessment is written by a language model from those data and general knowledge; it is a list of ideas to test.' : 'Not run for this report.',
                     'Source': 'oligodesigner.com Genome Viewer, ' + new Date().toLocaleString(),
@@ -10969,6 +10969,11 @@ function (path, config) {
                 }
                 row.sequence_to_target = x.context_retained;
                 row[W.csvOther] = x.context_lost;
+                // A sequence in a spreadsheet outlives the screen it came from, so it
+                // travels with the strand it is in and whether the genome agreed.
+                row.sequence_orientation = x.context_orientation;
+                row.reference_check = x.reference_check;
+                row.sequence_to_target_plus_strand = x.context_retained_plus;
                 row.context_start = x.context_start;
                 row.context_end = x.context_end;
                 return row;
@@ -11048,6 +11053,9 @@ function (path, config) {
                 }
                 row['Sequence to target'] = A(x.context_retained);
                 row[A(W.csvOther || 'the other copy')] = A(x.context_lost);
+                row['Sequence orientation'] = A(x.context_orientation);
+                row['Reference check'] = A(x.reference_check);
+                row['Sequence to target, plus strand'] = A(x.context_retained_plus);
                 row['Context span'] = A(x.context_start + '-' + x.context_end);
                 return row;
             });
@@ -11160,12 +11168,19 @@ function (path, config) {
                                   + x.alt + ' allele is the one that went. Confirm it on the reads before designing.'
                                 : (somatic ? 'Tumor allele fraction ' + x.tumor_baf + '. Germline ' + x.germline_baf + '.' : ''))
                             + ' ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
-                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : ''),
+                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : '')
+                            // Which strand these are in decides what an oligo built on them
+                            // has to be, so it is said rather than assumed, and a variant
+                            // the genome contradicts is said loudest of all.
+                            + (x.reference_check && /^MISMATCH/.test(x.reference_check)
+                                ? '\n  ' + x.reference_check + '. No sequence is offered for this site.'
+                                : (x.context_orientation ? '\n  sequence is ' + x.context_orientation : '')),
                         books: () => [
                             { title: 'Zoom into the site', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame this base on the genome.',
                                 open: () => { const ci = chromIndexOf(x.chr); if (ci >= 0) goView({ x0: barLeft(ci) - 0.4 * SLOT, x1: barRight(ci) + 0.4 * SLOT, y0: wy(x.pos + 400) , y1: wy(x.pos - 400) }); } },
                             { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Design against ' + W.aim + '.', open: () => openSymbolInEditor(gn) },
-                            { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available') },
+                            { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available')
+                                + (x.context_orientation && x.context_retained ? '  [' + x.context_orientation + ']' : '') },
                             { note: true, title: 'Must survive: ' + (x.context_lost || 'no sequence available') },
                         ] });
                 });
@@ -16699,6 +16714,50 @@ function (path, config) {
                 + ' (' + fmtSpan(Math.max(1, hi - lo + 1)) + ') ');
         };
 
+        // How many of a region's variants came from each side's file. Binary search into the
+        // chromosome's sorted positions, so a whole-genome file costs the window, not the file.
+        const regionSideCounts = (rg) => {
+            const out = { left: 0, right: 0 };
+            try {
+                const d = vdata[rg.i];
+                if (!d || !d.n) return out;
+                let a = 0, z = d.n;
+                while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < rg.lo) a = m + 1; else z = m; }
+                for (let k = a; k < d.n && d.pos[k] <= rg.hi; k++) {
+                    if (d.side && d.side[k]) out.left++; else out.right++;
+                }
+            } catch (e) { }
+            return out;
+        };
+        // THE "OPEN IN THE EDITOR" CARD, with a choice of variants when there is one. Given
+        // the regions and the card as it would be without a choice, it returns that card
+        // unchanged when the regions' variants are all on one side, and otherwise the same
+        // card one level deep: both sides (the default), the left file's only, the right's only.
+        const editorBook = (rgs, card) => {
+            const sc = { left: 0, right: 0 };
+            for (const q of rgs) { const c2 = regionSideCounts(q); sc.left += c2.left; sc.right += c2.right; }
+            const go = (side) => openRegions(rgs.slice(), undefined, undefined, side);
+            if (!(sc.left > 0 && sc.right > 0)) return Object.assign({}, card, { open: () => go(undefined) });
+            const nv = (n) => n.toLocaleString() + ' variant' + (n === 1 ? '' : 's');
+            const out = Object.assign({}, card, {
+                blurb: 'Choose which variants go with it: both sides (' + nv(sc.left + sc.right) + '), '
+                    + sideName(1) + ' only, or ' + sideName(0) + ' only.',
+                books: () => [
+                    { title: 'Both sides', badge: 'default \u00b7 ' + nv(sc.left + sc.right),
+                        blurb: 'The transcripts here with every variant that falls inside them: '
+                            + sideWhere(1) + ' and ' + sideWhere(0) + ' together.',
+                        open: () => go(undefined) },
+                    { title: 'Left only: ' + sideName(1), badge: 'left \u00b7 ' + nv(sc.left),
+                        blurb: 'Only the variants from ' + sideWhere(1) + '. Those on the right stay out of the editor.',
+                        open: () => go(1) },
+                    { title: 'Right only: ' + sideName(0), badge: 'right \u00b7 ' + nv(sc.right),
+                        blurb: 'Only the variants from ' + sideWhere(0) + '. Those on the left stay out of the editor.',
+                        open: () => go(0) },
+                ],
+            });
+            delete out.open;
+            return out;
+        };
         const calloutMenu = (rg) => {
             const c = drawn[rg.i];
             const where = c.name + ':' + human(rg.lo) + '-' + human(rg.hi);
@@ -16723,13 +16782,14 @@ function (path, config) {
                                 + (rg.lof ? ', so the loss-of-function variant can be clicked' : '') + '.',
                             open: () => zoomToRegion(rg),
                         },
-                        {
-                            title: 'Open in oligo editor',
-                            badge: 'transcripts',
+                        // WHICH VARIANTS GO WITH IT. With a file on each side -- a tumor and its
+                        // normal, a parent and a child -- the region can be opened with both
+                        // sets (the default), or with one side's alone. Offered only when this
+                        // region actually has variants on both sides; otherwise there is
+                        // nothing to choose, and the card opens straight away as it always has.
+                        editorBook([rg], { title: 'Open in oligo editor', badge: 'transcripts',
                             blurb: 'List the transcripts here, tick the ones you want, and load '
-                                + 'them into the editor with the variants that fall inside them.',
-                            open: () => openRegions([rg]),
-                        },
+                                + 'them into the editor with the variants that fall inside them.' }),
                         {
                             title: 'Sequence statistics',
                             badge: 'annotation',
@@ -16812,7 +16872,30 @@ function (path, config) {
                 a.href = URL.createObjectURL(new Blob([bytes], { type: mime || 'application/octet-stream' }));
                 a.download = filename; a.style.display = 'none';
                 document.body.appendChild(a); a.click();
-                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
+                setTimeout(() => { try { document.body.removeChild(a); } catch (e) { } }, 500);
+                // A download started with no click of the user's own (this one follows a long
+                // build) can be blocked without a word -- by the browser's "multiple downloads"
+                // setting, or an earlier "block". So the file is also offered as a link, which
+                // is a click and always works. The blob stays alive until it is dismissed.
+                try {
+                    const url = a.href, old = document.getElementById('baja-dl-ready');
+                    if (old && old.parentNode) old.parentNode.removeChild(old);
+                    const bar = document.createElement('div');
+                    bar.id = 'baja-dl-ready';
+                    bar.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:2147483000;background:#0b2545;color:#e8f0fb;'
+                        + 'border:1px solid #1aa3bd;border-radius:10px;padding:10px 14px;font:13px Arial;box-shadow:0 10px 30px rgba(0,0,0,0.4);display:flex;gap:12px;align-items:center;';
+                    const lnk = document.createElement('a');
+                    lnk.href = url; lnk.download = filename; lnk.textContent = 'Download ' + filename;
+                    lnk.style.cssText = 'color:#8ab4ff;font-weight:700;text-decoration:underline;cursor:pointer;';
+                    const x = document.createElement('span');
+                    x.textContent = '\u2715'; x.style.cssText = 'cursor:pointer;opacity:0.7;';
+                    const gone = () => { try { if (bar.parentNode) bar.parentNode.removeChild(bar); URL.revokeObjectURL(url); } catch (e) { } };
+                    x.onclick = gone; lnk.onclick = () => { setTimeout(gone, 1500); };
+                    const lead = document.createElement('span'); lead.textContent = 'Ready. If it did not download:';
+                    bar.appendChild(lead); bar.appendChild(lnk); bar.appendChild(x);
+                    document.body.appendChild(bar);
+                    setTimeout(gone, 180000);
+                } catch (e) { }
             } catch (e) { dlErr('Could not save the file: ' + e); }
         };
         const dlCell = (v) => { let x = (v == null) ? '' : ('' + v); if (/[",\n\r]/.test(x)) x = '"' + x.replace(/"/g, '""') + '"'; return x; };
@@ -18732,12 +18815,11 @@ function (path, config) {
             const span = regions.reduce((t, x) => t + (x.hi - x.lo), 0);
             const needRegion = { ready: n > 0, readyNote: 'select a region first' };
             const regionBooks = () => [
-                Object.assign({
+                Object.assign(editorBook(regions, {
                     title: 'Open in the oligo editor', badge: 'transcripts', accent: 'design',
                     blurb: 'List the transcripts in the selected region' + (n === 1 ? '' : 's') + ', tick the ones you '
                         + 'want, and load them into the editor with the variants that fall inside them.',
-                    open: () => openRegions(regions.slice()),
-                }, needRegion),
+                }), needRegion),
                 Object.assign({
                     title: 'Delete the variants in the selected regions', badge: 'variants',
                     blurb: 'Drop every variant inside the selection and keep the rest of the genome.',
@@ -19945,7 +20027,14 @@ function (path, config) {
             compute();
         };
 
-        const openRegions = async (list, focusBp, straight) => {
+        // `side`: null or undefined for every variant in the range (the default), 1 for the
+        // file on the LEFT only, 0 for the file on the RIGHT only -- so a tumor/normal pair
+        // can be opened with one side's variants without the other's in the way.
+        // The group each side's variants travel under when both VCFs go to the editor,
+        // and the file name that labels its tracks.
+        const VCF_GROUP = ['vcf:R', 'vcf:L'];
+        const vcfName = (sd) => (sideFile[sd] ? shortFile(sideFile[sd]) : sideName(sd));
+        const openRegions = async (list, focusBp, straight, side) => {
             const regs = (list || []).filter((q) => q && q.i >= 0 && q.i < drawn.length
                 && isFinite(q.lo) && isFinite(q.hi) && q.hi >= q.lo);
             if (!regs.length) { graph.setMessage(' Nothing selected to look up. '); return; }
@@ -19995,6 +20084,7 @@ function (path, config) {
                     let a2 = 0, z2 = d.n;
                     while (a2 < z2) { const m2 = (a2 + z2) >> 1; if (d.pos[m2] < vLo) a2 = m2 + 1; else z2 = m2; }
                     for (let k = a2; k < d.n && d.pos[k] <= vHi; k++) {
+                        if (side === 0 || side === 1) { if ((d.side ? d.side[k] : 0) !== side) continue; }
                         const vk = reg.i + ':' + d.pos[k];
                         if (seenV.has(vk)) continue;      // overlapping regions share variants
                         seenV.add(vk);
@@ -20010,6 +20100,7 @@ function (path, config) {
                             const ph = phaseOf(d, k);
                             if (ph) annots.push('PHASE=' + ph);
                         }
+                        const sdK = d.side ? (d.side[k] ? 1 : 0) : 0;
                         inRange.push({
                             chr: bare2, pos: d.pos[k], ref: ab[0], alt: ab[1],
                             name: (d.names[k] || (c2.name + ':' + d.pos[k])),
@@ -20019,10 +20110,30 @@ function (path, config) {
                             genotypes: gl.map((g) => GT_TEXT[g[1]] || './.'),
                             phase: gl.length ? phaseOf(d, k) : '',
                             annotations: annots,
+                            group: VCF_GROUP[sdK],
+                            vcf: vcfName(sdK),
                         });
                     }
                 }
             }
+            // ONE TRACK PER VCF. With both files open, each transcript goes to the editor
+            // twice -- once per file, labelled "<gene> · <file>" -- and each copy carries
+            // only that file's variants. With one file (or one side asked for) the groups
+            // come off again and the hand-off is the plain one it always was.
+            const bothVcf = inRange.some((v) => v.group === VCF_GROUP[1]) && inRange.some((v) => v.group === VCF_GROUP[0]);
+            if (!bothVcf) for (const v of inRange) { delete v.group; delete v.vcf; }
+            const trackIds = (list) => {
+                if (!bothVcf) return list.map((gn) => gn.transcript).filter(Boolean);
+                const out = [];
+                for (const gn of list) {
+                    if (!gn || !gn.transcript) continue;
+                    const gname = gn.gene || gn.transcript;
+                    for (const sd of [1, 0]) {
+                        out.push({ id: gn.transcript, group: VCF_GROUP[sd], label: gname + ' \u00b7 ' + vcfName(sd) });
+                    }
+                }
+                return out;
+            };
             const one = regs.length === 1 ? regs[0] : null;
             const c = one ? drawn[one.i] : null;
             const lo = one ? one.lo : 0, hi = one ? one.hi : 0;
@@ -20049,7 +20160,7 @@ function (path, config) {
                     graph.setMessage(' Nothing here has a transcript in the annotation to open. ');
                     return;
                 }
-                await handToEditor(pick.map((gn) => gn.transcript), inRange, straight.focus || null);
+                await handToEditor(trackIds(pick), inRange, straight.focus || null);
                 return;
             }
             const spanAll = regs.reduce((t, q) => t + (q.hi - q.lo), 0);
@@ -20293,8 +20404,8 @@ function (path, config) {
             let goBusy = false;
             q2('#kr-go').onclick = async () => {
                 if (goBusy) return;
-                const ids = qa2('.kr-g').filter((cb) => cb.checked)
-                    .map((cb) => genes[+cb.getAttribute('data-i')].transcript).filter(Boolean);
+                const ids = trackIds(qa2('.kr-g').filter((cb) => cb.checked)
+                    .map((cb) => genes[+cb.getAttribute('data-i')]).filter(Boolean));
                 if (!ids.length) { graph.setMessage(' Tick a transcript to open. '); return; }
                 goBusy = true;
                 const go = q2('#kr-go'), sv = q2('#kr-save');

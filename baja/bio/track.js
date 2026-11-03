@@ -2371,7 +2371,10 @@ return new Promise(async (resolve, reject) => {
                   _cdsi.push({ index: _gpos[i + ci], ci: ci, codon_index: i / 3, aa: _aa || 'X', codon: _codon });
                 }
               }
-              this.orf = this.orf || {};
+              // A fresh object, not this.orf filled in place: a copied track (Copy to new track,
+              // Object.assign) SHARES its source's orf object, so writing into it re-translated
+              // the source too -- the unmutated track showed the mutant peptide.
+              this.orf = Object.assign({}, this.orf || {});
               this.orf.cdsi = _cdsi;
               this.orf.sequence = _protein.join('');
               try { this.orfhash = compressJson(JSON.stringify(this.orf)); } catch (e) { }
@@ -2670,7 +2673,7 @@ return new Promise(async (resolve, reject) => {
       try {
         const __cds = this.getCDS();
         if (__cds && __cds.cdsi && __cds.cdsi.length) {
-          this.orf = this.orf || {};
+          this.orf = Object.assign({}, this.orf || {});   // never write into a shared orf (see above)
           this.orf.cdsi = __cds.cdsi;
           if (__cds.protein) this.orf.sequence = __cds.protein;
           this.orfhash = compressJson(JSON.stringify(this.orf));
@@ -7440,7 +7443,11 @@ return new Promise(async (resolve, reject) => {
             // them or all the way to the track baseline. __pepTopPx = top edge of the AA letters.
             try {
               this.tgraph.__pepMidPx = graph.Y(_pepRowY);
-              this.tgraph.__pepTopPx = graph.Y(_pepRowY) - seqPx * 0.7;
+              // drawCenteredWorldText sits its text 5px ABOVE the row's y and centres it on
+              // that line, so the letters' middle is graph.Y(_pepRowY) - 5 and their top is
+              // half a cap-height above that. The -5 used to be left out here, which put the
+              // published "top of the letters" 5px below where they actually are.
+              this.tgraph.__pepTopPx = graph.Y(_pepRowY) - 5 - seqPx * 0.5;
               // ...and in TRACK space, which is the coordinate a compound's y is expressed in.
               // The design routines place oligos above whatever this row occupies (see
               // __peptideFloorY in baja/manchester/menu/track-design-menu.js), and screen pixels
@@ -7467,6 +7474,12 @@ return new Promise(async (resolve, reject) => {
               const _bp = graph.Y(this.tgraph.Y(0));
               this.tgraph.__pepMidUpPx = _bp - graph.Y(_pepRowY);
               this.tgraph.__pepIndexTopUpPx = _bp - (graph.Y(_pepIdxY) - 5 - 6);
+              // The top of the AA letters, as an offset above the baseline. The leaders in
+              // gene-draw.js (drawCddSite) and annotation.js want to STOP here, and they are
+              // drawn earlier in this same pass -- so reading the absolute __pepTopPx gave
+              // them last frame's screen y and the leader ended in the wrong place after any
+              // pan or zoom. Added for the same reason as the two above it.
+              this.tgraph.__pepTopUpPx = _bp - (graph.Y(_pepRowY) - 5 - seqPx * 0.5);
             } catch (e) { }
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {

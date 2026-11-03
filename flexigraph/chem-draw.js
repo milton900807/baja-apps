@@ -28,12 +28,21 @@ function () {
     const __darken = (hex, amt) => { try { const c = __hexToRgb(hex); return __rgbToHex(c.r * (1 - amt), c.g * (1 - amt), c.b * (1 - amt)); } catch (e) { return hex; } };
 
     // 2'-sugar modification, backbone linkage, and base color palettes.
-    const SUGAR_COL = { moe: '#e0a83c', mo: '#e0a83c', lna: '#8e5cc0', bna: '#8e5cc0', cet: '#5c9dc0', dna: '#8894a5', d: '#8894a5', rna: '#1aa3bd', r: '#1aa3bd', fana: '#c07a3c', f: '#c07a3c', 'me-d': '#6b7a8c' };
+    // 2'-OMe ('m'/'ome') and the library's 2'-F symbol ('fl2r') were missing, so a residue
+    // carrying either fell through to the compound's own colour and read as "no modification"
+    // -- the one thing the bead colour is there to say. SUGAR_2P below already knew both.
+    const SUGAR_COL = { moe: '#e0a83c', mo: '#e0a83c', lna: '#8e5cc0', bna: '#8e5cc0', cet: '#5c9dc0', dna: '#8894a5', d: '#8894a5', rna: '#1aa3bd', r: '#1aa3bd', fana: '#c07a3c', f: '#c07a3c', fl2r: '#c07a3c', m: '#3f8f5e', ome: '#3f8f5e', ena: '#7a6cc4', 'me-d': '#6b7a8c' };
     // sp/ps = phosphorothioate (orange), po/p = phosphodiester (gray). Rsp/Ssp are the
     // stereodefined phosphorothioates in this app's monomer set -- same linkage, a fixed
     // configuration at phosphorus -- so they read as PS rather than as an unknown bond.
     const LINK_COL = { sp: '#ef7d3a', ps: '#ef7d3a', rsp: '#ef7d3a', ssp: '#ef7d3a', po: '#9aa6b2', p: '#9aa6b2' };
     const BASE_COL = { A: '#2ca25f', C: '#2b7bba', G: '#d9a441', T: '#d1495b', U: '#d1495b' };
+
+    // Screen px per residue at which each sugar is drawn as a furanose RING showing its
+    // 2'-chemistry, rather than as a bead. Module scope because it is also what gates
+    // per-monomer selection: you can only click a part once the parts are drawn, and one
+    // constant means the drawing and the hit test cannot drift apart.
+    const SUGAR_PER = 34;
 
     // Parse a HELM-ish ASO structure: RNA1{[moe](C)[sp].[moe](T)[sp]. … }
     // → [{ sugar, base, linkage }] (linkage is '' on the 3' terminal residue).
@@ -117,6 +126,39 @@ function () {
             }
             return gg;
         };
+
+        // WHERE EACH MONOMER LANDED ON SCREEN, so a click can be turned back into "the 7th
+        // sugar" or "the linkage between 7 and 8". Recorded as the GEOMETRY (origin, pitch,
+        // count, radius) rather than as a rect per residue, because the loops below cull
+        // off-screen residues -- an array would have holes exactly where the user scrolled
+        // to. From x0/per/R any index is arithmetic, and it stays correct for residues that
+        // were never drawn. Same idea as the `__otBadge` screen-rect the off-target badge
+        // caches, one step more general.
+        //
+        // `editable` is the honest question the UI has to ask before offering chemistry
+        // editing: below ~6 px a residue there is no distinct thing under the cursor to
+        // click, so the answer is no and the menu says why rather than picking a monomer at
+        // random. It is deliberately not gated on lowDetail: the geometry is the same while
+        // panning even though the ornament is dropped, so a click that lands mid-pan still
+        // resolves to the residue the user aimed at.
+        const host = opts.oligo || null;
+        if (host) {
+            host.__chemGeom = {
+                x0: x0, per: per, n: n, sy: sy, R: R,
+                thin: !!opts.thin,
+                // Selectable only once the sugars are drawn as rings -- the zoom at which
+                // there is a visible "part" to aim at. Below this the polymer is beads and a
+                // click has nothing specific to mean.
+                editable: (per >= SUGAR_PER && !opts.thin),
+                sugarPer: SUGAR_PER,
+                // WHEN it was recorded. A press handler must not act on geometry left over
+                // from a document that is no longer open: after a file is loaded the old
+                // compounds are gone but their last recorded positions are not, and a click
+                // meant for the new content could be resolved against them.
+                at: Date.now(),
+                monos: monos,
+            };
+        }
 
         ctx.save();
         ctx.lineCap = 'round';
@@ -238,7 +280,7 @@ function () {
 
         // The 2'-substituent shorthand per sugar chemistry, and which sugars carry a
         // locked 2'-O,4'-C bridge (LNA/cEt/ENA family).
-        const SUGAR_2P = { moe: 'MOE', mo: 'MOE', ome: 'OMe', m: 'OMe', dna: 'H', d: 'H', 'me-d': 'H', rna: 'OH', r: 'OH', fana: 'F', f: 'F', lna: 'LNA', bna: 'LNA', cet: 'cEt', ena: 'ENA' };
+        const SUGAR_2P = { moe: 'MOE', mo: 'MOE', ome: 'OMe', m: 'OMe', dna: 'H', d: 'H', 'me-d': 'H', rna: 'OH', r: 'OH', fana: 'F', f: 'F', fl2r: 'F', lna: 'LNA', bna: 'LNA', cet: 'cEt', ena: 'ENA' };
         const BRIDGED = { lna: 1, bna: 1, cet: 1, ena: 1 };
         // Draw one sugar as a furanose pentagon (O apex, C1'..C4' clockwise) with a 3D fill,
         // its ring oxygen, and the 2'-substituent off C2' — the actual sugar chemistry.
@@ -268,7 +310,6 @@ function () {
 
         // 2) Sugars + base letters. Zoomed all the way in (per >= SUGAR_PER) each sugar is
         //    drawn as a furanose ring showing its 2'-chemistry; otherwise a 3D bead.
-        const SUGAR_PER = 34;
         const sugarMode = per >= SUGAR_PER && !opts.thin && !lowDetail;
         const showBase = per >= 11 && !opts.thin && !lowDetail;
         for (let i = 0; i < n; i++) {
@@ -306,6 +347,121 @@ function () {
                 ctx.fillText(mo.base[0], cx, sy - R - 2);
             }
         }
+
+        // 3) A TERMINAL CONJUGATE, drawn as the thing it is rather than as the word for it.
+        //    GalNAc was a text label beside the compound, which says a conjugate exists but
+        //    nothing about which end it is on, how many sugars it carries, or how it is
+        //    attached -- and the attachment chemistry (phosphorothioate vs phosphodiester)
+        //    is a real design decision, not a detail.
+        //
+        //    Drawn to the glycan convention (SNFG): each GalNAc is a YELLOW SQUARE, so a
+        //    trivalent cluster is three squares on a branched trebler, which is how these
+        //    are drawn in the literature. The stem is coloured by its linkage using the
+        //    same palette as the backbone, so a PS attachment reads as PS.
+        // The conjugate to draw: the compound's own record, or -- for one saved before
+        // that field existed -- derived from the HELM connection here, BEFORE drawing,
+        // rather than after. Derived afterwards it was a frame late, so a legacy compound
+        // showed no conjugate until something else happened to repaint it.
+        let conj = host && host.conjugate;
+        if (host && !conj && structure) {
+            const five = structure.indexOf('CHEM1,RNA1') > 0;
+            const three = structure.indexOf('RNA1,CHEM1') > 0;
+            if (five || three) {
+                const sym = (structure.match(/CHEM1\{\[?([A-Za-z0-9]+)\]?\}/) || [])[1] || '';
+                conj = { site: five ? '5' : '3', symbol: sym, linkage: '', legacy: true };
+                host.conjugate = conj;
+            }
+        }
+        if (conj && !opts.thin && per >= 6) {
+            const three = /3$/.test('' + (conj.units || '')) || (+conj.units === 3)
+                || /GN3|GalNAc3/i.test('' + (conj.symbol || ''));
+            const nUnits = three ? 3 : 1;
+            const atFive = ('' + conj.site) === '5';
+            // 5' is the LEFT end of the drawn span only when the compound is drawn 5'->3'
+            // left to right, which is how this renderer lays it out.
+            const endX = atFive ? x0 : x0 + per * n;
+            const dir = atFive ? -1 : 1;                 // outward, away from the chain
+            const lkCol = LINK_COL[('' + (conj.linkage || '')).toLowerCase()] || '#9aa6b2';
+            const stem = Math.max(10, Math.min(26, per * 0.7));
+            const sq = Math.max(4, Math.min(9, R * 0.9));
+            const bx = endX + dir * stem;                // branch point
+
+            ctx.save();
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            // Stem from the terminus to the branch point, in the linkage's own colour, and
+            // a node on it the same way a PS/PO linkage in the backbone carries one.
+            ctx.strokeStyle = lkCol; ctx.lineWidth = Math.max(1.6, R * 0.2);
+            ctx.beginPath(); ctx.moveTo(endX + dir * R * 0.6, sy); ctx.lineTo(bx, sy); ctx.stroke();
+            const isPS = /^(sp|ps|rsp|ssp)$/.test(('' + (conj.linkage || '')).toLowerCase());
+            const nodeR = Math.max(2.2, R * 0.26);
+            ctx.beginPath();
+            ctx.arc(endX + dir * (R * 0.6 + (stem - R * 0.6) / 2), sy, nodeR, 0, Math.PI * 2);
+            if (isPS) { ctx.fillStyle = lkCol; ctx.fill(); }
+            else { ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = lkCol; ctx.stroke(); }
+
+            // Arms out to each sugar: one straight arm, or three fanned from the branch.
+            const arm = Math.max(8, Math.min(20, per * 0.5));
+            const ys = (nUnits === 3) ? [-1, 0, 1] : [0];
+            ctx.strokeStyle = '#8a8f98'; ctx.lineWidth = Math.max(1.2, R * 0.14);
+            for (const k of ys) {
+                const tx = bx + dir * arm, ty = sy + k * (sq * 2.1);
+                ctx.beginPath(); ctx.moveTo(bx, sy); ctx.lineTo(tx, ty); ctx.stroke();
+            }
+            // The sugars themselves: SNFG yellow squares with a dark edge.
+            for (const k of ys) {
+                const tx = bx + dir * arm, ty = sy + k * (sq * 2.1);
+                ctx.fillStyle = '#f5c518';
+                ctx.strokeStyle = '#6b5a00'; ctx.lineWidth = 1.1;
+                ctx.beginPath(); ctx.rect(tx - sq, ty - sq, sq * 2, sq * 2);
+                ctx.fill(); ctx.stroke();
+            }
+            // Name it only when there is room; the squares carry the meaning.
+            if (per >= 18) {
+                const lbl = (nUnits === 3 ? 'GalNAc₃' : 'GalNAc');
+                ctx.font = 'bold ' + Math.max(8, Math.round(R * 0.8)) + 'px "Segoe UI", Arial, sans-serif';
+                ctx.textAlign = atFive ? 'right' : 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = GX.ink;
+                ctx.fillText(lbl, bx + dir * (arm + sq + 3) * (atFive ? 0 : 1) + (atFive ? -(arm + sq + 3) : 0),
+                    sy + sq * 2.1 + sq + 2);
+            }
+            ctx.restore();
+
+            // Where it was drawn, so a press can offer the conjugate's own menu.
+            if (host) {
+                const lo = Math.min(endX, bx + dir * (arm + sq)), hi = Math.max(endX, bx + dir * (arm + sq));
+                host.__conjBox = { x1: lo, x2: hi, sy: sy, h: sq * 2.1 * (nUnits === 3 ? 1.6 : 1) + sq };
+            }
+        } else if (host) { host.__conjBox = null; }
+
+        // 4) THE SELECTED PART, drawn last so it sits over the chemistry rather than under
+        //    it. A selected monomer gets a ring around its sugar; a selected linkage gets a
+        //    capsule around the bond it occupies -- different shapes because they are
+        //    different kinds of thing, and a reader should not have to work out which one
+        //    they picked from the position of a highlight alone.
+        const sel = host && host.__chemSel;
+        if (sel && sel.i >= 0 && sel.i < n) {
+            const accent = '#ff8c42';               // the same orange a selected oligo uses
+            ctx.save();
+            ctx.strokeStyle = accent;
+            ctx.lineWidth = Math.max(2, R * 0.22);
+            ctx.shadowColor = 'rgba(255,140,66,0.55)'; ctx.shadowBlur = 6;
+            if (sel.kind === 'linkage' && sel.i < n - 1) {
+                const a = x0 + (sel.i + 0.5) * per, b = x0 + (sel.i + 1.5) * per;
+                const pad = R * 0.35, h = Math.max(6, R * 1.5);
+                const lx = a + R * 0.75 - pad, rx = b - R * 0.75 + pad;
+                const top = sy - (chemMode ? R * 2.1 : h / 2), bot = sy + h / 2;
+                const rr = Math.min(6, (bot - top) / 2);
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(lx, top, Math.max(4, rx - lx), bot - top, rr);
+                else ctx.rect(lx, top, Math.max(4, rx - lx), bot - top);
+                ctx.stroke();
+            } else {
+                const cx = x0 + (sel.i + 0.5) * per;
+                ctx.beginPath(); ctx.arc(cx, sy, R + Math.max(3, R * 0.3), 0, Math.PI * 2); ctx.stroke();
+            }
+            ctx.restore();
+        }
         ctx.restore();
     };
 
@@ -324,19 +480,17 @@ function () {
         // Gapmer: the 3D polymer schematic. A gapmer's chemistry pattern (modified wings +
         // DNA core "gap") reads straight off the sugar-bead colors — amber/purple MOE/LNA wings
         // flanking gray DNA — so no special gap drawing is needed beyond the structure itself.
-        'gapmer.detailed': createIon((graph, xs, xf, y, color, structure) => {
-            drawAsoPolymer(graph, xs, xf, y, color || GX.sirna, structure, { thin: true, gapmerDefault: true });
+        'gapmer.detailed': createIon((graph, xs, xf, y, color, structure, oligo) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.sirna, structure, { thin: true, gapmerDefault: true, oligo: oligo });
         }),
-        'gapmer': createIon((graph, xs, xf, y, color, structure) => {
-            drawAsoPolymer(graph, xs, xf, y, color || GX.sirna, structure, { thin: false, gapmerDefault: true });
-            // GalNAc conjugate annotation (if the HELM carries a CHEM1 conjugate).
-            if (structure) {
-                if (structure.indexOf('CHEM1,RNA1,1:R1-1:R1') > 0 || structure.indexOf('RNA1,CHEM1,1:R1-1:R1') > 0) {
-                    graph.drawString("GalNAc", xs - 3, y, GX.ink, font)
-                } else if (structure.indexOf('CHEM1,RNA1') > 0 || structure.indexOf('RNA1,CHEM1') > 0) {
-                    graph.drawString("GalNAc", xf, y, GX.ink, font)
-                }
-            }
+        'gapmer': createIon((graph, xs, xf, y, color, structure, oligo) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.sirna, structure, { thin: false, gapmerDefault: true, oligo: oligo });
+            // A conjugate is DRAWN by the polymer renderer above (SNFG squares on a
+            // trebler, stem coloured by its linkage) rather than written beside the
+            // compound as the word "GalNAc", which said one existed and nothing else --
+            // not which end, not how many sugars, not how it is attached. Compounds saved
+            // before the `conjugate` field existed are picked up from their HELM
+            // connection inside drawAsoPolymer, so they draw on the first frame too.
         }),
         'amplicon': createIon((graph, xs, xf, y) => {
             let d = xf - xs;
@@ -361,14 +515,14 @@ function () {
         }),
         // Zoomed OUT (called as detailedShapeFunction when screencell <= 1): compact beaded
         // backbone — the 3D polymer read at a glance without base letters.
-        'aso.detailed': createIon((graph, xs, xf, y, color, structure) => {
-            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: true });
+        'aso.detailed': createIon((graph, xs, xf, y, color, structure, oligo) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: true, oligo: oligo });
         }),
         // Zoomed IN / detailed view (called as shapeFunction when screencell > 1): the full 3D
         // polymer schematic — shaded sugar beads (by 2'-modification), base letters, and
         // chemistry-colored linkages (phosphorothioate vs phosphodiester).
-        'aso': createIon((graph, xs, xf, y, color, structure) => {
-            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: false });
+        'aso': createIon((graph, xs, xf, y, color, structure, oligo) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: false, oligo: oligo });
         }),
 
         // The types the DESIGNERS actually produce. Oligo.draw looks its shape up by
@@ -394,11 +548,11 @@ function () {
         // A steric blocker is a fully-modified single strand -- the same polymer the ASO shape
         // draws, and deliberately not a distinct mark: what separates it from a gapmer is its
         // chemistry, which the polymer already renders from `structure`.
-        'steric_blocking_aso': createIon((graph, xs, xf, y, color, structure) => {
-            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: false });
+        'steric_blocking_aso': createIon((graph, xs, xf, y, color, structure, oligo) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: false, oligo: oligo });
         }),
-        'steric_blocking_aso.detailed': createIon((graph, xs, xf, y, color, structure) => {
-            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: true });
+        'steric_blocking_aso.detailed': createIon((graph, xs, xf, y, color, structure, oligo) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: true, oligo: oligo });
         }),
 
         'mutation-annotation': createIon((graph, xs, xf, y, c, phase) => {

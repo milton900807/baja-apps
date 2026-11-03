@@ -4064,7 +4064,33 @@ return new Promise(async (resolve, reject) => {
             return o2;
         }
 
+        // A SPLICING PREDICTION IS ABOUT A SEQUENCE, so editing the sequence invalidates it.
+        // Nothing used to say so: the sashimi layer (baja/bio/splicing/splicing-profile.js)
+        // holds junction coordinates and PSI values computed from the sequence as it was,
+        // and both mutators below rewrite that sequence without touching track_layers. The
+        // plot then went on showing the old splicing pattern -- and after an indel its arcs
+        // no longer even lined up with the bases, because adjustDownstreamAnnotations moves
+        // annotations and knows nothing about layers.
+        //
+        // The layer is marked rather than removed: the old prediction is still the thing the
+        // user asked for and worth seeing, it just must not be presented as current. The flag
+        // has no leading underscore deliberately -- document JSON strips those, and a stale
+        // layer that came back from a file claiming to be current would be the same bug again.
+        markSplicingLayersStale() {
+            let n = 0;
+            try {
+                for (const L of (this.track_layers || [])) {
+                    if (!L) continue;
+                    if (L.arc_type === 'SpliceSashimi' || L.data_type === 'splicing') {
+                        L.staleSequence = true; n++;
+                    }
+                }
+            } catch (e) { }
+            return n;
+        }
+
         mutateTrackWithSingleMutation(mutation) {
+            this.markSplicingLayersStale();
             if (this.strand < 0) {
                 if (mutation.sequence != null && mutation.sequence != undefined) {
                     if (mutation.xi <= mutation.xf) {
@@ -4106,6 +4132,7 @@ return new Promise(async (resolve, reject) => {
         }
 
         mutateTrack(phase) {
+            this.markSplicingLayersStale();
 
             let mutations = this.snpindels.filter(snp => snp.phase === phase);
             mutations.sort((a, b) => b.xi - a.xi);

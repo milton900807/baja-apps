@@ -1,4 +1,11 @@
 function (graph, genegraph_panel_layout) {
+    // MENUS AT THE POINTER, NOT IN THE CORNER. This module is entered from a menubar or a
+    // toolbar, so there is no canvas press behind it and showSideMenu had nothing to anchor
+    // to -- every question it asks came up as the top-left side panel, in a different place
+    // and a different style from every menu reached by clicking the canvas.
+    // graph.openMenuAtPointer (flexigraph/gene.js) draws the same list at the pointer, and
+    // defers to an open floating session when this module is instead reached from a press,
+    // so the mixed-entry callers keep their place. The || keeps older graphs working.
 
     return new Promise(async (resolve, reject) => {
         let bpanel = {
@@ -431,9 +438,9 @@ function (graph, genegraph_panel_layout) {
             const back = { label: '‹ Back', move: () => { }, click: () => { showMain(); } };
             const groupMenu = (grp) => (grp.items || []).map((it) => ({ label: it.label, move: () => { }, click: () => { runIon(it.ionfunction); } })).concat([back]);
             showMain = () => {
-                const main = (menus || []).map((grp) => ({ label: (grp.label || '') + ' ▸', move: () => { }, click: () => { try { graph.showSideMenu(groupMenu(grp)); } catch (e) { } } }));
+                const main = (menus || []).map((grp) => ({ label: (grp.label || '') + ' ▸', move: () => { }, click: () => { try { (graph.openMenuAtPointer || graph.showSideMenu).call(graph, groupMenu(grp)); } catch (e) { } } }));
                 main.push({ label: 'Close', move: () => { }, click: () => { close(); } });
-                try { graph.showSideMenu(main); } catch (e) { }
+                try { (graph.openMenuAtPointer || graph.showSideMenu).call(graph, main); } catch (e) { }
             };
             showMain();
         } catch (e) { try { graph.setMessage(' Could not open annotation tools. '); } catch (e2) { } }

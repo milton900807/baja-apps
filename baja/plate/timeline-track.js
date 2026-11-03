@@ -9941,7 +9941,7 @@ function () {
                         if (this.wbid === "override-box")
                             return;
 
-                        this.panGridSlide(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
+                        // this.panGridSlide(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
                         setTimeout(() => {
 
                             let obj = this.getNextObjectInDirection(direction, { fromScreen: { x: this.grid.width / 2, y: this.grid.height / 2 } })
