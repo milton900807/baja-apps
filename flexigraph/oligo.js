@@ -819,12 +819,15 @@ function () {
                 let font = "11px Arial";
                 let seq_index = Math.round(x - this.xi);
 
-                if (this.sequence) {
-                    if (seq_index >= 0 && seq_index < this.sequence.length) {
+                // A design that sets targetDisplay (the strand it binds, in ascending x) shows
+                // that; `sequence` can be the synthesised strand itself on reverse-strand genes.
+                const seq = (wantsTarget && this.targetDisplay) ? this.targetDisplay : this.sequence;
+                if (seq) {
+                    if (seq_index >= 0 && seq_index < seq.length) {
                         if (this.mismatch.includes(seq_index)) {
-                            graph.drawString(this.sequence[seq_index], tgraph.X(x), tgraph.Y(y), "red", "12px Arial");
+                            graph.drawString(seq[seq_index], tgraph.X(x), tgraph.Y(y), "red", "12px Arial");
                         } else {
-                            graph.drawString(this.sequence[seq_index], tgraph.X(x), tgraph.Y(y), "darkGreen", font);
+                            graph.drawString(seq[seq_index], tgraph.X(x), tgraph.Y(y), "darkGreen", font);
                         }
                     }
                 }
