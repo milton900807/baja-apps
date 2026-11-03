@@ -1,4 +1,11 @@
 function (server, graph, genegraph_panel_layout, context, presetQuery) {
+    // MENUS AT THE POINTER, NOT IN THE CORNER. This module is entered from a menubar or a
+    // toolbar, so there is no canvas press behind it and showSideMenu had nothing to anchor
+    // to -- every question it asks came up as the top-left side panel, in a different place
+    // and a different style from every menu reached by clicking the canvas.
+    // graph.openMenuAtPointer (flexigraph/gene.js) draws the same list at the pointer, and
+    // defers to an open floating session when this module is instead reached from a press,
+    // so the mixed-entry callers keep their place. The || keeps older graphs working.
     return new Promise(async (resolve, reject) => {
         const PY = server + '/py/sequence/prompt-action.py';
         context = context || 'general';
@@ -484,7 +491,7 @@ function (server, graph, genegraph_panel_layout, context, presetQuery) {
                 move: () => { }
             }));
             graph.setMessage(' Pick a track to select its whole sequence:');
-            graph.showSideMenu(items);
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, items);
         };
 
         // ---- execute one step ---------------------------------------------
@@ -644,7 +651,7 @@ function (server, graph, genegraph_panel_layout, context, presetQuery) {
                     }));
                     graph.setMessage(' ' + matches.length + ' tracks match "' + needle + '"'
                         + (feature ? ' — pick one to zoom to its ' + feature : ' — choose one') + ':');
-                    graph.showSideMenu(menu);
+                    (graph.openMenuAtPointer || graph.showSideMenu).call(graph, menu);
                     return;
                 }
                 case 'fetch_annotations': {
@@ -1017,7 +1024,7 @@ function (server, graph, genegraph_panel_layout, context, presetQuery) {
                         { label: 'Cancel', move: () => { }, click: () => graph.showSideMenu(null) },
                     ];
                     graph.setMessage(' ' + label + ' — choose how to target it: ');
-                    graph.showSideMenu(menu);
+                    (graph.openMenuAtPointer || graph.showSideMenu).call(graph, menu);
                     return;
                 }
 

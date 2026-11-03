@@ -152,6 +152,25 @@ function (graph, genegraph_panel_layout) {
         window.addEventListener('pointerdown', onPress, true);
         window.addEventListener('mousedown', onPress, true);
 
+        // WHERE THE POINTER LAST WAS OVER THE CANVAS. Recorded here because this handler
+        // already has the canvas and the client->canvas conversion; it stores two numbers and
+        // does nothing else. graph.openMenuAtPointer (flexigraph/gene.js) reads it so a menu
+        // opened by a tool launched from the shelf -- which has no press of its own to hang on
+        // -- still appears where the user is looking, in the same style as every menu reached
+        // by clicking the canvas, instead of as the top-left side panel.
+        const onMove = (e) => {
+            try {
+                const el = S.cv, g = S.graph;
+                if (!el || !g || !el.isConnected) return;
+                const r = el.getBoundingClientRect();
+                if (!(e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom)) return;
+                const p = toCanvas(e, el);
+                g.__pointerXY = { x: p.x, y: p.y, at: Date.now() };
+            } catch (err) { }
+        };
+        window.addEventListener('pointermove', onMove, true);
+        window.addEventListener('mousemove', onMove, true);
+
         window.__bajaLayerRowInfo = () => {
             const el = S.cv, g = S.graph;
             let rect = null; try { const r = el.getBoundingClientRect(); rect = { left: r.left, top: r.top, w: r.width, h: r.height, canvasW: el.width, canvasH: el.height }; } catch (e) { }

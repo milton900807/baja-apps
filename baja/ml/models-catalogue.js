@@ -362,6 +362,50 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'ClinVar splice variants', badge: 'BajaSplice', ready: true, group: 'splicing',
+            blurb: 'Which ClinVar variants in this gene move a splice site \u2014 including ones nobody called splice variants.',
+            open: () => __onParentTrack('ClinVar splice variants', (list) => exec('baja/bio/splicing/clinvar-splice-variants.js', graph, L, (list[0] || null))),
+            docs: {
+                summary: 'Takes every ClinVar variant near an annotated splice site of the gene, '
+                    + 'scores it reference-against-alternate with the BajaSplice splice-site model, '
+                    + 'and draws the ones that move a site. Losses (a site the transcript uses gets '
+                    + 'weaker) and gains (a cryptic site appears) are coloured separately, because '
+                    + 'they are different mechanisms: one causes exon skipping, the other a competing '
+                    + 'junction. THE SCORE IS NOT A PATHOGENICITY CALL AND IT IS NOT \u0394PSI \u2014 it is '
+                    + 'the change in splice-site probability, so a high score says the site moves, '
+                    + 'not that the patient is affected.',
+                provenance: 'BajaSplice ss_ctx2000 \u2014 a SpliceAI-style dilated CNN trained here on '
+                    + 'GENCODE v50, test PR-AUC 0.935 acceptor / 0.931 donor \u2014 scored through '
+                    + 'bajasplice.variants.delta_score, the same reference-vs-alternate quantity '
+                    + 'SpliceAI reports. ClinVar comes from the server\u2019s own VCF. Measured on '
+                    + 'TP53: AUC 0.989 separating ClinVar-called splice variants from '
+                    + 'missense/synonymous, median \u0394 0.997 against 0.003.',
+                usage: 'Pick a threshold and click a track. The default window is 300 nt either side '
+                    + 'of an annotated splice site; there is a \u00b12000 nt option for deep-intronic '
+                    + 'variants. Candidates are chosen by DISTANCE to a splice site, not by ClinVar\u2019s '
+                    + 'own consequence call \u2014 selecting on MC=splice_donor/acceptor can only return '
+                    + 'variants already labelled splice variants, which is the opposite of the '
+                    + 'question. Substitutions only by default: for an indel the reference and '
+                    + 'alternate sequences fall out of register downstream and part of the \u0394 is that '
+                    + 'shift rather than a splicing change. A selected sequence narrows the layer. '
+                    + 'The interesting output is the variants ClinVar has NOT already annotated as '
+                    + 'splice variants: a synonymous or deep-intronic variant scoring high is a '
+                    + 'finding, whereas a splice_donor_variant scoring high is a restatement \u2014 the '
+                    + 'closing message counts those separately. On the limits: the same validation '
+                    + 'that separates splice variants from missense at AUC 0.99 reaches only 0.72 for '
+                    + 'pathogenic-versus-benign AMONG splice variants, and there is no \u0394PSI model '
+                    + 'here, so how far the isoform ratio actually shifts is not predicted.',
+                links: [
+                    { title: 'Technical report: BajaSplice', url: 'https://baja.bio/data/BajaSplice-technical-report.pdf',
+                      note: 'Architecture, training split and the splice-site benchmarks.' },
+                    { title: 'Jaganathan et al., SpliceAI', url: 'https://doi.org/10.1016/j.cell.2018.12.015',
+                      note: 'The delta-score formulation this reproduces, and what it does and does not predict.' },
+                    { title: 'ClinVar', url: 'https://www.ncbi.nlm.nih.gov/clinvar/',
+                      note: 'The variant source; classifications are submitters\u2019, not the model\u2019s.' }
+                ]
+            }
+        },
+        {
             title: 'Intron retention', badge: 'BajaIR', ready: true, group: 'splicing',
             blurb: 'How retention-prone each intron is, from sequence alone.',
             open: () => __onParentTrack('BajaIR intron retention', (list) => exec('baja/bio/splicing/intron-retention.js', graph, L, list)),

@@ -1,4 +1,11 @@
 function (graph, genegraph_panel_layout) {
+    // MENUS AT THE POINTER, NOT IN THE CORNER. This module is entered from a menubar or a
+    // toolbar, so there is no canvas press behind it and showSideMenu had nothing to anchor
+    // to -- every question it asks came up as the top-left side panel, in a different place
+    // and a different style from every menu reached by clicking the canvas.
+    // graph.openMenuAtPointer (flexigraph/gene.js) draws the same list at the pointer, and
+    // defers to an open floating session when this module is instead reached from a press,
+    // so the mixed-entry callers keep their place. The || keeps older graphs working.
     return new Promise(async (resolve) => {
         // Ensure the recorder is running (it normally starts at editor load).
         let H = graph.__viewHistory;
@@ -45,7 +52,7 @@ function (graph, genegraph_panel_layout) {
                 label: 'Clear history', move: () => { log(''); },
                 click: () => { H.clear(); graph.setMessage(' View history cleared. '); if (graph.showSideMenu) graph.showSideMenu(null); resolve(null); }
             });
-            graph.showSideMenu(items);
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, items);
         };
 
         show();

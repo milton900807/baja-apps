@@ -65,7 +65,14 @@ def fetch_region(path, contig, start1, end1):
         return
     raise RuntimeError("neither pysam nor the tabix CLI is available")
 
-MAX_ROWS = 5000
+# A whole-gene load on a large locus routinely exceeds a few thousand records: the DMD
+# locus alone holds >10,000 ClinVar records. Tabix returns them in ascending position, so
+# a cap does not thin the set out evenly -- it lops off a contiguous block at one end of
+# the gene, and on a minus-strand gene like DMD that is the 5' exons. 5000 cut DMD at
+# exon 35 and dropped half its pathogenic variants with nothing said. The cap is a payload
+# guard, not a display guard, so it is set where the JSON gets unwieldy rather than where
+# the track gets busy -- and when it bites, say so (see `truncated` in the result).
+MAX_ROWS = 60000
 # Skip structural variants: alleles longer than this (bp) aren't point variants and
 # would render as giant deletions/insertions spanning the region.
 MAX_ALLELE = 50
@@ -117,6 +124,8 @@ def parse_info(info):
 path = resolve_vcf(token)
 variants = []
 err = None
+truncated = False
+cut_at = None
 
 if not pysam and not _TABIX_BIN:
     err = "neither pysam nor the tabix CLI is available on this server's python3"
@@ -202,6 +211,8 @@ else:
                 if len(variants) >= MAX_ROWS:
                     break
             if len(variants) >= MAX_ROWS:
+                truncated = True
+                cut_at = pos
                 break
     except Exception as e:
         err = str(e)
@@ -210,6 +221,13 @@ works.resolve({
     "db": db,
     "region": "%s:%s-%s" % (chrom, start, end),
     "count": len(variants),
+    # WHETHER THE ANSWER IS THE WHOLE ANSWER. Without this the caller cannot tell a gene
+    # with 900 variants from the first 900 of a gene with 10,000, and a half-loaded track
+    # looks exactly like a finished one. `cutAt` is the position the read stopped at, so
+    # the warning can name the place to re-query from.
+    "truncated": truncated,
+    "cutAt": cut_at,
+    "maxRows": MAX_ROWS,
     "error": err,
     "variants": json.dumps(variants),
 })

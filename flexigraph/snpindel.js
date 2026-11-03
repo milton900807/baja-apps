@@ -137,6 +137,12 @@ function () {
             alternate0;
             phaseset;
             highlight = false;
+            // A SHAPE AND A COLOUR THE USER CHOSE, and they have to survive a save. Neither
+            // name starts with an underscore on purpose: document JSON strips every
+            // _-prefixed key, which is why `_color` below has never persisted and a variant
+            // painted by a view came back grey on reload.
+            markerShape = null;      // a key of SnpIndel.SHAPES; null = the default circle
+            markerColor = null;      // any CSS colour; null = clinical / sample / phase colour
             clinsig = null;
             clindn = null;
             quality = null;
@@ -144,6 +150,42 @@ function () {
             _shapesResolved = false;
 
             static _buttonPaths = {};
+
+            // THE SHAPES A VARIANT MARKER CAN TAKE, as key -> the name shown in the menu.
+            // Deliberately geometric and distinguishable at the ~7-14px the head is drawn at:
+            // anything more detailed becomes a smudge at the sizes that matter. Order is the
+            // order the menu lists them, roughly simplest first.
+            static SHAPES = {
+                'circle': 'Circle',
+                'square': 'Square',
+                'diamond': 'Diamond',
+                'triangle': 'Triangle',
+                'triangle-down': 'Triangle (down)',
+                'pentagon': 'Pentagon',
+                'pentagon-down': 'Pentagon (down)',
+                'hexagon': 'Hexagon',
+                'octagon': 'Octagon',
+                'star': 'Star (5)',
+                'star6': 'Star (6)',
+                'burst': 'Burst',
+                'plus': 'Plus',
+                'cross': 'Cross',
+                'bowtie': 'Bowtie',
+                'chevron': 'Chevron',
+                'pin': 'Pin',
+            };
+
+            // A PALETTE, rather than a colour wheel: these are markers a few pixels across on
+            // a pale track, so what matters is that any two are told apart at a glance and
+            // each is dark enough to read against white. 'Automatic' clears the override and
+            // returns the variant to its clinical / sample / phase colour.
+            static MARKER_COLORS = [
+                ['#d1342f', 'Red'], ['#e0651a', 'Orange'], ['#e0a03b', 'Amber'],
+                ['#b8a800', 'Yellow'], ['#5a9e2f', 'Green'], ['#149e7a', 'Teal'],
+                ['#1aa3bd', 'Cyan'], ['#2a6fd6', 'Blue'], ['#5e54c7', 'Indigo'],
+                ['#8b3fc7', 'Violet'], ['#c73f9b', 'Magenta'], ['#a8552f', 'Brown'],
+                ['#1f2937', 'Black'], ['#6b7280', 'Grey'],
+            ];
 
             constructor(type, xi, reference, alternate, phase, transcriptStrand, id, phaseset, color = null) {
                 this.type = type;
@@ -227,27 +269,97 @@ function () {
                 instance._shapesResolved = true;
             }
 
-            static getButtonPaths(radius) {
-                const key = radius | 0;
+            // THE MARKER HEAD'S OUTLINE, for any of the shapes below, as a unit polygon on a
+            // circle of radius 1 centred at the origin. Returning points rather than a path
+            // means the same outline can be rebuilt at the four sizes the head needs (shadow,
+            // base, face, glow) without four copies of the geometry. null means "a circle",
+            // which is drawn with arc() so it stays smooth at every size.
+            static shapePoints(shape) {
+                const pts = (n, rot, r2) => {
+                    const out = [];
+                    for (let i = 0; i < n; i++) {
+                        const a = rot + (i * 2 * Math.PI / n);
+                        const rr = (r2 && (i % 2)) ? r2 : 1;
+                        out.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+                    }
+                    return out;
+                };
+                const UP = -Math.PI / 2;
+                // EVERY OUTLINE IS NORMALISED to touch the unit circle exactly once it is
+                // built. The hand-written ones (plus, cross, chevron, pin, bowtie) have
+                // corners further out than 1 -- a plus's corner is at hypot(1, 0.38) = 1.07,
+                // a chevron's at 1.41 -- so without this they draw LARGER than the radius
+                // they were asked for, overflow the head's hit region and collide with the
+                // neighbouring marker. Scaling here keeps "radius" meaning the same thing for
+                // every shape, which is what the caller and the hit test both assume.
+                const norm = (pts) => {
+                    if (!pts || !pts.length) return pts;
+                    let rmax = 0;
+                    for (const [x, y] of pts) rmax = Math.max(rmax, Math.hypot(x, y));
+                    if (!(rmax > 0) || Math.abs(rmax - 1) < 1e-9) return pts;
+                    return pts.map(([x, y]) => [x / rmax, y / rmax]);
+                };
+                switch (shape) {
+                    case 'square': return pts(4, UP + Math.PI / 4);
+                    case 'diamond': return pts(4, UP);
+                    case 'triangle': return pts(3, UP);
+                    case 'triangle-down': return pts(3, Math.PI / 2);
+                    case 'pentagon': return pts(5, UP);
+                    case 'hexagon': return pts(6, UP);
+                    case 'octagon': return pts(8, UP + Math.PI / 8);
+                    case 'star': return pts(10, UP, 0.46);
+                    case 'star6': return pts(12, UP, 0.54);
+                    case 'burst': return pts(16, UP, 0.62);
+                    case 'plus': return norm([[-0.38,-1],[0.38,-1],[0.38,-0.38],[1,-0.38],[1,0.38],
+                                         [0.38,0.38],[0.38,1],[-0.38,1],[-0.38,0.38],[-1,0.38],
+                                         [-1,-0.38],[-0.38,-0.38]]);
+                    case 'cross': {
+                        const c = Math.cos(Math.PI / 4), pl = SnpIndel.shapePoints('plus');
+                        return pl.map(([x, y]) => [x * c - y * c, x * c + y * c]);
+                    }
+                    // An hourglass traced as ONE simple outline. Written first as two crossing
+                    // strokes, which is a self-intersecting path whose net area is zero and
+                    // whose fill depends on the winding rule -- a shape that may or may not
+                    // appear is worse than one that is slightly different.
+                    case 'bowtie': return norm([[-1,-0.85],[-0.22,0],[-1,0.85],[1,0.85],[0.22,0],[1,-0.85]]);
+                    case 'chevron': return norm([[0,-1],[1,0.25],[1,1],[0,-0.15],[-1,1],[-1,0.25]]);
+                    case 'pin': return norm([[0,1],[0.82,-0.25],[0.5,-0.9],[-0.5,-0.9],[-0.82,-0.25]]);
+                    case 'pentagon-down': return pts(5, Math.PI / 2);
+                    case 'circle':
+                    default: return null;
+                }
+            }
+
+            // The five paths the head is painted from, for one shape at one radius. Same five
+            // names and the same offsets the circle always used, so the painting code below is
+            // unchanged -- only the outline differs.
+            static getButtonPaths(radius, shape) {
+                const sh = (shape && SnpIndel.SHAPES[shape]) ? shape : 'circle';
+                const key = sh + '|' + (radius | 0);
                 if (this._buttonPaths[key]) return this._buttonPaths[key];
 
-                const r = key;
+                const r = radius | 0;
                 const outer = r + 1.8;
+                const pts = SnpIndel.shapePoints(sh);
+                const ring = (rad, dy) => {
+                    const path = new Path2D();
+                    if (!pts) { path.arc(0, dy, rad, 0, Math.PI * 2); return path; }
+                    pts.forEach(([x, y], i) => {
+                        const px = x * rad, py = y * rad + dy;
+                        if (i === 0) path.moveTo(px, py); else path.lineTo(px, py);
+                    });
+                    path.closePath();
+                    return path;
+                };
 
-                const shadow = new Path2D();
-                shadow.arc(0, 1.2, outer, 0, Math.PI * 2);
-
-                const base = new Path2D();
-                base.arc(0, 0, outer, 0, Math.PI * 2);
-
-                const face = new Path2D();
-                face.arc(0, -0.6, r, 0, Math.PI * 2);
-
+                const shadow = ring(outer, 1.2);
+                const base = ring(outer, 0);
+                const face = ring(r, -0.6);
+                // The highlight stays a small circle whatever the outline is: it reads as a
+                // lit surface, and a star-shaped glint reads as a second marker.
                 const shine = new Path2D();
                 shine.arc(-r * 0.35, -r * 0.35, r * 0.22, 0, Math.PI * 2);
-
-                const glow = new Path2D();
-                glow.arc(0, 0, r + 5, 0, Math.PI * 2);
+                const glow = ring(r + 5, 0);
 
                 const paths = { shadow, base, face, shine, glow };
                 this._buttonPaths[key] = paths;
@@ -641,7 +753,7 @@ function () {
                     const cx = button_center_x;
                     const cy = button_center_y;
                     const buttonRadius = Math.max(7, radius - 1);
-                    const paths = SnpIndel.getButtonPaths(buttonRadius);
+                    const paths = SnpIndel.getButtonPaths(buttonRadius, instance.markerShape);
                     ctx.save();
                     ctx.translate(cx, cy);
 
@@ -1172,6 +1284,10 @@ function () {
             //   null / unknown -> grey; contains "benign" -> light blue;
             //   contains "pathogenic" -> red (with a red glow).
             clinsigStyle() {
+                // A colour the USER set by hand outranks every automatic one, including the
+                // clinical call: they are looking at something the colour scheme does not
+                // know about, and the tool should not argue. Cleared from the same menu.
+                if (this.markerColor) return { color: this.markerColor, glow: null };
                 // A color chosen for this variant by a view -- by sample, by haplotype --
                 // wins over the clinical one while it is set. Cleared by the same view.
                 if (this.sampleColor) return { color: this.sampleColor, glow: null };

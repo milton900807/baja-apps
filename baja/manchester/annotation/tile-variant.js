@@ -81,8 +81,8 @@ function (variant, selectedTrack, graph, opposite, all) {
             // the variant being designed against and for every neighbour written in after it,
             // so a neighbouring indel cannot go in by one rule and the primary by another.
             const spliceVariant = (seq, idx, v, altRaw) => {
-                const ref = ('' + ((v && (v.reference0 || v.reference)) || '')).toUpperCase();
-                const alt = ('' + (altRaw != null ? altRaw : ((v && (v.alternate0 || v.alternate)) || ''))).toUpperCase();
+                let ref = ('' + ((v && (v.reference0 || v.reference)) || '')).toUpperCase();
+                let alt = ('' + (altRaw != null ? altRaw : ((v && (v.alternate0 || v.alternate)) || ''))).toUpperCase();
                 let at = idx.indexOf(v.xi);
                 if (at < 0) return { seq: seq, idx: idx };
                 // Where the reference allele ACTUALLY sits: at the drawn position, or one base
@@ -90,6 +90,21 @@ function (variant, selectedTrack, graph, opposite, all) {
                 if (ref.length >= 2) {
                     const reads = (i) => seq.slice(i, i + ref.length).toUpperCase();
                     if (reads(at) !== ref && at > 0 && reads(at - 1) === ref) at -= 1;
+                }
+                // AND WHICH STRAND THE RECORD IS WRITTEN ON, by the same principle: the
+                // sequence decides. reference0/alternate0 are the coding strand's and
+                // reference/alternate the plus strand's, so a record carrying only the
+                // plus-strand pair -- which is every variant that arrived by genomic
+                // coordinate -- would otherwise be written into a coding-strand window
+                // uncomplemented. That leaves the flanks right and one base the complement
+                // of what it should be, and every oligo tiled over it matches NEITHER
+                // allele at the one position the design turns on: the same failure the
+                // indel offset above caused, arriving by a different road.
+                const COMPL = { A: 'T', C: 'G', G: 'C', T: 'A', N: 'N' };
+                const flip = (s) => s.split('').map((b) => COMPL[b] || 'N').join('');
+                if (ref && /^[ACGT]+$/.test(ref)) {
+                    const here = seq.slice(at, at + ref.length).toUpperCase();
+                    if (here !== ref && here === flip(ref)) { ref = flip(ref); alt = flip(alt); }
                 }
                 const end = ref.length ? (at + ref.length) : idx.indexOf(v.xf);
                 if (!(end >= at)) return { seq: seq, idx: idx };

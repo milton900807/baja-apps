@@ -469,7 +469,11 @@ function () {
                 {
                     label: 'Mutate track sequence',
                     click: async (xwc, ywc) => {
-                        selectedTrack.mutateTrackWithSingleMutation(snpindel.phase)
+                        // the variant itself (this used to pass its phase, which is not a mutation)
+                        const __pepBefore = selectedTrack.orf && selectedTrack.orf.sequence;
+                        try { graph.pushOntoHistory(); } catch (e) { }
+                        selectedTrack.mutateTrackWithSingleMutation(snpindel)
+                        await exec('baja/bio/orfs/refresh-orf-after-mutation.js', selectedTrack, graph, __pepBefore);
                     },
                     move: () => {
                         log('')

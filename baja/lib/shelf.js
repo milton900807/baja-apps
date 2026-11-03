@@ -637,6 +637,14 @@ function (opts) {
                         if (b.docs) { showDetail(b); return; }
                         if (typeof b.open !== 'function') return;
                         close('open');
+                        // A TOOL'S OWN QUESTIONS BELONG AT THE POINTER, not in the top-left side
+                        // panel. A shelf launch has no canvas press behind it, so showSideMenu had
+                        // nothing to anchor to and every tool asked "which track?" in a different
+                        // place and style from every menu reached by clicking the canvas. Arming a
+                        // floating session here means each tool inherits that for free, without
+                        // knowing this exists. armMenuAtPointer declines in library mode and on
+                        // mobile, where the side panel or the library IS the right presentation.
+                        try { if (graph && graph.armMenuAtPointer) graph.armMenuAtPointer(b.title || ''); } catch (e) { }
                         try { await b.open(); }
                         catch (e) {
                             try { if (graph && graph.setMessage) graph.setMessage(' Could not open ' + b.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
@@ -771,6 +779,8 @@ function (opts) {
                 if (loadBtn) loadBtn.onclick = async () => {
                     if (loadBtn.disabled) return;
                     close('open');
+                    // See the card's own open() above: the tool's menus go at the pointer.
+                    try { if (graph && graph.armMenuAtPointer) graph.armMenuAtPointer(b.title || ''); } catch (e) { }
                     try { await b.open(chosen); }
                     catch (e) {
                         try { if (graph && graph.setMessage) graph.setMessage(' Could not open ' + b.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }

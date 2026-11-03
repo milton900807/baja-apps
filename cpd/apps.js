@@ -3499,6 +3499,13 @@ function (path, config) {
                 })
 
                 ai_create_file_items.push({
+                    // The short version of P&L With Capital: one model call, four small tables.
+                    'label': 'Simple P&L With Capital', 'ionfunction': createIonFunction(async () => {
+                        await exec('baja/analytics/simple-pnl-capital', pm);
+                    })
+                })
+
+                ai_create_file_items.push({
                     'label': 'P&L With Capital', 'ionfunction': createIonFunction(async () => {
                         const plate_graph = pm;
                         const pt = pm.plateTrack;

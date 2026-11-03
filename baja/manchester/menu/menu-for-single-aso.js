@@ -462,6 +462,214 @@ function (graph, oligo, genegraph_panel_layout) {
         } else {
 
             const models = [
+                // MODIFY CHEMISTRY, from the menu that a click on a compound already opens.
+                // The per-monomer press handler (baja/chem/ui/chem-part-press.js) is the
+                // direct route -- click the sugar you mean -- but it depends on the press
+                // reaching the canvas, and this menu is reached by a path that is already
+                // known to work. So chemistry editing is available either way, and the two
+                // open the same editor.
+                //
+                // Which residue: the one under the last press when there was one (the press
+                // handler records it even when it declined to act on it), otherwise the
+                // compound's residues are listed to pick from.
+                {
+                    label: ' Modify chemistry \u25b8',
+                    click: async () => {
+                        const parseUnits = (structure) => {
+                            const out = [];
+                            try {
+                                const body = ('' + (structure || '')).match(/\{([^}]*)\}/);
+                                for (const u of ((body && body[1]) || '').split('.')) {
+                                    const t = u.trim(); if (!t) continue;
+                                    const m = t.match(/\[?([A-Za-z0-9\-]+)\]?\s*\(([^)]+)\)\s*(?:\[([^\]]+)\]|([A-Za-z0-9]+))?/);
+                                    if (m) out.push({ sugar: ('' + m[1]).toLowerCase(), base: ('' + m[2]).toUpperCase(), linkage: ('' + (m[3] || m[4] || '')).toLowerCase() });
+                                }
+                            } catch (e) { }
+                            return out;
+                        };
+                        const SUG = { d: 'DNA', r: 'RNA', moe: "2'-MOE", m: "2'-OMe", ome: "2'-OMe", f: "2'-F", fana: "2'-F", fl2r: "2'-F", lna: 'LNA', cet: 'cEt', ena: 'ENA', pmo: 'PMO' };
+                        const LNK = { sp: 'PS', ps: 'PS', rsp: 'PS (Rp)', ssp: 'PS (Sp)', p: 'PO', po: 'PO' };
+                        const monos = (oligo.__chemGeom && oligo.__chemGeom.monos && oligo.__chemGeom.monos.length)
+                            ? oligo.__chemGeom.monos : parseUnits(oligo.structure);
+                        if (!monos.length) { try { graph.setError(' This compound has no chemistry to edit. '); } catch (e) { } return; }
+
+                        const track = (graph.track || []).find((t) => t && Array.isArray(t.oligos) && t.oligos.indexOf(oligo) >= 0) || graph.selectedTrack || null;
+                        const open = (part) => {
+                            try { oligo.__chemSel = part; if (graph.wake) graph.wake(); } catch (e) { }
+                            Promise.resolve(exec('baja/chem/ui/edit-monomer-chemistry.js', graph, oligo, part, genegraph_panel_layout, track))
+                                .catch((e) => { console.warn('[chemistry editor]', e); });
+                        };
+
+                        // Did the last press land on this compound? If so that is the part
+                        // the user meant, and this becomes one click rather than two.
+                        let pre = null;
+                        try {
+                            const S = window.__bajaChemPress;
+                            const pt = S && S.last && S.last.at_canvas_px;
+                            const g2 = oligo.__chemGeom;
+                            if (pt && g2 && g2.per > 0 && g2.n > 0) {
+                                let idx = Math.round((pt.x - g2.x0) / g2.per - 0.5);
+                                if (idx >= 0 && idx < g2.n && Math.abs(pt.y - g2.sy) < (g2.R * 3 + 16)) pre = { kind: 'monomer', i: idx };
+                            }
+                        } catch (e) { }
+                        if (pre) { open(pre); return; }
+
+                        // Otherwise list what there is to edit: every residue, and every
+                        // linkage between them, named by its current chemistry.
+                        const items = [{ label: 'Pick a part of ' + ('' + (oligo.name || 'the compound')), move: () => { }, click: () => { } }];
+                        for (let k = 0; k < monos.length; k++) {
+                            const mm = monos[k];
+                            items.push({
+                                label: '  ' + (k + 1) + '. ' + (mm.base || '?') + '  ' + (SUG[mm.sugar] || mm.sugar || ''),
+                                move: () => { }, click: () => open({ kind: 'monomer', i: k }),
+                            });
+                            if (k < monos.length - 1) {
+                                items.push({
+                                    label: '      \u2500 ' + (LNK[mm.linkage] || 'linkage') + ' \u2500',
+                                    move: () => { }, click: () => open({ kind: 'linkage', i: k }),
+                                });
+                            }
+                        }
+                        try { graph.showSideMenu(items); } catch (e) { }
+                    },
+                    move: () => { log(''); }
+                },
+                // REJOIN, on the compound's own menu as well as the per-part one. Break
+                // leaves two fragments and the way back should not depend on finding the
+                // right monomer first. The item only appears when something actually abuts
+                // this compound, and it names what it would join to.
+                {
+                    label: ' \u21c4 Rejoin adjacent fragment \u25b8',
+                    click: async () => {
+                        let RJ = null;
+                        try { RJ = await exec('baja/chem/ui/rejoin-fragments.js'); } catch (e) { RJ = null; }
+                        if (!RJ || !RJ.neighboursOf) { try { graph.setError(' Rejoin is unavailable. '); } catch (e) { } return; }
+                        const track = (graph.track || []).find((t) => t && Array.isArray(t.oligos) && t.oligos.indexOf(oligo) >= 0) || graph.selectedTrack || null;
+                        const nb = RJ.neighboursOf(graph, oligo, track);
+                        if (!nb.length) {
+                            try { graph.setResultMessage(' Nothing abuts ' + (oligo.name || 'this compound') + ' \u2014 nothing to rejoin. '); } catch (e) { }
+                            return;
+                        }
+                        const done = (q) => {
+                            const r = RJ.rejoin(graph, oligo, q.other, q.side, track);
+                            if (!r.ok) { try { graph.setError(' Could not rejoin: ' + r.error + '. '); } catch (e) { } return; }
+                            try {
+                                graph.setResultMessage(' Rejoined into ' + r.residues + ' residues ('
+                                    + (r.linkage === 'p' ? 'phosphodiester' : 'phosphorothioate') + ' at the join). ');
+                            } catch (e) { }
+                            try { graph.showSideMenu(null); } catch (e) { }
+                        };
+                        if (nb.length === 1) { done(nb[0]); return; }
+                        try {
+                            graph.showSideMenu([{ label: 'Rejoin with', move: () => { }, click: () => { } }].concat(
+                                nb.map((q) => ({
+                                    label: (q.side === '5' ? "5\u2032  " : "3\u2032  ") + ('' + (q.other.name || 'fragment')),
+                                    move: () => { }, click: () => done(q),
+                                }))));
+                        } catch (e) { }
+                    },
+                    move: () => { log(''); }
+                },
+                // DUPLICATE. A copy of this compound on the same track, offset so it is
+                // visible rather than hidden exactly underneath the original -- two
+                // compounds at identical coordinates look like one, and the user would
+                // reasonably think nothing happened.
+                {
+                    label: ' \u29c9 Duplicate compound',
+                    click: async () => {
+                        try {
+                            const track = (graph.track || []).find((t) => t && Array.isArray(t.oligos) && t.oligos.indexOf(oligo) >= 0) || graph.selectedTrack || null;
+                            if (!track || !track.addOligo) { graph.setError(' No track to duplicate onto. '); return; }
+                            let Oligo = null;
+                            try { Oligo = await exec('flexigraph/oligo.js'); } catch (e) { Oligo = null; }
+                            let copy = null;
+                            try { copy = (Oligo && Oligo.copy) ? Oligo.copy(oligo) : JSON.parse(JSON.stringify(oligo)); }
+                            catch (e) { copy = JSON.parse(JSON.stringify(oligo)); }
+                            if (!copy) { graph.setError(' Could not copy that compound. '); return; }
+
+                            // A NEW compound, not the same record twice: an unchanged id
+                            // would let a save treat the two as one, and an unchanged name
+                            // gives two indistinguishable rows everywhere they are listed.
+                            try { delete copy.id; } catch (e) { }
+                            const base = '' + (oligo.name || oligo.id || 'compound');
+                            copy.name = base + ' (copy)';
+                            copy.selected = false;
+                            copy.highlight__ = false;
+                            // Per-frame render caches belong to the original's drawing.
+                            copy.__chemSel = null; copy.__chemGeom = null; copy.__screenBox = null; copy.__conjBox = null;
+                            // Off-target results DO still apply: a duplicate is the same
+                            // sequence and the same chemistry, so clearing them would throw
+                            // away a correct answer and make the user re-run the search.
+
+                            // Offset down a little so both are visible, clamped inside the
+                            // track the way the vertical drag clamps.
+                            try {
+                                const tg = track.tgraph;
+                                const lo = (tg && typeof tg.ymin === 'number') ? tg.ymin : 0;
+                                const hi = (tg && typeof tg.ymax === 'number') ? tg.ymax : 1;
+                                const margin = Math.min(0.02, (hi - lo) * 0.05);
+                                const step = Math.max(0.01, (hi - lo) * 0.08);
+                                const cur = (oligo.y != null) ? +oligo.y : 0.1;
+                                let want = cur - step;
+                                if (want < lo + margin) want = cur + step;          // no room below: go above
+                                copy.y = Math.max(lo + margin, Math.min(hi - margin, want));
+                            } catch (e) { }
+
+                            try { graph.pushOntoHistory(); } catch (e) { }
+                            track.addOligo(copy);
+                            try { if (graph.wake) graph.wake(); } catch (e) { }
+                            try { graph.showSideMenu(null); } catch (e) { }
+                            graph.setResultMessage(' Duplicated as ' + copy.name + ' on ' + (track.name || 'the track') + '. ');
+                        } catch (e) {
+                            try { graph.setError(' Could not duplicate: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                        }
+                    },
+                    move: () => { log(''); }
+                },
+                // DELETE. Behind a confirm that names the compound: this is the one item
+                // here that destroys work, the menu is opened by a single click, and
+                // "Delete" sitting one slip away from "Duplicate" is exactly the pair a
+                // user mis-clicks between.
+                {
+                    label: ' \u2715 Delete compound \u25b8',
+                    click: async () => {
+                        const nm = '' + (oligo.name || oligo.id || 'this compound');
+                        const doDelete = () => {
+                            try {
+                                const track = (graph.track || []).find((t) => t && Array.isArray(t.oligos) && t.oligos.indexOf(oligo) >= 0) || null;
+                                if (!track || !track.removeOligo) { graph.setError(' Could not find the track ' + nm + ' is on. '); return; }
+                                try { graph.pushOntoHistory(); } catch (e) { }
+                                const before = track.oligos.length;
+                                track.removeOligo(oligo);
+                                if (track.oligos.length === before) { graph.setError(' Could not remove ' + nm + '. '); return; }
+                                // Leave no dangling reference: the selection window keeps its
+                                // own list and would otherwise still show, and let you act
+                                // on, a compound that no longer exists.
+                                try { oligo.selected = false; } catch (e) { }
+                                try {
+                                    if (Array.isArray(graph.__lassoSelection)) {
+                                        graph.__lassoSelection = graph.__lassoSelection.filter((e2) => !e2 || e2.ref !== oligo);
+                                    }
+                                } catch (e) { }
+                                try { if (graph.syncSelectionWindow) graph.syncSelectionWindow(); } catch (e) { }
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                try { if (graph.wake) graph.wake(); } catch (e) { }
+                                graph.setResultMessage(' Deleted ' + nm + ' from ' + (track.name || 'the track') + '. Undo to restore it. ');
+                            } catch (e) {
+                                try { graph.setError(' Could not delete: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                            }
+                        };
+                        try {
+                            graph.showSideMenu([
+                                { label: 'Delete ' + (nm.length > 30 ? nm.slice(0, 29) + '\u2026' : nm) + '?', move: () => { }, click: () => { } },
+                                { label: '  undo will bring it back', move: () => { }, click: () => { } },
+                                { label: 'Yes, delete it', move: () => { }, click: () => doDelete() },
+                                { label: '\u2039 Cancel', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } },
+                            ]);
+                        } catch (e) { }
+                    },
+                    move: () => { log(''); }
+                },
                 {
                     label: ' Sequence',
                     click: async (xwc, ywc) => {

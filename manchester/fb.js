@@ -778,7 +778,7 @@ function (__path, __header) {
 
 
                                 {
-                                    'label': 'Oligo Designer', 'ionfunction': createIonFunction(async () => {
+                                    'label': 'OligoDesigner', 'ionfunction': createIonFunction(async () => {
                                         clear();
                                         await exec('manchester/editor');
 
@@ -813,6 +813,25 @@ function (__path, __header) {
                                         clear();
                                         try { window.history.pushState({ 'bjb': '' }, 'analytics', '/app/cpd/baja-analytics'); } catch (e) { }
                                         await exec('cpd/baja-analytics', '', { silent: true, user: getUser(), mode: 'editor' }, '/app/cpd/baja-analytics');
+                                    })
+                                },
+                                {
+                                    // The page above the console: every campaign, what each
+                                    // raised, and what it banked after Stripe's cut.
+                                    'label': 'Fundraise Admin', 'ionfunction': createIonFunction(async () => {
+                                        clear();
+                                        try { window.history.pushState({ 'fund': '' }, 'fundraise', '/app/fundraise/admin'); } catch (e) { }
+                                        await exec('fundraise/admin');
+                                    })
+                                },
+                                {
+                                    // The fundraising console: enter a total, publish a public
+                                    // display that anyone can open without an account and that
+                                    // re-reads itself while the room watches it.
+                                    'label': 'Fundraise Campaign', 'ionfunction': createIonFunction(async () => {
+                                        clear();
+                                        try { window.history.pushState({ 'fund': '' }, 'fundraise', '/app/fundraise/console'); } catch (e) { }
+                                        await exec('fundraise/console');
                                     })
                                 },
                             ]
@@ -1013,8 +1032,13 @@ function (__path, __header) {
             // it always did.
             let usermain_rows = []
             if (__header) {
+                // WITH A HEIGHT, or the rows below are laid over it: the browser's own
+                // menu bar and file list were drawn on top of the header, leaving a 20px
+                // sliver of it showing. Everything else in this layout states its height;
+                // this row was the one that did not.
                 usermain_rows.push({
                     'width': '100%',
+                    'height': (__header && __header.headerHeight) || 104,
                     'component': __header
                 })
             }

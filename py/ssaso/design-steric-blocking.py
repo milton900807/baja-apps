@@ -11,15 +11,24 @@ from ion import works
 
 RNA_BASES = set("AUGC")
 ALLOWED_BACKBONES = {"PS", "PO"}
-ALLOWED_FULL_MODIFICATIONS = {"LNA", "2'-OMe", "2'-MOE", "RNA", "DNA"}
+# Kept in step with what the design dialog offers (aso-design-dialog.js). cEt, 2'-F and
+# PMO were listed there and missing here, so picking one failed the run with a validation
+# error instead of designing anything. Unlike the gapmer designer, PMO IS valid here: a
+# steric blocker works by occupancy rather than by recruiting RNase H, which is exactly
+# what an uncharged morpholino does.
+ALLOWED_FULL_MODIFICATIONS = {"LNA", "2'-OMe", "2'-MOE", "2'-F", "cEt", "ENA", "PMO", "RNA", "DNA"}
 
 # Default HELM monomer symbols
 DEFAULT_HELM_SYMBOLS = {
     "DNA": "d",
-    "2'-MOE": "moe",
     "RNA": "r",
-    "LNA": "lna",
+    "2'-MOE": "moe",
     "2'-OMe": "m",
+    "2'-F": "f",
+    "LNA": "lna",
+    "cEt": "cet",
+    "ENA": "ena",
+    "PMO": "pmo",
 }
 
 
@@ -573,11 +582,26 @@ def normalize_full_modification(mod: str) -> str:
         "2'-OMETHYL": "2'-OMe",
         "2'-OMETHOXYETHYL": "2'-MOE",
         "OME": "2'-OMe",
+        "2OME": "2'-OMe",
+        "2'-O-METHYL": "2'-OMe",
+        "F": "2'-F",
+        "2F": "2'-F",
+        "2'-FLUORO": "2'-F",
+        "CET": "cEt",
+        "S-CET": "cEt",
+        "BNA": "LNA",
+        "MORPHOLINO": "PMO",
+        "PHOSPHORODIAMIDATE MORPHOLINO": "PMO",
     }
     m = aliases.get(m.upper(), m)
-    if m not in ALLOWED_FULL_MODIFICATIONS:
-        raise ValueError("full_modification must be one of: DNA, RNA, LNA, 2'-OMe, 2'-MOE")
-    return m
+    # Case-insensitive match onto the canonical spelling the symbol map is keyed by.
+    for allowed in ALLOWED_FULL_MODIFICATIONS:
+        if m.upper() == allowed.upper():
+            return allowed
+    raise ValueError(
+        "full_modification must be one of: " + ", ".join(sorted(ALLOWED_FULL_MODIFICATIONS))
+        + f" (got {mod!r})"
+    )
 
 
 def normalize_backbone(backbone: str) -> str:
@@ -607,16 +631,41 @@ def resolve_helm_symbol(sugar: str, symbol_map: Dict[str, str | None]) -> str:
     return symbol
 
 
+# HELM linker monomer per backbone chemistry -- the symbols the renderer and the monomer
+# library already use. A PMO strand has phosphorodiamidate linkages rather than a
+# phosphate backbone, so PS/PO is not the right vocabulary for it; it is emitted without
+# linker tokens rather than mislabelled as PS.
+BACKBONE_HELM_SYMBOLS = {
+    "PS": "sp",
+    "PO": "p",
+}
+
+
+def helm_token(symbol: str) -> str:
+    """Bracket a monomer symbol iff it is longer than one character (the HELM rule)."""
+    s = str(symbol)
+    return f"[{s}]" if len(s) > 1 else s
+
+
 def build_helm_structure(
     chemistry_layout: List[Dict[str, Any]],
     symbol_map: Dict[str, str | None],
 ) -> str:
+    # Emits the BACKBONE as well as the sugars and bases. Without the linker tokens the
+    # renderer could not tell a PS strand from a PO one and drew plain bonds for both,
+    # despite backbone_to_next being computed for every residue.
     monomers: List[str] = []
+    n = len(chemistry_layout)
 
-    for residue in chemistry_layout:
+    for idx, residue in enumerate(chemistry_layout):
         symbol = resolve_helm_symbol(residue["sugar"], symbol_map)
         base = str(residue["base"]).upper()
-        monomers.append(f"{symbol}({base})")
+        unit = f"{helm_token(symbol)}({base})"
+        if idx < n - 1:
+            link = BACKBONE_HELM_SYMBOLS.get(str(residue.get("backbone_to_next") or "").upper())
+            if link:
+                unit += helm_token(link)
+        monomers.append(unit)
 
     return f"RNA1{{{'.'.join(monomers)}}}$$$$"
 

@@ -779,7 +779,7 @@ function (path, filebrowserplease) {
 
 
                                     {
-                                        'label': 'Oligo Designer', 'ionfunction': createIonFunction(async () => {
+                                        'label': 'OligoDesigner', 'ionfunction': createIonFunction(async () => {
                                             await exec('manchester/editor');
 
                                         })

@@ -3829,6 +3829,7 @@ function (progress, options) {
                     let SIRNA = await exec('flexigraph/sirna.js')
                     let Amplicon = await exec('flexigraph/amplicon.js')
                     let AttributionSushimiLayer = await exec('baja/bio/attribution-sushimi-layer.js')
+                    const __rehydrateLayer = await exec('baja/bio/rehydrate-layer.js')
 
                     var foo = Object.assign(new Track(), js);
                     let Barchart = await exec('baja/bio/barchart-track.js')
@@ -3863,31 +3864,17 @@ function (progress, options) {
                         let tlayers = []
                         for (let tl of js.track_layers) {
 
-                            console.log(" tl type : " + tl.attribution_type + " for name " + tl.name);
-                            let track_layer = null;
-
-                            if (!tl.attribution_type) {
-                                track_layer = Object.assign(new TrackLayer(), tl)
+                            // ONE DISPATCH, in baja/bio/rehydrate-layer.js. The chain that used
+                            // to be here led with `if (!tl.attribution_type)`, which is true for
+                            // every layer that is not an attribution layer -- so every subclass
+                            // came back from a file as a plain TrackLayer with its painter gone,
+                            // and the `tl.type === 'AttributionSushimiLayer'` test below it could
+                            // never run. That is the "layers stop working after save and reload"
+                            // bug; the console said "tl type : undefined" on every load.
+                            let track_layer = await __rehydrateLayer(tl);
+                            if (track_layer && track_layer.name != null) {
                                 track_layer.name = sanitizeName(track_layer.name)
-
                             }
-                            else if (tl.attribution_type != null && tl.attribution_type.includes('attribution')) {
-                                track_layer = Object.assign(new AttributionLayer(), tl)
-
-                            } else
-                                if (tl.gpts || tl.apts || tl.cpts || tl.tpts) {
-                                    track_layer = Object.assign(new AttributionLayer(), tl)
-
-                                } else
-
-                                    if (tl.type === 'AttributionSushimiLayer') {
-                                        track_layer = Object.assign(new AttributionSushimiLayer(), tl);
-                                    }
-                                    else {
-                                        track_layer = Object.assign(new TrackLayer(), tl)
-                                        track_layer.name = sanitizeName(track_layer.name)
-
-                                    }
                             if (!track_layer) {
                                 track_layer = Object.assign(new TrackLayer(), tl)
                                 track_layer.name = sanitizeName(track_layer.name)
@@ -5739,7 +5726,7 @@ function (progress, options) {
 
                     if (!this.___captureSwipesSet && this.graph.canvas) {
                         captureSwipes(this.graph.canvas.canvas.nativeElement, (direction) => {
-                            this.panGridSlide(direction, { fromScreen: { x: this.graph.grid.width / 2, y: this.graph.grid.height / 2 } })
+                            // this.panGridSlide(direction, { fromScreen: { x: this.graph.grid.width / 2, y: this.graph.grid.height / 2 } })
                         });
                         this.___captureSwipesSet = true;
                     }
@@ -7589,6 +7576,83 @@ pattern, GGGG | Required`
                 this.__floatRender(list, title);
                 return true;
             }
+            // CLOSE THIS MENU BUT KEEP ITS PLACE, for an item that hands off to another
+            // script's menu. showSideMenu only draws at the pointer while a floating session
+            // is open, and closing the parent ends that session -- so every "Layers /
+            // Variants / Design" handoff re-opened as a side panel in the top-left corner,
+            // nowhere near the menu the user had just clicked. Capturing the position and
+            // re-arming keeps the submenu, and everything it leads to, where the parent was.
+            //
+            // Returns false when there was no floating session (mobile, or a menu that was
+            // already a side panel), in which case the handoff behaves exactly as before.
+            handoffFloating(title) {
+                let F = null;
+                try { if (this.__floatAt) F = { sx: this.__floatAt.sx, sy: this.__floatAt.sy }; } catch (e) { }
+                try { this.showSideMenu(null); } catch (e) { }
+                try { this.__selMenuChain = true; } catch (e) { }
+                if (!F) return false;
+                try { return !!this.armFloatingMenu(F.sx, F.sy, title || ''); } catch (e) { return false; }
+            }
+            // OPEN A MENU IN THE FLOATING STYLE WITHOUT A PRESS TO HANG IT ON.
+            //
+            // A tool launched from the models shelf or a toolbar has no canvas point: it calls
+            // showSideMenu, which with no floating session open draws the top-left side panel.
+            // So a tool's own "which track? / which threshold?" questions came up in a different
+            // place and a different style from every menu reached by clicking the canvas.
+            //
+            // The point, in order of preference: the session already open (so a canvas-launched
+            // call keeps its place), the last place the pointer was over the canvas, then the
+            // middle of the canvas -- which is a deliberate, centred choice for a launch that
+            // genuinely has no point, not the corner. Only if the canvas cannot be measured at
+            // all does this fall back to the side panel, and it returns false when it does.
+            openMenuAtPointer(list, title) {
+                if (!Array.isArray(list) || !list.length) return false;
+                // A session is open: showSideMenu already routes to it, at its own point.
+                try { if (this.__floatAt) { this.showSideMenu(list, null, title); return true; } } catch (e) { }
+                const P = this.__menuPointerPoint();
+                if (P) {
+                    try { if (this.openFloatingMenu(list, P.x, P.y, title)) return true; } catch (e) { }
+                }
+                try { this.showSideMenu(list, null, title); } catch (e) { }
+                return false;
+            }
+            // The point a pointer-anchored menu should use, or null if there is not one to use.
+            // Null means "let showSideMenu do whatever it would have done", which is how library
+            // mode and mobile keep their own presentation.
+            __menuPointerPoint() {
+                // LIBRARY MODE IS A DELIBERATE CHOICE and it outranks this. The user opened the
+                // selection library from the menubar, every level of the navigation is drawn as a
+                // library page, and the mode deliberately survives a shelf closing to make room
+                // for what was just clicked. Floating a menu over it would break the one idiom
+                // that is supposed to be uniform.
+                try { if (this.__menuLibrary) return null; } catch (e) { }
+                try { if (isMobile()) return null; } catch (e) { }
+                try {
+                    const Q = this.__pointerXY;
+                    if (Q && (Date.now() - Q.at) < 120000) return { x: Q.x, y: Q.y };
+                } catch (e) { }
+                try {
+                    const cv = (this.graph || this).canvas.getCTX().canvas;
+                    if (cv && cv.width > 40 && cv.height > 40) {
+                        return { x: Math.round(cv.width / 2), y: Math.round(Math.min(150, cv.height / 3)) };
+                    }
+                } catch (e) { }
+                return null;
+            }
+            // ARM A SESSION FOR A TOOL THAT IS ABOUT TO ASK SOMETHING.
+            //
+            // The shelf calls this immediately before a book's open(), so a tool's own menus --
+            // "which track?", "which threshold?" -- come up at the pointer in the floating style
+            // without the tool having to know anything about it. Every shelf-launched tool used
+            // to draw its questions in the top-left side panel, whatever the user had clicked.
+            //
+            // Returns false when it declined (library mode, mobile, no measurable canvas), in
+            // which case nothing changes and showSideMenu behaves exactly as it always did.
+            armMenuAtPointer(title) {
+                const P = this.__menuPointerPoint();
+                if (!P) return false;
+                try { return !!this.armFloatingMenu(P.x, P.y, title || ''); } catch (e) { return false; }
+            }
             armFloatingMenu(sx, sy, title) {
                 if (isMobile()) return false;
                 this.__floatAt = { sx: +sx || 0, sy: +sy || 0, title: title || '', at: Date.now() };
@@ -7598,6 +7662,7 @@ pattern, GGGG | Required`
                 const F = this.__floatAt;
                 if (!F) return;
                 F.at = Date.now();
+                F.rendered = true;     // there is now a menu on screen to close (see showSideMenu)
                 this.side_menu = null;   // the side panel is not in use while this is up
                 let p = null;
                 try {
@@ -7636,11 +7701,36 @@ pattern, GGGG | Required`
                 // is drawn at the pointer instead. Before library mode, which would otherwise take it.
                 if (this.__floatAt && !isMobile()) {
                     if (Date.now() - this.__floatAt.at < 30000) {
-                        if (!list) { this.__closeFloating(); this.side_menu = null; return; }
+                        if (!list) {
+                            // An ARMED session has nothing on screen yet, and this null is the
+                            // handed-off script clearing a parent menu that handoffFloating has
+                            // already closed -- every menu script starts that way. Closing here
+                            // would end the session and the script's own menu would come back as
+                            // a top-left side panel, which is the whole thing being fixed.
+                            if (!this.__floatAt.rendered) { this.side_menu = null; return; }
+                            // A rendered menu really is being closed. Remember where it was: a
+                            // script that closes its menu and immediately opens the next one is
+                            // still the same handoff, and the next level belongs in the same spot
+                            // (see the memo below). Any new press drops this.
+                            this.__floatMemo = { sx: this.__floatAt.sx, sy: this.__floatAt.sy, at: Date.now() };
+                            this.__closeFloating(); this.side_menu = null; return;
+                        }
                         this.__floatRender(list, label);
                         return;
                     }
                     this.__floatAt = null;   // stale: an armed session whose menu never arrived
+                }
+                // A menu arriving straight after a floating one was closed, with no press in
+                // between, is the next level of that same handoff -- reopen it where the last
+                // one was rather than in the corner. Deliberately brief: a menu the user opens
+                // later, or after any press, is a fresh gesture and gets the normal treatment.
+                if (list && !isMobile() && this.__floatMemo) {
+                    const M = this.__floatMemo;
+                    this.__floatMemo = null;
+                    if (Date.now() - M.at < 1200 && this.armFloatingMenu(M.sx, M.sy, label || '')) {
+                        this.__floatRender(list, label);
+                        return;
+                    }
                 }
 
                 // LIBRARY MODE. Opened from the menubar's Selection button, every level of the
@@ -10544,7 +10634,7 @@ pattern, GGGG | Required`
                     const mutCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
                     sub.push({
                         label: 'Mutations (' + mutCount + ') ▸',
-                        click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } },
+                        click: () => { this.handoffFloating('Variants'); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } },
                         move: () => { }
                     });
                     // Clicking a track centers it (as before) AND opens a child menu of that
@@ -10573,10 +10663,10 @@ pattern, GGGG | Required`
                         } else {
                             const L = this.genegraph_panel_layout;
                             child = [
-                                { label: 'Layers ▸', click: () => { closeHandoff(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
+                                { label: 'Layers ▸', click: () => { this.handoffFloating('Layers'); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
                                 centerItem,
-                                { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
-                                { label: 'Design ▸', click: () => { closeHandoff(); try { const __hasRange = (t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart); if (!__hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { this.handoffFloating('Variants'); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                { label: 'Design ▸', click: () => { this.handoffFloating('Design'); try { const __hasRange = (t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart); if (!__hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                 back,
                             ];
                         }
@@ -10770,7 +10860,7 @@ pattern, GGGG | Required`
                     if (this.readonly) {
                         const ro = [
                             { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
-                            { label: 'Export ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/track-export-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                            { label: 'Export ▸', click: () => { this.handoffFloating('Export'); try { Promise.resolve(exec('baja/manchester/menu/track-export-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                         ];
                         const si = sequenceItem();
                         if (si) ro.splice(1, 0, si);
@@ -10780,7 +10870,7 @@ pattern, GGGG | Required`
                     const main = [
                         { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
                         { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
-                        { label: 'Variants (' + mutCount + ') ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                        { label: 'Variants (' + mutCount + ') ▸', click: () => { this.handoffFloating('Variants'); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                     ];
                     const si = sequenceItem();
                     if (si) main.splice(1, 0, si);      // right after Tracks
@@ -11735,9 +11825,9 @@ pattern, GGGG | Required`
                                 child = [
                                     zoomItem,
                                 ].concat(snpItem, [
-                                    { label: 'Layers ▸', click: () => { closeHandoff(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
-                                    { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
-                                    { label: 'Design ▸', click: () => { closeHandoff(); try { const __hasRange = (t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart); if (!__hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                    { label: 'Layers ▸', click: () => { this.handoffFloating('Layers'); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
+                                    { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { this.handoffFloating('Variants'); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                    { label: 'Design ▸', click: () => { this.handoffFloating('Design'); try { const __hasRange = (t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart); if (!__hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                     back,
                                 ]);
                             }
@@ -12180,7 +12270,7 @@ pattern, GGGG | Required`
                             out.push({
                                 label: (t.name || 'track') + ' ' + a + '–' + b + ' (' + Math.max(0, b - a) + ' nt) ▸',
                                 click: () => {
-                                    closeHandoff();
+                                    this.handoffFloating('Sequence');
                                     try { Promise.resolve(exec('baja/manchester/menu/selected-sequence-menu.js', this, t, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
                                 },
                                 move: () => { }
@@ -12760,7 +12850,7 @@ pattern, GGGG | Required`
                     if (rootEntry.__group === 'annotations') { openAnnotationsBranch(); return; }
                     if (rootEntry.kind === 'sequence' && rootEntry.track) {
                         this.setMessage(' ' + (rootEntry.label || 'sequence') + ' — choose an action ');
-                        closeHandoff();
+                        this.handoffFloating('Sequence');
                         try { Promise.resolve(exec('baja/manchester/menu/selected-sequence-menu.js', this, rootEntry.track, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
                         return;
                     }
