@@ -194,6 +194,16 @@ if [[ $DO_API -eq 1 ]]; then
   # The Research panel: Home > Tools > Research reads the indication-market store rather
   # than running any research. All four or none, so Home never gets a live tile with
   # nothing behind it.
+  # THE VARIANT'S STRAND, in every path that writes an allele into a sequence an oligo is
+  # built from. A record that arrived by genomic coordinate carries only the plus-strand
+  # alleles, and those were being written into transcript-orientation windows uncomplemented:
+  # right flanks, one wrong base, and an oligo matching neither allele at the only position
+  # that discriminates. All four together or none.
+  install_group "allele-selective design: the variant's strand" \
+    "baja/bio/track-strand.js:allelesInFrame" \
+    "baja/manchester/menu/allele-selective-design.js:allelesInFrame" \
+    "baja/manchester/annotation/tile-variant.js:AND WHICH STRAND THE RECORD IS WRITTEN ON" \
+    "py/bio/allele-selective-targets.py:def context_for("
   install_group "Research panel" \
     "py/ion-lib/indication_store.py:def browse(" \
     "py/analytics/indication-browse.py:Reading the indication-market store" \
@@ -212,6 +222,12 @@ if [[ $DO_API -eq 1 ]]; then
     python3 "$TMP/k.py" "$APPS_DIR" || say "  Not applied (see above). Everything else carries on."
   else
     say "  install-karyotype-side-choice.py is not at ${REF:0:12}; skipped."
+  fi
+  step "Karyotype: the target sequence says which strand it is in"
+  if curl -fsSL "$RAW/$REF/tools/hotfix/install-karyotype-allele-strand.py" -o "$TMP/k3.py" 2>/dev/null; then
+    python3 "$TMP/k3.py" "$APPS_DIR" || say "  Not applied (see above). Everything else carries on."
+  else
+    say "  install-karyotype-allele-strand.py is not at ${REF:0:12}; skipped."
   fi
   step "Karyotype: one editor track per VCF, labelled gene · file"
   if curl -fsSL "$RAW/$REF/tools/hotfix/install-karyotype-vcf-tracks.py" -o "$TMP/k2.py" 2>/dev/null; then

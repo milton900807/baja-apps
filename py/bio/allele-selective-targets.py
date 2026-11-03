@@ -86,6 +86,57 @@ GENOME = {
     "yeast": "data/genome/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa",
 }
 COMP = {"A": "T", "C": "G", "G": "C", "T": "A", "N": "N"}
+
+
+def revcomp(s):
+    return "".join(COMP.get(b, "N") for b in reversed(str(s or "").upper()))
+
+
+def context_for(win, k, chrom, pos, ref, retained, lost, strand):
+    """The sequence to design against, and whether the record agrees with the genome.
+
+    genome.seq() returns the PLUS strand. For a gene on the minus strand the message reads
+    the other way, so a window handed straight to an oligo designer as "the sequence to
+    target" is the antisense of what the oligo actually has to meet. Anything built on it
+    has correct-looking flanks and one base that is the complement of what it should be,
+    which is not a thing a sequence looks wrong for. Both orientations are returned, and
+    context_orientation says which is which.
+
+    The reference allele is CHECKED against the genome rather than trusted. A variant whose
+    ref does not match the base at its own coordinate is on another assembly, or in
+    transcript coordinates, or simply wrong, and substituting its alt into the window
+    regardless is how a wrong base reaches synthesis.
+
+    Returns (context_retained, context_lost, context_retained_plus, context_lost_plus,
+             context_orientation, reference_check).
+    """
+    here = win[k]
+    ret_g, lost_g = retained, lost
+    if here == ref:
+        check = "ok"
+    elif here == COMP.get(ref, "?"):
+        # The record is written on the other strand. Complement it in place rather than
+        # refusing: this is the ordinary case for a transcript-level annotation on a
+        # minus-strand gene, and it is recoverable.
+        check = "complemented: the record is on the opposite strand"
+        ret_g = COMP.get(retained, "N")
+        lost_g = COMP.get(lost, "N")
+    else:
+        # Neither strand agrees. Say so and hand back nothing: a caller must not be given a
+        # sequence that silently carries a base the genome contradicts.
+        return ("", "", "", "",
+                "none",
+                "MISMATCH: the genome reads %s at %s:%d, not %s" % (here, chrom, pos, ref))
+
+    r_plus = win[:k] + ret_g + win[k + 1:]
+    l_plus = win[:k] + lost_g + win[k + 1:]
+    if strand == "-":
+        return (revcomp(r_plus), revcomp(l_plus), r_plus, l_plus,
+                "transcript (minus-strand gene, reverse complemented)", check)
+    return (r_plus, l_plus, r_plus, l_plus,
+            "transcript (plus-strand gene, same as the genome)", check)
+
+
 MAX_SITES = 600
 MAX_FLANK = 60
 
@@ -353,15 +404,18 @@ else:
                     region = "non-coding exon"
                 else:
                     region = "intron"
-            ctx_r = ctx_l = ""
+            # The sequence to design against: transcript orientation, with the record's
+            # reference allele checked against the genome. See context_for().
+            ctx_r = ctx_l = ctx_r_plus = ctx_l_plus = ""
             cs = ce = 0
+            ref_check, ctx_orient = "not checked", "none"
             if genome.ok() and len(ref) == 1 and len(alt) == 1:
                 cs, ce = max(1, pos - flank), pos + flank
                 win = genome.seq(chrom, cs, ce)
                 if win and len(win) == (ce - cs + 1):
-                    k = pos - cs
-                    ctx_r = win[:k] + retained + win[k + 1:]
-                    ctx_l = win[:k] + lost + win[k + 1:]
+                    (ctx_r, ctx_l, ctx_r_plus, ctx_l_plus,
+                     ctx_orient, ref_check) = context_for(
+                        win, pos - cs, chrom, pos, ref, retained, lost, strand)
             result.append({
                 "evidence": ("inferred" if str(s.get("evidence") or "") == "inferred" else "measured"),
                 "gene": gene, "chr": chrom, "pos": pos, "ref": ref, "alt": alt,
@@ -370,6 +424,8 @@ else:
                 "in_mature_transcript": bool(in_mrna), "coding": bool(coding),
                 "tumor_baf": s.get("tumor_baf"), "germline_baf": s.get("germline_baf"),
                 "context_retained": ctx_r, "context_lost": ctx_l,
+                "context_retained_plus": ctx_r_plus, "context_lost_plus": ctx_l_plus,
+                "context_orientation": ctx_orient, "reference_check": ref_check,
                 "context_start": cs, "context_end": ce,
             })
 

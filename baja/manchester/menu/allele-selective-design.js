@@ -412,23 +412,37 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             const b = (track.sequence || '')[i];
             return b ? b.toUpperCase() : 'N';
         };
-        // Which allele reads in the track's own frame: reference0/alternate0 are the CODING
+        // WHICH ALLELE READS IN THE TRACK'S OWN FRAME. reference0/alternate0 are the CODING
         // strand's, which is what a 'coding'-orientation minus track stores; a track holding
-        // the plus-strand slice wants the plus-strand allele instead. Either way base i of the
-        // allele sits at track x = xi + i, because SnpIndel complements without reversing --
-        // which is what lets a multi-base substitution be written straight across the span.
-        const pick = (which) => ('' + ((minus && orient === 'plus')
-            ? (snp[which] || snp[which + '0'] || '')
-            : (snp[which + '0'] || snp[which] || ''))).toUpperCase();
-        const storedAlt = pick('alternate'), storedRef = pick('reference');
-        if (!/^[ACGT]+$/.test(storedAlt)) { warn('That variant has no usable alternate allele.'); restoreHover(); return false; }
+        // the plus-strand slice wants the plus-strand allele instead. Base i of the allele
+        // sits at track x = xi + i either way, because SnpIndel complements without
+        // reversing, which is what lets a multi-base substitution be written straight across
+        // the span.
+        //
+        // This used to choose by which field was filled in, falling back to the other pair
+        // raw when the one it wanted was absent. A variant that arrived by genomic
+        // coordinate carries only the plus-strand pair, so on a coding-orientation minus
+        // track that fallback wrote the UNCOMPLEMENTED genomic allele into a transcript
+        // window: correct flanks, one wrong base, and an oligo that matches neither the
+        // mutant nor the wild type at the only position that discriminates. Nothing about
+        // the sequence looks wrong, and it is the sequence that gets ordered. The track is
+        // the arbiter now -- see allelesInFrame in baja/bio/track-strand.js.
         const vX = Math.round(snp.xi);
+        const alleleFrame = Strand.allelesInFrame(snp, track, orient, (k) => storedAt(vX + k));
+        const storedAlt = alleleFrame.alt, storedRef = alleleFrame.ref;
+        if (!/^[ACGT]+$/.test(storedAlt)) { warn('That variant has no usable alternate allele.'); restoreHover(); return false; }
         const vEnd = vX + storedAlt.length - 1;      // last track x the allele covers
-        if (storedRef && storedRef.length === storedAlt.length) {
-            let have = ''; for (let x = vX; x <= vEnd; x++) have += storedAt(x);
-            if (have !== storedRef) {
-                tell('The track reads ' + have + ' where the variant says ' + storedRef + '; designing against the track.');
-            }
+        if (!alleleFrame.checked) {
+            // Neither reading of the reference matched the track. That is a real
+            // disagreement between the record and the sequence rather than a strand
+            // question, and the old behaviour -- design against the track and say so -- is
+            // still the right one, but it has to be said plainly.
+            tell('The track reads ' + (alleleFrame.track_reads || '?') + ' where ' + (snp.name || 'the variant')
+                + ' says ' + (storedRef || '?') + ', on either strand. Designing against the track; '
+                + 'check the variant is on this assembly before ordering anything.');
+        } else if (/complemented/.test(alleleFrame.source)) {
+            tell('That variant is recorded on the opposite strand to this track, so its alleles were '
+                + 'complemented to match: ' + storedRef + '>' + storedAlt + ' as the track reads them.');
         }
         // ---- 3b. WHICH COPY IS BEING DESIGNED AGAINST ---------------------------------------
         //
@@ -482,10 +496,13 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // in -- it is what the design is FOR -- whichever side the file put it on.
         const sameSide = inWindow.filter((v) => v !== snp && phaseOf(v) === designPhase);
         const otherSide = inWindow.filter((v) => v !== snp && phaseOf(v) !== designPhase);
+        // The same question for every neighbouring phased variant, and the same answer: ask
+        // the track which strand the record is written on rather than trusting a field.
         const alleleAtX = (v, x) => {
-            const a = ('' + ((minus && orient === 'plus')
-                ? (v.alternate || v.alternate0 || '') : (v.alternate0 || v.alternate || ''))).toUpperCase();
             const vx = Math.round(v.xi);
+            if (!v.__frame) v.__frame = Strand.allelesInFrame(v, track, orient, (k) => storedAt(vx + k));
+            const a = v.__frame.alt;
+            if (!/^[ACGT]+$/.test(a)) return null;
             return (x >= vx && x <= vx + a.length - 1) ? a[x - vx] : null;
         };
         const applyList = (list, x) => {

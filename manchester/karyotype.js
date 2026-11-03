@@ -10915,6 +10915,11 @@ function (path, config) {
                 }
                 row.sequence_to_target = x.context_retained;
                 row[W.csvOther] = x.context_lost;
+                // A sequence in a spreadsheet outlives the screen it came from, so it
+                // travels with the strand it is in and whether the genome agreed.
+                row.sequence_orientation = x.context_orientation;
+                row.reference_check = x.reference_check;
+                row.sequence_to_target_plus_strand = x.context_retained_plus;
                 row.context_start = x.context_start;
                 row.context_end = x.context_end;
                 return row;
@@ -10994,6 +10999,9 @@ function (path, config) {
                 }
                 row['Sequence to target'] = A(x.context_retained);
                 row[A(W.csvOther || 'the other copy')] = A(x.context_lost);
+                row['Sequence orientation'] = A(x.context_orientation);
+                row['Reference check'] = A(x.reference_check);
+                row['Sequence to target, plus strand'] = A(x.context_retained_plus);
                 row['Context span'] = A(x.context_start + '-' + x.context_end);
                 return row;
             });
@@ -11106,12 +11114,19 @@ function (path, config) {
                                   + x.alt + ' allele is the one that went. Confirm it on the reads before designing.'
                                 : (somatic ? 'Tumor allele fraction ' + x.tumor_baf + '. Germline ' + x.germline_baf + '.' : ''))
                             + ' ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
-                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : ''),
+                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : '')
+                            // Which strand these are in decides what an oligo built on them
+                            // has to be, so it is said rather than assumed, and a variant
+                            // the genome contradicts is said loudest of all.
+                            + (x.reference_check && /^MISMATCH/.test(x.reference_check)
+                                ? '\n  ' + x.reference_check + '. No sequence is offered for this site.'
+                                : (x.context_orientation ? '\n  sequence is ' + x.context_orientation : '')),
                         books: () => [
                             { title: 'Zoom into the site', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame this base on the genome.',
                                 open: () => { const ci = chromIndexOf(x.chr); if (ci >= 0) goView({ x0: barLeft(ci) - 0.4 * SLOT, x1: barRight(ci) + 0.4 * SLOT, y0: wy(x.pos + 400) , y1: wy(x.pos - 400) }); } },
                             { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Design against ' + W.aim + '.', open: () => openSymbolInEditor(gn) },
-                            { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available') },
+                            { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available')
+                                + (x.context_orientation && x.context_retained ? '  [' + x.context_orientation + ']' : '') },
                             { note: true, title: 'Must survive: ' + (x.context_lost || 'no sequence available') },
                         ] });
                 });
