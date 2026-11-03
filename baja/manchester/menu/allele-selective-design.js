@@ -633,6 +633,17 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 cmp.targetSequence = targetTrack;   // the mutant target site, read off the compound
                 cmp.targetSite = targetTrack;
                 cmp.targetSiteTranscript = c.target_site;   // the same site 5'->3' on the transcript
+                // WHAT TO SHOW AS THE TARGET. On a reverse-strand gene stored as the plus-strand
+                // slice, targetTrack is the plus strand -- and that is exactly the strand
+                // generateCompound synthesises (strand < 0), so showing it as the "target" showed
+                // the synthesis sequence. The strand the oligo binds is its complement, base for
+                // base -- the same correction `mut` makes above for the scoring. Indices stay in
+                // ascending x, so the mismatch highlighting still lands on the right letters.
+                cmp.targetDisplay = (minus && orient === 'plus')
+                    ? targetTrack.split('').map((b) => COMPL[b] || 'N').join('')
+                    : targetTrack;
+                // The same target read 5'->3' along the transcript, for the label.
+                cmp.targetRead = minus ? cmp.targetDisplay.split('').reverse().join('') : cmp.targetDisplay;
                 // HIGHLIGHT THE MUTATIONS. `mismatch` is a list of indices into the drawn
                 // sequence, which the renderer paints red -- so the changed base stands out on
                 // the oligo instead of being one letter among twenty. Indices are measured from
@@ -663,7 +674,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                     // past that, these letters are the target, with the mutation in red.
                     cmp.showTargetSequence = true;
                     // And make the target readable from the label too, for the same reason.
-                    try { cmp.showLabel = true; cmp.labelAttribute = 'targetSequence'; cmp.labelPrefix = 'target '; } catch (e) { }
+                    try { cmp.showLabel = true; cmp.labelAttribute = 'targetRead'; cmp.labelPrefix = 'target '; } catch (e) { }
                     cmp.wingModification = c.wing_modification || null;
                     cmp.gapSize = c.gap_size; cmp.gapStart = c.gap_start_1based; cmp.gapEnd = c.gap_end_1based;
                     cmp.leftWingSize = c.left_wing_size; cmp.rightWingSize = c.right_wing_size;
