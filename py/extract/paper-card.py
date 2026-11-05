@@ -67,7 +67,9 @@ def fail(out, msg):
 
 
 out = {"ok": False, "title": "", "authors": "[]", "institution": "", "year": "",
-       "journal": "", "doi": "", "summary": "", "error": None}
+       "journal": "", "doi": "", "summary": "", "cached": False, "error": None}
+
+CARD_KEYS = ("title", "authors", "institution", "year", "journal", "doi", "summary")
 
 raw_path = ("" + (works.param(1) or "")).strip()
 root = ("" + (works.param(2) or "")).strip() \
@@ -87,6 +89,32 @@ if target != root_abs and not target.startswith(root_abs + os.sep):
     fail(out, "that file is outside the user data directory")
 if not os.path.isfile(target):
     fail(out, "that file is not there")
+
+# READ ONCE, EVER. The card is written beside the upload, and a later ask is answered from
+# it without going near the model.
+#
+# This is not a speed optimisation. The route that runs this script answers callers who are
+# not signed in, and a campaign's display is a public page: without the card on disk, every
+# visit to a campaign with ten papers would be ten PDFs read at the owner's expense, and
+# anyone who wanted to could ask for the same paper in a loop. With it, a given PDF costs
+# one reading however many times it is asked for.
+card_path = target + ".card.json"
+try:
+    if os.path.isfile(card_path) and os.path.getmtime(card_path) >= os.path.getmtime(target):
+        with open(card_path, "r", encoding="utf-8") as fh:
+            saved = json.load(fh)
+        if isinstance(saved, dict) and saved.get("title") is not None:
+            for key in CARD_KEYS:
+                out[key] = saved.get(key, out[key])
+            out["ok"] = True
+            out["cached"] = True
+            works.msg("already read")
+            works.resolve(out)
+            raise SystemExit(0)
+except SystemExit:
+    raise
+except Exception:
+    pass    # an unreadable card is a card to write again, not an error to report
 
 # The console stores an upload as JSON carrying a data URI; a plain .pdf is read as it is.
 try:
@@ -172,6 +200,15 @@ out["journal"] = one_line(card.get("journal"), 160)
 out["doi"] = one_line(card.get("doi"), 120)
 out["summary"] = one_line(card.get("summary"), 900)
 out["ok"] = True
+
+# Beside the upload, so the next ask is free. A card that cannot be written is not worth
+# failing over -- the reading is already done and the caller is holding it.
+try:
+    with open(card_path, "w", encoding="utf-8") as fh:
+        json.dump({k: out[k] for k in CARD_KEYS}, fh)
+except Exception:
+    pass
+
 works.msg(out["title"] or "read")
 
 works.resolve(out)

@@ -365,17 +365,25 @@ function (path, config) {
             if (!ps.length) return '';
             return '<div style="display:flex;flex-direction:column;gap:16px;">'
                 + ps.map((p) => {
-                    const who = [(Array.isArray(p.authors) ? p.authors : []).slice(0, 4).join(', ')
-                        + ((Array.isArray(p.authors) ? p.authors : []).length > 4 ? ' and others' : ''),
-                    p.institution].filter(Boolean).join(' · ');
-                    const where = [p.journal, p.year].filter(Boolean).join(' · ');
+                    const names = Array.isArray(p.authors) ? p.authors : [];
+                    const who = names.slice(0, 4).join(', ') + (names.length > 4 ? ' and others' : '');
+                    const where = [p.institution, p.journal, p.year].filter(Boolean).join(' · ');
+                    // Who / where / what, each on its own line with the field named, so the
+                    // list reads as a set of answers rather than a run of grey text.
+                    const field = (label, value) => (value
+                        ? '<div style="margin-top:4px;font:13px/1.5 system-ui;color:#bcd9e4;">'
+                        + '<span style="color:#7fb0c4;">' + label + '</span> ' + esc(value) + '</div>' : '');
                     return '<div style="border-left:2px solid rgba(79,208,230,0.5);padding:2px 0 2px 14px;">'
                         + '<div style="font:700 15px/1.4 system-ui;color:#eaf6f9;">'
                         + esc(p.title || p.name || 'Untitled') + '</div>'
-                        + (who ? '<div style="margin-top:3px;font:13px system-ui;color:#bcd9e4;">' + esc(who) + '</div>' : '')
-                        + (where ? '<div style="margin-top:2px;font:12.5px system-ui;color:#7fb0c4;">' + esc(where) + '</div>' : '')
-                        + (p.summary ? '<div style="margin-top:7px;font:400 14.5px/1.55 system-ui;color:#dceef5;">'
+                        + field('Who', who)
+                        + field('Where', where)
+                        + (p.summary ? '<div style="margin-top:6px;font:400 14.5px/1.55 system-ui;color:#dceef5;">'
+                            + '<span style="color:#7fb0c4;font:13px system-ui;">What</span> '
                             + esc(p.summary) + '</div>' : '')
+                        + (!who && !where && !p.summary
+                            ? '<div data-lit-pending="' + esc(p.id) + '" style="margin-top:4px;font:13px system-ui;'
+                            + 'color:#7fb0c4;">Reading the paper…</div>' : '')
                         + '<div style="margin-top:9px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
                         + '<button type="button" data-lit="' + esc(p.id) + '" style="cursor:pointer;border-radius:9px;'
                         + 'padding:8px 14px;font:700 12.5px system-ui;border:1px solid rgba(255,255,255,0.28);'
@@ -386,6 +394,46 @@ function (path, config) {
                         + '<span data-lit-out="' + esc(p.id) + '" style="font:12px system-ui;color:#8fb6c6;"></span>'
                         + '</div></div>';
                 }).join('') + '</div>';
+        };
+        // A PAPER WITH NO CARD GETS ONE, ON LOAD. An entry added before the reader existed,
+        // or one whose reading failed at the time, carries a filename and nothing else; the
+        // page asks for it rather than showing a bare line.
+        //
+        // The reading itself is cached beside the PDF on the server, so this costs one
+        // reading per paper in total, not one per visitor -- which matters here, because
+        // this page is public and the route it calls does not ask who is asking.
+        const litFill = async (d) => {
+            const base = ('' + docPath).replace(/[^/]*$/, '').replace(/^\/+/, '');
+            if (!base) return;
+            let changed = false;
+            for (const p of litOf(d)) {
+                const bare = !(Array.isArray(p.authors) && p.authors.length)
+                    && !p.institution && !p.summary;
+                if (!bare) continue;
+                try {
+                    const em = new EngineMonitor(() => { });
+                    const card = await exec(host + '/py/extract/paper-card.py', em, base + p.file);
+                    if (!card || !card.ok) throw new Error((card && card.error) || 'no answer');
+                    let names = [];
+                    try { names = JSON.parse(card.authors || '[]'); } catch (e) { names = []; }
+                    p.title = p.title || ('' + (card.title || ''));
+                    p.authors = Array.isArray(names) ? names : [];
+                    p.institution = '' + (card.institution || '');
+                    p.year = p.year || ('' + (card.year || ''));
+                    p.journal = p.journal || ('' + (card.journal || ''));
+                    p.doi = p.doi || ('' + (card.doi || ''));
+                    p.summary = '' + (card.summary || '');
+                    changed = true;
+                } catch (e) {
+                    const note = document.querySelector('[data-lit-pending="' + p.id + '"]');
+                    // Nothing is hidden on a failure: the paper is still listed and still
+                    // opens, and the line says the details could not be read.
+                    if (note) note.textContent = 'The details could not be read.';
+                }
+            }
+            // One repaint at the end rather than one per paper, so the list does not jump
+            // about while several are being read.
+            if (changed && view === 'detail') renderDetail(d);
         };
         const wireLit = (d) => {
             for (const p of litOf(d)) {
@@ -1304,6 +1352,8 @@ function (path, config) {
                 + '</div></div>';
             wireDeck(d);
             wireLit(d);
+            // Not awaited: the page is already drawn, and the cards fill in behind it.
+            litFill(d);
             const sh2 = document.getElementById('fd-share2');
             if (sh2) sh2.onclick = () => openShare(d, thanked);
             const pdfB = document.getElementById('fd-plan-pdf');
