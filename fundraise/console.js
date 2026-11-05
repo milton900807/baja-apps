@@ -412,7 +412,8 @@ function (path, config) {
             + 'min-width:250px;background:#0b2545;border:1px solid rgba(255,255,255,0.18);border-radius:10px;'
             + 'box-shadow:0 18px 44px rgba(0,0,0,0.5);overflow:hidden;z-index:6;text-align:left;"></div></span>'
             + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
-            + btn('fc-upd-open', 'Post an update') + btn('fc-open', 'Open the display') + btn('fc-preview', 'Preview') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
+            + btn('fc-upd-open', 'Post an update') + btn('fc-open', 'Open the display') + btn('fc-preview', 'Preview')
+            + btn('fc-save', 'Save draft') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div id="fc-alarm" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
             + 'border:1px solid rgba(252,165,165,0.5);background:rgba(127,29,29,0.35);font:13px/1.6 system-ui;color:#fecaca;"></div>'
             + '<div id="fc-draft" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
@@ -546,7 +547,7 @@ function (path, config) {
             + '</div></div>'
             + '<div style="margin-top:34px;padding-top:24px;border-top:2px dotted rgba(159,195,214,0.28);'
             + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-            + btn('fc-preview2', 'Preview') + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
+            + btn('fc-preview2', 'Preview') + btn('fc-save2', 'Save draft') + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
             + '<span id="fc-pub-note" style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
             // WHAT PUBLISHING COMMITS YOU TO. Said next to the button rather than buried in
             // terms nobody opens: a campaign that claims a cure, or dresses up something
@@ -1639,6 +1640,39 @@ function (path, config) {
             } catch (e) { return null; }
         };
 
+        // SAVING WITHOUT PUBLISHING.
+        //
+        // The draft above is this browser's: no help on another machine, and gone with the
+        // site data. Save draft writes the same thing into the owner's OWN files instead, so
+        // work can be put down here and picked up anywhere, while the display carries on
+        // showing whatever was last published.
+        //
+        // `autosave` is the write that is locked to the caller's own folder -- not the
+        // 'public' spath a publish uses -- so a draft cannot land anywhere a reader can
+        // reach, whoever's campaign is being edited. The name carries the other owner's key
+        // when this is a guest edit, so two campaigns cannot overwrite each other's draft.
+        const serverDraftPath = () => 'fundraise-drafts/'
+            + (forOther ? (forOther.enc + '-') : '')
+            + ('' + (fileName || 'new')).replace(/[^A-Za-z0-9._-]/g, '_') + '.draft.json';
+        const saveDraftToServer = async () => {
+            const r = await POSTJSON({
+                type: 'autosave', user: user, spath: serverDraftPath(),
+                value: JSON.stringify({ at: Date.now(), doc: doc })
+            }, host + '/save-user-data');
+            if (!r || r.error || (r.status && +r.status >= 400)) throw new Error(problemText(r));
+            return r;
+        };
+        const readServerDraft = async () => {
+            try {
+                if (!user) return null;
+                const res = await fetch(host + '/user-file?user=' + encodeURIComponent(user)
+                    + '&path=' + encodeURIComponent(serverDraftPath()));
+                if (!res || !res.ok) return null;                 // 404 is the ordinary answer
+                const d = JSON.parse(await res.text());
+                return (d && d.doc && typeof d.doc === 'object') ? d : null;
+            } catch (e) { return null; }
+        };
+
         // IS THIS CAMPAIGN LIVE, AND IS WHAT I AM LOOKING AT WHAT THE WORLD SEES.
         //
         // Two different questions, and the console used to answer neither. A campaign that
@@ -1734,8 +1768,12 @@ function (path, config) {
         // WHAT YOU HAD LAST TIME. Offered, never applied behind your back: the copy in this
         // browser can be older than the campaign if it was published from somewhere else,
         // and silently preferring one over the other is how people lose work either way.
-        (() => {
-            const d = readDraft();
+        (async () => {
+            // This browser first, because it is the one that may also be holding a picture.
+            // Failing that, the copy Save draft put in the owner's files, which is what makes
+            // the work reachable from another machine at all.
+            let d = readDraft(), kept = 'in this browser when the page closed';
+            if (!d) { d = await readServerDraft(); kept = 'to your files'; }
             if (!d) return;
             let same = false;
             try { same = JSON.stringify(d.doc) === JSON.stringify(doc); } catch (e) { same = false; }
@@ -1746,7 +1784,7 @@ function (path, config) {
                 : (Math.round(mins / 60) + (Math.round(mins / 60) === 1 ? ' hour' : ' hours') + ' ago'));
             bar.style.display = '';
             bar.innerHTML = '<b>You have unpublished changes from ' + esc(ago) + '.</b> '
-                + 'They were kept in this browser when the page closed'
+                + 'They were kept ' + kept
                 + ((d.image || !d.hadImage) && !d.hadDoc ? ''
                     : (', though the ' + [d.image ? '' : 'picture', d.hadDoc ? 'presentation' : '']
                         .filter(Boolean).join(' and the ') + ' you had chosen was not'))
@@ -2395,6 +2433,31 @@ function (path, config) {
             }
             busy(false);
         };
+        // Save draft: keep what is typed, change nothing out there. It writes both copies --
+        // this browser's, so a reload is covered even if the server call fails, and the
+        // owner's files, so another machine can pick it up. `dirty` is deliberately left
+        // alone: the campaign still has edits that are not published, and the pill must
+        // keep saying so.
+        const saveNow = async () => {
+            const bs = ['fc-save', 'fc-save2'].map($).filter(Boolean);
+            for (const b of bs) { b.disabled = true; b.textContent = 'Saving…'; }
+            try {
+                fromForm();
+                saveDraft();
+                await saveDraftToServer();
+                for (const b of bs) b.textContent = 'Saved';
+                $('fc-status').textContent = 'Saved to your files. Nothing on the display has changed '
+                    + '— publish when you want it out there.';
+            } catch (e) {
+                // The browser copy is already written, so say what is and is not covered
+                // rather than reporting a flat failure.
+                $('fc-status').innerHTML = '<span style="color:#fca5a5;">Kept in this browser, but could not save '
+                    + 'to your files: ' + esc(e && e.message ? e.message : e) + '</span>';
+            }
+            setTimeout(() => { for (const b of bs) { b.disabled = false; b.textContent = 'Save draft'; } }, 2200);
+        };
+        $('fc-save').onclick = saveNow;
+        { const s2 = $('fc-save2'); if (s2) s2.onclick = saveNow; }
         $('fc-publish').onclick = publish;
         $('fc-publish2').onclick = publish;
 
