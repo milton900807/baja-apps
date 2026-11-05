@@ -149,6 +149,9 @@ function (path, config) {
         };
         const TEAM_MAX = 16;
         const teamArr = () => (Array.isArray(doc.team) ? doc.team : (doc.team = []));
+        const LIT_MAX = 24;
+        const LIT_BYTES = 20 * 1024 * 1024;     // the model's request ceiling, less base64 overhead
+        const litArr = () => (Array.isArray(doc.literature) ? doc.literature : (doc.literature = []));
         const med = () => (doc.media && typeof doc.media === 'object' ? doc.media
             : (doc.media = { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'banner', youtube: '' }));
         // THE LOOKS A CAMPAIGN CAN WEAR. id, label, the group it is listed under, then the
@@ -505,6 +508,16 @@ function (path, config) {
             + 'A PDF opens in the page itself. A PowerPoint can only be offered as a download, '
             + 'so save it as a PDF if you want people to read it where they are.</div>'
             + '<div id="fc-doc-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
+            + sec('Literature', { tag: 'optional', sub: 'The papers behind the work.' })
+            + '<div style="height:10px;"></div>'
+            + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + '<input id="fc-lit" type="file" accept=".pdf,application/pdf" multiple '
+            + 'style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/></div>'
+            + '<div style="margin-top:5px;font:11.5px/1.5 system-ui;color:#6f93a6;">'
+            + 'Add a paper and its title, authors and institution are read off the PDF itself. '
+            + 'Check them before publishing — they are read by a model, not by the journal.</div>'
+            + '<div id="fc-lit-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
+            + '<div id="fc-lit-list" style="margin-top:8px;"></div>'
             + sec('The team', { tag: 'optional', sub: 'Who is behind the campaign.' })
             + '<div style="height:10px;"></div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
@@ -755,6 +768,55 @@ function (path, config) {
                     if (teamFaces[id]) { delete teamFaces[id]; teamDirty = true; }
                     teamList(); preview(); touch();
                     $('fc-tm-out').textContent = '';
+                };
+            }
+        };
+
+        // ---- LITERATURE ------------------------------------------------------------------
+        //
+        // Papers behind the work, each with its own card. The PDF is stored beside the
+        // campaign the way the presentation is; what goes in the campaign document is the
+        // card, so the display can list the papers without fetching a megabyte each.
+        //
+        // The reading is done ON ADD rather than at publish, because the point of it is to
+        // be checked: a model read the page, and the organiser is the one who knows whether
+        // it got the institution right. A paper whose reading failed is still added -- the
+        // file is there, and a title can be typed over a blank one -- so a bad minute from
+        // the model does not cost the upload.
+        const litFileFor = (id) => (fileName || (slug(doc.title) + '.fund')).replace(/\.fund$/i, '')
+            + '-lit-' + id + '.funddoc';
+        const litList = () => {
+            const items = litArr();
+            $('fc-lit-list').innerHTML = !items.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;">'
+                + items.map((p, i) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;'
+                    + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
+                    + '<div style="flex:1 1 auto;min-width:0;">'
+                    + '<div style="font:600 13.5px system-ui;color:#eaf6f9;">'
+                    + esc(p.title || p.name || 'Untitled') + '</div>'
+                    + ((p.authors && p.authors.length) || p.institution
+                        ? '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:2px;">'
+                        + esc([(p.authors || []).slice(0, 3).join(', ')
+                            + ((p.authors || []).length > 3 ? ' and others' : ''),
+                        p.institution].filter(Boolean).join(' · ')) + '</div>' : '')
+                    + ([p.journal, p.year].filter(Boolean).length
+                        ? '<div style="font:12px system-ui;color:#6f93a6;margin-top:2px;">'
+                        + esc([p.journal, p.year].filter(Boolean).join(' · ')) + '</div>' : '')
+                    + (p.summary ? '<div style="font:12.5px/1.55 system-ui;color:#bcd9e4;margin-top:5px;">'
+                        + esc(p.summary) + '</div>' : '')
+                    + '<div style="font:11.5px system-ui;color:#6f93a6;margin-top:4px;">' + esc(p.name || '')
+                    + (p.bytes ? ' · ' + niceBytes(p.bytes) : '') + '</div>'
+                    + '</div>'
+                    + '<button data-lit="' + esc(p.id) + '" title="Remove" style="cursor:pointer;border:0;background:transparent;'
+                    + 'color:#7fb0c4;font:700 15px system-ui;line-height:1;padding:0 2px;">×</button>'
+                    + '</div>').join('') + '</div>';
+            for (const b of wrap.querySelectorAll('[data-lit]')) {
+                b.onclick = () => {
+                    const id = b.getAttribute('data-lit');
+                    // The stored PDF is left where it is: taking it off the campaign is what
+                    // was asked for, and a delete that cannot be undone is not.
+                    doc.literature = litArr().filter((p) => p.id !== id);
+                    litList(); preview(); touch();
+                    $('fc-lit-out').textContent = 'Removed. Publish to take it off the display.';
                 };
             }
         };
@@ -1342,6 +1404,77 @@ function (path, config) {
             $('fc-tl-ai').disabled = false;
         };
 
+        $('fc-lit').onchange = async () => {
+            const input = $('fc-lit');
+            const files = Array.prototype.slice.call((input && input.files) || []);
+            if (!files.length) return;
+            input.disabled = true;
+            let added = 0;
+            for (const f of files) {
+                if (litArr().length >= LIT_MAX) {
+                    $('fc-lit-out').textContent = 'That is ' + LIT_MAX + ' papers, which is as many as the page lists well.';
+                    break;
+                }
+                if (!/\.pdf$/i.test(f.name || '')) {
+                    $('fc-lit-out').textContent = esc(f.name) + ' is not a PDF.';
+                    continue;
+                }
+                if (f.size > LIT_BYTES) {
+                    $('fc-lit-out').textContent = f.name + ' is ' + niceBytes(f.size)
+                        + '; the limit is ' + niceBytes(LIT_BYTES) + '.';
+                    continue;
+                }
+                const id = 'p' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+                const entry = { id: id, file: litFileFor(id), name: f.name, bytes: f.size, v: Date.now(),
+                    title: '', authors: [], institution: '', year: '', journal: '', doi: '', summary: '' };
+                try {
+                    $('fc-lit-out').textContent = 'Saving ' + f.name + '…';
+                    const dataUri = await readFileAsDataUri(f);
+                    const rs = await putFile(entry.file, JSON.stringify({
+                        kind: 'fundraise-lit', name: f.name, bytes: f.size, dataUri: dataUri,
+                    }));
+                    if (!rs || !(rs.status === 'saved' || rs.path)) throw new Error(problemText(rs));
+                    // READ FROM WHERE IT LANDED. The server says where it put the file, and
+                    // that is what the reader is given -- the browser never names a path.
+                    $('fc-lit-out').textContent = 'Reading ' + f.name + '…';
+                    try {
+                        const em = new EngineMonitor(() => { });
+                        const card = await exec(host + '/py/extract/paper-card.py', em,
+                            '' + (rs.path || ''));
+                        if (card && card.ok) {
+                            let names = [];
+                            try { names = JSON.parse(card.authors || '[]'); } catch (e) { names = []; }
+                            entry.title = '' + (card.title || '');
+                            entry.authors = Array.isArray(names) ? names : [];
+                            entry.institution = '' + (card.institution || '');
+                            entry.year = '' + (card.year || '');
+                            entry.journal = '' + (card.journal || '');
+                            entry.doi = '' + (card.doi || '');
+                            entry.summary = '' + (card.summary || '');
+                        } else {
+                            $('fc-lit-out').textContent = 'Added ' + f.name + ', but it could not be read: '
+                                + ((card && card.error) || 'no answer') + '. The title can be typed in.';
+                        }
+                    } catch (e) {
+                        $('fc-lit-out').textContent = 'Added ' + f.name + ', but it could not be read: '
+                            + ((e && e.message) ? e.message : e);
+                    }
+                    litArr().push(entry);
+                    added++;
+                    litList(); preview(); touch();
+                } catch (e) {
+                    $('fc-lit-out').innerHTML = '<span style="color:#fca5a5;">Could not add ' + esc(f.name)
+                        + ': ' + esc((e && e.message) ? e.message : e) + '</span>';
+                }
+            }
+            if (added) {
+                $('fc-lit-out').textContent = added + (added === 1 ? ' paper' : ' papers')
+                    + ' added. Check what was read, then publish to put '
+                    + (added === 1 ? 'it' : 'them') + ' on the display.';
+            }
+            try { input.value = ''; } catch (e) { }
+            input.disabled = false;
+        };
         $('fc-tm-add').onclick = async () => {
             const name = ('' + $('fc-tm-name').value).trim();
             if (!name) { $('fc-tm-out').textContent = 'A name first.'; return; }
@@ -1505,6 +1638,7 @@ function (path, config) {
         };
 
         const lists = () => {
+            litList();
             const gs = arr('gifts');
             $('fc-gifts').innerHTML = !gs.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;max-height:210px;overflow:auto;">'
                 + gs.map((g, i) => '<div style="display:flex;gap:10px;align-items:baseline;padding:7px 10px;'
