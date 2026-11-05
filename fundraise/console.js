@@ -2244,7 +2244,7 @@ function (path, config) {
                 + (total > 0 && Math.round(total) !== Math.round(+doc.goal || 0)
                     ? btn('fc-plan-goal', 'Set the goal to ' + esc(money(total, pl.currency || doc.currency))) : '')
                 + btn('fc-plan-edit', 'Edit the plan')
-                + btn('fc-plan-pdf', 'Download PDF')
+                + btn('fc-plan-pdf', 'PDF — campaign look') + btn('fc-plan-pdf-w', 'PDF — white')
                 + btn('fc-plan-del', 'Remove the plan')
                 + (built ? '<span style="font:11.5px system-ui;color:#6f93a6;">' + (pl.source === 'console' ? 'Built ' : 'From Baja Project, ')
                     + esc(built) + '</span>' : '')
@@ -2265,19 +2265,27 @@ function (path, config) {
             };
             const ed = $('fc-plan-edit');
             if (ed) ed.onclick = openPlanEditor;
-            const pdfB = $('fc-plan-pdf');
-            if (pdfB) pdfB.onclick = async () => {
+            // TWO FILES, THE SAME PLAN. One carries the campaign's own look, for sending to
+            // somebody who has seen the display; one is on white, for printing and for
+            // anywhere a dark page would come out as a slab of ink.
+            const pdfDownload = async (theme, el) => {
                 fromForm();
-                pdfB.disabled = true;
+                const both = ['fc-plan-pdf', 'fc-plan-pdf-w'].map($).filter(Boolean);
+                for (const b of both) b.disabled = true;
                 try {
                     const PDF = await exec('fundraise/plan-pdf.js');
-                    const name = await PDF.download(pl, { title: doc.title, goal: doc.goal, raised: doc.raised, link: publicLink || '' });
+                    const name = await PDF.download(pl, { title: doc.title, goal: doc.goal, raised: doc.raised,
+                        link: publicLink || '', theme: theme });
                     $('fc-plan-out').textContent = 'Saved ' + name + '.';
                 } catch (e) {
                     $('fc-plan-out').innerHTML = '<span style="color:#fca5a5;">Could not make the PDF: ' + esc((e && e.message) ? e.message : e) + '</span>';
                 }
-                pdfB.disabled = false;
+                for (const b of both) b.disabled = false;
             };
+            const pdfB = $('fc-plan-pdf');
+            if (pdfB) pdfB.onclick = () => pdfDownload('campaign', pdfB);
+            const pdfW = $('fc-plan-pdf-w');
+            if (pdfW) pdfW.onclick = () => pdfDownload('white', pdfW);
             const d = $('fc-plan-del');
             if (d) d.onclick = () => {
                 delete doc.plan;

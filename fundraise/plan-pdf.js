@@ -28,7 +28,27 @@ function () {
         const PALETTE = { 'Discovery': '#1aa3bd', 'IND-enabling': '#22c55e', 'Clinical': '#a78bfa',
             'Other': '#f59e0b', 'Contingency & fees': '#f472b6' };
         const EXTRA = ['#60a5fa', '#34d399', '#fb7185', '#facc15'];
-        const INK = '#12242c', DIM = '#5b7380', FAINT = '#9fb3bf', LINE = '#d6e1e7', TEAL = '#0f6e7a';
+        // TWO LOOKS, ONE LAYOUT. 'campaign' is the console's own dark navy, so a PDF handed
+        // round reads like the campaign people have already seen; 'white' is paper, for
+        // printing and for anywhere a dark page would come out as a slab of ink.
+        //
+        // Only the ink, rules and background change -- the stage colours are the campaign's
+        // and stay put in both, so a bar means the same thing whichever file you are holding.
+        // The two marks on the budget bar are text as well as a line, so they move too: the
+        // dark greens and ambers that read on paper disappear against navy.
+        const THEMES = {
+            white: { paper: null, ink: '#12242c', dim: '#5b7380', faint: '#9fb3bf',
+                line: '#d6e1e7', teal: '#0f6e7a', track: '#eef3f6', raised: '#15803d', goal: '#b45309' },
+            campaign: { paper: '#071a30', ink: '#eaf6f9', dim: '#bcd9e4', faint: '#7fb0c4',
+                line: '#1e4365', teal: '#4fd0e6', track: '#0f2b4a', raised: '#4ade80', goal: '#fbbf24' },
+        };
+        let INK, DIM, FAINT, LINE, TEAL, TRACK, RAISED, GOALC, PAPER;
+        const useTheme = (name) => {
+            const t = THEMES[name] || THEMES.white;
+            INK = t.ink; DIM = t.dim; FAINT = t.faint; LINE = t.line; TEAL = t.teal;
+            TRACK = t.track; RAISED = t.raised; GOALC = t.goal; PAPER = t.paper;
+        };
+        useTheme('white');
 
         // Helvetica and Helvetica-Bold advance widths (1/1000 em) for ASCII 32..126, from the
         // standard AFM metrics, so text can be measured, right-aligned and shortened to fit.
@@ -149,6 +169,9 @@ function () {
             if (!PV) throw new Error('the plan view could not be loaded');
             const p = PV.clean(plan);
             if (!p) throw new Error('there is no plan to put in a PDF');
+            // Chosen here, after the last await: everything below reads these synchronously,
+            // so two downloads in flight cannot end up swapping each other's colours.
+            useTheme(o.theme === 'campaign' ? 'campaign' : 'white');
             const cur = p.currency || 'USD';
             const money = (v, short) => PV.money(v, cur, short);
             const month = (t) => { try { return new Date(t).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
@@ -158,7 +181,9 @@ function () {
 
             const pages = [];
             let pg = null, y = 0;
-            const newPage = () => { pg = Page(); pages.push(pg); y = M; };
+            // The paper is painted first on every page, so the colour reaches the edges
+            // rather than sitting in a box with white margins around it.
+            const newPage = () => { pg = Page(); pages.push(pg); y = M; if (PAPER) pg.rect(0, 0, W, H, PAPER); };
             const room = (h) => { if (y + h > H - M - 26) { newPage(); return false; } return true; };
             const section = (label) => {
                 room(40);
@@ -223,7 +248,7 @@ function () {
                     pg.text(LX, top + 21, month(x.start) + ' – ' + month(x.end) + (x.cost ? '  ·  ' + money(x.cost, true) : ''),
                         { size: 8, color: DIM, max: LW });
                     for (const k of ticks) pg.line(k.x, top, k.x, top + ROW, LINE, 0.6, true);
-                    pg.rect(TX, top + 11, TW, 6, '#eef3f6');
+                    pg.rect(TX, top + 11, TW, 6, TRACK);
                     const bx = xAt(x.start), bw = Math.max(2.5, xAt(x.end) - bx);
                     pg.rect(bx, top + 9, bw, 10, colour(x.group));
                     y += ROW;
@@ -270,8 +295,8 @@ function () {
                     pg.line(x, y - 4, x, y + 18, color, 1.6);
                     pg.text(x, y + 28, label, { size: 8, bold: true, color, align: x > W - M - 70 ? 'right' : (x < M + 70 ? 'left' : 'center') });
                 };
-                mark(raised, 'raised ' + money(raised, true), '#15803d');
-                if (goal > 0 && (!(raised > 0) || Math.abs(goal - raised) / p.total > 0.1)) mark(goal, 'goal ' + money(goal, true), '#b45309');
+                mark(raised, 'raised ' + money(raised, true), RAISED);
+                if (goal > 0 && (!(raised > 0) || Math.abs(goal - raised) / p.total > 0.1)) mark(goal, 'goal ' + money(goal, true), GOALC);
                 y += (goal > 0 || raised > 0) ? 44 : 28;
                 for (const g of gs) {
                     room(16);
@@ -305,7 +330,8 @@ function () {
         const download = async (plan, opts) => {
             const o = opts || {};
             const bytes = await make(plan, o);
-            const name = slug(o.title || (plan && plan.name)) + '-program-plan.pdf';
+            const name = slug(o.title || (plan && plan.name)) + '-program-plan'
+                + (o.theme === 'campaign' ? '' : '-white') + '.pdf';
             const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
             const a = document.createElement('a');
             a.href = url; a.download = name; a.rel = 'noopener';
