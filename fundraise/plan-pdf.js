@@ -14,8 +14,8 @@ function () {
     //   page 1+  the campaign, the program, its span and cost
     //            the timeline: one row per stage (name, dates, cost, a bar on the calendar),
     //            year marks, milestones, a legend
-    //            where the money goes: the budget bar by part, the goal and amount raised
-    //            on it, each part's share, and how far the goal carries the plan
+    //            where the money goes: the budget bar by part, the amount raised marked
+    //            on it, and each part's share. The campaign's GOAL is deliberately absent.
     //   footer   the campaign link, when given, the date it was made, and page n of m
     //
     // The plan is cleaned by plan-view.js first, so a public document cannot put anything
@@ -38,15 +38,15 @@ function () {
         // dark greens and ambers that read on paper disappear against navy.
         const THEMES = {
             white: { paper: null, ink: '#12242c', dim: '#5b7380', faint: '#9fb3bf',
-                line: '#d6e1e7', teal: '#0f6e7a', track: '#eef3f6', raised: '#15803d', goal: '#b45309' },
+                line: '#d6e1e7', teal: '#0f6e7a', track: '#eef3f6', raised: '#15803d' },
             campaign: { paper: '#071a30', ink: '#eaf6f9', dim: '#bcd9e4', faint: '#7fb0c4',
-                line: '#1e4365', teal: '#4fd0e6', track: '#0f2b4a', raised: '#4ade80', goal: '#fbbf24' },
+                line: '#1e4365', teal: '#4fd0e6', track: '#0f2b4a', raised: '#4ade80' },
         };
-        let INK, DIM, FAINT, LINE, TEAL, TRACK, RAISED, GOALC, PAPER;
+        let INK, DIM, FAINT, LINE, TEAL, TRACK, RAISED, PAPER;
         const useTheme = (name) => {
             const t = THEMES[name] || THEMES.white;
             INK = t.ink; DIM = t.dim; FAINT = t.faint; LINE = t.line; TEAL = t.teal;
-            TRACK = t.track; RAISED = t.raised; GOALC = t.goal; PAPER = t.paper;
+            TRACK = t.track; RAISED = t.raised; PAPER = t.paper;
         };
         useTheme('white');
 
@@ -212,11 +212,15 @@ function () {
                     + ', ' + month(t0) + ' – ' + month(t1)) : 'Budget',
                 p.total > 0 ? money(p.total) + ' in total' : ''].filter(Boolean).join('  ·  ');
             pg.text(M, y, line2, { size: 10.5, color: DIM, max: W - 2 * M });
-            const goal = Math.max(0, +o.goal || 0), raised = Math.max(0, +o.raised || 0);
-            if (goal > 0 || raised > 0) {
+            // THE GOAL IS NOT IN THIS FILE. The plan goes to people who are being asked to
+            // fund it -- a board, a foundation, somebody considering a large gift -- and the
+            // number being asked for elsewhere is not theirs to read off a document about the
+            // science. What the programme costs is here; what the campaign is targeting is
+            // not. `o.goal` is still accepted so callers need not change, and ignored.
+            const raised = Math.max(0, +o.raised || 0);
+            if (raised > 0) {
                 y += 15;
-                pg.text(M, y, 'Campaign goal ' + money(goal) + '  ·  raised so far ' + money(raised)
-                    + (goal > 0 ? ' (' + Math.round(raised / goal * 100) + '%)' : ''), { size: 10.5, color: DIM });
+                pg.text(M, y, 'Raised so far ' + money(raised), { size: 10.5, color: DIM });
             }
             y += 12;
 
@@ -296,8 +300,7 @@ function () {
                     pg.text(x, y + 28, label, { size: 8, bold: true, color, align: x > W - M - 70 ? 'right' : (x < M + 70 ? 'left' : 'center') });
                 };
                 mark(raised, 'raised ' + money(raised, true), RAISED);
-                if (goal > 0 && (!(raised > 0) || Math.abs(goal - raised) / p.total > 0.1)) mark(goal, 'goal ' + money(goal, true), GOALC);
-                y += (goal > 0 || raised > 0) ? 44 : 28;
+                y += (raised > 0) ? 44 : 28;
                 for (const g of gs) {
                     room(16);
                     pg.rect(M, y - 8, 9, 9, colour(g.name));
@@ -306,15 +309,9 @@ function () {
                     pg.text(M + 300, y, Math.round(g.cost / gsum * 100) + '%', { size: 10, color: DIM });
                     y += 16;
                 }
-                if (goal > 0) {
-                    let last = null, left = goal;
-                    for (const x of p.phases) { if (!(x.cost > 0)) continue; if (left >= x.cost) { left -= x.cost; last = x; } else break; }
-                    room(20);
-                    y += 6;
-                    pg.text(M, y, goal >= p.total ? 'The goal covers the whole plan.'
-                        : 'The goal covers ' + Math.round(goal / p.total * 100) + '% of the plan'
-                            + (last ? ', through ' + last.name + ' (' + month(last.end) + ').' : '.'), { size: 10, color: INK });
-                }
+                // (What the goal would carry of the plan was said here. It named the goal by
+                // implication -- a percentage of a total that is printed two lines above --
+                // so it goes with it.)
             }
 
             // ---- footers -----------------------------------------------------------------
