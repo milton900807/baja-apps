@@ -331,6 +331,129 @@ function (path, config) {
                 + '<div id="fd-deck-out" style="margin-top:8px;font:12.5px system-ui;color:#8fb6c6;"></div>'
                 + '<div id="fd-deck-box" style="margin-top:12px;"></div></div>';
         };
+        // ---- LITERATURE ------------------------------------------------------------------
+        //
+        // The papers behind the work. The card -- title, authors, institution, what it found
+        // -- is in the campaign document, so the list reads without fetching anything; the
+        // PDF itself is only fetched when somebody asks for that paper, because a reading
+        // list of twenty is twenty megabytes nobody asked to download.
+        // The id is used to find the button again, so it has to be a plain token: the
+        // document is the organiser's, but this code reads it as it would any other file
+        // off the network, and an id with a quote in it would break the selector.
+        const litOf = (d) => listOf(d, 'literature').filter((p) => ('' + (p.file || '')).trim()
+            && /^[A-Za-z0-9_-]{1,64}$/.test('' + (p.id || '')));
+        const litUrls = {};
+        const fetchLit = async (p) => {
+            if (litUrls[p.id]) return litUrls[p.id];
+            const base = ('' + docPath).replace(/[^/]*$/, '');
+            if (!base) throw new Error('that paper could not be found');
+            const rs = await POSTJSON({ path: base + p.file, user: 'public' }, host + '/load-file');
+            let v = rs;
+            if (v && typeof v.value === 'string') { try { v = JSON.parse(v.value); } catch (e) { } }
+            if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+            const uri = (v && v.dataUri) ? ('' + v.dataUri) : '';
+            if (!uri) throw new Error('that paper could not be read');
+            const comma = uri.indexOf(',');
+            const bin = atob(uri.slice(comma + 1));
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            litUrls[p.id] = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+            return litUrls[p.id];
+        };
+        const litHtml = (d) => {
+            const ps = litOf(d);
+            if (!ps.length) return '';
+            return '<div style="display:flex;flex-direction:column;gap:16px;">'
+                + ps.map((p) => {
+                    const names = Array.isArray(p.authors) ? p.authors : [];
+                    const who = names.slice(0, 4).join(', ') + (names.length > 4 ? ' and others' : '');
+                    const where = [p.institution, p.journal, p.year].filter(Boolean).join(' · ');
+                    // Who / where / what, each on its own line with the field named, so the
+                    // list reads as a set of answers rather than a run of grey text.
+                    const field = (label, value) => (value
+                        ? '<div style="margin-top:4px;font:13px/1.5 system-ui;color:#bcd9e4;">'
+                        + '<span style="color:#7fb0c4;">' + label + '</span> ' + esc(value) + '</div>' : '');
+                    return '<div style="border-left:2px solid rgba(79,208,230,0.5);padding:2px 0 2px 14px;">'
+                        + '<div style="font:700 15px/1.4 system-ui;color:#eaf6f9;">'
+                        + esc(p.title || p.name || 'Untitled') + '</div>'
+                        + field('Who', who)
+                        + field('Where', where)
+                        + (p.summary ? '<div style="margin-top:6px;font:400 14.5px/1.55 system-ui;color:#dceef5;">'
+                            + '<span style="color:#7fb0c4;font:13px system-ui;">What</span> '
+                            + esc(p.summary) + '</div>' : '')
+                        + (!who && !where && !p.summary
+                            ? '<div data-lit-pending="' + esc(p.id) + '" style="margin-top:4px;font:13px system-ui;'
+                            + 'color:#7fb0c4;">Reading the paper…</div>' : '')
+                        + '<div style="margin-top:9px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+                        + '<button type="button" data-lit="' + esc(p.id) + '" style="cursor:pointer;border-radius:9px;'
+                        + 'padding:8px 14px;font:700 12.5px system-ui;border:1px solid rgba(255,255,255,0.28);'
+                        + 'background:rgba(255,255,255,0.06);color:#eaf6f9;">Read the paper</button>'
+                        + (/^10\.\d{4,9}\/[^\s"<>]+$/.test('' + (p.doi || ''))
+                            ? '<a href="https://doi.org/' + esc(p.doi) + '" target="_blank" rel="noopener noreferrer" '
+                            + 'style="font:12.5px system-ui;color:#4fd0e6;">doi.org/' + esc(p.doi) + '</a>' : '')
+                        + '<span data-lit-out="' + esc(p.id) + '" style="font:12px system-ui;color:#8fb6c6;"></span>'
+                        + '</div></div>';
+                }).join('') + '</div>';
+        };
+        // A PAPER WITH NO CARD GETS ONE, ON LOAD. An entry added before the reader existed,
+        // or one whose reading failed at the time, carries a filename and nothing else; the
+        // page asks for it rather than showing a bare line.
+        //
+        // The reading itself is cached beside the PDF on the server, so this costs one
+        // reading per paper in total, not one per visitor -- which matters here, because
+        // this page is public and the route it calls does not ask who is asking.
+        const litFill = async (d) => {
+            const base = ('' + docPath).replace(/[^/]*$/, '').replace(/^\/+/, '');
+            if (!base) return;
+            let changed = false;
+            for (const p of litOf(d)) {
+                const bare = !(Array.isArray(p.authors) && p.authors.length)
+                    && !p.institution && !p.summary;
+                if (!bare) continue;
+                try {
+                    const em = new EngineMonitor(() => { });
+                    const card = await exec(host + '/py/extract/paper-card.py', em, base + p.file);
+                    if (!card || !card.ok) throw new Error((card && card.error) || 'no answer');
+                    let names = [];
+                    try { names = JSON.parse(card.authors || '[]'); } catch (e) { names = []; }
+                    p.title = p.title || ('' + (card.title || ''));
+                    p.authors = Array.isArray(names) ? names : [];
+                    p.institution = '' + (card.institution || '');
+                    p.year = p.year || ('' + (card.year || ''));
+                    p.journal = p.journal || ('' + (card.journal || ''));
+                    p.doi = p.doi || ('' + (card.doi || ''));
+                    p.summary = '' + (card.summary || '');
+                    changed = true;
+                } catch (e) {
+                    const note = document.querySelector('[data-lit-pending="' + p.id + '"]');
+                    // Nothing is hidden on a failure: the paper is still listed and still
+                    // opens, and the line says the details could not be read.
+                    if (note) note.textContent = 'The details could not be read.';
+                }
+            }
+            // One repaint at the end rather than one per paper, so the list does not jump
+            // about while several are being read.
+            if (changed && view === 'detail') renderDetail(d);
+        };
+        const wireLit = (d) => {
+            for (const p of litOf(d)) {
+                const go = document.querySelector('[data-lit="' + p.id + '"]');
+                if (!go) continue;
+                go.onclick = async () => {
+                    const out = document.querySelector('[data-lit-out="' + p.id + '"]');
+                    if (out) out.textContent = 'Fetching it…';
+                    go.disabled = true;
+                    try {
+                        const url = await fetchLit(p);
+                        if (out) out.textContent = '';
+                        window.open(url, '_blank', 'noopener');
+                    } catch (e) {
+                        if (out) out.textContent = (e && e.message) ? e.message : ('' + e);
+                    }
+                    go.disabled = false;
+                };
+            }
+        };
         const wireDeck = (d) => {
             const go = document.getElementById('fd-deck-go');
             if (!go) return;
@@ -452,6 +575,7 @@ function (path, config) {
         const listOf = (d, k) => (Array.isArray(d && d[k]) ? d[k] : []).filter((x) => x && typeof x === 'object');
         const hasDetail = (d) => !!(('' + ((d && d.story) || '')).trim() || listOf(d, 'gifts').length
             || listOf(d, 'updates').length || listOf(d, 'team').length || listOf(d, 'timeline').length
+            || listOf(d, 'literature').length
             || !!planOf(d)
             || ('' + ((d && d.media && d.media.docFile) || '')).trim()
             || /^[\w-]{11}$/.test('' + ((d && d.media && d.media.youtube) || '')));
@@ -1181,6 +1305,7 @@ function (path, config) {
                         + PV.html(pl, { goal: d.goal, raised: d.raised }) + '</div></div>';
                 })())
                 + (deckHtml(d) ? sect('The presentation') + deckHtml(d) : '')
+                + (litHtml(d) ? sect('Literature') + litHtml(d) : '')
 
                 + (updates.length ? sect('Updates') + updates.map((u) => ''
                     + '<div style="border-left:2px solid rgba(79,208,230,0.5);padding:2px 0 2px 14px;margin:0 0 18px;">'
@@ -1226,6 +1351,9 @@ function (path, config) {
                 + (every ? '<span style="margin-left:10px;animation:fdPulse 2.4s ease-in-out infinite;">live</span>' : '')
                 + '</div></div>';
             wireDeck(d);
+            wireLit(d);
+            // Not awaited: the page is already drawn, and the cards fill in behind it.
+            litFill(d);
             const sh2 = document.getElementById('fd-share2');
             if (sh2) sh2.onclick = () => openShare(d, thanked);
             const pdfB = document.getElementById('fd-plan-pdf');

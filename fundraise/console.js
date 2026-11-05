@@ -149,6 +149,9 @@ function (path, config) {
         };
         const TEAM_MAX = 16;
         const teamArr = () => (Array.isArray(doc.team) ? doc.team : (doc.team = []));
+        const LIT_MAX = 24;
+        const LIT_BYTES = 20 * 1024 * 1024;     // the model's request ceiling, less base64 overhead
+        const litArr = () => (Array.isArray(doc.literature) ? doc.literature : (doc.literature = []));
         const med = () => (doc.media && typeof doc.media === 'object' ? doc.media
             : (doc.media = { theme: 'deep', imageFile: '', imageV: 0, imageMode: 'banner', youtube: '' }));
         // THE LOOKS A CAMPAIGN CAN WEAR. id, label, the group it is listed under, then the
@@ -412,7 +415,8 @@ function (path, config) {
             + 'min-width:250px;background:#0b2545;border:1px solid rgba(255,255,255,0.18);border-radius:10px;'
             + 'box-shadow:0 18px 44px rgba(0,0,0,0.5);overflow:hidden;z-index:6;text-align:left;"></div></span>'
             + btn('fc-cancel', 'Cancel') + btn('fc-all', 'All campaigns')
-            + btn('fc-upd-open', 'Post an update') + btn('fc-open', 'Open the display') + btn('fc-preview', 'Preview') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
+            + btn('fc-upd-open', 'Post an update') + btn('fc-open', 'Open the display') + btn('fc-preview', 'Preview')
+            + btn('fc-save', 'Save draft') + btn('fc-publish', 'Publish', 'go') + '</div></div>'
             + '<div id="fc-alarm" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
             + 'border:1px solid rgba(252,165,165,0.5);background:rgba(127,29,29,0.35);font:13px/1.6 system-ui;color:#fecaca;"></div>'
             + '<div id="fc-draft" style="display:none;margin:14px 22px 0;padding:12px 15px;border-radius:10px;'
@@ -504,6 +508,16 @@ function (path, config) {
             + 'A PDF opens in the page itself. A PowerPoint can only be offered as a download, '
             + 'so save it as a PDF if you want people to read it where they are.</div>'
             + '<div id="fc-doc-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;"></div>'
+            + sec('Literature', { tag: 'optional', sub: 'The papers behind the work.' })
+            + '<div style="height:10px;"></div>'
+            + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            + '<input id="fc-lit" type="file" accept=".pdf,application/pdf" multiple '
+            + 'style="font:12.5px system-ui;color:#9fb3c8;max-width:250px;"/></div>'
+            + '<div style="margin-top:5px;font:11.5px/1.5 system-ui;color:#6f93a6;">'
+            + 'Add a paper and its title, authors and institution are read off the PDF itself. '
+            + 'Check them before publishing — they are read by a model, not by the journal.</div>'
+            + '<div id="fc-lit-out" style="margin-top:6px;font:12px system-ui;color:#6f93a6;min-height:16px;"></div>'
+            + '<div id="fc-lit-list" style="margin-top:8px;"></div>'
             + sec('The team', { tag: 'optional', sub: 'Who is behind the campaign.' })
             + '<div style="height:10px;"></div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
@@ -546,7 +560,7 @@ function (path, config) {
             + '</div></div>'
             + '<div style="margin-top:34px;padding-top:24px;border-top:2px dotted rgba(159,195,214,0.28);'
             + 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-            + btn('fc-preview2', 'Preview') + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
+            + btn('fc-preview2', 'Preview') + btn('fc-save2', 'Save draft') + btn('fc-publish2', 'Publish', 'go') + btn('fc-open2', 'Open the display') + btn('fc-cancel2', 'Cancel')
             + '<span id="fc-pub-note" style="font:12px system-ui;color:#6f93a6;">Nothing on the display changes until you publish.</span></div>'
             // WHAT PUBLISHING COMMITS YOU TO. Said next to the button rather than buried in
             // terms nobody opens: a campaign that claims a cure, or dresses up something
@@ -754,6 +768,55 @@ function (path, config) {
                     if (teamFaces[id]) { delete teamFaces[id]; teamDirty = true; }
                     teamList(); preview(); touch();
                     $('fc-tm-out').textContent = '';
+                };
+            }
+        };
+
+        // ---- LITERATURE ------------------------------------------------------------------
+        //
+        // Papers behind the work, each with its own card. The PDF is stored beside the
+        // campaign the way the presentation is; what goes in the campaign document is the
+        // card, so the display can list the papers without fetching a megabyte each.
+        //
+        // The reading is done ON ADD rather than at publish, because the point of it is to
+        // be checked: a model read the page, and the organiser is the one who knows whether
+        // it got the institution right. A paper whose reading failed is still added -- the
+        // file is there, and a title can be typed over a blank one -- so a bad minute from
+        // the model does not cost the upload.
+        const litFileFor = (id) => (fileName || (slug(doc.title) + '.fund')).replace(/\.fund$/i, '')
+            + '-lit-' + id + '.funddoc';
+        const litList = () => {
+            const items = litArr();
+            $('fc-lit-list').innerHTML = !items.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;">'
+                + items.map((p, i) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;'
+                    + (i ? 'border-top:1px solid rgba(255,255,255,0.08);' : '') + '">'
+                    + '<div style="flex:1 1 auto;min-width:0;">'
+                    + '<div style="font:600 13.5px system-ui;color:#eaf6f9;">'
+                    + esc(p.title || p.name || 'Untitled') + '</div>'
+                    + ((p.authors && p.authors.length) || p.institution
+                        ? '<div style="font:12.5px system-ui;color:#9fb3c8;margin-top:2px;">'
+                        + esc([(p.authors || []).slice(0, 3).join(', ')
+                            + ((p.authors || []).length > 3 ? ' and others' : ''),
+                        p.institution].filter(Boolean).join(' · ')) + '</div>' : '')
+                    + ([p.journal, p.year].filter(Boolean).length
+                        ? '<div style="font:12px system-ui;color:#6f93a6;margin-top:2px;">'
+                        + esc([p.journal, p.year].filter(Boolean).join(' · ')) + '</div>' : '')
+                    + (p.summary ? '<div style="font:12.5px/1.55 system-ui;color:#bcd9e4;margin-top:5px;">'
+                        + esc(p.summary) + '</div>' : '')
+                    + '<div style="font:11.5px system-ui;color:#6f93a6;margin-top:4px;">' + esc(p.name || '')
+                    + (p.bytes ? ' · ' + niceBytes(p.bytes) : '') + '</div>'
+                    + '</div>'
+                    + '<button data-lit="' + esc(p.id) + '" title="Remove" style="cursor:pointer;border:0;background:transparent;'
+                    + 'color:#7fb0c4;font:700 15px system-ui;line-height:1;padding:0 2px;">×</button>'
+                    + '</div>').join('') + '</div>';
+            for (const b of wrap.querySelectorAll('[data-lit]')) {
+                b.onclick = () => {
+                    const id = b.getAttribute('data-lit');
+                    // The stored PDF is left where it is: taking it off the campaign is what
+                    // was asked for, and a delete that cannot be undone is not.
+                    doc.literature = litArr().filter((p) => p.id !== id);
+                    litList(); preview(); touch();
+                    $('fc-lit-out').textContent = 'Removed. Publish to take it off the display.';
                 };
             }
         };
@@ -1341,6 +1404,77 @@ function (path, config) {
             $('fc-tl-ai').disabled = false;
         };
 
+        $('fc-lit').onchange = async () => {
+            const input = $('fc-lit');
+            const files = Array.prototype.slice.call((input && input.files) || []);
+            if (!files.length) return;
+            input.disabled = true;
+            let added = 0;
+            for (const f of files) {
+                if (litArr().length >= LIT_MAX) {
+                    $('fc-lit-out').textContent = 'That is ' + LIT_MAX + ' papers, which is as many as the page lists well.';
+                    break;
+                }
+                if (!/\.pdf$/i.test(f.name || '')) {
+                    $('fc-lit-out').textContent = esc(f.name) + ' is not a PDF.';
+                    continue;
+                }
+                if (f.size > LIT_BYTES) {
+                    $('fc-lit-out').textContent = f.name + ' is ' + niceBytes(f.size)
+                        + '; the limit is ' + niceBytes(LIT_BYTES) + '.';
+                    continue;
+                }
+                const id = 'p' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+                const entry = { id: id, file: litFileFor(id), name: f.name, bytes: f.size, v: Date.now(),
+                    title: '', authors: [], institution: '', year: '', journal: '', doi: '', summary: '' };
+                try {
+                    $('fc-lit-out').textContent = 'Saving ' + f.name + '…';
+                    const dataUri = await readFileAsDataUri(f);
+                    const rs = await putFile(entry.file, JSON.stringify({
+                        kind: 'fundraise-lit', name: f.name, bytes: f.size, dataUri: dataUri,
+                    }));
+                    if (!rs || !(rs.status === 'saved' || rs.path)) throw new Error(problemText(rs));
+                    // READ FROM WHERE IT LANDED. The server says where it put the file, and
+                    // that is what the reader is given -- the browser never names a path.
+                    $('fc-lit-out').textContent = 'Reading ' + f.name + '…';
+                    try {
+                        const em = new EngineMonitor(() => { });
+                        const card = await exec(host + '/py/extract/paper-card.py', em,
+                            '' + (rs.path || ''));
+                        if (card && card.ok) {
+                            let names = [];
+                            try { names = JSON.parse(card.authors || '[]'); } catch (e) { names = []; }
+                            entry.title = '' + (card.title || '');
+                            entry.authors = Array.isArray(names) ? names : [];
+                            entry.institution = '' + (card.institution || '');
+                            entry.year = '' + (card.year || '');
+                            entry.journal = '' + (card.journal || '');
+                            entry.doi = '' + (card.doi || '');
+                            entry.summary = '' + (card.summary || '');
+                        } else {
+                            $('fc-lit-out').textContent = 'Added ' + f.name + ', but it could not be read: '
+                                + ((card && card.error) || 'no answer') + '. The title can be typed in.';
+                        }
+                    } catch (e) {
+                        $('fc-lit-out').textContent = 'Added ' + f.name + ', but it could not be read: '
+                            + ((e && e.message) ? e.message : e);
+                    }
+                    litArr().push(entry);
+                    added++;
+                    litList(); preview(); touch();
+                } catch (e) {
+                    $('fc-lit-out').innerHTML = '<span style="color:#fca5a5;">Could not add ' + esc(f.name)
+                        + ': ' + esc((e && e.message) ? e.message : e) + '</span>';
+                }
+            }
+            if (added) {
+                $('fc-lit-out').textContent = added + (added === 1 ? ' paper' : ' papers')
+                    + ' added. Check what was read, then publish to put '
+                    + (added === 1 ? 'it' : 'them') + ' on the display.';
+            }
+            try { input.value = ''; } catch (e) { }
+            input.disabled = false;
+        };
         $('fc-tm-add').onclick = async () => {
             const name = ('' + $('fc-tm-name').value).trim();
             if (!name) { $('fc-tm-out').textContent = 'A name first.'; return; }
@@ -1504,6 +1638,7 @@ function (path, config) {
         };
 
         const lists = () => {
+            litList();
             const gs = arr('gifts');
             $('fc-gifts').innerHTML = !gs.length ? '' : '<div style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;max-height:210px;overflow:auto;">'
                 + gs.map((g, i) => '<div style="display:flex;gap:10px;align-items:baseline;padding:7px 10px;'
@@ -1639,6 +1774,39 @@ function (path, config) {
             } catch (e) { return null; }
         };
 
+        // SAVING WITHOUT PUBLISHING.
+        //
+        // The draft above is this browser's: no help on another machine, and gone with the
+        // site data. Save draft writes the same thing into the owner's OWN files instead, so
+        // work can be put down here and picked up anywhere, while the display carries on
+        // showing whatever was last published.
+        //
+        // `autosave` is the write that is locked to the caller's own folder -- not the
+        // 'public' spath a publish uses -- so a draft cannot land anywhere a reader can
+        // reach, whoever's campaign is being edited. The name carries the other owner's key
+        // when this is a guest edit, so two campaigns cannot overwrite each other's draft.
+        const serverDraftPath = () => 'fundraise-drafts/'
+            + (forOther ? (forOther.enc + '-') : '')
+            + ('' + (fileName || 'new')).replace(/[^A-Za-z0-9._-]/g, '_') + '.draft.json';
+        const saveDraftToServer = async () => {
+            const r = await POSTJSON({
+                type: 'autosave', user: user, spath: serverDraftPath(),
+                value: JSON.stringify({ at: Date.now(), doc: doc })
+            }, host + '/save-user-data');
+            if (!r || r.error || (r.status && +r.status >= 400)) throw new Error(problemText(r));
+            return r;
+        };
+        const readServerDraft = async () => {
+            try {
+                if (!user) return null;
+                const res = await fetch(host + '/user-file?user=' + encodeURIComponent(user)
+                    + '&path=' + encodeURIComponent(serverDraftPath()));
+                if (!res || !res.ok) return null;                 // 404 is the ordinary answer
+                const d = JSON.parse(await res.text());
+                return (d && d.doc && typeof d.doc === 'object') ? d : null;
+            } catch (e) { return null; }
+        };
+
         // IS THIS CAMPAIGN LIVE, AND IS WHAT I AM LOOKING AT WHAT THE WORLD SEES.
         //
         // Two different questions, and the console used to answer neither. A campaign that
@@ -1734,8 +1902,12 @@ function (path, config) {
         // WHAT YOU HAD LAST TIME. Offered, never applied behind your back: the copy in this
         // browser can be older than the campaign if it was published from somewhere else,
         // and silently preferring one over the other is how people lose work either way.
-        (() => {
-            const d = readDraft();
+        (async () => {
+            // This browser first, because it is the one that may also be holding a picture.
+            // Failing that, the copy Save draft put in the owner's files, which is what makes
+            // the work reachable from another machine at all.
+            let d = readDraft(), kept = 'in this browser when the page closed';
+            if (!d) { d = await readServerDraft(); kept = 'to your files'; }
             if (!d) return;
             let same = false;
             try { same = JSON.stringify(d.doc) === JSON.stringify(doc); } catch (e) { same = false; }
@@ -1746,7 +1918,7 @@ function (path, config) {
                 : (Math.round(mins / 60) + (Math.round(mins / 60) === 1 ? ' hour' : ' hours') + ' ago'));
             bar.style.display = '';
             bar.innerHTML = '<b>You have unpublished changes from ' + esc(ago) + '.</b> '
-                + 'They were kept in this browser when the page closed'
+                + 'They were kept ' + kept
                 + ((d.image || !d.hadImage) && !d.hadDoc ? ''
                     : (', though the ' + [d.image ? '' : 'picture', d.hadDoc ? 'presentation' : '']
                         .filter(Boolean).join(' and the ') + ' you had chosen was not'))
@@ -2206,7 +2378,7 @@ function (path, config) {
                 + (total > 0 && Math.round(total) !== Math.round(+doc.goal || 0)
                     ? btn('fc-plan-goal', 'Set the goal to ' + esc(money(total, pl.currency || doc.currency))) : '')
                 + btn('fc-plan-edit', 'Edit the plan')
-                + btn('fc-plan-pdf', 'Download PDF')
+                + btn('fc-plan-pdf', 'PDF — campaign look') + btn('fc-plan-pdf-w', 'PDF — white')
                 + btn('fc-plan-del', 'Remove the plan')
                 + (built ? '<span style="font:11.5px system-ui;color:#6f93a6;">' + (pl.source === 'console' ? 'Built ' : 'From Baja Project, ')
                     + esc(built) + '</span>' : '')
@@ -2227,19 +2399,27 @@ function (path, config) {
             };
             const ed = $('fc-plan-edit');
             if (ed) ed.onclick = openPlanEditor;
-            const pdfB = $('fc-plan-pdf');
-            if (pdfB) pdfB.onclick = async () => {
+            // TWO FILES, THE SAME PLAN. One carries the campaign's own look, for sending to
+            // somebody who has seen the display; one is on white, for printing and for
+            // anywhere a dark page would come out as a slab of ink.
+            const pdfDownload = async (theme, el) => {
                 fromForm();
-                pdfB.disabled = true;
+                const both = ['fc-plan-pdf', 'fc-plan-pdf-w'].map($).filter(Boolean);
+                for (const b of both) b.disabled = true;
                 try {
                     const PDF = await exec('fundraise/plan-pdf.js');
-                    const name = await PDF.download(pl, { title: doc.title, goal: doc.goal, raised: doc.raised, link: publicLink || '' });
+                    const name = await PDF.download(pl, { title: doc.title, goal: doc.goal, raised: doc.raised,
+                        link: publicLink || '', theme: theme });
                     $('fc-plan-out').textContent = 'Saved ' + name + '.';
                 } catch (e) {
                     $('fc-plan-out').innerHTML = '<span style="color:#fca5a5;">Could not make the PDF: ' + esc((e && e.message) ? e.message : e) + '</span>';
                 }
-                pdfB.disabled = false;
+                for (const b of both) b.disabled = false;
             };
+            const pdfB = $('fc-plan-pdf');
+            if (pdfB) pdfB.onclick = () => pdfDownload('campaign', pdfB);
+            const pdfW = $('fc-plan-pdf-w');
+            if (pdfW) pdfW.onclick = () => pdfDownload('white', pdfW);
             const d = $('fc-plan-del');
             if (d) d.onclick = () => {
                 delete doc.plan;
@@ -2395,6 +2575,31 @@ function (path, config) {
             }
             busy(false);
         };
+        // Save draft: keep what is typed, change nothing out there. It writes both copies --
+        // this browser's, so a reload is covered even if the server call fails, and the
+        // owner's files, so another machine can pick it up. `dirty` is deliberately left
+        // alone: the campaign still has edits that are not published, and the pill must
+        // keep saying so.
+        const saveNow = async () => {
+            const bs = ['fc-save', 'fc-save2'].map($).filter(Boolean);
+            for (const b of bs) { b.disabled = true; b.textContent = 'Saving…'; }
+            try {
+                fromForm();
+                saveDraft();
+                await saveDraftToServer();
+                for (const b of bs) b.textContent = 'Saved';
+                $('fc-status').textContent = 'Saved to your files. Nothing on the display has changed '
+                    + '— publish when you want it out there.';
+            } catch (e) {
+                // The browser copy is already written, so say what is and is not covered
+                // rather than reporting a flat failure.
+                $('fc-status').innerHTML = '<span style="color:#fca5a5;">Kept in this browser, but could not save '
+                    + 'to your files: ' + esc(e && e.message ? e.message : e) + '</span>';
+            }
+            setTimeout(() => { for (const b of bs) { b.disabled = false; b.textContent = 'Save draft'; } }, 2200);
+        };
+        $('fc-save').onclick = saveNow;
+        { const s2 = $('fc-save2'); if (s2) s2.onclick = saveNow; }
         $('fc-publish').onclick = publish;
         $('fc-publish2').onclick = publish;
 
