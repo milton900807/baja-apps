@@ -168,6 +168,47 @@ bajasplice scan --gene TARDBP --top 10
 bajasplice scan --gene UNC13A --rank acceptor --top 20
 ```
 
+### SSAM: acceptor candidates around one exon
+
+```bash
+bajasplice ssam --gene MAPK8IP3 --exon 16
+bajasplice ssam --gene UNC13A --exon 21 --flank 500 --png e21.png --json e21.json
+```
+
+Scores every AG dinucleotide in a window around one exon and ranks it against
+that exon's own annotated acceptor. Where `scan --rank` sweeps a whole gene for
+cryptic candidates, this answers the narrower question people actually ask:
+*what else near this exon does the model think looks like an acceptor, and how
+does it compare to the real one.*
+
+`--exon` is in **transcript order** — on the minus strand exon 1 is the
+rightmost. `--flank` is capped at the model's receptive field (1000 nt for
+ctx-2000); beyond it a profile is flat by construction, not by biology.
+
+Each candidate carries `rank`, `score`, `rel_to_annotated`, `delta_logit`,
+`offset` (signed, transcript-oriented) and `region`. The payload is the same
+`track` / `layers` shape the plot command emits, so the existing client
+`FeatureLayer` draws it, and `meta.caveats` travels with the numbers.
+
+It reports **no frame or coding information**. The score is splice-acceptor
+likelihood; putting a frame column beside it invites reading a consequence off
+a number that cannot support one.
+
+The front end is `baja/ssam.js` (Home ▸ Tools ▸ Splice Acceptor Model), backed
+by `py/bio/splice/ssam-exon.py`.
+
+#### Running without a genome FASTA
+
+`bajasplice.remote.EnsemblReader` implements `GenomeReader`'s `.codes()`
+contract against the Ensembl REST API, with a disk cache under
+`~/.cache/bajasplice/seq`, so a single-locus question does not need the ~3 GB
+download. `open_genome()` prefers a configured FASTA and falls back to it; the
+source and assembly are recorded in `meta.sequence` so a score can be traced to
+the sequence it came from.
+
+It is **not** a substitute for the FASTA in training or any whole-genome
+sweep — a public API is neither fast enough nor a reproducible sequence source.
+
 ### Plotting across a transcript
 
 Emits a JSON payload shaped for a client `TrackLayer` / `AttributionLayer`, or
