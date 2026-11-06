@@ -31,11 +31,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 
 import numpy as np
 
 __all__ = ["exon_table", "exon_bounds", "annotated_acceptor", "scan_exon",
-           "ssam_payload", "render_png", "CAVEATS"]
+           "ssam_payload", "render_png", "parse_variant", "variant_label",
+           "AlleleReader", "CAVEATS"]
 
 # The validation run behind these numbers only exercised strong sites: every
 # annotated acceptor tested scored above 0.96. Nothing establishes what the
@@ -50,6 +52,11 @@ CAVEATS = {
     "reference_sequence": (
         "Scored on reference sequence. No variant has been applied, so a "
         "patient allele is not reflected in these numbers."),
+    "variant_applied": (
+        "Two alleles were scored: reference, and the same window with the "
+        "given substitution. A delta is the model's response to that one "
+        "sequence change and nothing else -- it is not a measurement, and it "
+        "carries no information about whether the variant is pathogenic."),
     "transcript_scope": (
         "Candidates are labelled against ONE transcript. A position marked "
         "exonic or intronic here may be an annotated acceptor in another "
@@ -65,6 +72,126 @@ CAVEATS = {
         "evidence the site is weak -- and the AG candidates ranked against it "
         "are being judged by a U2 standard it does not share."),
 }
+
+
+_VARIANT_RE = re.compile(
+    r"^(?:chr)?(?P<chrom>[0-9]{1,2}|[XYxy]|MT|mt)"
+    r"[:\-](?P<pos>[0-9][0-9,_]*)"
+    r"[:\-]?(?P<ref>[ACGTacgt]+)(?:>|->|/|:|-)(?P<alt>[ACGTacgt]+)$")
+
+
+def parse_variant(spec):
+    """A substitution spec to {chrom, pos, ref, alt}.
+
+    Accepts `16:1762843:C>T`, `chr16:1762843C>T`, `16-1762843-C-T`. `pos` is
+    1-based, and `ref`/`alt` are on the PLUS strand, as VCF and HGVS genomic
+    notation both are -- not in transcript orientation. On a minus-strand gene
+    that distinction is the whole ballgame, so it is not inferred.
+
+    Substitutions only. An indel shifts every downstream coordinate, which
+    would silently invalidate the exon bounds and candidate offsets this module
+    reports, so it is refused rather than approximated.
+    """
+    if isinstance(spec, dict):
+        d = dict(spec)
+        d["chrom"] = str(d["chrom"]).replace("chr", "")
+        d["pos"] = int(d["pos"])
+        d["ref"], d["alt"] = d["ref"].upper(), d["alt"].upper()
+    else:
+        m = _VARIANT_RE.match(str(spec).strip())
+        if not m:
+            raise ValueError(
+                f"cannot read variant {spec!r}. Use CHROM:POS:REF>ALT on the "
+                "plus strand, e.g. 16:1762843:C>T")
+        d = {"chrom": m["chrom"].upper().replace("CHR", ""),
+             "pos": int(m["pos"].replace(",", "").replace("_", "")),
+             "ref": m["ref"].upper(), "alt": m["alt"].upper()}
+    if len(d["ref"]) != len(d["alt"]):
+        raise ValueError(
+            f'{d["ref"]}>{d["alt"]} changes length. Only substitutions are '
+            "supported: an indel moves every downstream coordinate, so the "
+            "exon bounds and offsets reported here would no longer hold.")
+    if d["ref"] == d["alt"]:
+        raise ValueError(f'{d["ref"]}>{d["alt"]} is not a change')
+    return d
+
+
+def variant_label(v):
+    return f'chr{v["chrom"]}:{v["pos"]:,} {v["ref"]}>{v["alt"]}'
+
+
+class AlleleReader:
+    """A GenomeReader with one substitution applied, for allele comparison.
+
+    Delegates every read to `base` and rewrites the substituted bases. The
+    substitution is applied in PLUS-strand space before any reverse complement,
+    so a minus-strand gene gets the right base without the caller converting
+    anything.
+
+    This is a scoring overlay, not an edited genome: nothing is written, and
+    the underlying reader and its cache are untouched.
+    """
+
+    def __init__(self, base, variant, verify=True):
+        from bajasplice.genome import _BASE
+        self.base = base
+        self.variant = parse_variant(variant)
+        self._chrom = self.variant["chrom"]
+        self._pos = self.variant["pos"]
+        self._ref = np.frombuffer(self.variant["ref"].encode(), np.uint8)
+        self._alt = np.asarray(_BASE[np.frombuffer(
+            self.variant["alt"].encode(), np.uint8)], dtype=np.int8)
+        self._ref_codes = np.asarray(_BASE[self._ref], dtype=np.int8)
+        self._verify = verify
+        self._applied = 0
+        for attr in ("assembly", "describe", "species"):
+            if hasattr(base, attr):
+                setattr(self, attr, getattr(base, attr))
+
+    def _same_chrom(self, chrom):
+        return str(chrom).replace("chr", "").upper() == self._chrom
+
+    def codes(self, chrom, start, end, strand="+"):
+        out = np.array(self.base.codes(chrom, start, end, "+"), copy=True)
+        n = len(self._alt)
+        if self._same_chrom(chrom) and start <= self._pos + n - 1 and self._pos <= end:
+            for k in range(n):
+                p = self._pos + k
+                if not (start <= p <= end):
+                    continue
+                i = p - start
+                if self._verify and out[i] != self._ref_codes[k]:
+                    from bajasplice.genome import _ALPHABET
+                    raise ValueError(
+                        f"variant {variant_label(self.variant)} says the "
+                        f"reference base at {p:,} is "
+                        f"{_ALPHABET[self._ref_codes[k]]}, but the genome "
+                        f"reads {_ALPHABET[int(out[i])]}. Check the assembly "
+                        "and that the spec is on the plus strand.")
+                out[i] = self._alt[k]
+                self._applied += 1
+        if strand == "-":
+            from bajasplice.genome import _COMP
+            return _COMP[out[::-1]]
+        return out
+
+    def sequence(self, chrom, start, end, strand="+"):
+        from bajasplice.genome import codes_to_str
+        return codes_to_str(self.codes(chrom, start, end, strand))
+
+
+def _candidate_positions(codes, lo, strand):
+    """Plus-strand positions of every candidate acceptor dinucleotide.
+
+    On the plus strand an acceptor AG ends at the site; on the minus strand the
+    plus-strand text is CT and the site is the C. Matches
+    `scan.rank_candidates`.
+    """
+    if strand == "+":
+        idx = np.flatnonzero((codes[:-1] == 1) & (codes[1:] == 3)) + 1
+    else:
+        idx = np.flatnonzero((codes[:-1] == 2) & (codes[1:] == 4))
+    return {lo + int(i) for i in idx}
 
 
 def _logit(p):
@@ -166,11 +293,17 @@ def _region_label(pos, rows, strand):
 # ---------------------------------------------------------------- scoring
 def scan_exon(gene, exon_number, flank=300, transcript="canonical",
               ckpt=None, device=None, genome=None, min_score=0.0,
-              prefer_remote=False):
+              prefer_remote=False, variant=None):
     """Rank every candidate acceptor in a window around one exon.
 
     `flank` extends the window that far upstream of the annotated acceptor and
     that far downstream of the exon's donor, in transcript orientation.
+
+    `variant` (e.g. `"16:1762843:C>T"`, plus strand) scores the window a second
+    time with that substitution applied and reports the difference per
+    candidate. Candidates are the UNION of the AG positions found on each
+    allele, so a site the variant creates or destroys appears rather than
+    vanishing from one of the two tables.
     """
     from bajasplice.scan import load_splicenet, scan_region
     from bajasplice.remote import open_genome
@@ -195,14 +328,37 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
     a_track, d_track = scan_region(model, context, chrom, lo, hi, strand,
                                    device, genome=genome)
     codes = genome.codes(chrom, lo, hi, "+")       # plus-strand for AG finding
+    pos_ref = _candidate_positions(codes, lo, strand)
 
-    # candidate dinucleotides, exactly as scan.rank_candidates finds them:
-    # on + strand an acceptor AG ends at the site; on - strand the plus-strand
-    # text is CT and the site is the C.
-    if strand == "+":
-        idx = np.flatnonzero((codes[:-1] == 1) & (codes[1:] == 3)) + 1
-    else:
-        idx = np.flatnonzero((codes[:-1] == 2) & (codes[1:] == 4))
+    var = alt_track = None
+    pos_alt = pos_ref
+    if variant is not None:
+        var = parse_variant(variant)
+        if var["chrom"] != str(chrom).replace("chr", "").upper():
+            raise ValueError(
+                f'variant is on chr{var["chrom"]} but {gene} is on {chrom}')
+        # A variant beyond the receptive field of every scored position cannot
+        # move any score, and reporting a table of exact zeros would look like
+        # a finding. scan_region pads by context//2 on each side, so that --
+        # not the window -- is the bound that matters.
+        reach = context // 2
+        if not (lo - reach <= var["pos"] <= hi + reach):
+            raise ValueError(
+                f'variant at {var["pos"]:,} is outside the model\'s reach for '
+                f'this window ({lo - reach:,}-{hi + reach:,}). No candidate '
+                f'score could change. Raise --flank to bring it inside.')
+        var["in_window"] = bool(lo <= var["pos"] <= hi)
+        var["offset_from_acceptor"] = int(
+            (var["pos"] - acc) if strand == "+" else (acc - var["pos"]))
+        var["in_target_exon"] = bool(ex["start"] <= var["pos"] <= ex["end"])
+        var["region"] = _region_label(var["pos"], rows, strand)
+        alt_genome = AlleleReader(genome, var)
+        alt_track, _ = scan_region(model, context, chrom, lo, hi, strand,
+                                   device, genome=alt_genome)
+        codes_alt = alt_genome.codes(chrom, lo, hi, "+")
+        pos_alt = _candidate_positions(codes_alt, lo, strand)
+        var["created_ag"] = sorted(pos_alt - pos_ref)
+        var["destroyed_ag"] = sorted(pos_ref - pos_alt)
 
     acc_score = float(a_track[acc - lo]) if lo <= acc <= hi else float("nan")
     ref_logit = _logit(acc_score)
@@ -215,13 +371,15 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
     minor = not (acc_dinuc == "AG" and don_dinuc == "GT")
 
     cands = []
-    for i in idx:
-        pos = lo + int(i)
+    for pos in sorted(pos_ref | pos_alt):
         s = float(a_track[pos - lo])
-        if s < min_score and pos != acc:
+        s_alt = float(alt_track[pos - lo]) if alt_track is not None else None
+        # keep a candidate that clears the floor on EITHER allele, so a site
+        # the variant lifts into view is not filtered out by its ref score
+        if pos != acc and s < min_score and (s_alt is None or s_alt < min_score):
             continue
         offset = (pos - acc) if strand == "+" else (acc - pos)
-        cands.append({
+        c = {
             "pos": pos,
             "score": round(s, 9),
             "logit": round(_logit(s), 4),
@@ -231,10 +389,29 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
             "in_target_exon": ex["start"] <= pos <= ex["end"],
             "rel_to_annotated": round(s / acc_score, 9) if acc_score > 0 else None,
             "delta_logit": round(_logit(s) - ref_logit, 4),
-        })
+        }
+        if alt_track is not None:
+            c.update({
+                "score_alt": round(s_alt, 9),
+                "logit_alt": round(_logit(s_alt), 4),
+                # named for the allele comparison so it cannot be confused with
+                # delta_logit, which is this candidate against the annotated site
+                "variant_delta_logit": round(_logit(s_alt) - _logit(s), 4),
+                # a non-AG position still carries a model score; these say
+                # whether the dinucleotide is actually there on each allele
+                "ag_ref": pos in pos_ref,
+                "ag_alt": pos in pos_alt,
+            })
+        cands.append(c)
+
     cands.sort(key=lambda c: -c["score"])
     for n, c in enumerate(cands, 1):
         c["rank"] = n
+    if alt_track is not None:
+        # a second ranking on the variant allele: a rank that moves is the
+        # readable form of "this changed the competitive order"
+        for n, c in enumerate(sorted(cands, key=lambda c: -c["score_alt"]), 1):
+            c["rank_alt"] = n
 
     return {
         "schema": "bajasplice.ssam/1",
@@ -247,10 +424,19 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
         "exon": {**ex, "n_of": info["n_exons"]},
         "window": {"start": int(lo), "end": int(hi), "flank": int(flank),
                    "length": int(hi - lo + 1)},
+        "variant": var,
         "annotated": {
             "acceptor": {"pos": int(acc), "score": round(acc_score, 9),
                          "logit": round(ref_logit, 4), "dinuc": acc_dinuc,
-                         "canonical_dinuc": acc_dinuc == "AG"},
+                         "canonical_dinuc": acc_dinuc == "AG",
+                         **({} if alt_track is None else {
+                             "score_alt": round(float(alt_track[acc - lo]), 9),
+                             "logit_alt": round(
+                                 _logit(float(alt_track[acc - lo])), 4),
+                             "variant_delta_logit": round(
+                                 _logit(float(alt_track[acc - lo])) - ref_logit, 4),
+                             "dinuc_alt": _dinuc(alt_genome, chrom, acc,
+                                                 strand, "acceptor")})},
             "donor": {"pos": int(don),
                       "score": round(float(d_track[don - lo]), 9)
                       if lo <= don <= hi else None,
@@ -274,10 +460,15 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
             "calibrated_above": CALIBRATED_ABOVE,
             "transcript_mode": transcript,
             "minor_spliceosome": bool(minor),
-            # the U12 caveat is only included when it applies, so its presence
-            # in a payload is itself the signal
+            "variant": variant_label(var) if var else None,
+            # the U12 and variant caveats are only included when they apply, so
+            # the presence of either in a payload is itself the signal
             "caveats": {k: v for k, v in CAVEATS.items()
-                        if k != "minor_spliceosome" or minor},
+                        if (k != "minor_spliceosome" or minor)
+                        and (k != "variant_applied" or var)
+                        # the two are mutually exclusive: one says no variant
+                        # was applied, the other that one was
+                        and (k != "reference_sequence" or not var)},
         },
     }
 
@@ -478,19 +669,55 @@ def _print_table(result, top=15):
           f'p={acc["score"]:.6f}  logit {acc["logit"]:+.3f}')
     if don["score"] is not None:
         print(f'annotated donor    {don["pos"]:,} [{don["dinuc"]}] p={don["score"]:.6f}')
+    v = result.get("variant")
+    if v:
+        print(f'\nvariant {variant_label(v)}  {v["region"]}, '
+              f'{v["offset_from_acceptor"]:+d} nt from the annotated acceptor')
+        if v["created_ag"] or v["destroyed_ag"]:
+            print(f'  AG created: {v["created_ag"] or "none"}   '
+                  f'AG destroyed: {v["destroyed_ag"] or "none"}')
+        else:
+            print('  creates and destroys no AG: a context change only')
+        if acc.get("dinuc_alt") and acc["dinuc_alt"] != acc["dinuc"]:
+            print(f'  !! it changes the annotated acceptor dinucleotide '
+                  f'{acc["dinuc"]} -> {acc["dinuc_alt"]}')
+        print(f'  annotated acceptor p {acc["score"]:.6f} -> '
+              f'{acc["score_alt"]:.6f}   '
+              f'dlogit {acc["variant_delta_logit"]:+.3f}')
     if m.get("minor_spliceosome"):
         print(f'\n!! {result["annotated"]["intron_class"]} intron -- '
               f'read the last caveat before the scores below')
     print(f'sequence: {m["sequence"].get("source")} '
           f'{m["sequence"].get("assembly", "")}   chromosome split: {m["chrom_split"]}')
     print(f'\n{len(result["candidates"])} candidate AG sites, top {top} by score')
-    print(f'  {"rank":>4s} {"position":>12s} {"score":>11s} {"rel":>9s} '
-          f'{"dlogit":>8s} {"offset":>7s}  region')
-    for c in result["candidates"][:top]:
-        mark = " <-- annotated" if c["is_annotated_acceptor"] else ""
-        rel = f'{c["rel_to_annotated"]:.3g}' if c["rel_to_annotated"] is not None else "-"
-        print(f'  {c["rank"]:>4d} {c["pos"]:>12,d} {c["score"]:>11.3e} {rel:>9s} '
-              f'{c["delta_logit"]:>+8.2f} {c["offset"]:>+7d}  {c["region"]}{mark}')
+    if v:
+        print(f'  {"rank":>4s} {"position":>12s} {"p(ref)":>11s} {"p(alt)":>11s} '
+              f'{"dlogit":>8s} {"rank":>9s} {"offset":>7s}  region')
+        for c in result["candidates"][:top]:
+            mark = " <-- annotated" if c["is_annotated_acceptor"] else ""
+            if not c["ag_ref"]:
+                mark += " [AG created]"
+            elif not c["ag_alt"]:
+                mark += " [AG destroyed]"
+            move = (f'{c["rank"]}->{c["rank_alt"]}'
+                    if c["rank"] != c["rank_alt"] else "-")
+            print(f'  {c["rank"]:>4d} {c["pos"]:>12,d} {c["score"]:>11.3e} '
+                  f'{c["score_alt"]:>11.3e} {c["variant_delta_logit"]:>+8.3f} '
+                  f'{move:>9s} {c["offset"]:>+7d}  {c["region"]}{mark}')
+        moved = [c for c in result["candidates"] if c["rank"] != c["rank_alt"]]
+        big = [c for c in result["candidates"]
+               if abs(c["variant_delta_logit"]) > 0.5]
+        print(f'\n{len(big)} of {len(result["candidates"])} candidates move more '
+              f'than 0.5 logits; {len(moved)} change rank')
+    else:
+        print(f'  {"rank":>4s} {"position":>12s} {"score":>11s} {"rel":>9s} '
+              f'{"dlogit":>8s} {"offset":>7s}  region')
+        for c in result["candidates"][:top]:
+            mark = " <-- annotated" if c["is_annotated_acceptor"] else ""
+            rel = (f'{c["rel_to_annotated"]:.3g}'
+                   if c["rel_to_annotated"] is not None else "-")
+            print(f'  {c["rank"]:>4d} {c["pos"]:>12,d} {c["score"]:>11.3e} {rel:>9s} '
+                  f'{c["delta_logit"]:>+8.2f} {c["offset"]:>+7d}  {c["region"]}{mark}')
     inex = [c for c in result["candidates"] if c["in_target_exon"]]
     if inex:
         print(f'\n{len(inex)} inside the exon {ex["number"]} body:')
@@ -515,6 +742,12 @@ def main():
                     help="'canonical' (MANE where available) or a transcript id")
     ap.add_argument("--min-score", type=float, default=0.0,
                     help="drop candidates below this (the annotated site is always kept)")
+    ap.add_argument("--variant", metavar="CHROM:POS:REF>ALT",
+                    help="also score this substitution and report the delta "
+                         "per candidate, e.g. '16:1762843:C>T'. QUOTE it -- an "
+                         "unquoted > is a shell redirect, and 16:1762843:C-T "
+                         "means the same thing without one. Plus-strand "
+                         "coordinates, as in VCF. Substitutions only.")
     ap.add_argument("--top", type=int, default=15, help="rows to print")
     ap.add_argument("--remote-sequence", action="store_true",
                     help="fetch reference sequence from Ensembl even if a FASTA is configured")
@@ -526,7 +759,7 @@ def main():
 
     result = scan_exon(a.gene, a.exon, flank=a.flank, transcript=a.transcript,
                        ckpt=a.ckpt, min_score=a.min_score,
-                       prefer_remote=a.remote_sequence)
+                       prefer_remote=a.remote_sequence, variant=a.variant)
     if not a.quiet:
         _print_table(result, top=a.top)
 

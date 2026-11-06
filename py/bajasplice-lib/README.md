@@ -197,6 +197,36 @@ a number that cannot support one.
 The front end is `baja/ssam.js` (Home ▸ Tools ▸ Splice Acceptor Model), backed
 by `py/bio/splice/ssam-exon.py`.
 
+#### Comparing two alleles
+
+```bash
+bajasplice ssam --gene MAPK8IP3 --exon 16 --variant '16:1762843:C>T'
+bajasplice ssam --gene MAPK8IP3 --exon 16 --variant 16:1762843:C-T   # no quoting needed
+```
+
+`--variant` scores the window twice — reference, and the same window with that
+substitution — and reports the difference per candidate as
+`variant_delta_logit`, alongside `score_alt`, `logit_alt` and `rank_alt`.
+Deltas are computed in log-odds, because a site at 0.9998 has nowhere to move
+in probability space.
+
+Coordinates are **plus-strand**, as in VCF, on either strand of gene. The
+reference base is verified against the genome and a mismatch is an error, so a
+spec given in transcript orientation on a minus-strand gene fails loudly
+instead of scoring the wrong allele. Substitutions only: an indel shifts every
+downstream coordinate, which would quietly invalidate the exon bounds and
+offsets, so it is refused rather than approximated.
+
+Candidates are the **union** of the AG positions found on each allele, and
+`ag_ref` / `ag_alt` say which alleles actually have the dinucleotide. A site
+the variant creates or destroys therefore appears in the table rather than
+dropping out of one of the two rankings. A variant outside the model's reach
+for the window is an error, not a table of exact zeros.
+
+A delta is the model's response to one sequence change. It carries no
+information about pathogenicity, and `meta.caveats` says so wherever the
+numbers go.
+
 #### Running without a genome FASTA
 
 `bajasplice.remote.EnsemblReader` implements `GenomeReader`'s `.codes()`

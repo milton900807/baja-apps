@@ -134,3 +134,99 @@ def test_dinuc_helper_matches_site_convention():
     g = FakeGenome(seq, 101)
     # plus strand: acceptor site is the G at 106, dinuc spans 105-106
     assert ssam._dinuc(g, "chr1", 106, "+", "acceptor") == "AG"
+
+
+# ------------------------------------------------------------ variant alleles
+class _FakeReader:
+    """A GenomeReader over a fixed plus-strand string, 1-based inclusive."""
+
+    def __init__(self, seq, origin=1):
+        self.seq, self.origin = seq.upper(), origin
+        self.assembly = "test"
+
+    def codes(self, chrom, start, end, strand="+"):
+        from bajasplice.genome import _BASE, _COMP
+        out = np.zeros(end - start + 1, np.int8)
+        for i, p in enumerate(range(start, end + 1)):
+            j = p - self.origin
+            if 0 <= j < len(self.seq):
+                out[i] = _BASE[ord(self.seq[j])]
+        if strand == "-":
+            return _COMP[out[::-1]]
+        return out
+
+    def sequence(self, chrom, start, end, strand="+"):
+        from bajasplice.genome import codes_to_str
+        return codes_to_str(self.codes(chrom, start, end, strand))
+
+
+def test_parse_variant_accepts_the_common_spellings():
+    want = {"chrom": "16", "pos": 1762843, "ref": "C", "alt": "T"}
+    for spec in ("16:1762843:C>T", "chr16:1762843C>T", "16-1762843-C-T",
+                 "16:1,762,843:c>t"):
+        assert ssam.parse_variant(spec) == want, spec
+
+
+def test_parse_variant_refuses_indels_and_non_changes():
+    # an indel would move every downstream coordinate, invalidating the exon
+    # bounds and offsets the module reports
+    with pytest.raises(ValueError, match="changes length"):
+        ssam.parse_variant("16:1762843:CA>T")
+    with pytest.raises(ValueError, match="not a change"):
+        ssam.parse_variant("16:1762843:C>C")
+    with pytest.raises(ValueError, match="cannot read variant"):
+        ssam.parse_variant("16:1762843")
+
+
+def test_allele_reader_substitutes_on_the_plus_strand():
+    g = _FakeReader("AAACGTAAA", origin=101)       # C is at 104
+    r = ssam.AlleleReader(g, "1:104:C>T")
+    assert g.sequence("1", 101, 109) == "AAACGTAAA"
+    assert r.sequence("1", 101, 109) == "AAATGTAAA"
+    # outside the substituted position nothing changes
+    assert r.sequence("1", 101, 103) == "AAA"
+
+
+def test_allele_reader_substitution_precedes_the_reverse_complement():
+    """A minus-strand read must show the complement of the ALT base.
+
+    The spec is plus-strand (VCF convention), so applying it after the
+    reverse complement would put the change at the wrong end of the window
+    and silently score the wrong allele.
+    """
+    g = _FakeReader("AAACGTAAA", origin=101)
+    r = ssam.AlleleReader(g, "1:104:C>T")
+    assert g.sequence("1", 101, 109, "-") == "TTTACGTTT"
+    #                        plus  AAACGTAAA -> AAATGTAAA
+    #                        minus TTTACATTT
+    assert r.sequence("1", 101, 109, "-") == "TTTACATTT"
+
+
+def test_allele_reader_verifies_the_reference_base():
+    g = _FakeReader("AAACGTAAA", origin=101)
+    with pytest.raises(ValueError, match="but the genome reads"):
+        ssam.AlleleReader(g, "1:104:G>T").codes("1", 101, 109)
+
+
+def test_candidate_positions_follow_strand():
+    # plus strand: the site is the G of AG
+    g = _FakeReader("TTAGTT", origin=101)          # AG at 103-104
+    codes = g.codes("1", 101, 106)
+    assert ssam._candidate_positions(codes, 101, "+") == {104}
+    # minus strand: plus-strand text is CT and the site is the C
+    g2 = _FakeReader("TTCTTT", origin=101)         # CT at 103-104
+    codes2 = g2.codes("1", 101, 106)
+    assert ssam._candidate_positions(codes2, 101, "-") == {103}
+
+
+def test_candidate_positions_see_an_ag_the_variant_creates():
+    g = _FakeReader("TTCGTT", origin=101)          # no AG
+    codes = g.codes("1", 101, 106)
+    assert ssam._candidate_positions(codes, 101, "+") == set()
+    r = ssam.AlleleReader(g, "1:103:C>A")          # CG -> AG, site at 104
+    assert ssam._candidate_positions(r.codes("1", 101, 106), 101, "+") == {104}
+
+
+def test_variant_caveats_replace_the_reference_one():
+    assert "reference_sequence" in ssam.CAVEATS
+    assert "variant_applied" in ssam.CAVEATS
