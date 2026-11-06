@@ -8,6 +8,7 @@
     bajasplice plot --gene TARDBP --top-sites 2 --out tardbp.json --png tardbp.png
     bajasplice ssam --gene MAPK8IP3 --exon 16 --png e16.png
     bajasplice ssam --gene MAPK8IP3 --exon 16 --variant '16:1762843:C>T'
+    bajasplice ssam --gene MAPK8IP3 --exon 16 --occlude --tile 18
 """
 from __future__ import annotations
 

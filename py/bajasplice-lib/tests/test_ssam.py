@@ -230,3 +230,48 @@ def test_candidate_positions_see_an_ag_the_variant_creates():
 def test_variant_caveats_replace_the_reference_one():
     assert "reference_sequence" in ssam.CAVEATS
     assert "variant_applied" in ssam.CAVEATS
+
+
+# --------------------------------------------------------- occlusion sweep
+def test_memory_reader_matches_the_genome_reader_contract():
+    seq = "AAACGTAAAGGG"
+    g = _FakeReader(seq, origin=101)
+    from bajasplice.genome import _BASE
+    arr = np.array([_BASE[ord(c)] for c in seq], np.int8)
+    m = ssam._MemoryReader(arr, 101)
+    for strand in ("+", "-"):
+        assert m.sequence("1", 101, 112, strand) == g.sequence("1", 101, 112, strand)
+    # out of bounds is zero-padded, not an error, same as GenomeReader
+    assert m.sequence("1", 99, 101) == "NNA"
+    assert m.sequence("1", 111, 114) == "GGNN"
+
+
+def test_parse_span_reads_the_cli_forms():
+    assert ssam._parse_span("1762600-1762835") == (1762600, 1762835)
+    assert ssam._parse_span("1,762,600:1,762,835") == (1762600, 1762835)
+    assert ssam._parse_span(None) is None
+    with pytest.raises(SystemExit, match="ends before it starts"):
+        ssam._parse_span("200-100")
+    with pytest.raises(SystemExit, match="cannot read span"):
+        ssam._parse_span("nonsense")
+
+
+def test_occlusion_caveats_exist_and_name_the_limitation():
+    for k in ("occlusion_is_dependence", "occlusion_spread"):
+        assert k in ssam.CAVEATS
+    # the point of the first one is that this is NOT an oligo model
+    assert "not a model of an antisense oligo" in ssam.CAVEATS["occlusion_is_dependence"]
+    # and of the second that a mean would be the wrong summary
+    assert "not means" in ssam.CAVEATS["occlusion_spread"]
+
+
+def test_dinuc_shuffle_preserves_length_and_composition():
+    """The null must change arrangement only; if composition moved too, a drop
+    in score would be unattributable."""
+    from bajasplice.cis import dinuc_shuffle
+    rng = np.random.default_rng(0)
+    codes = np.array([1, 2, 3, 4, 2, 2, 1, 3, 4, 4, 2, 1, 3, 2, 4, 1], np.int8)
+    for _ in range(8):
+        out = dinuc_shuffle(codes, rng)
+        assert len(out) == len(codes)
+        assert sorted(out.tolist()) == sorted(codes.tolist())

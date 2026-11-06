@@ -37,6 +37,7 @@ import numpy as np
 
 __all__ = ["exon_table", "exon_bounds", "annotated_acceptor", "scan_exon",
            "ssam_payload", "render_png", "parse_variant", "variant_label",
+           "occlusion_sweep",
            "AlleleReader", "CAVEATS"]
 
 # The validation run behind these numbers only exercised strong sites: every
@@ -52,6 +53,18 @@ CAVEATS = {
     "reference_sequence": (
         "Scored on reference sequence. No variant has been applied, so a "
         "patient allele is not reflected in these numbers."),
+    "occlusion_is_dependence": (
+        "The tile sweep measures how much a score DEPENDS on each region, by "
+        "replacing the region with a composition-matched shuffle. It is not a "
+        "model of an antisense oligo: an oligo occupies sequence that still "
+        "reads the same bases, and the model has no occupancy channel. The "
+        "sign is not a steric block's sign either -- covering a silencer and "
+        "covering an enhancer both read as 'this region matters'."),
+    "occlusion_spread": (
+        "Per-tile figures are medians with 10th/90th percentiles, not means. "
+        "At the largest-effect tiles the shuffle distribution is bimodal, so a "
+        "mean describes no individual draw; read frac_below_half alongside the "
+        "median rather than the median alone."),
     "variant_applied": (
         "Two alleles were scored: reference, and the same window with the "
         "given substitution. A delta is the model's response to that one "
@@ -293,7 +306,9 @@ def _region_label(pos, rows, strand):
 # ---------------------------------------------------------------- scoring
 def scan_exon(gene, exon_number, flank=300, transcript="canonical",
               ckpt=None, device=None, genome=None, min_score=0.0,
-              prefer_remote=False, variant=None):
+              prefer_remote=False, variant=None, occlude=False, tile=18,
+              tile_step=6, n_shuffle=16, occlude_top=3, occlude_span=None,
+              seed=0):
     """Rank every candidate acceptor in a window around one exon.
 
     `flank` extends the window that far upstream of the annotated acceptor and
@@ -413,6 +428,18 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
         for n, c in enumerate(sorted(cands, key=lambda c: -c["score_alt"]), 1):
             c["rank_alt"] = n
 
+    occ = None
+    if occlude:
+        tops = [c for c in cands if not c["is_annotated_acceptor"]][:occlude_top]
+        targets = ([{"pos": acc, "label": "annotated acceptor"}]
+                   + [{"pos": c["pos"],
+                       "label": f'rank {c["rank"]} ({c["offset"]:+d})'}
+                      for c in tops])
+        occ = occlusion_sweep(model, context, device, genome, chrom, lo, hi,
+                              strand, targets, a_track, tile=tile,
+                              step=tile_step, n_shuffle=n_shuffle, seed=seed,
+                              span=occlude_span)
+
     return {
         "schema": "bajasplice.ssam/1",
         "gene": gene,
@@ -425,6 +452,7 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
         "window": {"start": int(lo), "end": int(hi), "flank": int(flank),
                    "length": int(hi - lo + 1)},
         "variant": var,
+        "occlusion": occ,
         "annotated": {
             "acceptor": {"pos": int(acc), "score": round(acc_score, 9),
                          "logit": round(ref_logit, 4), "dinuc": acc_dinuc,
@@ -461,6 +489,9 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
             "transcript_mode": transcript,
             "minor_spliceosome": bool(minor),
             "variant": variant_label(var) if var else None,
+            "occlusion": {k: occ[k] for k in
+                          ("tile", "step", "n_shuffle", "n_tiles",
+                           "n_passes", "null", "span")} if occ else None,
             # the U12 and variant caveats are only included when they apply, so
             # the presence of either in a payload is itself the signal
             "caveats": {k: v for k, v in CAVEATS.items()
@@ -468,7 +499,8 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
                         and (k != "variant_applied" or var)
                         # the two are mutually exclusive: one says no variant
                         # was applied, the other that one was
-                        and (k != "reference_sequence" or not var)},
+                        and (k != "reference_sequence" or not var)
+                        and (not k.startswith("occlusion_") or occlude)},
         },
     }
 
@@ -480,6 +512,128 @@ def _dinuc(genome, chrom, pos, strand, which):
     else:
         a, b = (pos, pos + 1) if strand == "+" else (pos - 1, pos)
     return genome.sequence(chrom, a, b, strand)
+
+
+# ------------------------------------------------------- occlusion sweep
+class _MemoryReader:
+    """The GenomeReader contract served from an in-memory plus-strand array.
+
+    Lets the tested `scan_region` chunking and strand logic run over a locally
+    modified copy of the sequence without touching the real reader or its
+    cache.
+    """
+
+    def __init__(self, codes, origin, assembly="in-memory"):
+        self._codes = np.asarray(codes, dtype=np.int8)
+        self.origin = int(origin)
+        self.assembly = assembly
+
+    def codes(self, chrom, start, end, strand="+"):
+        out = np.zeros(end - start + 1, np.int8)
+        a, b = start - self.origin, end - self.origin
+        sa, sb = max(0, a), min(len(self._codes) - 1, b)
+        if sb >= sa:
+            out[sa - a:sb - a + 1] = self._codes[sa:sb + 1]
+        if strand == "-":
+            from bajasplice.genome import _COMP
+            return _COMP[out[::-1]]
+        return out
+
+    def sequence(self, chrom, start, end, strand="+"):
+        from bajasplice.genome import codes_to_str
+        return codes_to_str(self.codes(chrom, start, end, strand))
+
+
+def occlusion_sweep(model, context, device, genome, chrom, lo, hi, strand,
+                    targets, ref_track, tile=18, step=6, n_shuffle=16,
+                    seed=0, span=None):
+    """Slide a tile across the window, destroy its arrangement, rescore.
+
+    For each tile position the tile's bases are replaced by a
+    dinucleotide-preserving shuffle (`cis.dinuc_shuffle`), which holds base
+    composition and local transition statistics fixed so that a change in
+    score is attributable to longer-range ARRANGEMENT rather than to
+    composition having moved. `n_shuffle` draws are taken per tile.
+
+    What this measures is how much each target's score DEPENDS on each region.
+    It is not a model of an antisense oligo: an oligo hybridises and occupies
+    sequence that still reads the same bases, and SpliceNet has no occupancy
+    channel to put that in. Shuffling substitutes different sequence, which the
+    model scores as different sequence. The magnitude here is a dependence, and
+    its sign is not the sign of a steric block -- covering a silencer and
+    covering an enhancer both show up as "this region matters".
+
+    Reported per cell: the MEDIAN shift and the 10th/90th percentiles across
+    shuffles, never the mean. At the cells with the largest effects the shuffle
+    distribution is bimodal, and a mean logit there describes no individual
+    shuffle; `frac_below_half` counts the draws whose probability falls under
+    0.5, which is the honest form of "this tile sometimes breaks the site".
+
+    `span` limits which part of the window is tiled, as (start, end) in
+    plus-strand coordinates. Defaults to the whole window.
+    """
+    from bajasplice.cis import dinuc_shuffle
+    from bajasplice.scan import scan_region
+
+    reach = context // 2
+    ext_lo, ext_hi = lo - reach, hi + reach
+    base = np.array(genome.codes(chrom, ext_lo, ext_hi, "+"), copy=True)
+
+    t_lo, t_hi = span if span else (lo, hi)
+    starts = list(range(int(t_lo), int(t_hi) - tile + 2, int(step)))
+    rng = np.random.default_rng(seed)
+
+    tgt = [dict(t) for t in targets]
+    for t in tgt:
+        t["ref_logit"] = _logit(float(ref_track[t["pos"] - lo]))
+        t["ref_score"] = round(float(ref_track[t["pos"] - lo]), 9)
+
+    cells = []
+    for st in starts:
+        en = st + tile - 1
+        a, b = st - ext_lo, en - ext_lo
+        draws = np.empty((n_shuffle, len(tgt)), float)
+        for k in range(n_shuffle):
+            arr = base.copy()
+            arr[a:b + 1] = dinuc_shuffle(arr[a:b + 1], rng)
+            trk, _ = scan_region(model, context, chrom, lo, hi, strand, device,
+                                 genome=_MemoryReader(arr, ext_lo))
+            for j, t in enumerate(tgt):
+                draws[k, j] = float(trk[t["pos"] - lo])
+
+        row = {"start": int(st), "end": int(en),
+               "offset": int((st - tgt[0]["pos"]) if strand == "+"
+                             else (tgt[0]["pos"] - en)),
+               "targets": []}
+        for j, t in enumerate(tgt):
+            p = draws[:, j]
+            lg = np.array([_logit(float(x)) for x in p])
+            d = lg - t["ref_logit"]
+            # a tile covering the target's own AG trivially destroys it; that
+            # is arithmetic, not a finding, so it is flagged rather than ranked
+            own = st <= t["pos"] <= en or st <= t["pos"] - 1 <= en
+            row["targets"].append({
+                "pos": t["pos"], "label": t.get("label", ""),
+                "median_delta_logit": round(float(np.median(d)), 4),
+                "q10_delta_logit": round(float(np.quantile(d, 0.10)), 4),
+                "q90_delta_logit": round(float(np.quantile(d, 0.90)), 4),
+                "median_score": round(float(np.median(p)), 9),
+                "min_score": round(float(p.min()), 9),
+                "frac_below_half": round(float((p < 0.5).mean()), 4),
+                "covers_own_dinuc": bool(own),
+            })
+        cells.append(row)
+
+    return {
+        "tile": int(tile), "step": int(step), "n_shuffle": int(n_shuffle),
+        "seed": int(seed), "span": [int(t_lo), int(t_hi)],
+        "n_tiles": len(starts), "n_passes": len(starts) * n_shuffle,
+        "null": "dinucleotide-preserving shuffle (Altschul-Erikson)",
+        "targets": [{"pos": t["pos"], "label": t.get("label", ""),
+                     "ref_score": t["ref_score"],
+                     "ref_logit": round(t["ref_logit"], 4)} for t in tgt],
+        "tiles": cells,
+    }
 
 
 # ---------------------------------------------------------------- payload
@@ -724,9 +878,71 @@ def _print_table(result, top=15):
         for c in inex:
             print(f'  {c["pos"]:,}  p={c["score"]:.3e}  rank {c["rank"]}  '
                   f'{c["offset"]:+d} nt from the annotated acceptor')
+    if result.get("occlusion"):
+        _print_occlusion(result["occlusion"], top=top)
     print("\nreading these numbers")
     for k, v in result["meta"]["caveats"].items():
         print(f'  - {v}')
+
+
+def _parse_span(text):
+    if not text:
+        return None
+    m = re.match(r"^([0-9][0-9,_]*)[-:]([0-9][0-9,_]*)$", text.strip())
+    if not m:
+        raise SystemExit(f"cannot read span {text!r}. Use START-END, "
+                         "e.g. 1762600-1762835")
+    a = int(m[1].replace(",", "").replace("_", ""))
+    b = int(m[2].replace(",", "").replace("_", ""))
+    if b <= a:
+        raise SystemExit(f"span {text!r} ends before it starts")
+    return (a, b)
+
+
+def _print_occlusion(occ, top=12):
+    tgts = occ["targets"]
+    print(f'\ntile sweep: {occ["n_tiles"]} tiles of {occ["tile"]} nt, '
+          f'step {occ["step"]}, {occ["n_shuffle"]} shuffles each '
+          f'({occ["n_passes"]:,} passes)')
+    print(f'  span {occ["span"][0]:,}-{occ["span"][1]:,}   null: {occ["null"]}')
+    print(f'  tracking: ' + ", ".join(
+        f'{t["pos"]:,} {t["label"]} (p={t["ref_score"]:.4f})' for t in tgts))
+
+    # ranked on the first target -- the annotated acceptor -- ignoring tiles
+    # that cover its own AG, where the drop is arithmetic rather than a finding
+    rows = [(c, c["targets"][0]) for c in occ["tiles"]]
+    real = [(c, t) for c, t in rows if not t["covers_own_dinuc"]]
+    own = [(c, t) for c, t in rows if t["covers_own_dinuc"]]
+    real.sort(key=lambda ct: ct[1]["median_delta_logit"])
+
+    print(f'\neffect on {tgts[0]["label"]} ({tgts[0]["pos"]:,}), '
+          f'strongest {min(top, len(real))} of {len(real)} tiles')
+    print(f'  {"tile":>19s} {"off":>6s} {"median":>8s} {"q10":>8s} {"q90":>8s} '
+          f'{"p(med)":>9s} {"p<.5":>6s}')
+    for c, t in real[:top]:
+        print(f'  {c["start"]:>9,d}-{c["end"]:<9,d} {c["offset"]:>+6d} '
+              f'{t["median_delta_logit"]:>+8.3f} {t["q10_delta_logit"]:>+8.3f} '
+              f'{t["q90_delta_logit"]:>+8.3f} {t["median_score"]:>9.4f} '
+              f'{t["frac_below_half"]:>6.2f}')
+    if own:
+        print(f'  ({len(own)} tiles covering the site\'s own AG omitted)')
+
+    worst = real[0][1]["median_delta_logit"] if real else 0.0
+    crossed = [t for _, t in real if t["frac_below_half"] > 0]
+    bimodal = [t for _, t in real
+               if t["q90_delta_logit"] - t["q10_delta_logit"] > 2.0]
+    print(f'\nlargest median drop {worst:+.3f} logits; '
+          f'{len(crossed)} tiles have any draw below p=0.5; '
+          f'{len(bimodal)} have a q10-q90 spread over 2 logits')
+    if len(tgts) > 1:
+        print("\nsame tiles, effect on the competing candidates")
+        for j, g in enumerate(tgts[1:], 1):
+            ds = [c["targets"][j]["median_delta_logit"] for c in occ["tiles"]
+                  if not c["targets"][j]["covers_own_dinuc"]]
+            if ds:
+                print(f'  {g["pos"]:,} {g["label"]:<22s} '
+                      f'median shift {np.median(ds):+.3f}, '
+                      f'range {min(ds):+.3f} to {max(ds):+.3f}')
 
 
 def main():
@@ -748,6 +964,24 @@ def main():
                          "unquoted > is a shell redirect, and 16:1762843:C-T "
                          "means the same thing without one. Plus-strand "
                          "coordinates, as in VCF. Substitutions only.")
+    ap.add_argument("--occlude", action="store_true",
+                    help="slide a tile across the window, replace each tile "
+                         "with a composition-matched shuffle, and report how "
+                         "much each site's score DEPENDS on that region. Not "
+                         "an oligo model -- see the caveats it prints.")
+    ap.add_argument("--tile", type=int, default=18,
+                    help="tile width for --occlude (default 18)")
+    ap.add_argument("--tile-step", type=int, default=6,
+                    help="tile stride for --occlude (default 6)")
+    ap.add_argument("--shuffles", type=int, default=16,
+                    help="shuffles per tile (default 16; 64 did not change "
+                         "conclusions, the spread is intrinsic to the null)")
+    ap.add_argument("--occlude-top", type=int, default=3,
+                    help="competing candidates to track besides the annotated "
+                         "acceptor (default 3)")
+    ap.add_argument("--occlude-span", metavar="START-END",
+                    help="tile only this plus-strand range, e.g. 1762600-1762835 "
+                         "to sweep the intron up to the acceptor")
     ap.add_argument("--top", type=int, default=15, help="rows to print")
     ap.add_argument("--remote-sequence", action="store_true",
                     help="fetch reference sequence from Ensembl even if a FASTA is configured")
@@ -759,7 +993,10 @@ def main():
 
     result = scan_exon(a.gene, a.exon, flank=a.flank, transcript=a.transcript,
                        ckpt=a.ckpt, min_score=a.min_score,
-                       prefer_remote=a.remote_sequence, variant=a.variant)
+                       prefer_remote=a.remote_sequence, variant=a.variant,
+                       occlude=a.occlude, tile=a.tile, tile_step=a.tile_step,
+                       n_shuffle=a.shuffles, occlude_top=a.occlude_top,
+                       occlude_span=_parse_span(a.occlude_span))
     if not a.quiet:
         _print_table(result, top=a.top)
 

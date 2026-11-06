@@ -227,6 +227,41 @@ A delta is the model's response to one sequence change. It carries no
 information about pathogenicity, and `meta.caveats` says so wherever the
 numbers go.
 
+#### Which regions a score depends on
+
+```bash
+bajasplice ssam --gene MAPK8IP3 --exon 16 --occlude
+bajasplice ssam --gene MAPK8IP3 --exon 16 --occlude \
+  --occlude-span 1762635-1762835 --tile 18 --tile-step 6 --shuffles 16
+```
+
+`--occlude` slides a tile across the window, replaces each tile with a
+dinucleotide-preserving shuffle (`cis.dinuc_shuffle`), and rescores. Holding
+composition and local transition statistics fixed means a change in score is
+attributable to longer-range **arrangement**, not to composition having moved.
+`--occlude-span` restricts the tiling, which is how you sweep an intron up to
+its acceptor rather than the whole window.
+
+**This measures dependence, not occupancy.** It is not an antisense-oligo
+model. An oligo hybridises and occupies sequence that still reads the same
+bases; SpliceNet has no occupancy channel, and shuffling substitutes different
+sequence, which the model scores as different sequence. The sign is not a
+steric block's sign either — covering a silencer and covering an enhancer both
+read as "this region matters". Real oligo behaviour also turns on chemistry,
+length, Tm, accessibility and delivery, none of which is in the model.
+
+Every cell reports a **median** with 10th/90th percentiles, plus
+`frac_below_half` and `min_score`, and never a mean. At the largest-effect
+tiles the shuffle distribution is bimodal, so a mean logit there describes no
+individual draw — exponentiating one produces a number no shuffle showed.
+Median shuffle spread barely moved between 16 and 64 shuffles (0.163 → 0.168),
+so the spread is intrinsic to the null and more draws will not sharpen it; 16
+is the default for that reason.
+
+Tiles covering a tracked site's own `AG` are flagged `covers_own_dinuc` and
+left out of the ranking, since destroying a site's own dinucleotide is
+arithmetic rather than a finding.
+
 #### Running without a genome FASTA
 
 `bajasplice.remote.EnsemblReader` implements `GenomeReader`'s `.codes()`
