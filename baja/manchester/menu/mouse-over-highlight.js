@@ -1635,6 +1635,15 @@ function (graph, genegraph_panel_layout) {
         // distance looks. Below the bar stays governed by EXON_HIT_Y_PX alone, so the effective
         // window is yi-10 .. yi+12.
         const EXON_ABOVE_MAX_PX = 10;
+        // THIS ONE IS ABSOLUTE. An exon already lit -- by the hover, or still selected from the
+        // last click -- is let past annHit by the `hovered` escape below, which is how the menu
+        // kept opening from above the bar on every click after the first. Being lit is a reason
+        // to forgive a few pixels on release, never a reason to open from the peptide row, so
+        // this is checked before that escape and overrides it.
+        const annTooFarAbove = (track, an, yRaw) => {
+            if (('' + (an && an.type)).toLowerCase() !== 'exon') return false;
+            return (graph.Y(track.tgraph.Y(0)) - graph.Y(yRaw)) > EXON_ABOVE_MAX_PX;
+        };
         const annHit = (track, an, yRaw) => {
             const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
             const yPx = graph.Y(yRaw);
@@ -2026,6 +2035,7 @@ function (graph, genegraph_panel_layout) {
                         } catch (e) { console.log('EXONPROBE failed', e); }
                         for (let an of annotations) {
                             if (!an) continue;
+                            if (annTooFarAbove(track, an, y)) continue;
                             if (!annHit(track, an, y) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
