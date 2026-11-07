@@ -1649,7 +1649,13 @@ return new Promise(async (resolve, reject) => {
             let seqindex = [];
             let cdsIndex = []
             let sindex = 0;
-            let codon_i = 1;
+            // 0-BASED, like every other builder of cdsi, because the amino-acid row draws
+            // `codon_index + 1` and three protein profiles use codon_index as a dense array
+            // index. This branch alone used to start at 1, so on a PLUS-STRAND gene every
+            // residue was labelled one too high: MAPK8IP3's Arg578 drew under 579. The
+            // minus-strand branch below has always started at 0, which is why the two
+            // disagreed and why this survived -- half the genes in the viewer were right.
+            let codon_i = 0;
             let codon_ii = 0;
             let base_i = 1;
             let codon_value = ''

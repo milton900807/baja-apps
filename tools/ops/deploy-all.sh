@@ -201,6 +201,11 @@ if [[ $DO_API -eq 1 ]]; then
   # that discriminates. All four together or none.
   # Protein residue indexing: parse_p hands back a 0-based index rather than the HGVS
   # number, so no consumer writes its own -1. The HGVS number itself is unchanged.
+  # The residue number under the amino-acid row. Both files or neither: they are the two
+  # halves of the same ORF builder and they must agree on the base.
+  install_group "peptide residue numbering" \
+    "baja/bio/track.js:0-BASED, like every other builder of cdsi" \
+    "baja/bio/track-flexi.js:0-BASED, like every other builder of cdsi"
   install_group "protein residue indexing" \
     "py/bio/genetic-file.py:return {\"ref\": ref, \"index\": n - 1"
   install_group "allele-selective design: the variant's strand" \
