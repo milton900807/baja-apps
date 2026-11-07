@@ -1629,10 +1629,17 @@ function (graph, genegraph_panel_layout) {
         //     const basePx = graph.Y(tg.Y(0));  const yPx = graph.Y(y);
         // and hits its row reliably, so the conversion is not the thing that was wrong.
         // Callers pass their handler's raw y; the one conversion lives here.
+        // AND NEVER FROM ABOVE THE BAR. Screen y grows downward, so (yi - yPx) is how far the
+        // pointer is ABOVE the exon's line: past this, the press is on the DNA row, the peptide
+        // letters or empty space, and must not open the exon's menu however close the absolute
+        // distance looks. Below the bar stays governed by EXON_HIT_Y_PX alone, so the effective
+        // window is yi-10 .. yi+12.
+        const EXON_ABOVE_MAX_PX = 10;
         const annHit = (track, an, yRaw) => {
             const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
             const yPx = graph.Y(yRaw);
             const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
+            if (isExon && (yi - yPx) > EXON_ABOVE_MAX_PX) return false;
             return Math.abs(yi - yPx) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
         };
 
@@ -1677,8 +1684,12 @@ function (graph, genegraph_panel_layout) {
                     L.push('');
                     L.push('Y  pointer  graph.Y(scy) = ' + (+ySc).toFixed(1));
                     L.push('   exon yi  graph.Y(tgraph.Y(0)) = ' + (+yi).toFixed(1));
-                    L.push('   |yi - pointer| = ' + dy.toFixed(1) + '   band = ' + EXON_HIT_Y_PX);
-                    L.push('   => ' + (dy <= EXON_HIT_Y_PX ? 'PASS' : 'FAIL'));
+                    const above = yi - ySc;
+                    L.push('   yi - pointer = ' + above.toFixed(1) + '   (positive = pointer ABOVE the bar)');
+                    L.push('   |yi - pointer| = ' + dy.toFixed(1) + '   band = ' + EXON_HIT_Y_PX
+                        + '   above-limit = ' + EXON_ABOVE_MAX_PX);
+                    L.push('   => ' + ((above > EXON_ABOVE_MAX_PX) ? 'FAIL (too far above)'
+                        : (dy <= EXON_HIT_Y_PX ? 'PASS' : 'FAIL (out of band)')));
                     for (const a of exons.slice(0, 3)) {
                         L.push('   exon a.y=' + a.y + '  xi=' + a.xi + ' xf=' + a.xf);
                     }
@@ -6107,7 +6118,10 @@ function (graph, genegraph_panel_layout) {
                                 const isExon = ('' + (a && a.type)).toLowerCase() === 'exon';
                                 const yi = isExon ? graph.Y(selectedTrack.tgraph.Y(0))
                                     : graph.Y(selectedTrack.tgraph.Y(a.y));
-                                return Math.abs(yi - graph.Y(y)) <= (isExon ? 12 : 10);
+                                const yPx = graph.Y(y);
+                                // never from above the bar: see EXON_ABOVE_MAX_PX
+                                if (isExon && (yi - yPx) > 10) return false;
+                                return Math.abs(yi - yPx) <= (isExon ? 12 : 10);
                             } catch (e) { return false; }
                         };
                         if (anns) for (let a of anns) {
