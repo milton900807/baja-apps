@@ -4696,21 +4696,40 @@ return new Promise(async (resolve, reject) => {
     }
 
     getAnnotation(x, y) {
-      if (y < 0) {
-        y = y * -1;
-      }
-      let selected = [];
-      let yv = Math.floor(y);
-      let xv = Math.floor(x);
-      console.log(" yv " + yv + " y " + this.y);
-      if (yv === this.y) {
-        for (let annotation of this.annotations) {
-          if (annotation.inAnnotation(xv)) {
-            selected.push(annotation);
-          }
-        }
+      // ONLY WHAT THE CLICK LANDED ON.
+      //
+      // An annotation is drawn as a bar centred on tgrid.Y(annotation.y), which is 0 for
+      // an exon: the baseline. This used to compare the click's y against the TRACK's y
+      // instead, which is a different quantity altogether, so in practice any click in
+      // the column answered and the exon menu opened from empty space well above or
+      // below the exon it claimed to be about. It also folded negative y onto positive,
+      // which made a click as far below the line as the bar is above it look like a hit.
+      //
+      // The test is now the drawing's own: the distance from the click to the line this
+      // particular annotation is drawn on, within half the bar plus a little slack.
+      const selected = [];
+      const xv = Math.floor(x);
+      const band = this.annotationClickBand();
+      for (const annotation of this.annotations) {
+        if (!annotation.inAnnotation(xv)) continue;
+        const ay = +annotation.y || 0;      // the line this annotation is drawn on
+        if (Math.abs(y - ay) <= band) selected.push(annotation);
       }
       return selected;
+    }
+    
+    // Half the drawn bar plus slack, in the world units this hit test works in. The size
+    // is defined in PIXELS because that is what the reader is aiming at, and converted
+    // through the track's own grid, so the target stays the same size on screen at every
+    // zoom. 14px is the exon capsule: exonWidth + 2 in flexigraph/gene-draw.js.
+    annotationClickBand() {
+      const BAR_PX = 14, SLACK_PX = 5;
+      try {
+        const g = this.grid || this.tgraph;
+        const perUnit = Math.abs(g.screenHeight(1));
+        if (perUnit > 0.0001) return ((BAR_PX / 2) + SLACK_PX) / perUnit;
+      } catch (e) { }
+      return 0.5;                           // a grid that cannot say: a tight band, not the column
     }
 
     quickHighlightOligos() {

@@ -203,6 +203,11 @@ if [[ $DO_API -eq 1 ]]; then
   # number, so no consumer writes its own -1. The HGVS number itself is unchanged.
   # The residue number under the amino-acid row. Both files or neither: they are the two
   # halves of the same ORF builder and they must agree on the base.
+  # The exon menu answers only a click near the line the exon is drawn on. Same two files
+  # as the residue numbering, so they travel together.
+  install_group "exon click target" \
+    "baja/bio/track.js:ONLY WHAT THE CLICK LANDED ON" \
+    "baja/bio/track-flexi.js:ONLY WHAT THE CLICK LANDED ON"
   install_group "peptide residue numbering" \
     "baja/bio/track.js:0-BASED, like every other builder of cdsi" \
     "baja/bio/track-flexi.js:0-BASED, like every other builder of cdsi"
