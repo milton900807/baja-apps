@@ -148,6 +148,12 @@ function (pt, selectedPlate) {
 
 
                 })
+                menuList.push({
+                    // The whole workbook, to the user's own template library.
+                    label: 'Save as my template', click: async () => {
+                        exec('baja/analytics/templates/publish', 'model', pt)
+                    },
+                })
 
                 menuList.push(
 

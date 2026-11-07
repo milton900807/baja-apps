@@ -419,23 +419,37 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             const b = (track.sequence || '')[i];
             return b ? b.toUpperCase() : 'N';
         };
-        // Which allele reads in the track's own frame: reference0/alternate0 are the CODING
+        // WHICH ALLELE READS IN THE TRACK'S OWN FRAME. reference0/alternate0 are the CODING
         // strand's, which is what a 'coding'-orientation minus track stores; a track holding
-        // the plus-strand slice wants the plus-strand allele instead. Either way base i of the
-        // allele sits at track x = xi + i, because SnpIndel complements without reversing --
-        // which is what lets a multi-base substitution be written straight across the span.
-        const pick = (which) => ('' + ((minus && orient === 'plus')
-            ? (snp[which] || snp[which + '0'] || '')
-            : (snp[which + '0'] || snp[which] || ''))).toUpperCase();
-        const storedAlt = pick('alternate'), storedRef = pick('reference');
-        if (!/^[ACGT]+$/.test(storedAlt)) { warn('That variant has no usable alternate allele.'); restoreHover(); return false; }
+        // the plus-strand slice wants the plus-strand allele instead. Base i of the allele
+        // sits at track x = xi + i either way, because SnpIndel complements without
+        // reversing, which is what lets a multi-base substitution be written straight across
+        // the span.
+        //
+        // This used to choose by which field was filled in, falling back to the other pair
+        // raw when the one it wanted was absent. A variant that arrived by genomic
+        // coordinate carries only the plus-strand pair, so on a coding-orientation minus
+        // track that fallback wrote the UNCOMPLEMENTED genomic allele into a transcript
+        // window: correct flanks, one wrong base, and an oligo that matches neither the
+        // mutant nor the wild type at the only position that discriminates. Nothing about
+        // the sequence looks wrong, and it is the sequence that gets ordered. The track is
+        // the arbiter now -- see allelesInFrame in baja/bio/track-strand.js.
         const vX = Math.round(snp.xi);
+        const alleleFrame = Strand.allelesInFrame(snp, track, orient, (k) => storedAt(vX + k));
+        const storedAlt = alleleFrame.alt, storedRef = alleleFrame.ref;
+        if (!/^[ACGT]+$/.test(storedAlt)) { warn('That variant has no usable alternate allele.'); restoreHover(); return false; }
         const vEnd = vX + storedAlt.length - 1;      // last track x the allele covers
-        if (storedRef && storedRef.length === storedAlt.length) {
-            let have = ''; for (let x = vX; x <= vEnd; x++) have += storedAt(x);
-            if (have !== storedRef) {
-                tell('The track reads ' + have + ' where the variant says ' + storedRef + '; designing against the track.');
-            }
+        if (!alleleFrame.checked) {
+            // Neither reading of the reference matched the track. That is a real
+            // disagreement between the record and the sequence rather than a strand
+            // question, and the old behaviour -- design against the track and say so -- is
+            // still the right one, but it has to be said plainly.
+            tell('The track reads ' + (alleleFrame.track_reads || '?') + ' where ' + (snp.name || 'the variant')
+                + ' says ' + (storedRef || '?') + ', on either strand. Designing against the track; '
+                + 'check the variant is on this assembly before ordering anything.');
+        } else if (/complemented/.test(alleleFrame.source)) {
+            tell('That variant is recorded on the opposite strand to this track, so its alleles were '
+                + 'complemented to match: ' + storedRef + '>' + storedAlt + ' as the track reads them.');
         }
         // ---- 3b. WHICH COPY IS BEING DESIGNED AGAINST ---------------------------------------
         //
@@ -489,10 +503,13 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // in -- it is what the design is FOR -- whichever side the file put it on.
         const sameSide = inWindow.filter((v) => v !== snp && phaseOf(v) === designPhase);
         const otherSide = inWindow.filter((v) => v !== snp && phaseOf(v) !== designPhase);
+        // The same question for every neighbouring phased variant, and the same answer: ask
+        // the track which strand the record is written on rather than trusting a field.
         const alleleAtX = (v, x) => {
-            const a = ('' + ((minus && orient === 'plus')
-                ? (v.alternate || v.alternate0 || '') : (v.alternate0 || v.alternate || ''))).toUpperCase();
             const vx = Math.round(v.xi);
+            if (!v.__frame) v.__frame = Strand.allelesInFrame(v, track, orient, (k) => storedAt(vx + k));
+            const a = v.__frame.alt;
+            if (!/^[ACGT]+$/.test(a)) return null;
             return (x >= vx && x <= vx + a.length - 1) ? a[x - vx] : null;
         };
         const applyList = (list, x) => {
@@ -506,6 +523,9 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         }
         // The same mutant, read in TRANSCRIPT orientation, for the scoring.
         const COMPL = { A: 'T', C: 'G', G: 'C', T: 'A', N: 'N' };
+        // Complement without reversing: the two storage orientations of one minus-strand
+        // window differ by exactly this, since both are laid out by ascending x.
+        const COMPL_SEQ = (s) => ('' + s).split('').map((b) => COMPL[b] || 'N').join('');
         const mut = xs.map((x) => {
             const b = mutTrack[x - lo] || 'N';
             return (minus && orient === 'plus') ? (COMPL[b] || 'N') : b;
@@ -598,10 +618,19 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 const xi = Math.min.apply(null, span), xf = Math.max.apply(null, span);
                 const y = FLOOR + (i % ROWS) * ROW_STEP;
                 const nm = (snp.name || 'variant') + ' ' + mode.label + ' P' + c.variant_position + ' #' + c.rank;
-                // The mutant target site as it reads ALONG THE TRACK -- the frame Biopolymer
-                // expects. It carries the alternate allele, so the compound displays the
-                // mutant sequence and its synthesis strand is complementary to that allele.
-                const targetTrack = mutTrack.slice(xi - lo, xf - lo + 1);
+                // The mutant target site as GENOMIC PLUS, which is the frame Biopolymer's
+                // reverse-strand branch is written against: with strand < 0 it takes the
+                // target sequence AS THE ASO, on the reasoning that an oligo antisense to a
+                // minus-strand message reads as the plus strand. That reasoning holds only
+                // if what it is handed really is the plus slice. A 'coding'-orientation
+                // track (the older Ensembl loader) stores the coding bases by ascending x,
+                // which is the plus strand complemented but NOT reversed, and handing that
+                // over unchanged exported the complement of the intended oligo -- a
+                // sequence that is not the ASO, not the message, and not obviously either.
+                // So the frame is converted here rather than assumed.
+                const targetTrack = (minus && orient === 'coding')
+                    ? COMPL_SEQ(mutTrack.slice(xi - lo, xf - lo + 1))
+                    : mutTrack.slice(xi - lo, xf - lo + 1);
                 if (targetTrack.length !== c.length) continue;
                 // Reverse genes need strand < 0 so Biopolymer makes the ASO the genomic-plus
                 // target (antisense to the mRNA). Forward genes keep track.strand EXACTLY as
@@ -640,6 +669,17 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 cmp.targetSequence = targetTrack;   // the mutant target site, read off the compound
                 cmp.targetSite = targetTrack;
                 cmp.targetSiteTranscript = c.target_site;   // the same site 5'->3' on the transcript
+                // WHAT TO SHOW AS THE TARGET. On a reverse-strand gene stored as the plus-strand
+                // slice, targetTrack is the plus strand -- and that is exactly the strand
+                // generateCompound synthesises (strand < 0), so showing it as the "target" showed
+                // the synthesis sequence. The strand the oligo binds is its complement, base for
+                // base -- the same correction `mut` makes above for the scoring. Indices stay in
+                // ascending x, so the mismatch highlighting still lands on the right letters.
+                cmp.targetDisplay = (minus && orient === 'plus')
+                    ? targetTrack.split('').map((b) => COMPL[b] || 'N').join('')
+                    : targetTrack;
+                // The same target read 5'->3' along the transcript, for the label.
+                cmp.targetRead = minus ? cmp.targetDisplay.split('').reverse().join('') : cmp.targetDisplay;
                 // HIGHLIGHT THE MUTATIONS. `mismatch` is a list of indices into the drawn
                 // sequence, which the renderer paints red -- so the changed base stands out on
                 // the oligo instead of being one letter among twenty. Indices are measured from
@@ -670,7 +710,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                     // past that, these letters are the target, with the mutation in red.
                     cmp.showTargetSequence = true;
                     // And make the target readable from the label too, for the same reason.
-                    try { cmp.showLabel = true; cmp.labelAttribute = 'targetSequence'; cmp.labelPrefix = 'target '; } catch (e) { }
+                    try { cmp.showLabel = true; cmp.labelAttribute = 'targetRead'; cmp.labelPrefix = 'target '; } catch (e) { }
                     cmp.wingModification = c.wing_modification || null;
                     cmp.gapSize = c.gap_size; cmp.gapStart = c.gap_start_1based; cmp.gapEnd = c.gap_end_1based;
                     cmp.leftWingSize = c.left_wing_size; cmp.rightWingSize = c.right_wing_size;

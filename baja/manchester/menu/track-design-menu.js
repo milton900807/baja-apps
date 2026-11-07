@@ -852,7 +852,27 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // the step is chosen rather than when the results land.
                     let __targetLen = 0;
                     try { __targetLen = (__wholeTrackSequence() || '').length; } catch (e) { __targetLen = 0; }
-                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer', __targetLen);
+                    // WHAT THERE IS TO BE ALLELE-SELECTIVE ABOUT. The dialog cannot see the
+                    // track, so the mutations inside the region about to be designed against are
+                    // counted here: the Allele-selective strategy is offered only when there are
+                    // some, and it can then say what the walk around them will cost before it is run.
+                    // Counted by the same module that will later rebuild the sequence and place
+                    // them, so what the dialog offers and what the design finds cannot disagree.
+                    // The sequence it returns here is thrown away; only the list is wanted.
+                    let __muts = [];
+                    try {
+                        const __probe = await exec('baja/manchester/menu/design-scope-from-workbench.js',
+                            graph, selectedTrack, __wholeTrackSequence(), {
+                            alleles: true, indels: 'apply',
+                            offset: (typeof __designOffset === 'function' ? __designOffset() : 0),
+                        });
+                        __muts = (__probe && __probe.mutations) || [];
+                    } catch (e) { __muts = []; }
+                    const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer', __targetLen, {
+                        mutations: __muts.length,
+                        mutationsAll: ((selectedTrack && selectedTrack.snpindels) || []).length,
+                        mutationsPicked: __muts.filter((m) => m && m.selected).length,
+                    });
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();
                     let va = parseInt(__p.top_n) || 100;
@@ -874,6 +894,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 graph, selectedTrack, _sequence, {
                                 alleles: !!__p.use_track_alleles,
                                 avoidOthers: !!__p.avoid_other_track_variants,
+                                // ALLELE-SELECTIVE DESIGNS AGAINST THE MUTANT, INDELS INCLUDED.
+                                // An ASO that discriminates a deletion is one that spans the
+                                // join, and the join only exists once the deletion is made, so
+                                // here the sequence is rebuilt rather than designed around.
+                                indels: (__p.design_mode === 'allele') ? 'apply' : 'avoid',
                                 offset: (typeof __designOffset === 'function' ? __designOffset() : 0),
                             });
                         } catch (e) { console.warn('[design scope]', e); }
@@ -918,6 +943,13 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "design_mode": __p.design_mode || "rules",
                         "tile_step": (__p.tile_step != null ? __p.tile_step : 0),
 
+                        // ALLELE-SELECTIVE: the features an ASO must cover WHOLE -- the changed
+                        // base of a substitution, every inserted base, the two bases either side
+                        // of a deletion's join. Filled just below for that strategy only;
+                        // everywhere else it stays empty and the designer behaves exactly as it
+                        // did before the mode existed.
+                        "cover_spans": [],
+
                         // NO off-target screen during design. py/ssaso/design.py can run one --
                         // pass offtarget_index and it weights every site by the other genes it
                         // hits -- and naming no index is how you say don't, which the script
@@ -956,6 +988,35 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         ],
 
                         "exclude_gap_cleavage_motif_hits": true
+                    }
+
+                    // THE MUTATIONS THEMSELVES, in the coordinates of the sequence actually being
+                    // designed on. They come from the scope step, which is what rebuilt that
+                    // sequence: anything that worked them out separately would be indexing the
+                    // reference, and an applied indel moves everything after it.
+                    if (__p.design_mode === 'allele') {
+                        let __muts2 = (__scope && __scope.mutations) || [];
+                        if (__p.allele_selected_only) {
+                            const __sel = __muts2.filter((m) => m && m.selected);
+                            if (__sel.length) __muts2 = __sel;
+                        }
+                        if (!__muts2.length) {
+                            const __why = (__scope && __scope.mismatched)
+                                ? (__scope.mismatched + ' variant' + (__scope.mismatched === 1 ? '' : 's')
+                                    + ' could not be matched to the track sequence at their own position')
+                                : 'this track has none inside the region being designed against';
+                            try { graph.setResultMessage(' Allele-selective design needs a mutation to sit over: ' + __why + '. '); } catch (e) { }
+                            try { if (progress && progress.stop) progress.stop(); } catch (e) { }
+                            return;
+                        }
+                        json_input.cover_spans = __muts2.map((m) => m.span);
+                        const __byType = __muts2.reduce((a, m) => { a[m.type] = (a[m.type] || 0) + 1; return a; }, {});
+                        const __what = Object.keys(__byType).map((k) => __byType[k] + ' ' + k).join(', ');
+                        try {
+                            graph.setResultMessage(' Allele-selective: designing around ' + __muts2.length
+                                + ' mutation' + (__muts2.length === 1 ? '' : 's') + ' (' + __what + ') on '
+                                + (selectedTrack.name || 'this track') + '. ');
+                        } catch (e) { }
                     }
 
                     const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str);

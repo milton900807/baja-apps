@@ -4605,6 +4605,14 @@ function (progress) {
                     // And never two menus at once, whatever opened the first.
                     if (this.menu && this.menu_vis) return;
                     this.clearActionGlyphs();
+                    // The side panel, not a modal menu in the middle of the canvas (see
+                    // __msOpenMenu): the plot stays live while the point's options are up.
+                    try {
+                        const subtitle = (__selected.date ? (() => { try { return this.__tlFmt(new Date(__selected.date).getTime()); } catch (e) { return ''; } })() : '');
+                        exec('baja/plots/point-side-panel.js', this, m,
+                            { title: __selected.name, subtitle, canvas: this.__canvas__, point: __selected, screenX: scx, screenY: scy });
+                        return;
+                    } catch (e) { console.warn('point side panel', e); }
                     this.menu = new Menu(m, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
                         this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 2)
                     this.menu_width = 550
@@ -11195,7 +11203,24 @@ function (progress) {
                     }
                 } catch (e) { console.warn('point menu', e); }
                 let title = p.name || 'Milestone';
-                try { if (p.date) title += '  ' + this.__tlFmt(new Date(p.date).getTime()); } catch (e) { }
+                let when = '';
+                try { if (p.date) when = this.__tlFmt(new Date(p.date).getTime()); } catch (e) { }
+                // A SIDE PANEL, NOT A MENU OVER THE CANVAS. Assigned to this.menu, the menu
+                // was modal: mouseDown answers nothing while this.menu is set, so the timeline
+                // froze until an item was chosen. The panel docks at the right edge and leaves
+                // the canvas working; another point's click just swaps what it shows.
+                if (!isMobile()) {
+                    try {
+                        // Move and Data hand the pointer to something else; Delete is caught by
+                        // the panel itself. Either way the panel should not be left behind.
+                        for (const it of ml) if (it && (it.label === 'Move' || it.label === 'Data')) it.closePanel = true;
+                        this.menu = null; this.menu_vis = false;
+                        await exec('baja/plots/point-side-panel.js', this, ml,
+                            { title, subtitle: when, canvas: this.__canvas__, point: p, screenX: x, screenY: y });
+                        return;
+                    } catch (e) { console.warn('point side panel', e); }
+                }
+                if (when) title += '  ' + when;
                 this.menu = new Menu(ml, this.grid.Xwc(x), this.grid.Ywc(y),
                     'rgba(255,255,255,0.98)', '#0a2540', ml.length > 10 ? 2 : 1);
                 this.menu.title = title;
@@ -20924,6 +20949,8 @@ function (progress) {
             deselectAll() {
                 this.side_menu = null;
                 this.menu = null;
+                // A click on empty canvas puts the point side panel away too.
+                try { if (window.__bajaPointPanel && window.__bajaPointPanel.destroy) window.__bajaPointPanel.destroy(); } catch (e) { }
                 if (this.selectedPlate) {
                     if (this.selectedPlate.setMenu)
                         this.selectedPlate.setMenu(this, null)

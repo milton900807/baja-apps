@@ -69,5 +69,70 @@ function () {
     };
     const complement = (s) => ('' + s).toUpperCase().split('').map((b) => COMP[b] || 'N').join('');
     const reverseComplement = (s) => complement(s).split('').reverse().join('');
-    return { orientation, codingBaseAt, complement, reverseComplement, geneStrand };
+
+    // THE VARIANT'S ALLELES IN THE FRAME THE TRACK IS STORED IN.
+    //
+    // A variant record carries its change twice over: `reference`/`alternate` are the PLUS
+    // strand's bases and `reference0`/`alternate0` the CODING strand's. Which pair a track
+    // wants depends on what its string actually holds, and for a minus-strand gene the two
+    // are complements of one another. (They are complemented WITHOUT being reversed, which
+    // is SnpIndel's convention and what lets a multi-base substitution be written straight
+    // across its span.)
+    //
+    // Reading the wrong pair is almost invisible. The flanks come from the track and are
+    // right; only the variant base is the complement of what it should be. An oligo built
+    // on that matches NEITHER allele at the single position the whole design rests on, and
+    // nothing about the sequence looks wrong. That is worth being careful about once:
+    // these sequences get synthesised.
+    //
+    // Choosing by which field happens to be filled in is what fails, because a variant that
+    // arrived by genomic coordinate -- from a VCF, from ClinVar, from a coordinate somebody
+    // typed -- has only the plus-strand pair, and a coding-orientation track would then take
+    // it raw. So the TRACK decides. Both readings of the reference allele are compared with
+    // what the track actually reads at the variant, and the reading that agrees is the one
+    // the alternate is taken from as well.
+    //
+    // Returns { ref, alt, source, checked }. checked is false when the track could not
+    // settle it, and the caller should say so rather than quietly design.
+    const allelesInFrame = (v, track, orient, readAt) => {
+        const up = (s) => ('' + (s == null ? '' : s)).toUpperCase();
+        const usable = (s) => /^[ACGT]+$/.test(s);
+        const minus = geneStrand(track) < 0;
+        const wantsPlus = !minus || (orient || orientation(track)) === 'plus';
+
+        const plus = { ref: up(v && v.reference), alt: up(v && v.alternate) };
+        const coding = { ref: up(v && v.reference0), alt: up(v && v.alternate0) };
+        const flip = (p, name) => ({ ref: complement(p.ref), alt: complement(p.alt), source: name });
+
+        // Every reading of the same change, best guess first: the pair written for this
+        // frame, then the other pair complemented into it, then the remaining two.
+        const order = wantsPlus
+            ? [[plus, 'plus'], [coding, 'coding complemented'], [coding, 'coding'], [plus, 'plus complemented']]
+            : [[coding, 'coding'], [plus, 'plus complemented'], [plus, 'plus'], [coding, 'coding complemented']];
+        const tries = [];
+        for (const [pair, name] of order) {
+            if (!usable(pair.alt)) continue;
+            const c = / complemented$/.test(name) ? flip(pair, name) : { ref: pair.ref, alt: pair.alt, source: name };
+            if (!tries.some((x) => x.ref === c.ref && x.alt === c.alt)) tries.push(c);
+        }
+        if (!tries.length) return { ref: '', alt: '', source: 'none', checked: false };
+
+        // What the track itself reads across the span the allele covers.
+        let have = '';
+        if (typeof readAt === 'function') {
+            for (let k = 0; k < tries[0].alt.length; k++) have += up(readAt(k));
+        }
+        if (usable(have)) {
+            for (const c of tries) {
+                if (usable(c.ref) && c.ref.length === have.length && c.ref === have) {
+                    return { ref: c.ref, alt: c.alt, source: c.source, checked: true };
+                }
+            }
+        }
+        // Nothing agreed with the track: hand back the frame's own reading and say it is
+        // unverified, so the caller can warn instead of pretending.
+        return { ref: tries[0].ref, alt: tries[0].alt, source: tries[0].source, checked: false, track_reads: have };
+    };
+
+    return { orientation, codingBaseAt, complement, reverseComplement, geneStrand, allelesInFrame };
 }

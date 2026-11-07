@@ -761,6 +761,30 @@ function () {
                 // synthesis sequence drawn as a pill above the body. Deliberately NOT behind
                 // graph.showOligoLabels -- it is an explicit "show me the sequence" the user
                 // just asked for, so it draws on demand, the way flagReason does.
+                // WHICH SEQUENCE THE LABEL CARRIES is decided here rather than by the menu that
+                // switched it on. A compound's label is read against the track under it, so the
+                // TARGET is what it shows -- except where the chemistry is already spelling out
+                // its own bases (chem-draw.js: showBase at 11 px per residue), and those letters
+                // are the synthesis strand. There the label carries the synthesis sequence, so
+                // the two rows never say the same thing twice or contradict each other.
+                //
+                // The menu's target / synthesis choice still sets the label up and switches it
+                // off; what it no longer does is fix the content at a zoom where the other
+                // strand is the useful one.
+                if (this.__seqDisp) {
+                    const __tgt = ('' + (this.targetSequence || this.targetSite || '')).toUpperCase();
+                    const __syn = ('' + (this.synthesisSequence || this.antisense || this.sequence || '')).toUpperCase();
+                    let __per0 = 0;
+                    try { __per0 = graph.X(tgraph.X(this.xi + 1)) - graph.X(tgraph.X(this.xi)); } catch (e) { __per0 = 0; }
+                    const __chemLetters = (__per0 >= 11) && !(graph && graph.__lowDetail);
+                    if (__chemLetters) {
+                        if (__syn) { this.__seqDisp = __syn; this.__seqDisp2 = ''; this.__seqDispColor = '#7c2d12'; }
+                    } else if (__tgt) {
+                        this.__seqDisp = __tgt; this.__seqDispColor = '#0b7285';
+                        // The target is about the pairing, so what will be made goes underneath it.
+                        if (__syn) this.__seqDisp2 = __syn;
+                    }
+                }
                 if (this.__seqDisp) {
                     // IN REGISTER WITH THE BASES, when there is room for a letter per base:
                     // the target across the top and what will be synthesised underneath it,
@@ -822,37 +846,58 @@ function () {
                 // these types, so skip this older per-base green overlay to avoid drawing the oligo
                 // sequence twice. Other types (amplicon, primer-probe, …) still use it.
                 //
-                // showTargetSequence opts back in, because the beads spell out the strand that is
-                // SYNTHESISED and there are designs whose point is the strand being TARGETED --
-                // an allele-selective oligo is built against one allele, and which allele that is
-                // can only be read off the target.
+                // WHICH STRAND A COMPOUND SPELLS OUT. The beads spell out the strand that is
+                // SYNTHESISED; what a reader needs most of the time is the strand being
+                // TARGETED -- it is the one that lines up with the track under it, and for an
+                // allele-selective oligo it is the only place the allele can be read.
                 //
-                // But only while the chemistry is not itself showing. Zoomed in far enough for
-                // the beads to spell out their bases, those letters ARE the synthesis strand and
-                // that is the right thing to be reading; a second row of letters underneath would
-                // be two sequences with nothing saying which is which. Zoomed out past that, the
-                // beads carry no letters and the target is what the compound has to show.
-                // screencell > 5 is the same threshold this file already uses for "zoomed in
-                // enough to draw base letters".
+                // The target row is drawn at EVERY zoom, because the beads never show it. Their
+                // letters come from the HELM monomers (chem-draw's `mo.base`), which spell the
+                // SYNTHESISED strand -- and on a reverse-strand gene that strand is the plus
+                // strand, so it lines up base-for-base with the track underneath and reads like
+                // the target while carrying the complement of the allele. One row of letters is
+                // then genuinely ambiguous, which is the reason for showing the target itself.
+                //
+                // It sits above the body, clearing the beads' own letters (drawn just above each
+                // bead) when the chemistry is spelling them out -- chem-draw's threshold is
+                // per >= 11 screen px per base, and `per` is the same unit as screencell here.
                 const wantsTarget = !!this.showTargetSequence;
                 if (!wantsTarget && (this.type === 'aso' || this.type === 'gapmer'
                     || this.type === 'siRNA' || this.type === 'sirna')) return;
                 if (wantsTarget) {
                     let __cell = 0;
                     try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }
-                    if (__cell > 5) return;      // the chemistry is showing: its letters are the synthesis strand
-                    y = y - 0.14;                // sit above the body rather than on it
+                    // HOW FAR ABOVE: measured in PIXELS and converted back, because what has to
+                    // be cleared is drawn in pixels. The beads are sized from the per-base width
+                    // (chem-draw's own R and font), while a fixed step in graph units is however
+                    // many pixels the current y-scale makes it -- so one constant either laps the
+                    // row above or lands on the beads, depending on how the graph is scaled.
+                    const __R = Math.max(2, Math.min(10, __cell * 0.42));
+                    const __lift = (__cell >= 11)
+                        ? __R + 2 + Math.max(8, Math.min(13, Math.round(__R * 1.35))) + 4   // over the bead letters
+                        : __R + 6;                                                          // just over the beads
+                    let __dy = 0;
+                    try { __dy = tgraph.worldHeight(graph.worldHeight(__lift)); } catch (e) { __dy = 0; }
+                    if (!isFinite(__dy) || __dy <= 0) __dy = (__cell >= 11 ? 0.30 : 0.14);   // scale unreadable
+                    // PLUS, not minus. grid.Y is originScreen - (y - oy) * yscale, so a bigger
+                    // world y is higher on the canvas; subtracting put the row BELOW the body,
+                    // and at these distances that is on top of the compound stacked beneath
+                    // (the designer steps rows by 0.16).
+                    y = y + __dy;
                 }
 
                 let font = "11px Arial";
                 let seq_index = Math.round(x - this.xi);
 
-                if (this.sequence) {
-                    if (seq_index >= 0 && seq_index < this.sequence.length) {
+                // A design that sets targetDisplay (the strand it binds, in ascending x) shows
+                // that; `sequence` can be the synthesised strand itself on reverse-strand genes.
+                const seq = (wantsTarget && this.targetDisplay) ? this.targetDisplay : this.sequence;
+                if (seq) {
+                    if (seq_index >= 0 && seq_index < seq.length) {
                         if (this.mismatch.includes(seq_index)) {
-                            graph.drawString(this.sequence[seq_index], tgraph.X(x), tgraph.Y(y), "red", "12px Arial");
+                            graph.drawString(seq[seq_index], tgraph.X(x), tgraph.Y(y), "red", "12px Arial");
                         } else {
-                            graph.drawString(this.sequence[seq_index], tgraph.X(x), tgraph.Y(y), "darkGreen", font);
+                            graph.drawString(seq[seq_index], tgraph.X(x), tgraph.Y(y), "darkGreen", font);
                         }
                     }
                 }

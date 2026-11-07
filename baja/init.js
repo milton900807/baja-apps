@@ -63,25 +63,25 @@ function () {
 
             if (window['env']['auth'] === 'b2c') {
 
-                // THE HOME SCREEN: the applications across the top, the user's files
-                // underneath.
+                // THE HOME SCREEN: three doors -- Funds, Design, My Files.
                 //
-                // It used to open the project workspace (cpd/yak.js), which meant the first
-                // thing a user saw after signing in was a drawing canvas rather than the
-                // three things this application is for. The file browser is the right home
-                // -- it is where work is resumed from -- and the launcher is what makes the
-                // choice of application visible without hunting through a menu.
+                // It used to be the file browser with a launcher handed to it as a header
+                // row. That row is given almost no height by the browser's layout and the
+                // file list is drawn over it, so the launcher was never visible: about
+                // twenty pixels of it showed above the menu bar. Giving the row a height
+                // did not move it.
                 //
-                // The row is built first and handed to the browser, because the browser
-                // clears the screen before it renders; anything shown beforehand is wiped.
-                let __apps = null;
+                // baja/home.js is a page of its own and has no such argument with the
+                // layout. My Files opens the browser exactly as it always was, with no
+                // header passed to it.
                 try {
-                    __apps = await exec('baja/applications.js');
+                    return await exec('baja/home.js');
                 } catch (e) {
-                    // A launcher that failed to build must not cost the user their files.
-                    console.log('[init] application launcher unavailable: ' + e);
+                    // A home screen that failed to build must not cost the user their
+                    // files: fall back to what this page was before.
+                    console.log('[init] home screen unavailable: ' + e);
+                    return exec('manchester/fb.js');
                 }
-                return exec('manchester/fb.js', null, __apps)
 
             } else {
 

@@ -35,10 +35,20 @@ function (graph, track, sequence, opts) {
     return (async () => {
         const o = opts || {};
         const offset = Math.max(0, Math.round(+o.offset || 0));   // where `sequence` starts in the track
+        // A variant's xi is in the track's own x, which starts at TRACK.XI, while `offset` is
+        // relative to that (selectedOffset() = start - xi). Both have to come off to land in
+        // `sequence`. Without track.xi, every variant on a genomic track -- whose xi is the
+        // gene's start, not zero -- mapped past the end of the sequence and was skipped, so
+        // neither option did anything there: no allele was applied and no site was avoided.
+        const baseOf = (t) => Math.round(+(t && t.xi) || 0) + offset;
         const seq0 = '' + (sequence || '');
         const out = {
             sequence: seq0, exclude_regions: [], note: '',
-            appliedAlleles: 0, skippedIndels: 0, excludedVariants: 0, otherTracks: 0,
+            appliedAlleles: 0, appliedIndels: 0, skippedIndels: 0, mismatched: 0,
+            excludedVariants: 0, otherTracks: 0, unmatched: [],
+            // This track's own variants, as the designed sequence sees them: pos, the span a
+            // candidate must cover whole to discriminate, type, and the label to report it by.
+            mutations: [], shifts: [],
         };
         if (!track || !seq0.length) return out;
 
@@ -60,42 +70,178 @@ function (graph, track, sequence, opts) {
             const len = Math.max(1, ref.length || 1);
             return { x: x, len: len, ref: ref.toUpperCase(), alt: alt.toUpperCase() };
         };
+        // WHICH WRITING OF THE ALLELE THIS TRACK USES. A variant carries its alleles twice:
+        // reference / alternate as they were loaded, and reference0 / alternate0 complemented
+        // for a minus-strand transcript. Which of the two matches the track's own string
+        // depends on how that track stores its sequence -- a genomic slice holds the plus
+        // strand, an mRNA track holds the transcript -- and guessing one of them is how an
+        // insertion on ACVR1 (a minus-strand gene, loaded as A>AT and labelled T>TA) came to
+        // disagree with the base under it and be dropped. So all the forms are offered and the
+        // one that matches the sequence at that position wins.
+        const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
+        const rc = (t) => ('' + t).toUpperCase().split('').reverse().map((c) => COMP[c] || c).join('');
+        const cmp = (t) => ('' + t).toUpperCase().split('').map((c) => COMP[c] || c).join('');
+        const alleleForms = (sv) => {
+            const clean = (v) => ('' + (v == null ? '' : v)).replace(/[^A-Za-z]/g, '').toUpperCase();
+            const r0 = clean(sv.reference0 != null ? sv.reference0 : sv.reference);
+            const a0 = clean(sv.alternate0 != null ? sv.alternate0 : sv.alternate);
+            const r1 = clean(sv.reference), a1 = clean(sv.alternate);
+            // The complemented readings are offered only where the variant says it came from
+            // the other strand (a minus-strand transcript, or a stored reference0 that differs
+            // from the loaded reference). Offering them always would let a plus-strand
+            // substitution match its own complement at a position it does not belong to.
+            const flipped = (+sv.transcriptStrand < 0) || (!!r0 && !!r1 && r0 !== r1);
+            const forms = flipped ? [[r0, a0], [r1, a1], [cmp(r1), cmp(a1)], [rc(r1), rc(a1)]]
+                : [[r0, a0], [r1, a1]];
+            const seen = {}, out2 = [];
+            for (const [r, a] of forms) {
+                if (!r || !a) continue;
+                const k = r + '>' + a;
+                if (seen[k]) continue;
+                seen[k] = 1; out2.push({ ref: r, alt: a });
+            }
+            return out2;
+        };
         const isSub = (f) => f && f.ref && f.alt && f.ref.length === f.alt.length
             && /^[ACGT]+$/.test(f.ref) && /^[ACGT]+$/.test(f.alt);
 
         // ---- 1. this track's own alleles ---------------------------------------------------
+        //
+        // INDELS. By default they are not applied: an insertion or a deletion shifts every
+        // coordinate after it, and every variant, annotation and compound already on the track
+        // is indexed by those coordinates, so the design is kept off them instead.
+        //
+        // `indels: 'apply'` is the allele-selective case, where that trade goes the other way.
+        // An ASO that discriminates a deletion is one that spans the join, and the join does
+        // not exist in the reference: there is nothing to design against unless the deletion is
+        // actually made. Only the SEQUENCE handed to the designer is rebuilt -- the track is not
+        // touched -- and every position that moves is reported in `out.mutations`, in the
+        // coordinates of that rebuilt sequence, so the caller never has to redo this arithmetic.
+        const applyIndels = ('' + (o.indels || '')).toLowerCase() === 'apply';
+        const rna = /U/i.test(seq0);
+        const asSeq = (b) => (rna && b === 'T') ? 'U' : b;
         let seq = seq0;
+        // Every variant of this track that lands inside `sequence`, in order, with the one
+        // reading of its coordinates. Both branches below work from this list.
+        const own = [];
+        for (const s of (track.snpindels || [])) {
+            const f = footprint(s);
+            if (!f) continue;
+            const i = Math.round(f.x) - baseOf(track);
+            if (i < 0 || i >= seq0.length) continue;
+            own.push({ v: s, f: f, i: i });
+        }
+        own.sort((a, b) => a.i - b.i);
         if (o.alleles) {
             const chars = seq.split('');
-            for (const s of (track.snpindels || [])) {
-                const f = footprint(s);
-                if (!f) continue;
-                const i = Math.round(f.x) - offset;
-                if (i < 0 || i >= chars.length) continue;
-                if (!isSub(f)) {
-                    // An indel is not applied; the design is kept off it instead.
+            // Only where the track really does read the reference base: a mismatch here means
+            // the sequence and the variant disagree about the frame, and writing the alternate
+            // in anyway would quietly corrupt the design target.
+            const agreesAt = (i, ref) => {
+                for (let k = 0; k < ref.length; k++) {
+                    const c = (chars[i + k] || '').toUpperCase();
+                    const r = ref[k];
+                    if (!c || (c !== r && !(c === 'U' && r === 'T') && !(c === 'T' && r === 'U'))) return false;
+                }
+                return true;
+            };
+            // RIGHT TO LEFT, so an indel cannot move the ground under the variants still to be
+            // applied; each one's final position is then its own index plus the net length
+            // change of everything to its LEFT, which is one pass the other way (below).
+            const applied = [];
+            for (let n = own.length - 1; n >= 0; n--) {
+                const f = own[n].f;
+                let i = own[n].i;
+                const sub = isSub(f);
+                if (!sub && !applyIndels) {
+                    // Not applied: the design is kept off it instead.
                     out.exclude_regions.push([Math.max(0, i - 1), Math.min(chars.length, i + f.len + 1)]);
                     out.skippedIndels++;
                     continue;
                 }
-                // Only where the track really does read the reference base: a mismatch here
-                // means the sequence and the variant disagree about the frame, and writing
-                // the alternate in anyway would quietly corrupt the design target.
-                let agrees = true;
-                for (let k = 0; k < f.ref.length; k++) {
-                    const c = (chars[i + k] || '').toUpperCase();
-                    const r = f.ref[k];
-                    if (!c || (c !== r && !(c === 'U' && r === 'T') && !(c === 'T' && r === 'U'))) { agrees = false; break; }
+                // The first writing of this variant whose reference reads the way the track
+                // does at that position (see alleleForms).
+                //
+                // AN INDEL'S ANCHOR IS ALSO TRIED ONE BASE EITHER WAY. An anchored indel is
+                // written ref=<base before>+<changed bases>, and whether a loader stores its
+                // position at that anchor or at the first changed base is a convention, not a
+                // fact about the variant -- a VCF, a pasted HGVS and a hand-placed indel do not
+                // all agree. A substitution gets no such latitude: shifting one would write the
+                // right base in the wrong place, which is worse than not writing it at all.
+                let use = null, at = i;
+                const offsets = sub ? [0] : [0, -1, 1];
+                for (const d of offsets) {
+                    const j = i + d;
+                    if (j < 0 || j >= chars.length) continue;
+                    for (const cand of alleleForms(own[n].v)) {
+                        if (!/^[ACGT]+$/.test(cand.ref) || !/^[ACGT]+$/.test(cand.alt)) continue;
+                        if (j + cand.ref.length > chars.length) continue;
+                        // An anchored indel whose anchor agrees but whose changed bases do not
+                        // is not this variant at this position; agreesAt checks the whole ref.
+                        if (agreesAt(j, cand.ref)) { use = cand; at = j; break; }
+                    }
+                    if (use) break;
                 }
-                if (!agrees) continue;
-                const rna = /U/i.test(seq0);
-                for (let k = 0; k < f.alt.length && (i + k) < chars.length; k++) {
-                    const b = f.alt[k];
-                    chars[i + k] = (rna && b === 'T') ? 'U' : b;
+                if (!use) {
+                    out.mismatched = (out.mismatched || 0) + 1;
+                    // Say which one and what the track actually reads there, so a variant that
+                    // cannot be placed explains itself instead of just going missing.
+                    const sv = own[n].v, f2 = own[n].f;
+                    out.unmatched.push(('' + (sv.name || sv.id || (f2.ref + '>' + f2.alt)))
+                        + ' at ' + i + ': expected ' + f2.ref + ', track reads '
+                        + chars.slice(i, i + Math.max(1, f2.ref.length)).join(''));
+                    continue;
                 }
-                out.appliedAlleles++;
+                i = at;
+                const isSubNow = use.ref.length === use.alt.length;
+                chars.splice(i, use.ref.length, ...use.alt.split('').map(asSeq));
+                applied.push({ i: i, ref: use.ref, alt: use.alt, sub: isSubNow, v: own[n].v });
+                if (isSubNow) out.appliedAlleles++; else out.appliedIndels = (out.appliedIndels || 0) + 1;
             }
             seq = chars.join('');
+            // Left to right now, accumulating the shift each earlier indel caused, to give each
+            // applied variant its position in the sequence that came out -- and the SPAN a
+            // candidate has to cover whole to tell the two alleles apart:
+            //   substitution  the changed base(s)
+            //   insertion     every inserted base
+            //   deletion      the two bases that now sit either side of the join
+            applied.sort((a, b) => a.i - b.i);
+            let shift = 0;
+            for (const a of applied) {
+                const at = a.i + shift;
+                let span;
+                if (a.alt.length > a.ref.length) span = [at + a.ref.length, at + a.alt.length];
+                else if (a.alt.length < a.ref.length) span = [at + a.alt.length - 1, at + a.alt.length + 1];
+                else span = [at, at + a.ref.length];
+                span[0] = Math.max(0, Math.min(seq.length - 1, span[0]));
+                span[1] = Math.max(span[0] + 1, Math.min(seq.length, span[1]));
+                out.mutations.push({
+                    pos: at, span: span, type: (a.sub ? 'snp' : (a.alt.length > a.ref.length ? 'ins' : 'del')),
+                    ref: a.ref, alt: a.alt,
+                    label: ('' + (a.v.name || a.v.id || (a.ref + '>' + a.alt))),
+                    selected: !!(a.v.highlight || (a.v.isSelected && a.v.isSelected())),
+                });
+                shift += a.alt.length - a.ref.length;
+            }
+            // What the other half of this module has to know: every reference index at or after
+            // `from` moved by `by`. Used to carry the other tracks' exclusions across.
+            out.shifts = applied.map((a) => ({ from: a.i, by: a.alt.length - a.ref.length }))
+                .filter((x) => x.by !== 0);
+        } else {
+            // No alleles applied, so reference coordinates ARE the designed coordinates.
+            for (const { v, f, i } of own) {
+                const sub = isSub(f);
+                let span;
+                if (f.alt.length > f.ref.length) span = [i, i + Math.max(1, f.ref.length)];
+                else if (f.alt.length < f.ref.length) span = [i, i + f.ref.length];
+                else span = [i, i + Math.max(1, f.ref.length)];
+                span[1] = Math.max(span[0] + 1, Math.min(seq0.length, span[1]));
+                out.mutations.push({
+                    pos: i, span: span, type: (sub ? 'snp' : (f.alt.length > f.ref.length ? 'ins' : 'del')),
+                    ref: f.ref, alt: f.alt, label: ('' + (v.name || v.id || (f.ref + '>' + f.alt))),
+                    selected: !!(v.highlight || (v.isSelected && v.isSelected())),
+                });
+            }
         }
         out.sequence = seq;
 
@@ -118,7 +264,7 @@ function (graph, track, sequence, opts) {
                     if (gp == null) continue;
                     const lx = localOf(track, u.chr || track.chr, gp);
                     if (lx == null) continue;
-                    const i = Math.round(lx) - offset;
+                    const i = Math.round(lx) - baseOf(track);
                     const from = i - pad, to = i + f.len + pad;
                     if (to <= 0 || from >= seq.length) continue;   // outside what is designed
                     out.exclude_regions.push([Math.max(0, from), Math.min(seq.length, to)]);
@@ -146,7 +292,12 @@ function (graph, track, sequence, opts) {
 
         const bits = [];
         if (o.alleles) bits.push(out.appliedAlleles + ' of this track’s alleles applied'
-            + (out.skippedIndels ? (', ' + out.skippedIndels + ' indel' + (out.skippedIndels === 1 ? '' : 's') + ' left out and designed around') : ''));
+            + (out.appliedIndels ? (', ' + out.appliedIndels + ' indel' + (out.appliedIndels === 1 ? '' : 's') + ' applied') : '')
+            + (out.skippedIndels ? (', ' + out.skippedIndels + ' indel' + (out.skippedIndels === 1 ? '' : 's') + ' left out and designed around') : '')
+            // Silence here is what made a dropped variant hard to explain: say it.
+            + (out.mismatched ? (', ' + out.mismatched + ' variant' + (out.mismatched === 1 ? '' : 's')
+                + ' skipped (' + out.unmatched.slice(0, 3).join('; ')
+                + (out.unmatched.length > 3 ? '; …' : '') + ')') : ''));
         if (o.avoidOthers) bits.push(out.excludedVariants
             ? (out.excludedVariants + ' variant' + (out.excludedVariants === 1 ? '' : 's') + ' on ' + out.otherTracks
                 + ' other track' + (out.otherTracks === 1 ? '' : 's') + ' avoided')

@@ -1,0 +1,629 @@
+{
+  "schema": "baja.analytics-templates.catalog/1",
+  "about": "The curated list of Baja Analytics templates. Edit this file to add, retitle, describe or retire a template, then run `node tools/analytics-templates/build-index.js` to regenerate index.json. Template payloads stay where they are under baja/templates/; `file` points at them. `also` lists byte-identical copies of the same payload elsewhere in that tree.",
+  "categories": [
+    { "id": "lab-analysis", "title": "Lab analysis", "description": "Plate and assay calculations: qPCR, standard curves, normalization." },
+    { "id": "drug-development", "title": "Drug development", "description": "Nonclinical, IND and CMC planning and budgets for oligonucleotide programs." },
+    { "id": "screening", "title": "Screening operations", "description": "Cost, capital and throughput models for oligo screening labs." },
+    { "id": "company-models", "title": "Lab and company models", "description": "Staffing, capital, P&L and cap-table models for labs and startups." },
+    { "id": "timelines", "title": "Timelines", "description": "Program timelines with pre-filled milestones." },
+    { "id": "examples", "title": "General examples", "description": "Worked examples outside life sciences that show what the workbook can do." }
+  ],
+  "templates": [
+    {
+      "id": "qpcr-ddct-2-replicates",
+      "title": "qPCR ΔΔCt, duplicate wells",
+      "kind": "model",
+      "category": "lab-analysis",
+      "file": "models/analytics/gene-expression/ddCt-2-replicates.ljl",
+      "description": "Relative expression from a 384-well qPCR run with target and housekeeping genes in duplicate. Averages replicates, then computes ΔCt, ΔΔCt against the control wells, relative expression and percent of control, with a per-well report.",
+      "tags": ["qPCR", "gene expression", "ddCt", "384-well"],
+      "status": "needs-cleanup",
+      "notes": "Contains an unrelated embedded model (startup_captable) that roughly doubles its size."
+    },
+    {
+      "id": "qpcr-ddct-single",
+      "title": "qPCR ΔΔCt, single wells",
+      "kind": "model",
+      "category": "lab-analysis",
+      "file": "models/analytics/gene-expression/ddCt-no-replicates.ljl",
+      "description": "Relative expression from a 384-well qPCR run with one target and one housekeeping Ct per well. Computes ΔCt, ΔΔCt against the control wells, relative expression and percent of control.",
+      "tags": ["qPCR", "gene expression", "ddCt", "384-well"],
+      "status": "needs-cleanup",
+      "notes": "Also carries the duplicate-replicate ct_values table and an unrelated embedded startup_captable model."
+    },
+    {
+      "id": "relative-expression-total-rna",
+      "title": "Relative expression, normalized to total RNA",
+      "kind": "model",
+      "category": "lab-analysis",
+      "file": "models/analytics/gene-expression/relative-expression-total-RNA.ljl",
+      "description": "Normalizes target Cq to housekeeping Cq and to RiboGreen total RNA, using qPCR and RiboGreen standard-curve slopes and intercepts, and reports expression as percent of untreated control (UTC mean).",
+      "tags": ["qPCR", "RiboGreen", "normalization", "percent control"],
+      "status": "ready"
+    },
+    {
+      "id": "total-rna-normalized-percent-control",
+      "title": "Total-RNA normalized percent control (data table)",
+      "kind": "table",
+      "category": "lab-analysis",
+      "file": "tables/bajaanalytics/screening/total-rna-normalized-percent-control.ljt",
+      "also": ["bajaproject/experiments/total-rna-normalized-percent-control.ljt"],
+      "description": "A single 176-row plate table with well position, sample, target and housekeeping Cq, RiboGreen signal and the RiboGreen-adjusted, target-normalized value. The data layer behind the relative-expression model.",
+      "tags": ["qPCR", "RiboGreen", "plate"],
+      "status": "ready"
+    },
+    {
+      "id": "standard-curve",
+      "title": "Fluorescence standard curve",
+      "kind": "table",
+      "category": "lab-analysis",
+      "file": "tables/bajaanalytics/screening/standard_curve.ljt",
+      "also": ["tables/experiments/screening/standard_curve.ljt", "tables/tables/standard_curve.ljt"],
+      "description": "Well ID, sample, concentration, RFU and background-subtracted RFU for a dilution series, laid out for fitting a standard curve.",
+      "tags": ["standard curve", "RFU", "fluorescence"],
+      "status": "ready"
+    },
+    {
+      "id": "ind-checklist-n-of-1",
+      "title": "IND submission steps, n-of-1",
+      "kind": "table",
+      "category": "drug-development",
+      "file": "tables/tables/IND_Submission_NOF1.ljt",
+      "also": ["bajaproject/development/IND_Submission_NOF1.ljt"],
+      "description": "Ten steps to an individualized (n-of-1) IND, each with details and an estimated time to execute.",
+      "tags": ["IND", "n-of-1", "regulatory"],
+      "status": "ready"
+    },
+    {
+      "id": "nonclinical-aso-testing",
+      "title": "Nonclinical testing of an ASO",
+      "kind": "table",
+      "category": "drug-development",
+      "file": "tables/experiments/Nonclinical-testing-of-aso.ljt",
+      "also": ["bajaproject/experiments/Nonclinical-testing-of-aso.ljt"],
+      "description": "Twenty nonclinical activities for an antisense oligonucleotide, each with an estimated duration.",
+      "tags": ["ASO", "nonclinical", "toxicology"],
+      "status": "ready"
+    },
+    {
+      "id": "in-vivo-tox-timeline-budget",
+      "title": "In vivo toxicology timeline and budget",
+      "kind": "table",
+      "category": "drug-development",
+      "file": "bajaproject/development/In-vivo-toxicology-timeline-and-budget.ljt",
+      "description": "Study components with duration in days and cost in USD, plus running cumulative days and cumulative cost.",
+      "tags": ["toxicology", "budget", "timeline"],
+      "status": "ready"
+    },
+    {
+      "id": "in-vivo-tox-cro-budget",
+      "title": "In vivo tox CRO budget and timeline",
+      "kind": "model",
+      "category": "drug-development",
+      "file": "models/budget/drug-development/in-vivo-tox.ljl",
+      "description": "CRO line items (units, unit cost, quantity), consultant hours by phase, a phase timeline in weeks and summary totals, with the procedure steps and nonclinical activity checklists alongside.",
+      "tags": ["toxicology", "CRO", "budget"],
+      "status": "needs-cleanup",
+      "notes": "Bundles a DEL screening campaign; overlaps heavily with del-screen.ljl."
+    },
+    {
+      "id": "gmp-aso-synthesis-calculator",
+      "title": "GMP ASO synthesis calculator",
+      "kind": "model",
+      "category": "drug-development",
+      "file": "models/budget/drug-development/gmp-aso-calculator.ljl",
+      "description": "Clinical-batch cost for a GMP antisense oligonucleotide: chemicals and quantities (backbone, bases, modifications, purification), analytical and stability QC, formulation and CMC documentation, rolled into a clinical synthesis budget.",
+      "tags": ["GMP", "ASO", "CMC", "synthesis"],
+      "status": "ready"
+    },
+    {
+      "id": "nsf-sbir-budget",
+      "title": "NSF SBIR budget justification",
+      "kind": "model",
+      "category": "drug-development",
+      "file": "models/budget/nsf-sbir-budget-justification.ljl",
+      "description": "An NSF SBIR budget built section by section: senior and other personnel, salaries and fringe, travel, supplies, consultants, subawards, other direct costs, indirect costs and fee, with totals and consistency checks.",
+      "tags": ["SBIR", "NSF", "grant", "budget"],
+      "status": "ready"
+    },
+    {
+      "id": "drug-discovery-development-cost",
+      "title": "Drug discovery and development cost",
+      "kind": "table",
+      "category": "drug-development",
+      "file": "tables/finance/science/drug-discovery-and-development-cost.ljt",
+      "description": "Nineteen cost categories from discovery through development, summed by formula.",
+      "tags": ["cost", "drug development"],
+      "status": "ready"
+    },
+    {
+      "id": "drug-repurposing-screen",
+      "title": "Drug repurposing screen",
+      "kind": "model",
+      "category": "drug-development",
+      "file": "models/budget/drug-discovery/screening/drug_repurposing.ljl",
+      "also": ["business-models/drug-discovery/screening/drug_repurposing.ljl"],
+      "description": "A repurposing screen of FDA-approved compounds: an objective note, the 384-well protocol steps with timings, and the equipment capital (liquid handler and readers) with price ranges.",
+      "tags": ["repurposing", "screening", "384-well"],
+      "status": "ready"
+    },
+    {
+      "id": "drug-repurposing-cro",
+      "title": "Drug repurposing with CRO tox budget",
+      "kind": "model",
+      "category": "drug-development",
+      "file": "drug-repurposing.ljlpx.ljl",
+      "description": "The drug repurposing screen combined with a CRO in vivo tox budget (parameters, CRO items, consultant hours, timeline and totals).",
+      "tags": ["repurposing", "CRO", "toxicology"],
+      "status": "ready"
+    },
+    {
+      "id": "del-screen",
+      "title": "DNA-encoded library screen",
+      "kind": "model",
+      "category": "screening",
+      "file": "models/budget/drug-discovery/screening/del-screen.ljl",
+      "description": "Cost and operations for a DEL screening campaign: screening line items, procedure steps by month, and a cost summary.",
+      "tags": ["DEL", "screening", "budget"],
+      "status": "needs-cleanup",
+      "notes": "Also embeds the in vivo tox CRO budget."
+    },
+    {
+      "id": "rna-tx-program",
+      "title": "RNA therapeutics program budget",
+      "kind": "model",
+      "category": "drug-development",
+      "file": "models/budget/drug-discovery/RNA/rna-tx.ljl",
+      "also": ["business-models/drug-discovery/RNA/rna-tx.ljl"],
+      "description": "A three-year RNA therapeutics pipeline: studies by year (in vitro lead, in vivo lead, NHP), study expense, pipeline cost and FTE salaries.",
+      "tags": ["RNA", "pipeline", "FTE"],
+      "status": "needs-cleanup",
+      "notes": "Contains an unrelated real-estate license checklist and a software steps table."
+    },
+    {
+      "id": "rna-cost-per-screen",
+      "title": "RNA screening cost per screen",
+      "kind": "model",
+      "category": "screening",
+      "file": "screening/rna-cost-per-screen.ljl",
+      "description": "Cost of goods for a primary ASO screen (consumables and reagents for 80 ASOs in duplicate or triplicate), plus equipment capital by priority, FTEs and an RNA pipeline budget.",
+      "tags": ["screening", "cost of goods", "capital"],
+      "status": "needs-cleanup",
+      "notes": "12 MB: carries several embedded models (planning, startup, pipeline manager). Worth splitting."
+    },
+    {
+      "id": "rna-capital-three-year",
+      "title": "RNA screening capital, three years",
+      "kind": "model",
+      "category": "screening",
+      "file": "screening/rna-capital-three-year.ljl",
+      "description": "Cost of goods for a primary screen, screening labor, FTEs and a 40-item equipment list rolled into three-year capital.",
+      "tags": ["screening", "capital", "equipment"],
+      "status": "ready"
+    },
+    {
+      "id": "three-year-rna-screening-output",
+      "title": "Three-year RNA screening output and P&L",
+      "kind": "model",
+      "category": "screening",
+      "file": "screening/three-year-rna-screening-output.ljl",
+      "description": "Synthesis, screening and software operations over three years: FTEs, synthesis expenses and plates per year, screen costs and output, asset value by stage, software P&L and an overall screening P&L.",
+      "tags": ["screening", "P&L", "three-year"],
+      "status": "needs-cleanup",
+      "notes": "3.9 MB; embeds the synthesis, assets and software sub-models whole."
+    },
+    {
+      "id": "aso-screening-budget",
+      "title": "ASO screening budget",
+      "kind": "model",
+      "category": "screening",
+      "file": "business-models/drug-discovery/RNA/ASO-screening-budget.ljl",
+      "description": "FTEs, screen costs (primary, dose response, tox), screening capital, and hourly labor for primary and dose-response screens.",
+      "tags": ["ASO", "screening", "labor"],
+      "status": "ready"
+    },
+    {
+      "id": "screening-labor",
+      "title": "Screening labor",
+      "kind": "model",
+      "category": "screening",
+      "file": "finance/screening-labor.ljl",
+      "description": "Labor rate and hours for primary and dose-response screens, with FTEs, screen costs and screening capital.",
+      "tags": ["screening", "labor"],
+      "status": "needs-cleanup",
+      "notes": "Its package is named hellowlrld; near-duplicate of the ASO screening budget."
+    },
+    {
+      "id": "antisense-oligosynthesis-lab",
+      "title": "Antisense oligosynthesis lab",
+      "kind": "model",
+      "category": "company-models",
+      "file": "business-models/chemistry/antisense_oligosynthesis_lab.ljl",
+      "description": "A full oligo synthesis and screening business: synthesis FTEs, reagents and plates per year, equipment and synthesis capital, pipeline studies and asset value, software licenses and P&L, screening output and the flywheel.",
+      "tags": ["oligo synthesis", "lab", "P&L"],
+      "status": "needs-cleanup",
+      "notes": "16 MB, the largest template. Embeds several sub-models."
+    },
+    {
+      "id": "simple-antisense-chemistry-lab",
+      "title": "Antisense chemistry lab, simplified",
+      "kind": "model",
+      "category": "company-models",
+      "file": "business-models/chemistry/simple_antisense_chemistry-lab.ljl",
+      "description": "A smaller version of the oligosynthesis lab model: synthesis FTEs and expenses, capital, pipeline cost, software P&L and screening output.",
+      "tags": ["oligo synthesis", "lab"],
+      "status": "needs-cleanup",
+      "notes": "4.4 MB; embeds its sub-models whole."
+    },
+    {
+      "id": "synthetic-chemistry-lab",
+      "title": "Synthetic chemistry lab",
+      "kind": "model",
+      "category": "company-models",
+      "file": "business-models/drug-discovery/synthetic_chemistry_lab.ljl",
+      "description": "Synthesis and screening operations with FTEs, capital, pipeline and asset value, software P&L and screening costs.",
+      "tags": ["chemistry", "lab", "P&L"],
+      "status": "needs-cleanup",
+      "notes": "Largely the same tables as the antisense chemistry lab models."
+    },
+    {
+      "id": "simple-lab-startup-capital",
+      "title": "Lab startup capital",
+      "kind": "model",
+      "category": "company-models",
+      "file": "simple-lab-startup-capital.ljl",
+      "description": "Instruments by category with cost and count, rolled into total startup capital, alongside a shared-lab consortium pricing model.",
+      "tags": ["capital", "startup", "equipment"],
+      "status": "ready"
+    },
+    {
+      "id": "lab-consortium",
+      "title": "Shared lab consortium",
+      "kind": "model",
+      "category": "company-models",
+      "file": "consortium.ljl",
+      "description": "A membership-funded shared lab: parameters, member and non-member pricing, operating costs and revenue, FTEs and sustainability metrics.",
+      "tags": ["consortium", "pricing", "membership"],
+      "status": "ready"
+    },
+    {
+      "id": "rare-disease-synthesis-consortium",
+      "title": "Rare disease synthesis consortium",
+      "kind": "model",
+      "category": "company-models",
+      "file": "business-models/nonprofit/rare-disease/synthesis-consoritum.ljl",
+      "description": "A nonprofit synthesis consortium for rare disease: inputs, membership model, revenue from members, COGS, gross profit, operating expenses and operating profit.",
+      "tags": ["nonprofit", "rare disease", "consortium"],
+      "status": "ready"
+    },
+    {
+      "id": "rna-pipeline-manager",
+      "title": "RNA pipeline manager",
+      "kind": "model",
+      "category": "company-models",
+      "file": "business-models/drug-discovery/RNA/rna_pipeline_manager.ljl",
+      "description": "Studies by year, study expense, pipeline cost and FTE salaries for a small RNA pipeline.",
+      "tags": ["RNA", "pipeline", "FTE"],
+      "status": "ready"
+    },
+    {
+      "id": "startup-cap-table",
+      "title": "Startup cap table, SAFE to priced round",
+      "kind": "model",
+      "category": "company-models",
+      "file": "business-models/startups/Startup-Captable.ljl",
+      "description": "Converts SAFEs (amount, cap, discount) into a priced round and shows share price, pro rata, post-round ownership and implied valuation for investors and founders.",
+      "tags": ["cap table", "SAFE", "fundraising"],
+      "status": "ready"
+    },
+    {
+      "id": "simple-pnl",
+      "title": "Simple monthly and annual budget",
+      "kind": "model",
+      "category": "company-models",
+      "file": "business-models/software/simple-pnl-model.ljl",
+      "description": "Budget categories with monthly and annual amounts and their totals.",
+      "tags": ["budget", "P&L"],
+      "status": "ready"
+    },
+    {
+      "id": "fte-plan",
+      "title": "FTE plan, three years",
+      "kind": "table",
+      "category": "company-models",
+      "file": "tables/finance/fte.ljt",
+      "description": "Positions and salaries with headcount by year and a total, the staffing block most of the company models reuse.",
+      "tags": ["FTE", "staffing"],
+      "status": "ready"
+    },
+    {
+      "id": "itemized-cost",
+      "title": "Itemized cost",
+      "kind": "table",
+      "category": "company-models",
+      "file": "tables/finance/itemized-cost.ljt",
+      "also": ["finance/itemized-cost.ljt"],
+      "description": "Item and cost rows for a quick itemized estimate.",
+      "tags": ["cost"],
+      "status": "ready"
+    },
+    {
+      "id": "item-cost",
+      "title": "Item cost (blank)",
+      "kind": "table",
+      "category": "company-models",
+      "file": "finance/item-cost.ljt",
+      "description": "An empty item and cost table.",
+      "tags": ["cost"],
+      "status": "ready"
+    },
+    {
+      "id": "summary-amount",
+      "title": "Summary amount",
+      "kind": "table",
+      "category": "company-models",
+      "file": "finance/summary-amount.ljt",
+      "description": "A single-cell total, for showing one rolled-up figure on the canvas.",
+      "tags": ["summary"],
+      "status": "ready"
+    },
+    {
+      "id": "summary-cost",
+      "title": "Cost summary",
+      "kind": "table",
+      "category": "company-models",
+      "file": "finance/summary-cost.ljt",
+      "description": "A single-cell cost summary driven by a formula.",
+      "tags": ["summary", "cost"],
+      "status": "ready"
+    },
+    {
+      "id": "software-company-pnl",
+      "title": "Software company P&L",
+      "kind": "table",
+      "category": "company-models",
+      "file": "tables/finance/software/software-compan-pnl.ljt",
+      "description": "A three-year (2025 to 2027) software company P&L with 24 line items and 21 formulas.",
+      "tags": ["software", "P&L"],
+      "status": "ready"
+    },
+    {
+      "id": "software-products-pnl",
+      "title": "Software products P&L",
+      "kind": "table",
+      "category": "company-models",
+      "file": "tables/finance/software/software-products-pnl.ljt",
+      "description": "A 40-row P&L for software products with 15 formulas.",
+      "tags": ["software", "P&L"],
+      "status": "ready"
+    },
+    {
+      "id": "nonclinical-individualized-aso-timeline",
+      "title": "Nonclinical development of individualized ASOs",
+      "kind": "timeline",
+      "category": "timelines",
+      "file": "timelines/clinical/Nonclinical-Development-of-Individualized-ASOs.ljp",
+      "description": "Seventeen milestones over about seven months: therapeutic goal, chemistry class, in vitro and in vivo proof of concept, off-target analysis, hybridization-independent toxicity, a single general tox study with FDA input, and hERG considerations.",
+      "tags": ["ASO", "nonclinical", "n-of-1"],
+      "status": "ready"
+    },
+    {
+      "id": "aso-nonclinical-plan-timeline",
+      "title": "ASO nonclinical plan (copy)",
+      "kind": "timeline",
+      "category": "timelines",
+      "file": "clinical/phase1-clinical-timeline.ljp",
+      "description": "The same milestones as the individualized ASO nonclinical timeline. The file is named phase 1 clinical timeline but holds the nonclinical plan.",
+      "tags": ["ASO", "nonclinical"],
+      "status": "retired",
+      "notes": "Misnamed (internal name 'asdfad'); superseded by nonclinical-individualized-aso-timeline."
+    },
+    {
+      "id": "phase-1-trial-timeline",
+      "title": "Phase 1 clinical trial",
+      "kind": "timeline",
+      "category": "timelines",
+      "file": "timelines/clinical/phase1-clinical-trial.ljp",
+      "description": "Ten phases over a year: pre-IND preparation, IND submission and FDA review, site selection and IRB, start-up, recruitment, SAD and MAD dosing, safety and PK analysis, data cleaning and statistics, and the clinical study report.",
+      "tags": ["phase 1", "clinical", "SAD", "MAD"],
+      "status": "needs-cleanup",
+      "notes": "Internal timeline name is 'test', which shows as its title on the canvas."
+    },
+    {
+      "id": "substantial-evidence-timeline",
+      "title": "Substantial evidence path (FDA guidance)",
+      "kind": "timeline",
+      "category": "timelines",
+      "file": "clinical/Demonstrating-Substantial-Evidence-FDA-Guidance.ljp",
+      "description": "Planning and pre-IND, preclinical and mechanistic studies, one adequate and well-controlled trial with confirmatory evidence, end-of-phase 2 or pre-NDA meeting, NDA or BLA submission and FDA review, 2025 to 2030.",
+      "tags": ["FDA", "regulatory", "NDA", "BLA"],
+      "status": "ready"
+    },
+    {
+      "id": "rare-disease-program-timeline",
+      "title": "Rare disease ASO program",
+      "kind": "timeline",
+      "category": "timelines",
+      "file": "timelines/science/drug-discovery/rare-disease-timeline.ljp",
+      "description": "Lead ID, tolerability lead ID, rodent tox, HPLC method development, manufacturing setup and release, GLP tox and IND for a rare disease ASO program.",
+      "tags": ["rare disease", "ASO", "IND"],
+      "status": "ready"
+    },
+    {
+      "id": "simple-timeline",
+      "title": "Blank timeline",
+      "kind": "timeline",
+      "category": "timelines",
+      "file": "timelines/Simple-timeline.ljp",
+      "description": "An empty timeline with a start and an end date, ready for your own milestones.",
+      "tags": ["blank"],
+      "status": "ready"
+    },
+    {
+      "id": "day-timeline",
+      "title": "One-day timeline",
+      "kind": "timeline",
+      "category": "timelines",
+      "file": "timelines/Day.ljp",
+      "description": "An empty single-day timeline for scheduling a run or an experiment day.",
+      "tags": ["blank", "day"],
+      "status": "ready"
+    },
+    {
+      "id": "mars-mission-timeline",
+      "title": "Mars mission, 30 years",
+      "kind": "timeline",
+      "category": "examples",
+      "file": "timelines/science/mars-mission.ljp",
+      "description": "A 2025 to 2055 program from mission design through uncrewed missions, crew training, transit, landing and early surface stays.",
+      "tags": ["example", "space"],
+      "status": "ready"
+    },
+    {
+      "id": "mars-transit-timeline",
+      "title": "Mars transit",
+      "kind": "timeline",
+      "category": "examples",
+      "file": "timelines/science/mars-travel-time.ljp",
+      "description": "Pre-launch checkout through trans-Mars injection, transit, orbit insertion, landing and surface setup.",
+      "tags": ["example", "space"],
+      "status": "ready"
+    },
+    {
+      "id": "real-estate-investment",
+      "title": "Real estate investment projection",
+      "kind": "model",
+      "category": "examples",
+      "file": "real-estate/Real-estate-investment-projection-model.ljl",
+      "description": "A pro forma cash-flow model that forecasts multifamily investment performance from acquisition to sale.",
+      "tags": ["example", "real estate", "cash flow"],
+      "status": "needs-cleanup",
+      "notes": "8 MB: embeds the construction budget and the startup cap table."
+    },
+    {
+      "id": "commercial-building-construction",
+      "title": "Three-story commercial building",
+      "kind": "model",
+      "category": "examples",
+      "file": "real-estate/construction/three-story-commerical-building.ljl",
+      "description": "Construction budget by floor: labor, materials, equipment rental and durations, permits, contingency, land and design fees, rolled into total project cost.",
+      "tags": ["example", "construction"],
+      "status": "ready"
+    },
+    {
+      "id": "real-estate-license",
+      "title": "Getting a real estate license",
+      "kind": "model",
+      "category": "examples",
+      "file": "real-estate/license.ljl",
+      "description": "Steps to a state real estate license with time for each.",
+      "tags": ["example"],
+      "status": "ready"
+    },
+    {
+      "id": "brewery-taproom",
+      "title": "Brewery with taproom",
+      "kind": "model",
+      "category": "examples",
+      "file": "business-models/Brewery-with-taproom.ljl",
+      "description": "Volumes, revenue and revenue deductions for a brewery with a taproom.",
+      "tags": ["example", "food and beverage"],
+      "status": "needs-cleanup",
+      "notes": "Embeds the construction budget and the startup cap table."
+    },
+    {
+      "id": "hot-dog-truck",
+      "title": "Hot dog truck",
+      "kind": "model",
+      "category": "examples",
+      "file": "business-models/hot-dog-truck.ljl",
+      "description": "Products with unit price and units sold, summed into total sales. The smallest working model; good for learning the workbook.",
+      "tags": ["example", "starter"],
+      "status": "ready"
+    },
+    {
+      "id": "professional-poker",
+      "title": "Professional poker",
+      "kind": "model",
+      "category": "examples",
+      "file": "business-models/Professional_Poker.ljl",
+      "description": "Cash-game and tournament inputs and derived results, combined into totals and the probability of a profitable year.",
+      "tags": ["example", "probability"],
+      "status": "ready"
+    },
+    {
+      "id": "author-business",
+      "title": "Author business",
+      "kind": "model",
+      "category": "examples",
+      "file": "business-models/Author.ljl",
+      "also": ["business-models/Sole-Proprietorship/author.ljl"],
+      "description": "Novels per series, writing days per novel and books released, projected into book revenue.",
+      "tags": ["example", "sole proprietorship"],
+      "status": "needs-cleanup",
+      "notes": "Also contains the RNA pipeline manager and real-estate license models."
+    },
+    {
+      "id": "general-aviation-ownership",
+      "title": "Cost of owning a general aviation airplane",
+      "kind": "model",
+      "category": "examples",
+      "file": "home-projects/Aviation/Cost-of-a-general-aviation-airplane.ljl",
+      "description": "Purchase price, annual insurance and hangar, fuel and maintenance per hour, flight hours and training, rolled into the annual cost of ownership.",
+      "tags": ["example", "aviation"],
+      "status": "ready"
+    },
+    {
+      "id": "ipa-homebrew",
+      "title": "IPA homebrew",
+      "kind": "model",
+      "category": "examples",
+      "file": "home-projects/home-brew/ipa-homebrew.ljl",
+      "description": "Brew-day steps with the time each takes.",
+      "tags": ["example", "homebrew"],
+      "status": "needs-cleanup",
+      "notes": "Also contains the screening labor model."
+    },
+    {
+      "id": "las-vegas-odds",
+      "title": "Las Vegas house edge",
+      "kind": "table",
+      "category": "examples",
+      "file": "tables/tables/Las_Vegas_odds.ljt",
+      "description": "Common casino games with typical bets and house edge.",
+      "tags": ["example", "probability"],
+      "status": "ready"
+    },
+    {
+      "id": "short-selling-calculator",
+      "title": "Short selling and options calculator",
+      "kind": "table",
+      "category": "examples",
+      "file": "tables/finance/stocks/short-selling-options-calculator.ljt",
+      "description": "Sixteen metrics for a short position, with seven formulas.",
+      "tags": ["example", "finance"],
+      "status": "ready"
+    },
+    {
+      "id": "auto-manufacturing-engine",
+      "title": "Auto manufacturing: engine assumptions",
+      "kind": "table",
+      "category": "examples",
+      "file": "tables/manufacturing/auto-manufacturing-engine.ljt",
+      "description": "Engine production assumptions for the auto manufacturing example.",
+      "tags": ["example", "manufacturing"],
+      "status": "ready"
+    },
+    {
+      "id": "auto-manufacturing-tariffs",
+      "title": "Auto manufacturing: tariffs",
+      "kind": "table",
+      "category": "examples",
+      "file": "tables/manufacturing/auto-manufacturing-main.ljt",
+      "description": "A 24-row tariff and cost table with 12 formulas for the auto manufacturing example.",
+      "tags": ["example", "manufacturing", "tariffs"],
+      "status": "ready"
+    }
+  ]
+}

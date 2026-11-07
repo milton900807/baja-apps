@@ -1525,16 +1525,17 @@ function (path, config) {
                         // answer is the same one, and it is what the callout is for.
                         if (onScreen && rh < GENE_ASK_PX) {
                             const gcc = geneCache.get(geneKey(rg));
-                            if (!gcc) geneAsk(rg);
+                            if (!gcc || gcc.state === 'error') geneAsk(rg);
                             callouts.push({
                                 n: q + 1, rg: rg, chrom: c,
                                 ax: x1, ay: rt + rh / 2,
                                 genes: (gcc && gcc.state === 'done') ? gcc.genes : null,
+                                gstate: gcc ? gcc.state : 'pending',
                             });
                         }
                         if (onScreen && rh >= GENE_ASK_PX) {
                             const gc = geneCache.get(geneKey(rg));
-                            if (!gc) { geneAsk(rg); }
+                            if (!gc || gc.state === 'error') { geneAsk(rg); }
                             else if (gc.state === 'done') {
                                 ctx.save();
                                 ctx.textAlign = 'left';
@@ -1729,7 +1730,7 @@ function (path, config) {
                         const qlo = Math.max(1, Math.floor(lo / STEP) * STEP);
                         const qhi = Math.min(c.length, Math.ceil(hi / STEP) * STEP);
                         const wg = winGenes.get(ci + ':' + qlo + ':' + qhi);
-                        if (!wg) { winGenesAsk(ci, qlo, qhi); continue; }
+                        if (!wg || wg.state === 'error') { winGenesAsk(ci, qlo, qhi); continue; }
                         if (wg.state !== 'done' || !wg.genes.length) continue;
                         // Visible genes, ascending by locus. `g` is the graph, so a gene is `gn`.
                         // ONLY WHEN THE GENE IS BIG ENOUGH TO SEE. Zoomed out, a gene is a
@@ -1957,7 +1958,7 @@ function (path, config) {
                             if (qhi > qlo && (qhi - qlo) <= 260000000) {
                                 const kk = patLabelKey(ci, qlo, qhi);
                                 const rec = patLabels.get(kk);
-                                if (!rec) { patLabelsAsk(ci, qlo, qhi); }
+                                if (!rec || rec.state === 'error') { patLabelsAsk(ci, qlo, qhi); }
                                 else if (rec.state === 'done' && rec.list.length) {
                                     // LABELS THAT STAY ON THE CANVAS AND NEAR THEIR STRIP MARK.
                                     //
@@ -2548,6 +2549,10 @@ function (path, config) {
                             if (co.more) co.wrapped.push('+' + co.more + ' more');
                         } else if (co.genes) {
                             co.wrapped = ['no genes annotated'];
+                        } else if (co.gstate === 'error') {
+                            // Say so, rather than leaving it reading forever: it will be
+                            // asked again, and if it keeps failing that is worth seeing.
+                            co.wrapped = ['could not read the genes'];
                         } else {
                             co.wrapped = ['reading the genes…'];
                         }
@@ -3634,10 +3639,17 @@ function (path, config) {
         // chromosome over a few seconds is the correct behavior for a question this
         // expensive; taking the server down to answer it faster is not.
         const PAT_ASK_MAX = 2;
+        // How long a failed lookup rests before it is asked again. Long enough that a server
+        // that is down is not hammered every frame, short enough that a passing failure
+        // heals on its own rather than leaving a hole until the view is rebuilt.
+        const ASK_RETRY_MS = 4000;
         let patAsking = 0;
         const patLabelsAsk = async (ci, lo, hi) => {
             const k = patLabelKey(ci, lo, hi);
-            if (patLabels.has(k)) return;
+            // Same rule as the region genes: a failed call is 'error' and asked again once
+            // the backoff is up, rather than cached as an empty answer nobody revisits.
+            const prevP = patLabels.get(k);
+            if (prevP && (prevP.state !== 'error' || (Date.now() - (prevP.at || 0)) < ASK_RETRY_MS)) return;
             if (patAsking >= PAT_ASK_MAX) return;   // deliberately not marked pending
             patAsking++;
             __setLoad('patents', true);
@@ -3645,18 +3657,21 @@ function (path, config) {
             if (patLabels.size > 60) {
                 for (const kk of Array.from(patLabels.keys()).slice(0, 30)) patLabels.delete(kk);
             }
-            let list = [];
+            let list = null;                     // null = the call did not answer
             try {
                 const em = new EngineMonitor(() => { });
                 const rs = await exec(server + '/py/bio/patents-at.py', em,
                     drawn[ci].name.replace(/^chr/, ''), String(lo), String(hi),
                     PAT_NAME_KEY, (r.species || 'human'), '200');
-                if (rs && rs.ok) { try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = []; } }
-            } catch (e) { list = []; }
+                if (rs && rs.ok) { try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = null; } }
+            } catch (e) { list = null; }
             finally { patAsking = Math.max(0, patAsking - 1); __setLoad('patents', false); }
-            list = list.filter((q) => q && +q.start > 0 && +q.end >= +q.start);
-            list.sort((a, b) => (+a.start) - (+b.start));
-            patLabels.set(k, { state: 'done', list: list });
+            if (!Array.isArray(list)) { patLabels.set(k, { state: 'error', list: [], at: Date.now() }); }
+            else {
+                list = list.filter((q) => q && +q.start > 0 && +q.end >= +q.start);
+                list.sort((a, b) => (+a.start) - (+b.start));
+                patLabels.set(k, { state: 'done', list: list });
+            }
             if (graph.wake) graph.wake();
         };
 
@@ -3667,7 +3682,8 @@ function (path, config) {
         const winGenes = new Map();     // 'ci:qlo:qhi' -> { state, genes:[{gene,start,end}] }
         const winGenesAsk = async (ci, lo, hi) => {
             const key = ci + ':' + lo + ':' + hi;
-            if (winGenes.has(key)) return;
+            const prevW = winGenes.get(key);
+            if (prevW && (prevW.state !== 'error' || (Date.now() - (prevW.at || 0)) < ASK_RETRY_MS)) return;
             if (patAsking >= PAT_ASK_MAX) return;   // shares the patent budget; not marked pending
             patAsking++;
             __setLoad('genes', true);
@@ -3675,17 +3691,22 @@ function (path, config) {
             if (winGenes.size > 60) {
                 for (const kk of Array.from(winGenes.keys()).slice(0, 30)) winGenes.delete(kk);
             }
-            let gs = [];
+            let gs = null;                      // null = the call did not answer
             try {
                 const em = new EngineMonitor(() => { });
                 const res = await exec(server + '/py/bio/genes-in-range.py', em,
                     drawn[ci].name.replace(/^chr/, ''), String(lo), String(hi),
                     (r.species || 'human'), '400');
-                try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = []; }
-            } catch (e) { gs = []; }
+                if (res && res.ok !== false) {
+                    try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = null; }
+                }
+            } catch (e) { gs = null; }
             finally { patAsking = Math.max(0, patAsking - 1); __setLoad('genes', false); }
-            gs = gs.filter((g) => g && +g.start > 0).sort((a, b) => (+a.start) - (+b.start));
-            winGenes.set(key, { state: 'done', genes: gs });
+            if (!Array.isArray(gs)) { winGenes.set(key, { state: 'error', genes: [], at: Date.now() }); }
+            else {
+                gs = gs.filter((g) => g && +g.start > 0).sort((a, b) => (+a.start) - (+b.start));
+                winGenes.set(key, { state: 'done', genes: gs });
+            }
             if (graph.wake) graph.wake();
         };
         // The gene symbols overlapping [s,e], from a fetched window's gene list (ascending by
@@ -3717,28 +3738,61 @@ function (path, config) {
         const GENE_ASK_PX = 24;      // a region smaller than this is not worth a server call
         const geneCache = new Map();                       // 'i:lo:hi' -> {state, genes}
         const geneKey = (rg) => rg.i + ':' + rg.lo + ':' + rg.hi;
-        const geneAsk = async (rg) => {
+        // A CALL THAT FAILED IS NOT AN ANSWER. It used to be stored as an empty gene list,
+        // which cached the failure as "nothing is annotated here" -- and since the key was
+        // then present, nothing ever asked again, so the card sat on "reading the genes…"
+        // for the rest of the session. A failure is kept as 'error' with the time it
+        // happened so the next frame can ask again once the backoff is up; an empty answer
+        // is 'done' like any other and reads as "no genes annotated".
+        //
+        // And they are throttled. Every callout asked at once, which is what overruns the
+        // python bridge and makes these calls fail in the first place -- a genome's worth
+        // of small regions could knock out its own gene lookups.
+        const GENE_ASK_MAX = 3;
+        let geneAsking = 0;
+        const geneInflight = new Map();     // k -> promise, so a caller can await the one in flight
+        const geneAsk = (rg, force) => {
             const k = geneKey(rg);
-            if (geneCache.has(k)) return;
+            if (geneInflight.has(k)) return geneInflight.get(k);
+            const prev = geneCache.get(k);
+            if (prev && prev.state !== 'error') return Promise.resolve();
+            if (prev && !force && (Date.now() - (prev.at || 0)) < ASK_RETRY_MS) return Promise.resolve();
+            // Over budget: deliberately NOT marked pending, so the next frame asks again.
+            if (!force && geneAsking >= GENE_ASK_MAX) return Promise.resolve();
+            geneAsking++;
             geneCache.set(k, { state: 'pending', genes: [] });
             // Deterministic keys, so a region re-added later reuses what was read. The cap
             // is only so a long session cannot grow this without bound.
             if (geneCache.size > 200) {
                 for (const kk of Array.from(geneCache.keys()).slice(0, 100)) geneCache.delete(kk);
             }
-            let gs = [];
-            try {
-                const em = new EngineMonitor(() => { });
-                const res = await exec(server + '/py/bio/genes-in-range.py', em,
-                    drawn[rg.i].name.replace(/^chr/, ''), '' + rg.lo, '' + rg.hi,
-                    (r.species || 'human'), '200');
-                try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = []; }
-            } catch (e) { gs = []; }
-            // Sorted by position, not by the panel's coding-first order: these are drawn
-            // down a chromosome, and the overlap test below only works in that order.
-            gs.sort((a, b) => (+a.start || 0) - (+b.start || 0));
-            geneCache.set(k, { state: gs.length ? 'done' : 'miss', genes: gs });
-            if (graph.wake) graph.wake();
+            const p = (async () => {
+                let gs = null;                      // null = the call did not answer
+                try {
+                    const em = new EngineMonitor(() => { });
+                    const res = await exec(server + '/py/bio/genes-in-range.py', em,
+                        drawn[rg.i].name.replace(/^chr/, ''), '' + rg.lo, '' + rg.hi,
+                        (r.species || 'human'), '200');
+                    // genes-in-range.py answers { ok, genes, error }: ok false is a failure
+                    // that happens to carry an empty list, not a region without genes.
+                    if (res && res.ok !== false) {
+                        try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = null; }
+                    }
+                } catch (e) { gs = null; }
+                geneAsking = Math.max(0, geneAsking - 1);
+                geneInflight.delete(k);
+                if (!Array.isArray(gs)) {
+                    geneCache.set(k, { state: 'error', genes: [], at: Date.now() });
+                } else {
+                    // Sorted by position, not by the panel's coding-first order: these are drawn
+                    // down a chromosome, and the overlap test below only works in that order.
+                    gs.sort((a, b) => (+a.start || 0) - (+b.start || 0));
+                    geneCache.set(k, { state: 'done', genes: gs });
+                }
+                if (graph.wake) graph.wake();
+            })();
+            geneInflight.set(k, p);
+            return p;
         };
 
         // ---- SELECTED REGIONS ---------------------------------------------------
@@ -10915,6 +10969,11 @@ function (path, config) {
                 }
                 row.sequence_to_target = x.context_retained;
                 row[W.csvOther] = x.context_lost;
+                // A sequence in a spreadsheet outlives the screen it came from, so it
+                // travels with the strand it is in and whether the genome agreed.
+                row.sequence_orientation = x.context_orientation;
+                row.reference_check = x.reference_check;
+                row.sequence_to_target_plus_strand = x.context_retained_plus;
                 row.context_start = x.context_start;
                 row.context_end = x.context_end;
                 return row;
@@ -10994,6 +11053,9 @@ function (path, config) {
                 }
                 row['Sequence to target'] = A(x.context_retained);
                 row[A(W.csvOther || 'the other copy')] = A(x.context_lost);
+                row['Sequence orientation'] = A(x.context_orientation);
+                row['Reference check'] = A(x.reference_check);
+                row['Sequence to target, plus strand'] = A(x.context_retained_plus);
                 row['Context span'] = A(x.context_start + '-' + x.context_end);
                 return row;
             });
@@ -11106,12 +11168,19 @@ function (path, config) {
                                   + x.alt + ' allele is the one that went. Confirm it on the reads before designing.'
                                 : (somatic ? 'Tumor allele fraction ' + x.tumor_baf + '. Germline ' + x.germline_baf + '.' : ''))
                             + ' ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
-                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : ''),
+                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : '')
+                            // Which strand these are in decides what an oligo built on them
+                            // has to be, so it is said rather than assumed, and a variant
+                            // the genome contradicts is said loudest of all.
+                            + (x.reference_check && /^MISMATCH/.test(x.reference_check)
+                                ? '\n  ' + x.reference_check + '. No sequence is offered for this site.'
+                                : (x.context_orientation ? '\n  sequence is ' + x.context_orientation : '')),
                         books: () => [
                             { title: 'Zoom into the site', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame this base on the genome.',
                                 open: () => { const ci = chromIndexOf(x.chr); if (ci >= 0) goView({ x0: barLeft(ci) - 0.4 * SLOT, x1: barRight(ci) + 0.4 * SLOT, y0: wy(x.pos + 400) , y1: wy(x.pos - 400) }); } },
                             { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Design against ' + W.aim + '.', open: () => openSymbolInEditor(gn) },
-                            { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available') },
+                            { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available')
+                                + (x.context_orientation && x.context_retained ? '  [' + x.context_orientation + ']' : '') },
                             { note: true, title: 'Must survive: ' + (x.context_lost || 'no sequence available') },
                         ] });
                 });
@@ -16562,7 +16631,9 @@ function (path, config) {
             graph.setMessage(' Reading ' + c.name + ':' + human(lo) + '-' + human(hi) + '… ');
 
             let gc = geneCache.get(geneKey(rg));
-            if (!gc || gc.state === 'pending') { await geneAsk(rg); gc = geneCache.get(geneKey(rg)); }
+            // force: this one is worth waiting for, and geneAsk hands back the call already
+            // in flight, so awaiting it now actually waits for the answer.
+            if (!gc || gc.state === 'pending' || gc.state === 'error') { await geneAsk(rg, true); gc = geneCache.get(geneKey(rg)); }
             const genes = (gc && gc.genes) || [];
             const coding = genes.filter((g2) => g2.coding).length;
 
@@ -16643,6 +16714,50 @@ function (path, config) {
                 + ' (' + fmtSpan(Math.max(1, hi - lo + 1)) + ') ');
         };
 
+        // How many of a region's variants came from each side's file. Binary search into the
+        // chromosome's sorted positions, so a whole-genome file costs the window, not the file.
+        const regionSideCounts = (rg) => {
+            const out = { left: 0, right: 0 };
+            try {
+                const d = vdata[rg.i];
+                if (!d || !d.n) return out;
+                let a = 0, z = d.n;
+                while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < rg.lo) a = m + 1; else z = m; }
+                for (let k = a; k < d.n && d.pos[k] <= rg.hi; k++) {
+                    if (d.side && d.side[k]) out.left++; else out.right++;
+                }
+            } catch (e) { }
+            return out;
+        };
+        // THE "OPEN IN THE EDITOR" CARD, with a choice of variants when there is one. Given
+        // the regions and the card as it would be without a choice, it returns that card
+        // unchanged when the regions' variants are all on one side, and otherwise the same
+        // card one level deep: both sides (the default), the left file's only, the right's only.
+        const editorBook = (rgs, card) => {
+            const sc = { left: 0, right: 0 };
+            for (const q of rgs) { const c2 = regionSideCounts(q); sc.left += c2.left; sc.right += c2.right; }
+            const go = (side) => openRegions(rgs.slice(), undefined, undefined, side);
+            if (!(sc.left > 0 && sc.right > 0)) return Object.assign({}, card, { open: () => go(undefined) });
+            const nv = (n) => n.toLocaleString() + ' variant' + (n === 1 ? '' : 's');
+            const out = Object.assign({}, card, {
+                blurb: 'Choose which variants go with it: both sides (' + nv(sc.left + sc.right) + '), '
+                    + sideName(1) + ' only, or ' + sideName(0) + ' only.',
+                books: () => [
+                    { title: 'Both sides', badge: 'default \u00b7 ' + nv(sc.left + sc.right),
+                        blurb: 'The transcripts here with every variant that falls inside them: '
+                            + sideWhere(1) + ' and ' + sideWhere(0) + ' together.',
+                        open: () => go(undefined) },
+                    { title: 'Left only: ' + sideName(1), badge: 'left \u00b7 ' + nv(sc.left),
+                        blurb: 'Only the variants from ' + sideWhere(1) + '. Those on the right stay out of the editor.',
+                        open: () => go(1) },
+                    { title: 'Right only: ' + sideName(0), badge: 'right \u00b7 ' + nv(sc.right),
+                        blurb: 'Only the variants from ' + sideWhere(0) + '. Those on the left stay out of the editor.',
+                        open: () => go(0) },
+                ],
+            });
+            delete out.open;
+            return out;
+        };
         const calloutMenu = (rg) => {
             const c = drawn[rg.i];
             const where = c.name + ':' + human(rg.lo) + '-' + human(rg.hi);
@@ -16667,13 +16782,14 @@ function (path, config) {
                                 + (rg.lof ? ', so the loss-of-function variant can be clicked' : '') + '.',
                             open: () => zoomToRegion(rg),
                         },
-                        {
-                            title: 'Open in oligo editor',
-                            badge: 'transcripts',
+                        // WHICH VARIANTS GO WITH IT. With a file on each side -- a tumor and its
+                        // normal, a parent and a child -- the region can be opened with both
+                        // sets (the default), or with one side's alone. Offered only when this
+                        // region actually has variants on both sides; otherwise there is
+                        // nothing to choose, and the card opens straight away as it always has.
+                        editorBook([rg], { title: 'Open in oligo editor', badge: 'transcripts',
                             blurb: 'List the transcripts here, tick the ones you want, and load '
-                                + 'them into the editor with the variants that fall inside them.',
-                            open: () => openRegions([rg]),
-                        },
+                                + 'them into the editor with the variants that fall inside them.' }),
                         {
                             title: 'Sequence statistics',
                             badge: 'annotation',
@@ -18699,12 +18815,11 @@ function (path, config) {
             const span = regions.reduce((t, x) => t + (x.hi - x.lo), 0);
             const needRegion = { ready: n > 0, readyNote: 'select a region first' };
             const regionBooks = () => [
-                Object.assign({
+                Object.assign(editorBook(regions, {
                     title: 'Open in the oligo editor', badge: 'transcripts', accent: 'design',
                     blurb: 'List the transcripts in the selected region' + (n === 1 ? '' : 's') + ', tick the ones you '
                         + 'want, and load them into the editor with the variants that fall inside them.',
-                    open: () => openRegions(regions.slice()),
-                }, needRegion),
+                }), needRegion),
                 Object.assign({
                     title: 'Delete the variants in the selected regions', badge: 'variants',
                     blurb: 'Drop every variant inside the selection and keep the rest of the genome.',
@@ -19912,7 +20027,14 @@ function (path, config) {
             compute();
         };
 
-        const openRegions = async (list, focusBp, straight) => {
+        // `side`: null or undefined for every variant in the range (the default), 1 for the
+        // file on the LEFT only, 0 for the file on the RIGHT only -- so a tumor/normal pair
+        // can be opened with one side's variants without the other's in the way.
+        // The group each side's variants travel under when both VCFs go to the editor,
+        // and the file name that labels its tracks.
+        const VCF_GROUP = ['vcf:R', 'vcf:L'];
+        const vcfName = (sd) => (sideFile[sd] ? shortFile(sideFile[sd]) : sideName(sd));
+        const openRegions = async (list, focusBp, straight, side) => {
             const regs = (list || []).filter((q) => q && q.i >= 0 && q.i < drawn.length
                 && isFinite(q.lo) && isFinite(q.hi) && q.hi >= q.lo);
             if (!regs.length) { graph.setMessage(' Nothing selected to look up. '); return; }
@@ -19962,6 +20084,7 @@ function (path, config) {
                     let a2 = 0, z2 = d.n;
                     while (a2 < z2) { const m2 = (a2 + z2) >> 1; if (d.pos[m2] < vLo) a2 = m2 + 1; else z2 = m2; }
                     for (let k = a2; k < d.n && d.pos[k] <= vHi; k++) {
+                        if (side === 0 || side === 1) { if ((d.side ? d.side[k] : 0) !== side) continue; }
                         const vk = reg.i + ':' + d.pos[k];
                         if (seenV.has(vk)) continue;      // overlapping regions share variants
                         seenV.add(vk);
@@ -19977,6 +20100,7 @@ function (path, config) {
                             const ph = phaseOf(d, k);
                             if (ph) annots.push('PHASE=' + ph);
                         }
+                        const sdK = d.side ? (d.side[k] ? 1 : 0) : 0;
                         inRange.push({
                             chr: bare2, pos: d.pos[k], ref: ab[0], alt: ab[1],
                             name: (d.names[k] || (c2.name + ':' + d.pos[k])),
@@ -19986,10 +20110,30 @@ function (path, config) {
                             genotypes: gl.map((g) => GT_TEXT[g[1]] || './.'),
                             phase: gl.length ? phaseOf(d, k) : '',
                             annotations: annots,
+                            group: VCF_GROUP[sdK],
+                            vcf: vcfName(sdK),
                         });
                     }
                 }
             }
+            // ONE TRACK PER VCF. With both files open, each transcript goes to the editor
+            // twice -- once per file, labelled "<gene> · <file>" -- and each copy carries
+            // only that file's variants. With one file (or one side asked for) the groups
+            // come off again and the hand-off is the plain one it always was.
+            const bothVcf = inRange.some((v) => v.group === VCF_GROUP[1]) && inRange.some((v) => v.group === VCF_GROUP[0]);
+            if (!bothVcf) for (const v of inRange) { delete v.group; delete v.vcf; }
+            const trackIds = (list) => {
+                if (!bothVcf) return list.map((gn) => gn.transcript).filter(Boolean);
+                const out = [];
+                for (const gn of list) {
+                    if (!gn || !gn.transcript) continue;
+                    const gname = gn.gene || gn.transcript;
+                    for (const sd of [1, 0]) {
+                        out.push({ id: gn.transcript, group: VCF_GROUP[sd], label: gname + ' \u00b7 ' + vcfName(sd) });
+                    }
+                }
+                return out;
+            };
             const one = regs.length === 1 ? regs[0] : null;
             const c = one ? drawn[one.i] : null;
             const lo = one ? one.lo : 0, hi = one ? one.hi : 0;
@@ -20016,7 +20160,7 @@ function (path, config) {
                     graph.setMessage(' Nothing here has a transcript in the annotation to open. ');
                     return;
                 }
-                await handToEditor(pick.map((gn) => gn.transcript), inRange, straight.focus || null);
+                await handToEditor(trackIds(pick), inRange, straight.focus || null);
                 return;
             }
             const spanAll = regs.reduce((t, q) => t + (q.hi - q.lo), 0);
@@ -20260,8 +20404,8 @@ function (path, config) {
             let goBusy = false;
             q2('#kr-go').onclick = async () => {
                 if (goBusy) return;
-                const ids = qa2('.kr-g').filter((cb) => cb.checked)
-                    .map((cb) => genes[+cb.getAttribute('data-i')].transcript).filter(Boolean);
+                const ids = trackIds(qa2('.kr-g').filter((cb) => cb.checked)
+                    .map((cb) => genes[+cb.getAttribute('data-i')]).filter(Boolean));
                 if (!ids.length) { graph.setMessage(' Tick a transcript to open. '); return; }
                 goBusy = true;
                 const go = q2('#kr-go'), sv = q2('#kr-save');
