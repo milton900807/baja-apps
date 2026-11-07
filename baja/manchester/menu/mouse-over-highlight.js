@@ -1606,7 +1606,7 @@ function (graph, genegraph_panel_layout) {
         // AN EXON IS DRAWN ON THE TRACK'S BASELINE, graph.Y(track.tgraph.Y(0)), not at its own y, so
         // it is hit-tested there, and tighter: within EXON_HIT_Y_PX screen pixels of that line. Testing
         // against an.y put the hit band away from the bar that is actually drawn.
-        const EXON_HIT_Y_PX = 5;
+        const EXON_HIT_Y_PX = 12;
         // BOTH SIDES IN SCREEN PIXELS. `y` is the pointer, and the pointer arrives from the
         // mouse listeners already in screen coordinates -- which is why the callers convert it
         // the other way, with Ywc(), when they want world. graph.Y() maps world TO screen, so
@@ -1998,7 +1998,13 @@ function (graph, genegraph_panel_layout) {
                         } catch (e) { console.log('EXONPROBE failed', e); }
                         for (let an of annotations) {
                             if (!an) continue;
-                            if (!annHit(track, an, graph.Y(y)) && !hovered.has(an)) continue;
+                            // graph.mousey IS A SCREEN y: the move listener sets it from scy,
+                            // which it is handed in screen coordinates. The up listener's own y
+                            // is used two ways in this file (graph.Y(y) in one place, Ywc(y) in
+                            // another), so rather than guess which, the test reads the value
+                            // that is screen by construction.
+                            const __ySc = (typeof graph.mousey === 'number') ? graph.mousey : graph.Y(y);
+                            if (!annHit(track, an, __ySc) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
                             // It goes to the selection box, as before, AND opens where the click
@@ -6090,7 +6096,8 @@ function (graph, genegraph_panel_layout) {
                                 const isExon = ('' + (a && a.type)).toLowerCase() === 'exon';
                                 const yi = isExon ? graph.Y(selectedTrack.tgraph.Y(0))
                                     : graph.Y(selectedTrack.tgraph.Y(a.y));
-                                return Math.abs(yi - graph.Y(y)) <= (isExon ? 5 : 10);
+                                const ySc = (typeof graph.mousey === 'number') ? graph.mousey : graph.Y(y);
+                                return Math.abs(yi - ySc) <= (isExon ? 12 : 10);
                             } catch (e) { return false; }
                         };
                         if (anns) for (let a of anns) {
