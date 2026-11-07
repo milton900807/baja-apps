@@ -36,7 +36,8 @@ import re
 import numpy as np
 
 __all__ = ["exon_table", "exon_bounds", "annotated_acceptor", "scan_exon",
-           "ssam_payload", "render_png", "parse_variant", "variant_label",
+           "scan_exon_table", "ssam_payload", "render_png",
+           "parse_variant", "variant_label",
            "occlusion_sweep",
            "AlleleReader", "CAVEATS"]
 
@@ -320,11 +321,32 @@ def scan_exon(gene, exon_number, flank=300, transcript="canonical",
     allele, so a site the variant creates or destroys appears rather than
     vanishing from one of the two tables.
     """
+    rows, info = exon_table(gene, transcript=transcript)
+    return scan_exon_table(rows, info, exon_number, gene=gene, flank=flank,
+                           transcript=transcript, ckpt=ckpt, device=device,
+                           genome=genome, min_score=min_score,
+                           prefer_remote=prefer_remote, variant=variant,
+                           occlude=occlude, tile=tile, tile_step=tile_step,
+                           n_shuffle=n_shuffle, occlude_top=occlude_top,
+                           occlude_span=occlude_span, seed=seed)
+
+
+def scan_exon_table(rows, info, exon_number, gene="", flank=300,
+                    transcript="canonical", ckpt=None, device=None, genome=None,
+                    min_score=0.0, prefer_remote=False, variant=None,
+                    occlude=False, tile=18, tile_step=6, n_shuffle=16,
+                    occlude_top=3, occlude_span=None, seed=0):
+    """`scan_exon` on an exon table you already have.
+
+    Lets a table built from somewhere other than the local gene index -- an
+    Ensembl REST lookup for another species, say -- run through exactly the
+    same scoring path, so a cross-species comparison is not a second
+    implementation of it.
+    """
     from bajasplice.scan import load_splicenet, scan_region
     from bajasplice.remote import open_genome
     from bajasplice.config import split_of
 
-    rows, info = exon_table(gene, transcript=transcript)
     ex = exon_bounds(rows, exon_number)
     strand = info["strand"]
     chrom = info["chrom"]

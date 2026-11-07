@@ -262,6 +262,41 @@ Tiles covering a tracked site's own `AG` are flagged `covers_own_dinuc` and
 left out of the ranking, since destroying a site's own dinucleotide is
 arithmetic rather than a finding.
 
+#### Comparing against orthologues
+
+```bash
+bajasplice ssam-ortho --gene MAPK8IP3 --exon 16
+bajasplice ssam-ortho --gene UNC13A --exon 21 --species mus_musculus,danio_rerio
+```
+
+Finds the one-to-one orthologue of the gene in each species, locates the
+corresponding exon, and scores its acceptor the same way. The question it
+answers is *is the annotated site still the winner there* — a consistency
+check, not a numeric comparison between species.
+
+**Exon correspondence is established by sequence, not by exon number.** Human
+exon 16 of MAPK8IP3 is exon **14** in mouse and exon **17** in dog; matching by
+rank would have scored the wrong exon in two species out of three, and done it
+silently. Each ortholog exon is chosen by 8-mer containment against the human
+exon, and the result reports the containment with the margin over the
+runner-up. A match below `MIN_CONTAINMENT` or within `MIN_MARGIN` of second
+place is refused rather than guessed.
+
+Two limits worth knowing before reading the output:
+
+**The checkpoint is human-trained.** Another species' sequence is out of
+distribution, so a low ortholog score does not distinguish "the site differs
+there" from "the model is outside its training set".
+
+**AG recurrence inside a coding exon is nearly uninformative.** The recurrence
+table reports whether each human in-exon candidate has a counterpart within
+±3 nt in each ortholog, but in an exon at ~90% identity an `AG` is conserved by
+codon constraint whether or not it is ever used as a splice site. On MAPK8IP3
+exon 16 all nine human candidates have a counterpart in at least one ortholog,
+which discriminates nothing. The offset tolerance is also a stand-in for an
+alignment, not an alignment — an indel upstream inside the exon shifts every
+offset after it.
+
 #### Running without a genome FASTA
 
 `bajasplice.remote.EnsemblReader` implements `GenomeReader`'s `.codes()`

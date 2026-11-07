@@ -275,3 +275,57 @@ def test_dinuc_shuffle_preserves_length_and_composition():
         out = dinuc_shuffle(codes, rng)
         assert len(out) == len(codes)
         assert sorted(out.tolist()) == sorted(codes.tolist())
+
+
+# ------------------------------------------------------- cross-species
+def test_containment_is_high_for_similar_and_low_for_unrelated():
+    from bajasplice.ortho import _containment
+    a = "ATGGCAGCTTCAGCCGCCTCTTGGACCAATTCAGGATCCAAGTGCAGGTAC"
+    assert _containment(a, a, k=8) == 1.0
+    # one substitution leaves most 8-mers intact
+    b = a[:25] + ("T" if a[25] != "T" else "A") + a[26:]
+    assert 0.5 < _containment(a, b, k=8) < 1.0
+    unrelated = "TTTTCCCCAAAAGGGGTTTTCCCCAAAAGGGGTTTTCCCCAAAAGGGGTTT"
+    assert _containment(a, unrelated, k=8) < 0.05
+
+
+def test_rest_exon_table_numbers_in_transcript_order(monkeypatch):
+    """Exon 1 must be the rightmost block on the minus strand, as the local
+    exon_table does -- otherwise a cross-species comparison silently lines up
+    the wrong exons."""
+    from bajasplice import ortho
+    payload = {"seq_region_name": "7", "strand": -1,
+               "Exon": [{"start": 300, "end": 399},
+                        {"start": 100, "end": 199},
+                        {"start": 500, "end": 599}]}
+    monkeypatch.setattr(ortho, "_get", lambda path, species=None: payload)
+    rows, info = ortho.rest_exon_table("ENSTEST", "testus_species")
+    assert info["strand"] == "-" and info["chrom"] == "7"
+    assert [r["number"] for r in rows] == [1, 2, 3]
+    assert [r["start"] for r in rows] == [500, 300, 100]   # descending
+    assert all(r["length"] == 100 for r in rows)
+
+
+def test_match_exon_refuses_a_weak_or_ambiguous_correspondence():
+    from bajasplice import ortho
+    rows = [{"number": 1, "start": 1, "end": 40, "length": 40},
+            {"number": 2, "start": 51, "end": 90, "length": 40}]
+    info = {"chrom": "1", "strand": "+", "transcript_id": "ENSTEST",
+            "species": "testus"}
+    human = "ATGGCAGCTTCAGCCGCCTCTTGGACCAATTCAGGATCCA"
+
+    class G:
+        def __init__(self, seqs): self.seqs = seqs
+        def sequence(self, chrom, start, end, strand="+"):
+            return self.seqs[0] if start == 1 else self.seqs[1]
+
+    # nothing resembles the query
+    noise = "TTTTCCCCAAAAGGGGTTTTCCCCAAAAGGGGTTTTCCCC"
+    with pytest.raises(ValueError, match="no exon of"):
+        ortho.match_exon(human, rows, info, G([noise, noise[::-1]]))
+    # two exons match equally well -> refuse rather than pick
+    with pytest.raises(ValueError, match="ambiguous correspondence"):
+        ortho.match_exon(human, rows, info, G([human, human]))
+    # a clear winner is returned with its margin
+    row, rep = ortho.match_exon(human, rows, info, G([human, noise]))
+    assert row["number"] == 1 and rep["containment"] == 1.0
