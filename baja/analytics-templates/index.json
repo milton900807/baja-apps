@@ -1,0 +1,4192 @@
+{
+  "schema": "baja.analytics-templates.index/1",
+  "generatedBy": "tools/analytics-templates/build-index.js",
+  "categories": [
+    {
+      "id": "lab-analysis",
+      "title": "Lab analysis",
+      "description": "Plate and assay calculations: qPCR, standard curves, normalization."
+    },
+    {
+      "id": "drug-development",
+      "title": "Drug development",
+      "description": "Nonclinical, IND and CMC planning and budgets for oligonucleotide programs."
+    },
+    {
+      "id": "screening",
+      "title": "Screening operations",
+      "description": "Cost, capital and throughput models for oligo screening labs."
+    },
+    {
+      "id": "company-models",
+      "title": "Lab and company models",
+      "description": "Staffing, capital, P&L and cap-table models for labs and startups."
+    },
+    {
+      "id": "timelines",
+      "title": "Timelines",
+      "description": "Program timelines with pre-filled milestones."
+    },
+    {
+      "id": "examples",
+      "title": "General examples",
+      "description": "Worked examples outside life sciences that show what the workbook can do."
+    }
+  ],
+  "templates": [
+    {
+      "id": "qpcr-ddct-2-replicates",
+      "title": "qPCR ΔΔCt, duplicate wells",
+      "kind": "model",
+      "category": "lab-analysis",
+      "description": "Relative expression from a 384-well qPCR run with target and housekeeping genes in duplicate. Averages replicates, then computes ΔCt, ΔΔCt against the control wells, relative expression and percent of control, with a per-well report.",
+      "tags": [
+        "qPCR",
+        "gene expression",
+        "ddCt",
+        "384-well"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Contains an unrelated embedded model (startup_captable) that roughly doubles its size.",
+      "source": "builtin",
+      "spath": "/baja/templates/models/analytics/gene-expression",
+      "name": "ddCt-2-replicates.ljl",
+      "file": "models/analytics/gene-expression/ddCt-2-replicates.ljl",
+      "also": [],
+      "size": 1996083,
+      "sha256": "95e8f63a91cb9d45b365b72f570f8027f696b4c238f545a9cfb4c9bff04c6c11",
+      "summary": {
+        "tables": 9,
+        "formulas": 12,
+        "embeddedModels": [
+          "startup_captable",
+          "ddCt_2_replicates"
+        ],
+        "preview": [
+          {
+            "name": "qpcr_meta",
+            "rows": 3,
+            "cols": 1,
+            "header": []
+          },
+          {
+            "name": "ct_values",
+            "rows": 384,
+            "cols": 8,
+            "header": [
+              "WellType",
+              "Well ID",
+              "Target gene replicate 1 Ct",
+              "Target gene replicate 2 Ct",
+              "Housekeeping gene replicate 1 Ct",
+              "Housekeeping gene replicate 2 Ct"
+            ]
+          },
+          {
+            "name": "delta_ct",
+            "rows": 384,
+            "cols": 2,
+            "header": [
+              "Well ID",
+              "ΔCt"
+            ]
+          },
+          {
+            "name": "delta_ct_control",
+            "rows": 1,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "ddct",
+            "rows": 384,
+            "cols": 2,
+            "header": [
+              "Well ID",
+              "ΔΔCt"
+            ]
+          },
+          {
+            "name": "rel_expr",
+            "rows": 384,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "percent_control",
+            "rows": 384,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "report",
+            "rows": 384,
+            "cols": 2,
+            "header": []
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "qpcr-ddct-single",
+      "title": "qPCR ΔΔCt, single wells",
+      "kind": "model",
+      "category": "lab-analysis",
+      "description": "Relative expression from a 384-well qPCR run with one target and one housekeeping Ct per well. Computes ΔCt, ΔΔCt against the control wells, relative expression and percent of control.",
+      "tags": [
+        "qPCR",
+        "gene expression",
+        "ddCt",
+        "384-well"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Also carries the duplicate-replicate ct_values table and an unrelated embedded startup_captable model.",
+      "source": "builtin",
+      "spath": "/baja/templates/models/analytics/gene-expression",
+      "name": "ddCt-no-replicates.ljl",
+      "file": "models/analytics/gene-expression/ddCt-no-replicates.ljl",
+      "also": [],
+      "size": 1237867,
+      "sha256": "ee5de3a38eda031348728af38516108236025dcab18c35ae3f548e6157cb211a",
+      "summary": {
+        "tables": 9,
+        "formulas": 12,
+        "embeddedModels": [
+          "dCt_No_replicates",
+          "startup_captable"
+        ],
+        "preview": [
+          {
+            "name": "qpcr_meta",
+            "rows": 3,
+            "cols": 1,
+            "header": []
+          },
+          {
+            "name": "ct_values",
+            "rows": 384,
+            "cols": 8,
+            "header": [
+              "WellType",
+              "Well ID",
+              "Target gene replicate 1 Ct",
+              "Target gene replicate 2 Ct",
+              "Housekeeping gene replicate 1 Ct",
+              "Housekeeping gene replicate 2 Ct"
+            ]
+          },
+          {
+            "name": "delta_ct",
+            "rows": 384,
+            "cols": 2,
+            "header": [
+              "Well ID",
+              "ΔCt"
+            ]
+          },
+          {
+            "name": "delta_ct_control",
+            "rows": 1,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "ddct",
+            "rows": 384,
+            "cols": 2,
+            "header": [
+              "Well ID",
+              "ΔΔCt"
+            ]
+          },
+          {
+            "name": "rel_expr",
+            "rows": 384,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "percent_control",
+            "rows": 384,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "report",
+            "rows": 384,
+            "cols": 2,
+            "header": []
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "relative-expression-total-rna",
+      "title": "Relative expression, normalized to total RNA",
+      "kind": "model",
+      "category": "lab-analysis",
+      "description": "Normalizes target Cq to housekeeping Cq and to RiboGreen total RNA, using qPCR and RiboGreen standard-curve slopes and intercepts, and reports expression as percent of untreated control (UTC mean).",
+      "tags": [
+        "qPCR",
+        "RiboGreen",
+        "normalization",
+        "percent control"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/models/analytics/gene-expression",
+      "name": "relative-expression-total-RNA.ljl",
+      "file": "models/analytics/gene-expression/relative-expression-total-RNA.ljl",
+      "also": [],
+      "size": 127991,
+      "sha256": "9e0e27478108423c8a23fed090e178bd913e7fa359610c1a2da1190db60d6528",
+      "summary": {
+        "tables": 1,
+        "formulas": 8,
+        "embeddedModels": [
+          "relative_expression_total_RNA"
+        ],
+        "preview": [
+          {
+            "name": "percent_control",
+            "rows": 176,
+            "cols": 11,
+            "header": [
+              "Well",
+              "Well Position",
+              "Sample",
+              "CqTarget",
+              "CqHousekeeping",
+              "Ribogreen"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "total-rna-normalized-percent-control",
+      "title": "Total-RNA normalized percent control (data table)",
+      "kind": "table",
+      "category": "lab-analysis",
+      "description": "A single 176-row plate table with well position, sample, target and housekeeping Cq, RiboGreen signal and the RiboGreen-adjusted, target-normalized value. The data layer behind the relative-expression model.",
+      "tags": [
+        "qPCR",
+        "RiboGreen",
+        "plate"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/bajaanalytics/screening",
+      "name": "total-rna-normalized-percent-control.ljt",
+      "file": "tables/bajaanalytics/screening/total-rna-normalized-percent-control.ljt",
+      "also": [
+        "bajaproject/experiments/total-rna-normalized-percent-control.ljt"
+      ],
+      "size": 97793,
+      "sha256": "85cc8ced39acc22ab5d84cae1b049ae39e3a7272effaef4c6ed8d3bc8bc74b46",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "gys1",
+            "rows": 176,
+            "cols": 11,
+            "header": [
+              "Well",
+              "Well Position",
+              "Sample",
+              "Cq_Target",
+              "Cq_Housekeeping",
+              "Ribogreen"
+            ]
+          }
+        ],
+        "internalName": "gys1"
+      },
+      "issues": []
+    },
+    {
+      "id": "standard-curve",
+      "title": "Fluorescence standard curve",
+      "kind": "table",
+      "category": "lab-analysis",
+      "description": "Well ID, sample, concentration, RFU and background-subtracted RFU for a dilution series, laid out for fitting a standard curve.",
+      "tags": [
+        "standard curve",
+        "RFU",
+        "fluorescence"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/bajaanalytics/screening",
+      "name": "standard_curve.ljt",
+      "file": "tables/bajaanalytics/screening/standard_curve.ljt",
+      "also": [
+        "tables/experiments/screening/standard_curve.ljt",
+        "tables/tables/standard_curve.ljt"
+      ],
+      "size": 8406,
+      "sha256": "21e424dede1fe801b160f5f48cbb011146fecac24154a910ba928103cdd1edbc",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "standard_curve",
+            "rows": 28,
+            "cols": 5,
+            "header": [
+              "Well ID",
+              "Sampler",
+              "Concentration",
+              "RFU",
+              "RFU-background"
+            ]
+          }
+        ],
+        "internalName": "standard_curve"
+      },
+      "issues": []
+    },
+    {
+      "id": "ind-checklist-n-of-1",
+      "title": "IND submission steps, n-of-1",
+      "kind": "table",
+      "category": "drug-development",
+      "description": "Ten steps to an individualized (n-of-1) IND, each with details and an estimated time to execute.",
+      "tags": [
+        "IND",
+        "n-of-1",
+        "regulatory"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/tables",
+      "name": "IND_Submission_NOF1.ljt",
+      "file": "tables/tables/IND_Submission_NOF1.ljt",
+      "also": [
+        "bajaproject/development/IND_Submission_NOF1.ljt"
+      ],
+      "size": 4880,
+      "sha256": "7764558ee29a31c9fefc2a12a06b3619c6e87d2b2b51454acc50119c8843d7f3",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "IND_Submission_NOF1",
+            "rows": 10,
+            "cols": 3,
+            "header": [
+              "Step",
+              "Details",
+              "Estimated Time to Execute"
+            ]
+          }
+        ],
+        "internalName": "IND_Submission_NOF1"
+      },
+      "issues": []
+    },
+    {
+      "id": "nonclinical-aso-testing",
+      "title": "Nonclinical testing of an ASO",
+      "kind": "table",
+      "category": "drug-development",
+      "description": "Twenty nonclinical activities for an antisense oligonucleotide, each with an estimated duration.",
+      "tags": [
+        "ASO",
+        "nonclinical",
+        "toxicology"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/experiments",
+      "name": "Nonclinical-testing-of-aso.ljt",
+      "file": "tables/experiments/Nonclinical-testing-of-aso.ljt",
+      "also": [
+        "bajaproject/experiments/Nonclinical-testing-of-aso.ljt"
+      ],
+      "size": 4881,
+      "sha256": "7ce4b6e626724cff54aeeb768bea1be46c03bbaa23ad47f56adbf1eaad7340a7",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "Nonclinical_testing_of_aso",
+            "rows": 20,
+            "cols": 2,
+            "header": [
+              "Description",
+              "Est. Time"
+            ]
+          }
+        ],
+        "internalName": "Nonclinical_testing_of_aso"
+      },
+      "issues": []
+    },
+    {
+      "id": "in-vivo-tox-timeline-budget",
+      "title": "In vivo toxicology timeline and budget",
+      "kind": "table",
+      "category": "drug-development",
+      "description": "Study components with duration in days and cost in USD, plus running cumulative days and cumulative cost.",
+      "tags": [
+        "toxicology",
+        "budget",
+        "timeline"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/bajaproject/development",
+      "name": "In-vivo-toxicology-timeline-and-budget.ljt",
+      "file": "bajaproject/development/In-vivo-toxicology-timeline-and-budget.ljt",
+      "also": [],
+      "size": 4445,
+      "sha256": "12c9ca29ef8aba6a7b7b9f84bd5baf2690692463a9db265fe3a835f463450cc3",
+      "summary": {
+        "tables": 1,
+        "formulas": 16,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "tox_budget",
+            "rows": 8,
+            "cols": 5,
+            "header": [
+              "StudyComponent",
+              "Duration(Days)",
+              "Cost(USD)",
+              "CumulativeDays",
+              "CumulativeCost"
+            ]
+          }
+        ],
+        "internalName": "tox_budget"
+      },
+      "issues": []
+    },
+    {
+      "id": "in-vivo-tox-cro-budget",
+      "title": "In vivo tox CRO budget and timeline",
+      "kind": "model",
+      "category": "drug-development",
+      "description": "CRO line items (units, unit cost, quantity), consultant hours by phase, a phase timeline in weeks and summary totals, with the procedure steps and nonclinical activity checklists alongside.",
+      "tags": [
+        "toxicology",
+        "CRO",
+        "budget"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Bundles a DEL screening campaign; overlaps heavily with del-screen.ljl.",
+      "source": "builtin",
+      "spath": "/baja/templates/models/budget/drug-development",
+      "name": "in-vivo-tox.ljl",
+      "file": "models/budget/drug-development/in-vivo-tox.ljl",
+      "also": [],
+      "size": 879407,
+      "sha256": "060a5bf8c06f0a0c7f78e653db775f0caedf194a411b79ae3a62ac53b86d6fac",
+      "summary": {
+        "tables": 10,
+        "formulas": 63,
+        "embeddedModels": [
+          "del",
+          "in-vivo-tox.ljl",
+          "in_vivo_tox_time_budget",
+          "DEL_campaign",
+          "del_screen"
+        ],
+        "preview": [
+          {
+            "name": "asdfgsdfasdfa",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "47500"
+            ]
+          },
+          {
+            "name": "screening",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          },
+          {
+            "name": "Operations",
+            "rows": 20,
+            "cols": 2,
+            "header": [
+              "Procedure Step",
+              "Estimated Time"
+            ]
+          },
+          {
+            "name": "Steps",
+            "rows": 14,
+            "cols": 2,
+            "header": [
+              "Step Description",
+              "Time Required"
+            ]
+          },
+          {
+            "name": "Nonclinical_testing_of_aso",
+            "rows": 20,
+            "cols": 2,
+            "header": [
+              "Description",
+              "Est. Time"
+            ]
+          },
+          {
+            "name": "params",
+            "rows": 16,
+            "cols": 2,
+            "header": [
+              "Param",
+              "Value"
+            ]
+          },
+          {
+            "name": "cro",
+            "rows": 12,
+            "cols": 5,
+            "header": [
+              "Item",
+              "Units",
+              "UnitCost",
+              "Qty",
+              "CostUSD"
+            ]
+          },
+          {
+            "name": "consult",
+            "rows": 8,
+            "cols": 5,
+            "header": [
+              "Phase",
+              "Weeks",
+              "Hours",
+              "Rate",
+              "CostUSD"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "gmp-aso-synthesis-calculator",
+      "title": "GMP ASO synthesis calculator",
+      "kind": "model",
+      "category": "drug-development",
+      "description": "Clinical-batch cost for a GMP antisense oligonucleotide: chemicals and quantities (backbone, bases, modifications, purification), analytical and stability QC, formulation and CMC documentation, rolled into a clinical synthesis budget.",
+      "tags": [
+        "GMP",
+        "ASO",
+        "CMC",
+        "synthesis"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/models/budget/drug-development",
+      "name": "gmp-aso-calculator.ljl",
+      "file": "models/budget/drug-development/gmp-aso-calculator.ljl",
+      "also": [],
+      "size": 13428,
+      "sha256": "ba17cbefe68dfa73df5f5a2cfa7ad2e9d59099e71dd83148f7625bcb1671276b",
+      "summary": {
+        "tables": 13,
+        "formulas": 13,
+        "embeddedModels": [
+          "gmp_synthesis"
+        ],
+        "preview": [
+          {
+            "name": "synthesis_costs",
+            "rows": 3,
+            "cols": 1,
+            "header": [
+              "160000"
+            ]
+          },
+          {
+            "name": "chemicals",
+            "rows": 1,
+            "cols": 5,
+            "header": [
+              "Chemicas",
+              "Backbone",
+              "Bases",
+              "Modifications",
+              "Purification"
+            ]
+          },
+          {
+            "name": "quantities",
+            "rows": 1,
+            "cols": 7,
+            "header": [
+              "Backbone",
+              "Bases",
+              "Modifications",
+              "Purification",
+              "Other",
+              "Buffering"
+            ]
+          },
+          {
+            "name": "synthesis_total",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "332800"
+            ]
+          },
+          {
+            "name": "QC_costs",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "56000"
+            ]
+          },
+          {
+            "name": "qc",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "AnalyticalTesting",
+              "StabilityTesting"
+            ]
+          },
+          {
+            "name": "QC_total",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "68500"
+            ]
+          },
+          {
+            "name": "formulation_costs",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "0",
+              "No other formulation"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "nsf-sbir-budget",
+      "title": "NSF SBIR budget justification",
+      "kind": "model",
+      "category": "drug-development",
+      "description": "An NSF SBIR budget built section by section: senior and other personnel, salaries and fringe, travel, supplies, consultants, subawards, other direct costs, indirect costs and fee, with totals and consistency checks.",
+      "tags": [
+        "SBIR",
+        "NSF",
+        "grant",
+        "budget"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/models/budget",
+      "name": "nsf-sbir-budget-justification.ljl",
+      "file": "models/budget/nsf-sbir-budget-justification.ljl",
+      "also": [],
+      "size": 19289,
+      "sha256": "a68865398390e63f049aad45a58f59a2a297705cba598851d01e3b7b771e0077",
+      "summary": {
+        "tables": 16,
+        "formulas": 14,
+        "embeddedModels": [
+          "NSF_SBIR_Budget"
+        ],
+        "preview": [
+          {
+            "name": "inputs",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Inputs"
+            ]
+          },
+          {
+            "name": "A_senior",
+            "rows": 5,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "B_other",
+            "rows": 6,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "salaries",
+            "rows": 1,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "fringe",
+            "rows": 1,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "travel",
+            "rows": 4,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "supplies",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Supplies"
+            ]
+          },
+          {
+            "name": "consult",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Consultant_Services"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "drug-discovery-development-cost",
+      "title": "Drug discovery and development cost",
+      "kind": "table",
+      "category": "drug-development",
+      "description": "Nineteen cost categories from discovery through development, summed by formula.",
+      "tags": [
+        "cost",
+        "drug development"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/finance/science",
+      "name": "drug-discovery-and-development-cost.ljt",
+      "file": "tables/finance/science/drug-discovery-and-development-cost.ljt",
+      "also": [],
+      "size": 3513,
+      "sha256": "6812024dea2f9bc27ebd18bcf735e738311b9f2f26497f3023f935ed5f7ba37c",
+      "summary": {
+        "tables": 1,
+        "formulas": 2,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "data",
+            "rows": 19,
+            "cols": 2,
+            "header": [
+              "Category",
+              "Cost"
+            ]
+          }
+        ],
+        "internalName": "data"
+      },
+      "issues": []
+    },
+    {
+      "id": "drug-repurposing-screen",
+      "title": "Drug repurposing screen",
+      "kind": "model",
+      "category": "drug-development",
+      "description": "A repurposing screen of FDA-approved compounds: an objective note, the 384-well protocol steps with timings, and the equipment capital (liquid handler and readers) with price ranges.",
+      "tags": [
+        "repurposing",
+        "screening",
+        "384-well"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/models/budget/drug-discovery/screening",
+      "name": "drug_repurposing.ljl",
+      "file": "models/budget/drug-discovery/screening/drug_repurposing.ljl",
+      "also": [
+        "business-models/drug-discovery/screening/drug_repurposing.ljl"
+      ],
+      "size": 10705,
+      "sha256": "62aed157407fdfe12b9e6441a9cfc420ecb72965bb1421aaefc5906b925923fc",
+      "summary": {
+        "tables": 2,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "equipment_capital",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Automated Liquid Handler (e.g. Tecan Flu",
+              "$150000 – $400000"
+            ]
+          },
+          {
+            "name": "repurposing_screen",
+            "rows": 6,
+            "cols": 3,
+            "header": [
+              "1. Cell Seeding",
+              "Plate cells in 384-well plates.",
+              "2–4 hours"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "drug-repurposing-cro",
+      "title": "Drug repurposing with CRO tox budget",
+      "kind": "model",
+      "category": "drug-development",
+      "description": "The drug repurposing screen combined with a CRO in vivo tox budget (parameters, CRO items, consultant hours, timeline and totals).",
+      "tags": [
+        "repurposing",
+        "CRO",
+        "toxicology"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates",
+      "name": "drug-repurposing.ljlpx.ljl",
+      "file": "drug-repurposing.ljlpx.ljl",
+      "also": [],
+      "size": 68317,
+      "sha256": "3ca6f75ae2053699370dd0d71d11f79cf0788da348415f308776464a9115d931",
+      "summary": {
+        "tables": 7,
+        "formulas": 62,
+        "embeddedModels": [
+          "in_vivo_tox_time_budget",
+          "drug_repurposing.ljl"
+        ],
+        "preview": [
+          {
+            "name": "params",
+            "rows": 16,
+            "cols": 2,
+            "header": [
+              "Param",
+              "Value"
+            ]
+          },
+          {
+            "name": "cro",
+            "rows": 12,
+            "cols": 5,
+            "header": [
+              "Item",
+              "Units",
+              "UnitCost",
+              "Qty",
+              "CostUSD"
+            ]
+          },
+          {
+            "name": "consult",
+            "rows": 8,
+            "cols": 5,
+            "header": [
+              "Phase",
+              "Weeks",
+              "Hours",
+              "Rate",
+              "CostUSD"
+            ]
+          },
+          {
+            "name": "timeline",
+            "rows": 8,
+            "cols": 3,
+            "header": [
+              "Phase",
+              "DurationWeeks",
+              "CumulativeWeeks"
+            ]
+          },
+          {
+            "name": "totals",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Metric",
+              "Value"
+            ]
+          },
+          {
+            "name": "equipment_capital",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Automated Liquid Handler (e.g. Tecan Flu",
+              "$150000 – $400000"
+            ]
+          },
+          {
+            "name": "repurposing_screen",
+            "rows": 6,
+            "cols": 3,
+            "header": [
+              "1. Cell Seeding",
+              "Plate cells in 384-well plates.",
+              "2–4 hours"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "del-screen",
+      "title": "DNA-encoded library screen",
+      "kind": "model",
+      "category": "screening",
+      "description": "Cost and operations for a DEL screening campaign: screening line items, procedure steps by month, and a cost summary.",
+      "tags": [
+        "DEL",
+        "screening",
+        "budget"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Also embeds the in vivo tox CRO budget.",
+      "source": "builtin",
+      "spath": "/baja/templates/models/budget/drug-discovery/screening",
+      "name": "del-screen.ljl",
+      "file": "models/budget/drug-discovery/screening/del-screen.ljl",
+      "also": [],
+      "size": 490386,
+      "sha256": "3f9636ae1171bbcf5656acc83374aef224945186e0ad0e848e2160f22671fc7e",
+      "summary": {
+        "tables": 10,
+        "formulas": 63,
+        "embeddedModels": [
+          "del",
+          "in-vivo-tox.ljl",
+          "in_vivo_tox_time_budget",
+          "DEL_campaign",
+          "del_screen"
+        ],
+        "preview": [
+          {
+            "name": "asdfgsdfasdfa",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "47500"
+            ]
+          },
+          {
+            "name": "screening",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          },
+          {
+            "name": "Operations",
+            "rows": 20,
+            "cols": 2,
+            "header": [
+              "Procedure Step",
+              "Estimated Time"
+            ]
+          },
+          {
+            "name": "Steps",
+            "rows": 14,
+            "cols": 2,
+            "header": [
+              "Step Description",
+              "Time Required"
+            ]
+          },
+          {
+            "name": "Nonclinical_testing_of_aso",
+            "rows": 20,
+            "cols": 2,
+            "header": [
+              "Description",
+              "Est. Time"
+            ]
+          },
+          {
+            "name": "params",
+            "rows": 16,
+            "cols": 2,
+            "header": [
+              "Param",
+              "Value"
+            ]
+          },
+          {
+            "name": "cro",
+            "rows": 12,
+            "cols": 5,
+            "header": [
+              "Item",
+              "Units",
+              "UnitCost",
+              "Qty",
+              "CostUSD"
+            ]
+          },
+          {
+            "name": "consult",
+            "rows": 8,
+            "cols": 5,
+            "header": [
+              "Phase",
+              "Weeks",
+              "Hours",
+              "Rate",
+              "CostUSD"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "rna-tx-program",
+      "title": "RNA therapeutics program budget",
+      "kind": "model",
+      "category": "drug-development",
+      "description": "A three-year RNA therapeutics pipeline: studies by year (in vitro lead, in vivo lead, NHP), study expense, pipeline cost and FTE salaries.",
+      "tags": [
+        "RNA",
+        "pipeline",
+        "FTE"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Contains an unrelated real-estate license checklist and a software steps table.",
+      "source": "builtin",
+      "spath": "/baja/templates/models/budget/drug-discovery/RNA",
+      "name": "rna-tx.ljl",
+      "file": "models/budget/drug-discovery/RNA/rna-tx.ljl",
+      "also": [
+        "business-models/drug-discovery/RNA/rna-tx.ljl"
+      ],
+      "size": 229781,
+      "sha256": "ceb6e371d47e1f8e465e9c14e85ab7533f5af9bf99dddf97351b00aeb2b98776",
+      "summary": {
+        "tables": 7,
+        "formulas": 0,
+        "embeddedModels": [
+          "Real_estate_license",
+          "rna_dataset",
+          "test",
+          "rna_pipeline_manager",
+          "crinoidabyssopelagic"
+        ],
+        "preview": [
+          {
+            "name": "real_estate_license",
+            "rows": 8,
+            "cols": 2,
+            "header": [
+              "Research state licensing requirements",
+              "1–2 days"
+            ]
+          },
+          {
+            "name": "Software",
+            "rows": 14,
+            "cols": 2,
+            "header": [
+              "Step Description",
+              "Time Required"
+            ]
+          },
+          {
+            "name": "raw",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          },
+          {
+            "name": "pipeline",
+            "rows": 3,
+            "cols": 5,
+            "header": [
+              "Study",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "study_exense",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP"
+            ]
+          },
+          {
+            "name": "pipelinecost",
+            "rows": 2,
+            "cols": 5,
+            "header": [
+              "2025",
+              "2026",
+              "2027",
+              "Total"
+            ]
+          },
+          {
+            "name": "FTE_Tx",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "rna-cost-per-screen",
+      "title": "RNA screening cost per screen",
+      "kind": "model",
+      "category": "screening",
+      "description": "Cost of goods for a primary ASO screen (consumables and reagents for 80 ASOs in duplicate or triplicate), plus equipment capital by priority, FTEs and an RNA pipeline budget.",
+      "tags": [
+        "screening",
+        "cost of goods",
+        "capital"
+      ],
+      "status": "needs-cleanup",
+      "notes": "12 MB: carries several embedded models (planning, startup, pipeline manager). Worth splitting.",
+      "source": "builtin",
+      "spath": "/baja/templates/screening",
+      "name": "rna-cost-per-screen.ljl",
+      "file": "screening/rna-cost-per-screen.ljl",
+      "also": [],
+      "size": 12474319,
+      "sha256": "ad21f97f18a8e37d207538ad79f3065816830bb687b23117a7c9d39fc8641b4b",
+      "summary": {
+        "tables": 14,
+        "formulas": 3,
+        "embeddedModels": [
+          "A",
+          "Planning",
+          "RNA_Targeting_Startup",
+          "raw",
+          "test",
+          "rna_pipeline_manager",
+          "invitro",
+          "cog_per_screen"
+        ],
+        "preview": [
+          {
+            "name": "Consumables",
+            "rows": 15,
+            "cols": 7,
+            "header": [
+              "Plastics",
+              "Supplier",
+              "Catalog #",
+              "Q1 2025 Price",
+              "Qty per order",
+              "Qty used for 80 ASOs in duplicate"
+            ]
+          },
+          {
+            "name": "Reagents",
+            "rows": 10,
+            "cols": 7,
+            "header": [
+              "Reagents",
+              "Qty used for 80 ASOs in duplicate",
+              "Qty used for 80 ASOs in triplicate"
+            ]
+          },
+          {
+            "name": "cog_reagents",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Duplicates",
+              "Triplicates"
+            ]
+          },
+          {
+            "name": "cog_consumables",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Duplicates",
+              "Triplicates"
+            ]
+          },
+          {
+            "name": "cog_total",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Duplicates",
+              "Triplicates"
+            ]
+          },
+          {
+            "name": "FTE",
+            "rows": 2,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "Software",
+            "rows": 14,
+            "cols": 2,
+            "header": [
+              "Step Description",
+              "Time Required"
+            ]
+          },
+          {
+            "name": "raw",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": [
+        "large payload (11.9 MB)"
+      ]
+    },
+    {
+      "id": "rna-capital-three-year",
+      "title": "RNA screening capital, three years",
+      "kind": "model",
+      "category": "screening",
+      "description": "Cost of goods for a primary screen, screening labor, FTEs and a 40-item equipment list rolled into three-year capital.",
+      "tags": [
+        "screening",
+        "capital",
+        "equipment"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/screening",
+      "name": "rna-capital-three-year.ljl",
+      "file": "screening/rna-capital-three-year.ljl",
+      "also": [],
+      "size": 699216,
+      "sha256": "a73dc740e828cd302d303325a09d966bb460b33b682292fc47fa25bc7f3b21a2",
+      "summary": {
+        "tables": 11,
+        "formulas": 2,
+        "embeddedModels": [
+          "A",
+          "hellowlrld",
+          "three_year_capital"
+        ],
+        "preview": [
+          {
+            "name": "Consumables",
+            "rows": 15,
+            "cols": 7,
+            "header": [
+              "Plastics",
+              "Supplier",
+              "Catalog #",
+              "Q1 2025 Price",
+              "Qty per order",
+              "Qty used for 80 ASOs in duplicate"
+            ]
+          },
+          {
+            "name": "Reagents",
+            "rows": 10,
+            "cols": 7,
+            "header": [
+              "Reagents",
+              "Qty used for 80 ASOs in duplicate",
+              "Qty used for 80 ASOs in triplicate"
+            ]
+          },
+          {
+            "name": "cog_reagents",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Duplicates",
+              "Triplicates"
+            ]
+          },
+          {
+            "name": "cog_consumables",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Duplicates",
+              "Triplicates"
+            ]
+          },
+          {
+            "name": "cog_total",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Duplicates",
+              "Triplicates"
+            ]
+          },
+          {
+            "name": "fte",
+            "rows": 4,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "screen_costs",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "Primary",
+              "Dose Response",
+              "Tox"
+            ]
+          },
+          {
+            "name": "total_screen_costs",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "Primary Screens",
+              "Dose Response",
+              "Tox"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "three-year-rna-screening-output",
+      "title": "Three-year RNA screening output and P&L",
+      "kind": "model",
+      "category": "screening",
+      "description": "Synthesis, screening and software operations over three years: FTEs, synthesis expenses and plates per year, screen costs and output, asset value by stage, software P&L and an overall screening P&L.",
+      "tags": [
+        "screening",
+        "P&L",
+        "three-year"
+      ],
+      "status": "needs-cleanup",
+      "notes": "3.9 MB; embeds the synthesis, assets and software sub-models whole.",
+      "source": "builtin",
+      "spath": "/baja/templates/screening",
+      "name": "three-year-rna-screening-output.ljl",
+      "file": "screening/three-year-rna-screening-output.ljl",
+      "also": [],
+      "size": 4109041,
+      "sha256": "e86aeef9d55c606c6fd378af14678576ac1c43ab5c9d1ccf4b52be1d67771228",
+      "summary": {
+        "tables": 19,
+        "formulas": 0,
+        "embeddedModels": [
+          "Model",
+          "test",
+          "Assets",
+          "Software",
+          "three_year_screening_output"
+        ],
+        "preview": [
+          {
+            "name": "fte",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "synthesis_expenses",
+            "rows": 5,
+            "cols": 4,
+            "header": [
+              "Category",
+              "2025",
+              "2025",
+              "2025"
+            ]
+          },
+          {
+            "name": "plates_per_year",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "fte_per_year",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "pipeline",
+            "rows": 3,
+            "cols": 5,
+            "header": [
+              "Study",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "study_exense",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP"
+            ]
+          },
+          {
+            "name": "pipelinecost",
+            "rows": 4,
+            "cols": 5,
+            "header": [
+              "2025",
+              "2026",
+              "2027",
+              "Total"
+            ]
+          },
+          {
+            "name": "asset_value",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP Lead"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": [
+        "large payload (3.9 MB)"
+      ]
+    },
+    {
+      "id": "aso-screening-budget",
+      "title": "ASO screening budget",
+      "kind": "model",
+      "category": "screening",
+      "description": "FTEs, screen costs (primary, dose response, tox), screening capital, and hourly labor for primary and dose-response screens.",
+      "tags": [
+        "ASO",
+        "screening",
+        "labor"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/drug-discovery/RNA",
+      "name": "ASO-screening-budget.ljl",
+      "file": "business-models/drug-discovery/RNA/ASO-screening-budget.ljl",
+      "also": [],
+      "size": 13512,
+      "sha256": "81142aa6ab3978b34eaf9da65950c6121561edc2f22d81e8191f29feaddcaa3a",
+      "summary": {
+        "tables": 4,
+        "formulas": 0,
+        "embeddedModels": [
+          "hellowlrld"
+        ],
+        "preview": [
+          {
+            "name": "fte",
+            "rows": 4,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "screen_costs",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "Primary",
+              "Dose Response",
+              "Tox"
+            ]
+          },
+          {
+            "name": "total_screen_costs",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "Primary Screens",
+              "Dose Response",
+              "Tox"
+            ]
+          },
+          {
+            "name": "capital_screening",
+            "rows": 5,
+            "cols": 4,
+            "header": [
+              "Instrument",
+              "Count",
+              "Cost",
+              "Description"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "screening-labor",
+      "title": "Screening labor",
+      "kind": "model",
+      "category": "screening",
+      "description": "Labor rate and hours for primary and dose-response screens, with FTEs, screen costs and screening capital.",
+      "tags": [
+        "screening",
+        "labor"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Its package is named hellowlrld; near-duplicate of the ASO screening budget.",
+      "source": "builtin",
+      "spath": "/baja/templates/finance",
+      "name": "screening-labor.ljl",
+      "file": "finance/screening-labor.ljl",
+      "also": [],
+      "size": 17921,
+      "sha256": "2544ed844db7868154f21a8046058c2c11d3e79ab32feb01aae6b95ecc2a98de",
+      "summary": {
+        "tables": 4,
+        "formulas": 0,
+        "embeddedModels": [
+          "hellowlrld"
+        ],
+        "preview": [
+          {
+            "name": "fte",
+            "rows": 4,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "screen_costs",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "Primary",
+              "Dose Response",
+              "Tox"
+            ]
+          },
+          {
+            "name": "total_screen_costs",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "Primary Screens",
+              "Dose Response",
+              "Tox"
+            ]
+          },
+          {
+            "name": "capital_screening",
+            "rows": 5,
+            "cols": 4,
+            "header": [
+              "Instrument",
+              "Count",
+              "Cost",
+              "Description"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "antisense-oligosynthesis-lab",
+      "title": "Antisense oligosynthesis lab",
+      "kind": "model",
+      "category": "company-models",
+      "description": "A full oligo synthesis and screening business: synthesis FTEs, reagents and plates per year, equipment and synthesis capital, pipeline studies and asset value, software licenses and P&L, screening output and the flywheel.",
+      "tags": [
+        "oligo synthesis",
+        "lab",
+        "P&L"
+      ],
+      "status": "needs-cleanup",
+      "notes": "16 MB, the largest template. Embeds several sub-models.",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/chemistry",
+      "name": "antisense_oligosynthesis_lab.ljl",
+      "file": "business-models/chemistry/antisense_oligosynthesis_lab.ljl",
+      "also": [],
+      "size": 16619435,
+      "sha256": "4ad2854b606d810451a934a3315ad09c4d649df537b3b0e58f90d0e01902aee3",
+      "summary": {
+        "tables": 23,
+        "formulas": 0,
+        "embeddedModels": [
+          "oligosynthesis_lab",
+          "Model",
+          "test",
+          "Assets",
+          "Software",
+          "Real_estate_license",
+          "rna_dataset",
+          "rna_pipeline_manager",
+          "crinoidabyssopelagic",
+          "submarinewrasse",
+          "simple-antisense-chemistry-lab.ljl"
+        ],
+        "preview": [
+          {
+            "name": "fte",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "synthesis_expenses",
+            "rows": 5,
+            "cols": 4,
+            "header": [
+              "Category",
+              "2025",
+              "2025",
+              "2025"
+            ]
+          },
+          {
+            "name": "plates_per_year",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "fte_per_year",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "pipeline",
+            "rows": 3,
+            "cols": 5,
+            "header": [
+              "Study",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "study_exense",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP"
+            ]
+          },
+          {
+            "name": "pipelinecost",
+            "rows": 4,
+            "cols": 5,
+            "header": [
+              "2025",
+              "2026",
+              "2027",
+              "Total"
+            ]
+          },
+          {
+            "name": "asset_value",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP Lead"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": [
+        "large payload (15.8 MB)"
+      ]
+    },
+    {
+      "id": "simple-antisense-chemistry-lab",
+      "title": "Antisense chemistry lab, simplified",
+      "kind": "model",
+      "category": "company-models",
+      "description": "A smaller version of the oligosynthesis lab model: synthesis FTEs and expenses, capital, pipeline cost, software P&L and screening output.",
+      "tags": [
+        "oligo synthesis",
+        "lab"
+      ],
+      "status": "needs-cleanup",
+      "notes": "4.4 MB; embeds its sub-models whole.",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/chemistry",
+      "name": "simple_antisense_chemistry-lab.ljl",
+      "file": "business-models/chemistry/simple_antisense_chemistry-lab.ljl",
+      "also": [],
+      "size": 4582096,
+      "sha256": "25382f667dd006a61befd7be29b5202c5af49a58372099ae8b73df9fc825cdba",
+      "summary": {
+        "tables": 23,
+        "formulas": 0,
+        "embeddedModels": [
+          "Model",
+          "test",
+          "Assets",
+          "Software",
+          "Real_estate_license",
+          "rna_dataset",
+          "rna_pipeline_manager",
+          "crinoidabyssopelagic",
+          "submarinewrasse"
+        ],
+        "preview": [
+          {
+            "name": "fte",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "synthesis_expenses",
+            "rows": 5,
+            "cols": 4,
+            "header": [
+              "Category",
+              "2025",
+              "2025",
+              "2025"
+            ]
+          },
+          {
+            "name": "plates_per_year",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "fte_per_year",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "pipeline",
+            "rows": 3,
+            "cols": 5,
+            "header": [
+              "Study",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "study_exense",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP"
+            ]
+          },
+          {
+            "name": "pipelinecost",
+            "rows": 4,
+            "cols": 5,
+            "header": [
+              "2025",
+              "2026",
+              "2027",
+              "Total"
+            ]
+          },
+          {
+            "name": "asset_value",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP Lead"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": [
+        "large payload (4.4 MB)"
+      ]
+    },
+    {
+      "id": "synthetic-chemistry-lab",
+      "title": "Synthetic chemistry lab",
+      "kind": "model",
+      "category": "company-models",
+      "description": "Synthesis and screening operations with FTEs, capital, pipeline and asset value, software P&L and screening costs.",
+      "tags": [
+        "chemistry",
+        "lab",
+        "P&L"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Largely the same tables as the antisense chemistry lab models.",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/drug-discovery",
+      "name": "synthetic_chemistry_lab.ljl",
+      "file": "business-models/drug-discovery/synthetic_chemistry_lab.ljl",
+      "also": [],
+      "size": 3501600,
+      "sha256": "2edf75bcfbc737b1c33a318680f0a5525095d7cc5f1f68e28d274651eca000e2",
+      "summary": {
+        "tables": 19,
+        "formulas": 0,
+        "embeddedModels": [
+          "Model",
+          "test",
+          "Assets",
+          "Software",
+          "submarinewrasse"
+        ],
+        "preview": [
+          {
+            "name": "fte",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "synthesis_expenses",
+            "rows": 5,
+            "cols": 4,
+            "header": [
+              "Category",
+              "2025",
+              "2025",
+              "2025"
+            ]
+          },
+          {
+            "name": "plates_per_year",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "fte_per_year",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "yr1",
+              "yr2",
+              "yr3"
+            ]
+          },
+          {
+            "name": "pipeline",
+            "rows": 3,
+            "cols": 5,
+            "header": [
+              "Study",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "study_exense",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP"
+            ]
+          },
+          {
+            "name": "pipelinecost",
+            "rows": 4,
+            "cols": 5,
+            "header": [
+              "2025",
+              "2026",
+              "2027",
+              "Total"
+            ]
+          },
+          {
+            "name": "asset_value",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP Lead"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": [
+        "large payload (3.3 MB)"
+      ]
+    },
+    {
+      "id": "simple-lab-startup-capital",
+      "title": "Lab startup capital",
+      "kind": "model",
+      "category": "company-models",
+      "description": "Instruments by category with cost and count, rolled into total startup capital, alongside a shared-lab consortium pricing model.",
+      "tags": [
+        "capital",
+        "startup",
+        "equipment"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates",
+      "name": "simple-lab-startup-capital.ljl",
+      "file": "simple-lab-startup-capital.ljl",
+      "also": [],
+      "size": 97310,
+      "sha256": "2333098884c5b3d72c3922d8d42436e0b9666df1a8d09ba687a90ebd27c62a81",
+      "summary": {
+        "tables": 8,
+        "formulas": 22,
+        "embeddedModels": [
+          "cons",
+          "simple_lab_startup_capital"
+        ],
+        "preview": [
+          {
+            "name": "consortium",
+            "rows": 11,
+            "cols": 2,
+            "header": [
+              "Parameter",
+              "Value"
+            ]
+          },
+          {
+            "name": "pricing",
+            "rows": 3,
+            "cols": 3,
+            "header": [
+              "Service",
+              "Non_Member",
+              "Member"
+            ]
+          },
+          {
+            "name": "sustainability",
+            "rows": 4,
+            "cols": 2,
+            "header": [
+              "Metric",
+              "Value"
+            ]
+          },
+          {
+            "name": "operating_costs",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Category",
+              "Cost"
+            ]
+          },
+          {
+            "name": "fte",
+            "rows": 3,
+            "cols": 4,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "Total"
+            ]
+          },
+          {
+            "name": "operating_revenue",
+            "rows": 6,
+            "cols": 2,
+            "header": [
+              "Category",
+              "Revenue"
+            ]
+          },
+          {
+            "name": "capital",
+            "rows": 9,
+            "cols": 5,
+            "header": [
+              "Instrument",
+              "Category",
+              "Cost_USD",
+              "Count",
+              "Total"
+            ]
+          },
+          {
+            "name": "capital_total",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Metric",
+              "Formula"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "lab-consortium",
+      "title": "Shared lab consortium",
+      "kind": "model",
+      "category": "company-models",
+      "description": "A membership-funded shared lab: parameters, member and non-member pricing, operating costs and revenue, FTEs and sustainability metrics.",
+      "tags": [
+        "consortium",
+        "pricing",
+        "membership"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates",
+      "name": "consortium.ljl",
+      "file": "consortium.ljl",
+      "also": [],
+      "size": 63446,
+      "sha256": "6192a8eda4bcc709622166eed989fb01e8ab4b7f9d08cb09cfa11e1efeae68ea",
+      "summary": {
+        "tables": 6,
+        "formulas": 20,
+        "embeddedModels": [
+          "cons",
+          "Consortium"
+        ],
+        "preview": [
+          {
+            "name": "consortium",
+            "rows": 11,
+            "cols": 2,
+            "header": [
+              "Parameter",
+              "Value"
+            ]
+          },
+          {
+            "name": "pricing",
+            "rows": 3,
+            "cols": 3,
+            "header": [
+              "Service",
+              "Non_Member",
+              "Member"
+            ]
+          },
+          {
+            "name": "sustainability",
+            "rows": 4,
+            "cols": 2,
+            "header": [
+              "Metric",
+              "Value"
+            ]
+          },
+          {
+            "name": "operating_costs",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Category",
+              "Cost"
+            ]
+          },
+          {
+            "name": "fte",
+            "rows": 3,
+            "cols": 4,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "Total"
+            ]
+          },
+          {
+            "name": "operating_revenue",
+            "rows": 6,
+            "cols": 2,
+            "header": [
+              "Category",
+              "Revenue"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "rare-disease-synthesis-consortium",
+      "title": "Rare disease synthesis consortium",
+      "kind": "model",
+      "category": "company-models",
+      "description": "A nonprofit synthesis consortium for rare disease: inputs, membership model, revenue from members, COGS, gross profit, operating expenses and operating profit.",
+      "tags": [
+        "nonprofit",
+        "rare disease",
+        "consortium"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/nonprofit/rare-disease",
+      "name": "synthesis-consoritum.ljl",
+      "file": "business-models/nonprofit/rare-disease/synthesis-consoritum.ljl",
+      "also": [],
+      "size": 13817,
+      "sha256": "920abf158089b6c976e7d62efff632637059e9804248ef3b10d55941088cab85",
+      "summary": {
+        "tables": 8,
+        "formulas": 10,
+        "embeddedModels": [
+          "synthesis_consortium"
+        ],
+        "preview": [
+          {
+            "name": "Inputs",
+            "rows": 12,
+            "cols": 2,
+            "header": [
+              "Variable",
+              "Value / Description"
+            ]
+          },
+          {
+            "name": "flow",
+            "rows": 5,
+            "cols": 2,
+            "header": [
+              "Calculation",
+              "Result"
+            ]
+          },
+          {
+            "name": "revenue",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Revenue from members",
+              "50400"
+            ]
+          },
+          {
+            "name": "COGs",
+            "rows": 2,
+            "cols": 3,
+            "header": [
+              "Category",
+              "Formula",
+              "Value"
+            ]
+          },
+          {
+            "name": "gross_profit",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Formula",
+              "Value"
+            ]
+          },
+          {
+            "name": "operating_expenses",
+            "rows": 3,
+            "cols": 3,
+            "header": [
+              "Category",
+              "Formula",
+              "Value"
+            ]
+          },
+          {
+            "name": "operating_profit",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Formula",
+              "Value"
+            ]
+          },
+          {
+            "name": "membership_model",
+            "rows": 6,
+            "cols": 2,
+            "header": [
+              "Metric",
+              "Value"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "rna-pipeline-manager",
+      "title": "RNA pipeline manager",
+      "kind": "model",
+      "category": "company-models",
+      "description": "Studies by year, study expense, pipeline cost and FTE salaries for a small RNA pipeline.",
+      "tags": [
+        "RNA",
+        "pipeline",
+        "FTE"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/drug-discovery/RNA",
+      "name": "rna_pipeline_manager.ljl",
+      "file": "business-models/drug-discovery/RNA/rna_pipeline_manager.ljl",
+      "also": [],
+      "size": 19324,
+      "sha256": "bb327b506e3a15254f8328b004c368c9dcd5e77eb9ff73a9a0de9a43cbba5d42",
+      "summary": {
+        "tables": 6,
+        "formulas": 0,
+        "embeddedModels": [
+          "test",
+          "rna_pipeline_manager"
+        ],
+        "preview": [
+          {
+            "name": "Software",
+            "rows": 14,
+            "cols": 2,
+            "header": [
+              "Step Description",
+              "Time Required"
+            ]
+          },
+          {
+            "name": "raw",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          },
+          {
+            "name": "pipeline",
+            "rows": 3,
+            "cols": 5,
+            "header": [
+              "Study",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "study_exense",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP"
+            ]
+          },
+          {
+            "name": "pipelinecost",
+            "rows": 2,
+            "cols": 5,
+            "header": [
+              "2025",
+              "2026",
+              "2027",
+              "Total"
+            ]
+          },
+          {
+            "name": "FTE_Tx",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "startup-cap-table",
+      "title": "Startup cap table, SAFE to priced round",
+      "kind": "model",
+      "category": "company-models",
+      "description": "Converts SAFEs (amount, cap, discount) into a priced round and shows share price, pro rata, post-round ownership and implied valuation for investors and founders.",
+      "tags": [
+        "cap table",
+        "SAFE",
+        "fundraising"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/startups",
+      "name": "Startup-Captable.ljl",
+      "file": "business-models/startups/Startup-Captable.ljl",
+      "also": [],
+      "size": 15434,
+      "sha256": "4e6b0841715a1fa6981d3e56aa104b29af01a4fb733d26326a123f8ea0da8561",
+      "summary": {
+        "tables": 7,
+        "formulas": 43,
+        "embeddedModels": [
+          "startup_captable"
+        ],
+        "preview": [
+          {
+            "name": "investors",
+            "rows": 8,
+            "cols": 10,
+            "header": [
+              "Investor",
+              "SAFE Amount",
+              "Cap",
+              "Discount",
+              "SharePrice",
+              "SAFE Shares"
+            ]
+          },
+          {
+            "name": "valuation",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "PostRoundValuation"
+            ]
+          },
+          {
+            "name": "safe",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "ValuationPricePerShare"
+            ]
+          },
+          {
+            "name": "priced_round",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "PricePerShare"
+            ]
+          },
+          {
+            "name": "company",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "PreSAFE_Shares"
+            ]
+          },
+          {
+            "name": "ownership",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "TotalShares"
+            ]
+          },
+          {
+            "name": "founders",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "PostRoundOwnership",
+              "ImpliedValuation"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "simple-pnl",
+      "title": "Simple monthly and annual budget",
+      "kind": "model",
+      "category": "company-models",
+      "description": "Budget categories with monthly and annual amounts and their totals.",
+      "tags": [
+        "budget",
+        "P&L"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models/software",
+      "name": "simple-pnl-model.ljl",
+      "file": "business-models/software/simple-pnl-model.ljl",
+      "also": [],
+      "size": 6417,
+      "sha256": "004733986e6dd9eda56210597fd1b67fc805358f51e44a862e64ada04a29b90f",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "budget",
+            "rows": 1,
+            "cols": 4,
+            "header": [
+              "Category",
+              "Description",
+              "Monthly Budget ($)",
+              "Annual Budget ($)"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "fte-plan",
+      "title": "FTE plan, three years",
+      "kind": "table",
+      "category": "company-models",
+      "description": "Positions and salaries with headcount by year and a total, the staffing block most of the company models reuse.",
+      "tags": [
+        "FTE",
+        "staffing"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/finance",
+      "name": "fte.ljt",
+      "file": "tables/finance/fte.ljt",
+      "also": [],
+      "size": 3006,
+      "sha256": "1ab102a603ee4c8287c3ff4a7c80f16a1b20edbf0b5bc473fbf0581da3895f26",
+      "summary": {
+        "tables": 1,
+        "formulas": 1,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "fte",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          }
+        ],
+        "internalName": "fte"
+      },
+      "issues": []
+    },
+    {
+      "id": "itemized-cost",
+      "title": "Itemized cost",
+      "kind": "table",
+      "category": "company-models",
+      "description": "Item and cost rows for a quick itemized estimate.",
+      "tags": [
+        "cost"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/finance",
+      "name": "itemized-cost.ljt",
+      "file": "tables/finance/itemized-cost.ljt",
+      "also": [
+        "finance/itemized-cost.ljt"
+      ],
+      "size": 3703,
+      "sha256": "31da7aa3af32c051818394cc19426a3ba3a3a80fb6b076d53111ad1454bd792c",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "finbackgoby",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          }
+        ],
+        "internalName": "finbackgoby"
+      },
+      "issues": []
+    },
+    {
+      "id": "item-cost",
+      "title": "Item cost (blank)",
+      "kind": "table",
+      "category": "company-models",
+      "description": "An empty item and cost table.",
+      "tags": [
+        "cost"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/finance",
+      "name": "item-cost.ljt",
+      "file": "finance/item-cost.ljt",
+      "also": [],
+      "size": 1392,
+      "sha256": "22846ca80b229bb566c36d00a6c5ba5af042184b59f5267cd6fc1f1e29874118",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "finbackgoby",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          }
+        ],
+        "internalName": "finbackgoby"
+      },
+      "issues": []
+    },
+    {
+      "id": "summary-amount",
+      "title": "Summary amount",
+      "kind": "table",
+      "category": "company-models",
+      "description": "A single-cell total, for showing one rolled-up figure on the canvas.",
+      "tags": [
+        "summary"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/finance",
+      "name": "summary-amount.ljt",
+      "file": "finance/summary-amount.ljt",
+      "also": [],
+      "size": 759,
+      "sha256": "df0c5f6683e1b3439ba800ad6cedadb14694c897f80393e4fb4686f2c873bf5d",
+      "summary": {
+        "tables": 0,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [],
+        "internalName": "sealiondorsal"
+      },
+      "issues": []
+    },
+    {
+      "id": "summary-cost",
+      "title": "Cost summary",
+      "kind": "table",
+      "category": "company-models",
+      "description": "A single-cell cost summary driven by a formula.",
+      "tags": [
+        "summary",
+        "cost"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/finance",
+      "name": "summary-cost.ljt",
+      "file": "finance/summary-cost.ljt",
+      "also": [],
+      "size": 4444,
+      "sha256": "4a049bf0fb2c492ce7e25ccb1a969e5a292147cd217550154c60000bb7a89370",
+      "summary": {
+        "tables": 1,
+        "formulas": 1,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "zsdfg",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "145"
+            ]
+          }
+        ],
+        "internalName": "zsdfg"
+      },
+      "issues": []
+    },
+    {
+      "id": "software-company-pnl",
+      "title": "Software company P&L",
+      "kind": "table",
+      "category": "company-models",
+      "description": "A three-year (2025 to 2027) software company P&L with 24 line items and 21 formulas.",
+      "tags": [
+        "software",
+        "P&L"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/finance/software",
+      "name": "software-compan-pnl.ljt",
+      "file": "tables/finance/software/software-compan-pnl.ljt",
+      "also": [],
+      "size": 7633,
+      "sha256": "16343136fcb0f20e4313d70ef140d61dafec8a84d70c10281e8ebd516c98de44",
+      "summary": {
+        "tables": 1,
+        "formulas": 21,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "data",
+            "rows": 24,
+            "cols": 4,
+            "header": [
+              "Category",
+              "2025",
+              "2026",
+              "2027"
+            ]
+          }
+        ],
+        "internalName": "data"
+      },
+      "issues": []
+    },
+    {
+      "id": "software-products-pnl",
+      "title": "Software products P&L",
+      "kind": "table",
+      "category": "company-models",
+      "description": "A 40-row P&L for software products with 15 formulas.",
+      "tags": [
+        "software",
+        "P&L"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/finance/software",
+      "name": "software-products-pnl.ljt",
+      "file": "tables/finance/software/software-products-pnl.ljt",
+      "also": [],
+      "size": 6604,
+      "sha256": "9e702b0a653ae07945b09b77a037b4a10caa5520a76dd667deddb68edc41650f",
+      "summary": {
+        "tables": 1,
+        "formulas": 15,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "data",
+            "rows": 40,
+            "cols": 2,
+            "header": []
+          }
+        ],
+        "internalName": "data"
+      },
+      "issues": []
+    },
+    {
+      "id": "nonclinical-individualized-aso-timeline",
+      "title": "Nonclinical development of individualized ASOs",
+      "kind": "timeline",
+      "category": "timelines",
+      "description": "Seventeen milestones over about seven months: therapeutic goal, chemistry class, in vitro and in vivo proof of concept, off-target analysis, hybridization-independent toxicity, a single general tox study with FDA input, and hERG considerations.",
+      "tags": [
+        "ASO",
+        "nonclinical",
+        "n-of-1"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/timelines/clinical",
+      "name": "Nonclinical-Development-of-Individualized-ASOs.ljp",
+      "file": "timelines/clinical/Nonclinical-Development-of-Individualized-ASOs.ljp",
+      "also": [],
+      "size": 2482,
+      "sha256": "fb43711a51df3f58f8ab60418ed7e28fb04a0e6027a98275e641152736ee6abc",
+      "summary": {
+        "milestones": 17,
+        "range": [
+          "June 17, 2025",
+          "January 31, 2026"
+        ],
+        "preview": [
+          "Define therapeutic goal and mechanism – confirm disease-causing variant and proposed molecular target",
+          "Classify the ASO chemistry – ensure it falls within well-characterized categories (e.g. MOE-phosphorothioate)",
+          "Generate in vitro proof-of-concept (POC) – target knockdown or splice modulation using patient-derived cells",
+          "Confirm activity in vivo (if feasible) – use appropriate animal models or ASO-transfected tissues",
+          "Conduct BLAST or similar analysis – assess hybridization-dependent off-target risks",
+          "Evaluate hybridization-independent toxicity – infer from known class effects of similar ASOs"
+        ],
+        "internalName": "Tuesday, June 17, 2025 - Saturday, January 31, 2026"
+      },
+      "issues": []
+    },
+    {
+      "id": "aso-nonclinical-plan-timeline",
+      "title": "ASO nonclinical plan (copy)",
+      "kind": "timeline",
+      "category": "timelines",
+      "description": "The same milestones as the individualized ASO nonclinical timeline. The file is named phase 1 clinical timeline but holds the nonclinical plan.",
+      "tags": [
+        "ASO",
+        "nonclinical"
+      ],
+      "status": "retired",
+      "notes": "Misnamed (internal name 'asdfad'); superseded by nonclinical-individualized-aso-timeline.",
+      "source": "builtin",
+      "spath": "/baja/templates/clinical",
+      "name": "phase1-clinical-timeline.ljp",
+      "file": "clinical/phase1-clinical-timeline.ljp",
+      "also": [],
+      "size": 3410,
+      "sha256": "34f620ba906e6df33337ec127ebf7b1518cf966d34c34cce8ece5bd20cef6f83",
+      "summary": {
+        "milestones": 17,
+        "range": [
+          "June 17, 2025",
+          "January 31, 2026"
+        ],
+        "preview": [
+          "Define therapeutic goal and mechanism – confirm disease-causing variant and proposed molecular target",
+          "Classify the ASO chemistry – ensure it falls within well-characterized categories (e.g. MOE-phosphorothioate)",
+          "Generate in vitro proof-of-concept (POC) – target knockdown or splice modulation using patient-derived cells",
+          "Confirm activity in vivo (if feasible) – use appropriate animal models or ASO-transfected tissues",
+          "Conduct BLAST or similar analysis – assess hybridization-dependent off-target risks",
+          "Evaluate hybridization-independent toxicity – infer from known class effects of similar ASOs"
+        ],
+        "internalName": "asdfad"
+      },
+      "issues": [
+        "internal name is a placeholder (\"asdfad\")"
+      ]
+    },
+    {
+      "id": "phase-1-trial-timeline",
+      "title": "Phase 1 clinical trial",
+      "kind": "timeline",
+      "category": "timelines",
+      "description": "Ten phases over a year: pre-IND preparation, IND submission and FDA review, site selection and IRB, start-up, recruitment, SAD and MAD dosing, safety and PK analysis, data cleaning and statistics, and the clinical study report.",
+      "tags": [
+        "phase 1",
+        "clinical",
+        "SAD",
+        "MAD"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Internal timeline name is 'test', which shows as its title on the canvas.",
+      "source": "builtin",
+      "spath": "/baja/templates/timelines/clinical",
+      "name": "phase1-clinical-trial.ljp",
+      "file": "timelines/clinical/phase1-clinical-trial.ljp",
+      "also": [],
+      "size": 1221,
+      "sha256": "b705ef7a1814d26e00481242b0a7c35af28e1d6ee6c7dffa77ea7edbeb4dbf3d",
+      "summary": {
+        "milestones": 10,
+        "range": [
+          "January 1, 2025",
+          "December 31, 2025"
+        ],
+        "preview": [
+          "1. Pre-IND Preparation",
+          "2. IND Submission & FDA Review",
+          "3. Site Selection & IRB Approval",
+          "4. Study Start-Up Activities",
+          "5. Subject Recruitment & Screening",
+          "6. Dosing – Single Ascending Dose (SAD)"
+        ],
+        "internalName": "test"
+      },
+      "issues": [
+        "internal name is a placeholder (\"test\")"
+      ]
+    },
+    {
+      "id": "substantial-evidence-timeline",
+      "title": "Substantial evidence path (FDA guidance)",
+      "kind": "timeline",
+      "category": "timelines",
+      "description": "Planning and pre-IND, preclinical and mechanistic studies, one adequate and well-controlled trial with confirmatory evidence, end-of-phase 2 or pre-NDA meeting, NDA or BLA submission and FDA review, 2025 to 2030.",
+      "tags": [
+        "FDA",
+        "regulatory",
+        "NDA",
+        "BLA"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/clinical",
+      "name": "Demonstrating-Substantial-Evidence-FDA-Guidance.ljp",
+      "file": "clinical/Demonstrating-Substantial-Evidence-FDA-Guidance.ljp",
+      "also": [],
+      "size": 1197,
+      "sha256": "744810e0870c39476b2b5950093111a3a66babb334cbf6c9392717bf56028706",
+      "summary": {
+        "milestones": 6,
+        "range": [
+          "June 18, 2025",
+          "January 18, 2030"
+        ],
+        "preview": [
+          "Initial Planning and Pre-IND Meeting",
+          "Preclinical and Mechanistic Studies",
+          "Conduct of One Adequate and Well-Controlled Clinical Investigation",
+          "End-of-Phase 2 Meeting or Pre-NDA Meeting",
+          "NDA/BLA Submission",
+          "FDA Review and Decision"
+        ],
+        "internalName": "Wednesday, June 18, 2025 - Friday, January 18, 2030"
+      },
+      "issues": []
+    },
+    {
+      "id": "rare-disease-program-timeline",
+      "title": "Rare disease ASO program",
+      "kind": "timeline",
+      "category": "timelines",
+      "description": "Lead ID, tolerability lead ID, rodent tox, HPLC method development, manufacturing setup and release, GLP tox and IND for a rare disease ASO program.",
+      "tags": [
+        "rare disease",
+        "ASO",
+        "IND"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/timelines/science/drug-discovery",
+      "name": "rare-disease-timeline.ljp",
+      "file": "timelines/science/drug-discovery/rare-disease-timeline.ljp",
+      "also": [],
+      "size": 1285,
+      "sha256": "f87a8bff7fb9c5f842d72589cce5d69c9292998f807928b11d1b1f4c7a575388",
+      "summary": {
+        "milestones": 8,
+        "range": [
+          "June 12, 2025",
+          "June 30, 2025"
+        ],
+        "preview": [
+          "Lead ID",
+          "Tolerability Lead ID",
+          "IND",
+          "Rodent Tox",
+          "HPLC Method Development",
+          "Manufacturing Setup (single cycle)"
+        ],
+        "internalName": "Lafora"
+      },
+      "issues": []
+    },
+    {
+      "id": "simple-timeline",
+      "title": "Blank timeline",
+      "kind": "timeline",
+      "category": "timelines",
+      "description": "An empty timeline with a start and an end date, ready for your own milestones.",
+      "tags": [
+        "blank"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/timelines",
+      "name": "Simple-timeline.ljp",
+      "file": "timelines/Simple-timeline.ljp",
+      "also": [],
+      "size": 689,
+      "sha256": "cd72e34d88b6a6e59ba0886a54f10e4b5c59635c78aabbc590ae35021563fa88",
+      "summary": {
+        "milestones": 0,
+        "range": [
+          "June 16, 2025",
+          "June 16, 2025"
+        ],
+        "preview": [],
+        "internalName": "Monday, June 16, 2025 - Monday, June 16, 2025"
+      },
+      "issues": []
+    },
+    {
+      "id": "day-timeline",
+      "title": "One-day timeline",
+      "kind": "timeline",
+      "category": "timelines",
+      "description": "An empty single-day timeline for scheduling a run or an experiment day.",
+      "tags": [
+        "blank",
+        "day"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/timelines",
+      "name": "Day.ljp",
+      "file": "timelines/Day.ljp",
+      "also": [],
+      "size": 630,
+      "sha256": "ba2254e8a3e81b9c23128198cefdd4e1aa6fdc19fd1e7cc30893bd6f152b8074",
+      "summary": {
+        "milestones": 0,
+        "range": [
+          "June 16, 2025",
+          "June 16, 2025"
+        ],
+        "preview": [],
+        "internalName": "Monday, June 16, 2025 - Monday, June 16, 2025"
+      },
+      "issues": []
+    },
+    {
+      "id": "mars-mission-timeline",
+      "title": "Mars mission, 30 years",
+      "kind": "timeline",
+      "category": "examples",
+      "description": "A 2025 to 2055 program from mission design through uncrewed missions, crew training, transit, landing and early surface stays.",
+      "tags": [
+        "example",
+        "space"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/timelines/science",
+      "name": "mars-mission.ljp",
+      "file": "timelines/science/mars-mission.ljp",
+      "also": [],
+      "size": 1185,
+      "sha256": "7842069cddd1a2b1c1ca937048cc7b5fbb420ec908d1962e2a573a75aa3593a3",
+      "summary": {
+        "milestones": 9,
+        "range": [
+          "June 16, 2025",
+          "June 16, 2055"
+        ],
+        "preview": [
+          "Mission Planning and Design",
+          "Technology Development and Testing",
+          "Launch Infrastructure and Assembly",
+          "Uncrewed Missions to Mars",
+          "Crew Training and Mission Rehearsals",
+          "Mars Transfer Window Preparation"
+        ],
+        "internalName": "Monday, June 16, 2025 - Wednesday, June 16, 2055"
+      },
+      "issues": []
+    },
+    {
+      "id": "mars-transit-timeline",
+      "title": "Mars transit",
+      "kind": "timeline",
+      "category": "examples",
+      "description": "Pre-launch checkout through trans-Mars injection, transit, orbit insertion, landing and surface setup.",
+      "tags": [
+        "example",
+        "space"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/timelines/science",
+      "name": "mars-travel-time.ljp",
+      "file": "timelines/science/mars-travel-time.ljp",
+      "also": [],
+      "size": 1219,
+      "sha256": "4a2ef20fc80d5a260737f01ca0b8e25167c3e5e9a9726e66168e78ac97ca4a6e",
+      "summary": {
+        "milestones": 10,
+        "range": [
+          "June 16, 2025",
+          "January 1, 2027"
+        ],
+        "preview": [
+          "Final Pre-Launch Checkouts",
+          "Crew and Cargo Integration",
+          "Countdown and Launch",
+          "Earth Orbit Parking and System Checkout",
+          "Trans-Mars Injection Burn",
+          "Transit from Earth to Mars"
+        ],
+        "internalName": "Monday, June 16, 2025 - Friday, January 1, 2027"
+      },
+      "issues": []
+    },
+    {
+      "id": "real-estate-investment",
+      "title": "Real estate investment projection",
+      "kind": "model",
+      "category": "examples",
+      "description": "A pro forma cash-flow model that forecasts multifamily investment performance from acquisition to sale.",
+      "tags": [
+        "example",
+        "real estate",
+        "cash flow"
+      ],
+      "status": "needs-cleanup",
+      "notes": "8 MB: embeds the construction budget and the startup cap table.",
+      "source": "builtin",
+      "spath": "/baja/templates/real-estate",
+      "name": "Real-estate-investment-projection-model.ljl",
+      "file": "real-estate/Real-estate-investment-projection-model.ljl",
+      "also": [],
+      "size": 8429478,
+      "sha256": "d84ec469231d29b64ce48bfbe01cd5c794d4bbdaa8f089af5e1089627570db78",
+      "summary": {
+        "tables": 41,
+        "formulas": 159,
+        "embeddedModels": [
+          "three_story_commerical_building",
+          "startup_captable",
+          "real_estate_investment_projection",
+          "Real_estate_investment_projection_modelljl"
+        ],
+        "preview": [
+          {
+            "name": "labor_costs",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "Labor Cost"
+            ]
+          },
+          {
+            "name": "labor",
+            "rows": 2,
+            "cols": 3,
+            "header": [
+              "HourlyRate",
+              "Hours"
+            ]
+          },
+          {
+            "name": "materials_costs",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "Floor1",
+              "Floor2",
+              "Floor3"
+            ]
+          },
+          {
+            "name": "materials",
+            "rows": 3,
+            "cols": 4,
+            "header": [
+              "Concrete",
+              "Steel",
+              "Glass"
+            ]
+          },
+          {
+            "name": "materials_total",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "4300"
+            ]
+          },
+          {
+            "name": "equipment_rental",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Crane & Elevator",
+              "15000"
+            ]
+          },
+          {
+            "name": "equipment",
+            "rows": 1,
+            "cols": 4,
+            "header": [
+              "Crane",
+              "Elevator",
+              "Scaffolding"
+            ]
+          },
+          {
+            "name": "duration",
+            "rows": 1,
+            "cols": 10,
+            "header": [
+              "Crane",
+              "Elevator",
+              "Scaffolding",
+              "Foundation",
+              "Structure",
+              "Exterior"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": [
+        "large payload (8.0 MB)"
+      ]
+    },
+    {
+      "id": "commercial-building-construction",
+      "title": "Three-story commercial building",
+      "kind": "model",
+      "category": "examples",
+      "description": "Construction budget by floor: labor, materials, equipment rental and durations, permits, contingency, land and design fees, rolled into total project cost.",
+      "tags": [
+        "example",
+        "construction"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/real-estate/construction",
+      "name": "three-story-commerical-building.ljl",
+      "file": "real-estate/construction/three-story-commerical-building.ljl",
+      "also": [],
+      "size": 344536,
+      "sha256": "6125ddba422f00435e7f5e0ca43d5ca9f695dcd05d08c1987ed9f40381609866",
+      "summary": {
+        "tables": 13,
+        "formulas": 16,
+        "embeddedModels": [
+          "three_story_commerical_building"
+        ],
+        "preview": [
+          {
+            "name": "labor_costs",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "Labor Cost"
+            ]
+          },
+          {
+            "name": "labor",
+            "rows": 2,
+            "cols": 3,
+            "header": [
+              "HourlyRate",
+              "Hours"
+            ]
+          },
+          {
+            "name": "materials_costs",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "Floor1",
+              "Floor2",
+              "Floor3"
+            ]
+          },
+          {
+            "name": "materials",
+            "rows": 3,
+            "cols": 4,
+            "header": [
+              "Concrete",
+              "Steel",
+              "Glass"
+            ]
+          },
+          {
+            "name": "materials_total",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "4300"
+            ]
+          },
+          {
+            "name": "equipment_rental",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Crane & Elevator",
+              "15000"
+            ]
+          },
+          {
+            "name": "equipment",
+            "rows": 1,
+            "cols": 4,
+            "header": [
+              "Crane",
+              "Elevator",
+              "Scaffolding"
+            ]
+          },
+          {
+            "name": "duration",
+            "rows": 1,
+            "cols": 10,
+            "header": [
+              "Crane",
+              "Elevator",
+              "Scaffolding",
+              "Foundation",
+              "Structure",
+              "Exterior"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "real-estate-license",
+      "title": "Getting a real estate license",
+      "kind": "model",
+      "category": "examples",
+      "description": "Steps to a state real estate license with time for each.",
+      "tags": [
+        "example"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/real-estate",
+      "name": "license.ljl",
+      "file": "real-estate/license.ljl",
+      "also": [],
+      "size": 7048,
+      "sha256": "d76de8c53abb65689223472d7fb958de2724a92677aff9e8fe49c51cc70b3002",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [
+          "Real_estate_license"
+        ],
+        "preview": [
+          {
+            "name": "real_estate_license",
+            "rows": 8,
+            "cols": 2,
+            "header": [
+              "Research state licensing requirements",
+              "1–2 days"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "brewery-taproom",
+      "title": "Brewery with taproom",
+      "kind": "model",
+      "category": "examples",
+      "description": "Volumes, revenue and revenue deductions for a brewery with a taproom.",
+      "tags": [
+        "example",
+        "food and beverage"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Embeds the construction budget and the startup cap table.",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models",
+      "name": "Brewery-with-taproom.ljl",
+      "file": "business-models/Brewery-with-taproom.ljl",
+      "also": [],
+      "size": 2247363,
+      "sha256": "8a80c0ed5bb58dbaafd01a2a241872f72b492ba717f168d0b86d25eaa36e6c27",
+      "summary": {
+        "tables": 33,
+        "formulas": 98,
+        "embeddedModels": [
+          "three_story_commerical_building",
+          "startup_captable",
+          "Brewery_with_taproom"
+        ],
+        "preview": [
+          {
+            "name": "labor_costs",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "Labor Cost"
+            ]
+          },
+          {
+            "name": "labor",
+            "rows": 2,
+            "cols": 3,
+            "header": [
+              "HourlyRate",
+              "Hours"
+            ]
+          },
+          {
+            "name": "materials_costs",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "Floor1",
+              "Floor2",
+              "Floor3"
+            ]
+          },
+          {
+            "name": "materials",
+            "rows": 3,
+            "cols": 4,
+            "header": [
+              "Concrete",
+              "Steel",
+              "Glass"
+            ]
+          },
+          {
+            "name": "materials_total",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "4300"
+            ]
+          },
+          {
+            "name": "equipment_rental",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Crane & Elevator",
+              "15000"
+            ]
+          },
+          {
+            "name": "equipment",
+            "rows": 1,
+            "cols": 4,
+            "header": [
+              "Crane",
+              "Elevator",
+              "Scaffolding"
+            ]
+          },
+          {
+            "name": "duration",
+            "rows": 1,
+            "cols": 10,
+            "header": [
+              "Crane",
+              "Elevator",
+              "Scaffolding",
+              "Foundation",
+              "Structure",
+              "Exterior"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": [
+        "large payload (2.1 MB)"
+      ]
+    },
+    {
+      "id": "hot-dog-truck",
+      "title": "Hot dog truck",
+      "kind": "model",
+      "category": "examples",
+      "description": "Products with unit price and units sold, summed into total sales. The smallest working model; good for learning the workbook.",
+      "tags": [
+        "example",
+        "starter"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models",
+      "name": "hot-dog-truck.ljl",
+      "file": "business-models/hot-dog-truck.ljl",
+      "also": [],
+      "size": 133112,
+      "sha256": "56a3316fdb27f205dffe081322b6a47cec5b92744c5d9f9f4163e097f24f2090",
+      "summary": {
+        "tables": 2,
+        "formulas": 2,
+        "embeddedModels": [
+          "Hot_dog_truck"
+        ],
+        "preview": [
+          {
+            "name": "Inputs",
+            "rows": 3,
+            "cols": 3,
+            "header": [
+              "Product",
+              "Unit Price",
+              "Units Sold"
+            ]
+          },
+          {
+            "name": "Total",
+            "rows": 0,
+            "cols": 2,
+            "header": [
+              "Total Sales",
+              "1225"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "professional-poker",
+      "title": "Professional poker",
+      "kind": "model",
+      "category": "examples",
+      "description": "Cash-game and tournament inputs and derived results, combined into totals and the probability of a profitable year.",
+      "tags": [
+        "example",
+        "probability"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models",
+      "name": "Professional_Poker.ljl",
+      "file": "business-models/Professional_Poker.ljl",
+      "also": [],
+      "size": 14557,
+      "sha256": "de8de4cc94060e321ca9f51fae25c51638406c30f72401969a3e04d8b354d33d",
+      "summary": {
+        "tables": 7,
+        "formulas": 24,
+        "embeddedModels": [
+          "Professional_Poker"
+        ],
+        "preview": [
+          {
+            "name": "cash_inputs",
+            "rows": 9,
+            "cols": 2,
+            "header": [
+              "Input Params"
+            ]
+          },
+          {
+            "name": "cash_derived",
+            "rows": 3,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "cash_totals",
+            "rows": 5,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "mtt_inputs",
+            "rows": 8,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "mtt_derived",
+            "rows": 5,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "combo",
+            "rows": 6,
+            "cols": 2,
+            "header": []
+          },
+          {
+            "name": "probability",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "CashProfit>0",
+              "MTTProfit>0",
+              "Profit>0"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "author-business",
+      "title": "Author business",
+      "kind": "model",
+      "category": "examples",
+      "description": "Novels per series, writing days per novel and books released, projected into book revenue.",
+      "tags": [
+        "example",
+        "sole proprietorship"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Also contains the RNA pipeline manager and real-estate license models.",
+      "source": "builtin",
+      "spath": "/baja/templates/business-models",
+      "name": "Author.ljl",
+      "file": "business-models/Author.ljl",
+      "also": [
+        "business-models/Sole-Proprietorship/author.ljl"
+      ],
+      "size": 332904,
+      "sha256": "3bab73a183bcd686e2d9d13e9ea35262590eadcb3743f4e2c7795519d98457df",
+      "summary": {
+        "tables": 10,
+        "formulas": 7,
+        "embeddedModels": [
+          "Real_estate_license",
+          "rna_dataset",
+          "test",
+          "rna_pipeline_manager",
+          "crinoidabyssopelagic"
+        ],
+        "preview": [
+          {
+            "name": "real_estate_license",
+            "rows": 8,
+            "cols": 2,
+            "header": [
+              "Research state licensing requirements",
+              "1–2 days"
+            ]
+          },
+          {
+            "name": "Software",
+            "rows": 14,
+            "cols": 2,
+            "header": [
+              "Step Description",
+              "Time Required"
+            ]
+          },
+          {
+            "name": "raw",
+            "rows": 3,
+            "cols": 2,
+            "header": [
+              "Item",
+              "Cost"
+            ]
+          },
+          {
+            "name": "pipeline",
+            "rows": 3,
+            "cols": 5,
+            "header": [
+              "Study",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "study_exense",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "In Vitro Lead",
+              "In Vivo Lead",
+              "NHP"
+            ]
+          },
+          {
+            "name": "pipelinecost",
+            "rows": 2,
+            "cols": 5,
+            "header": [
+              "2025",
+              "2026",
+              "2027",
+              "Total"
+            ]
+          },
+          {
+            "name": "FTE_Tx",
+            "rows": 3,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "Parameters",
+            "rows": 10,
+            "cols": 3,
+            "header": [
+              "Number of novels",
+              "5",
+              "Number of books in the series"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "general-aviation-ownership",
+      "title": "Cost of owning a general aviation airplane",
+      "kind": "model",
+      "category": "examples",
+      "description": "Purchase price, annual insurance and hangar, fuel and maintenance per hour, flight hours and training, rolled into the annual cost of ownership.",
+      "tags": [
+        "example",
+        "aviation"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/home-projects/Aviation",
+      "name": "Cost-of-a-general-aviation-airplane.ljl",
+      "file": "home-projects/Aviation/Cost-of-a-general-aviation-airplane.ljl",
+      "also": [],
+      "size": 7158,
+      "sha256": "c55068e94814ee9a047e3108f1d79fdf3dd35df34fca35689360f3afe962606d",
+      "summary": {
+        "tables": 8,
+        "formulas": 4,
+        "embeddedModels": [
+          "cost_of_owning_a_general_aviation_plane"
+        ],
+        "preview": [
+          {
+            "name": "fixed_costs",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "525000"
+            ]
+          },
+          {
+            "name": "aircraft",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "PurchasePrice"
+            ]
+          },
+          {
+            "name": "annual",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Insurance",
+              "Hangar Fee (annual)"
+            ]
+          },
+          {
+            "name": "variable_costs",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "15800"
+            ]
+          },
+          {
+            "name": "per_hour",
+            "rows": 1,
+            "cols": 2,
+            "header": [
+              "Fuel",
+              "Maintenance (per/hr)"
+            ]
+          },
+          {
+            "name": "flight_hours",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "Annual"
+            ]
+          },
+          {
+            "name": "training",
+            "rows": 1,
+            "cols": 1,
+            "header": [
+              "Annual training costs"
+            ]
+          },
+          {
+            "name": "ownership_total",
+            "rows": 0,
+            "cols": 1,
+            "header": [
+              "540800"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "ipa-homebrew",
+      "title": "IPA homebrew",
+      "kind": "model",
+      "category": "examples",
+      "description": "Brew-day steps with the time each takes.",
+      "tags": [
+        "example",
+        "homebrew"
+      ],
+      "status": "needs-cleanup",
+      "notes": "Also contains the screening labor model.",
+      "source": "builtin",
+      "spath": "/baja/templates/home-projects/home-brew",
+      "name": "ipa-homebrew.ljl",
+      "file": "home-projects/home-brew/ipa-homebrew.ljl",
+      "also": [],
+      "size": 279688,
+      "sha256": "f4c2d7594b0485c2e152fbf3906f199d68952d401dcd798b3259850c3f1ec687",
+      "summary": {
+        "tables": 5,
+        "formulas": 0,
+        "embeddedModels": [
+          "IPA_Homebrew",
+          "test",
+          "hellowlrld"
+        ],
+        "preview": [
+          {
+            "name": "Steps",
+            "rows": 15,
+            "cols": 2,
+            "header": [
+              "Step Description",
+              "Time Required"
+            ]
+          },
+          {
+            "name": "fte",
+            "rows": 4,
+            "cols": 6,
+            "header": [
+              "Position",
+              "Salary",
+              "yr1",
+              "yr2",
+              "yr3",
+              "Total"
+            ]
+          },
+          {
+            "name": "screen_costs",
+            "rows": 4,
+            "cols": 4,
+            "header": [
+              "Primary",
+              "Dose Response",
+              "Tox"
+            ]
+          },
+          {
+            "name": "total_screen_costs",
+            "rows": 1,
+            "cols": 3,
+            "header": [
+              "Primary Screens",
+              "Dose Response",
+              "Tox"
+            ]
+          },
+          {
+            "name": "capital_screening",
+            "rows": 5,
+            "cols": 4,
+            "header": [
+              "Instrument",
+              "Count",
+              "Cost",
+              "Description"
+            ]
+          }
+        ],
+        "internalName": ""
+      },
+      "issues": []
+    },
+    {
+      "id": "las-vegas-odds",
+      "title": "Las Vegas house edge",
+      "kind": "table",
+      "category": "examples",
+      "description": "Common casino games with typical bets and house edge.",
+      "tags": [
+        "example",
+        "probability"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/tables",
+      "name": "Las_Vegas_odds.ljt",
+      "file": "tables/tables/Las_Vegas_odds.ljt",
+      "also": [],
+      "size": 2857,
+      "sha256": "bf00e2d645387f44bd8ecf76788415e562c65b2f950f4512bfd25a06789b3230",
+      "summary": {
+        "tables": 1,
+        "formulas": 0,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "Las_Vegas_odds",
+            "rows": 9,
+            "cols": 3,
+            "header": [
+              "🎲 Game",
+              "Typical Bets",
+              "House Edge (%)"
+            ]
+          }
+        ],
+        "internalName": "Las_Vegas_odds"
+      },
+      "issues": []
+    },
+    {
+      "id": "short-selling-calculator",
+      "title": "Short selling and options calculator",
+      "kind": "table",
+      "category": "examples",
+      "description": "Sixteen metrics for a short position, with seven formulas.",
+      "tags": [
+        "example",
+        "finance"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/finance/stocks",
+      "name": "short-selling-options-calculator.ljt",
+      "file": "tables/finance/stocks/short-selling-options-calculator.ljt",
+      "also": [],
+      "size": 3400,
+      "sha256": "a7d8d0c6ce87e2b7b2fc667834be9214f06065c8d8b80b33e66cf4a8a7508bd2",
+      "summary": {
+        "tables": 1,
+        "formulas": 9,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "short_sell_calc",
+            "rows": 16,
+            "cols": 2,
+            "header": [
+              "Metric",
+              "Value"
+            ]
+          }
+        ],
+        "internalName": "short_sell_calc"
+      },
+      "issues": []
+    },
+    {
+      "id": "auto-manufacturing-engine",
+      "title": "Auto manufacturing: engine assumptions",
+      "kind": "table",
+      "category": "examples",
+      "description": "Engine production assumptions for the auto manufacturing example.",
+      "tags": [
+        "example",
+        "manufacturing"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/manufacturing",
+      "name": "auto-manufacturing-engine.ljt",
+      "file": "tables/manufacturing/auto-manufacturing-engine.ljt",
+      "also": [],
+      "size": 2844,
+      "sha256": "2bb30104dd331a86cb5d025d7a8abb93ce75f68b1d74306672ce7138abc2b9de",
+      "summary": {
+        "tables": 1,
+        "formulas": 3,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "data",
+            "rows": 11,
+            "cols": 2,
+            "header": [
+              "Assumptions - Total Engine Weight (kg)",
+              "180"
+            ]
+          }
+        ],
+        "internalName": "data"
+      },
+      "issues": []
+    },
+    {
+      "id": "auto-manufacturing-tariffs",
+      "title": "Auto manufacturing: tariffs",
+      "kind": "table",
+      "category": "examples",
+      "description": "A 24-row tariff and cost table with 12 formulas for the auto manufacturing example.",
+      "tags": [
+        "example",
+        "manufacturing",
+        "tariffs"
+      ],
+      "status": "ready",
+      "notes": "",
+      "source": "builtin",
+      "spath": "/baja/templates/tables/manufacturing",
+      "name": "auto-manufacturing-main.ljt",
+      "file": "tables/manufacturing/auto-manufacturing-main.ljt",
+      "also": [],
+      "size": 4652,
+      "sha256": "c8f7734bf8feefd2e7e74c4cff550dba3a57ab35a98ecf3dc4ab9f6de39e36fa",
+      "summary": {
+        "tables": 1,
+        "formulas": 14,
+        "embeddedModels": [],
+        "preview": [
+          {
+            "name": "Tarifs",
+            "rows": 24,
+            "cols": 2,
+            "header": []
+          }
+        ],
+        "internalName": "Tarifs"
+      },
+      "issues": []
+    }
+  ]
+}

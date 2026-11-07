@@ -1249,9 +1249,11 @@ function (graph, genegraph_panel_layout) {
 
                                     setTimeout(async () => {
                                         graph.pushOntoHistory()
+                                        const __pepBefore = selectedTrack.orf && selectedTrack.orf.sequence;
                                         for (let snp of snpsv) {
                                             selectedTrack.resolveSNP(snp)
                                         }
+                                        await exec('baja/bio/orfs/refresh-orf-after-mutation.js', selectedTrack, graph, __pepBefore);
                                     })
                                 }
                             },
@@ -1260,9 +1262,11 @@ function (graph, genegraph_panel_layout) {
                                     click: async () => {
                                         setTimeout(async () => {
                                             graph.pushOntoHistory()
+                                            const __pepBefore = selectedTrack.orf && selectedTrack.orf.sequence;
                                             for (let snp of snpsv) {
                                                 selectedTrack.resolveSNP(snp)
                                             }
+                                            await exec('baja/bio/orfs/refresh-orf-after-mutation.js', selectedTrack, graph, __pepBefore);
                                         })
                                     }
                                 })
@@ -1595,6 +1599,31 @@ function (graph, genegraph_panel_layout) {
             return null;
         }
 
+        // How close, in screen pixels above or below an annotation's bar (an exon's is centred on its
+        // y and 14 px tall), the pointer has to be for the hover to light it and a click to open its
+        // menu. One value for both, so what is lit is what a click acts on.
+        const ANN_HIT_Y_PX = 10;
+        // AN EXON IS DRAWN ON THE TRACK'S BASELINE, graph.Y(track.tgraph.Y(0)), not at its own y, so
+        // it is hit-tested there, and tighter: within EXON_HIT_Y_PX screen pixels of that line. Testing
+        // against an.y put the hit band away from the bar that is actually drawn.
+        const EXON_HIT_Y_PX = 5;
+        // BOTH SIDES IN SCREEN PIXELS. `y` is the pointer, and the pointer arrives from the
+        // mouse listeners already in screen coordinates -- which is why the callers convert it
+        // the other way, with Ywc(), when they want world. graph.Y() maps world TO screen, so
+        // graph.Y(y) transformed a screen coordinate as though it were a world one. The
+        // comparison that came out of it was not a distance at all: the band landed mirrored
+        // about the graph's origin, so the pointer lit an exon, and opened its menu, from
+        // somewhere well above the bar while a click on the bar itself could miss.
+        //
+        // The annotation's side is a composition on purpose: tgraph.Y() takes the track's own
+        // world y into the graph's world, and graph.Y() takes that to the screen. That is the
+        // same idiom the drawing uses, so this measures to the pixels the exon is drawn on.
+        const annHit = (track, an, y) => {
+            const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
+            const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
+            return Math.abs(yi - y) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
+        };
+
         let current = null;
         graph.addMouseMoveListener(async (scx, scy) => {
             let x = scx;
@@ -1819,7 +1848,10 @@ function (graph, genegraph_panel_layout) {
                     str.deselect();
                 }
                 for (let an of annotations) {
-                    if (Math.abs(yw - an.y) < 0.05)
+                    // Within ANN_HIT_Y_PX screen pixels of the annotation's bar, the same test the
+                    // click uses. The old test (0.05 in track units) scaled with the track height, so
+                    // on a tall track an exon lit -- and its menu opened -- from well above or below it.
+                    if (annHit(track, an, y))
                         an.select();
                 }
             }
@@ -1903,19 +1935,25 @@ function (graph, genegraph_panel_layout) {
                         let xw = track.tgraph.Xwc(x - track.tgraph.xi * 2);
                         let yw = (track.tgraph.Ywc(y - track.tgraph.yi * 2))
                         let annotations = track.getAnnotationsInRange(xw - 1, xw + 1);
+                        // WHAT THE HOVER LIT IS WHAT THE CLICK ACTS ON. Both use the same
+                        // ANN_HIT_Y_PX band now; the hover's answer is still read (before the
+                        // deselect below wipes it) so a release a pixel off a lit exon still counts.
+                        const hovered = new Set((track.annotations || []).filter((a) => a && (a.highlighted || (a.isSelected && a.isSelected()))));
                         for (let str of track.annotations) {
                             str.deselect();
                         }
-                        const HIT_Y_PX = 10;
+                        const HIT_Y_PX = ANN_HIT_Y_PX;
                         const mergedMenu = { title: "Annotations", items: [] };
+                        const annHits = [];
                         for (let an of annotations) {
                             if (!an) continue;
-                            const dy = Math.abs(graph.Y(track.tgraph.Y(an.y)) - graph.Y(y));
-                            if (dy > HIT_Y_PX) continue;
+                            if (!annHit(track, an, y) && !hovered.has(an)) continue;
                             an.select();
-                            // Build the annotation's type-specific menu (e.g. an exon
-                            // menu) and stash it in the selection box instead of popping
-                            // it up here — it's shown from selection box → Annotations.
+                            // Build the annotation's type-specific menu (e.g. an exon menu).
+                            // It goes to the selection box, as before, AND opens where the click
+                            // was (below), the way a variant's and an oligo's menus do: stashing
+                            // it in the selection box alone meant a click on an exon showed
+                            // nothing at all.
                             let annMenu = [];
                             try {
                                 const mfToken = MenuFactory?.[an.type];
@@ -1928,6 +1966,75 @@ function (graph, genegraph_panel_layout) {
                                 }
                             } catch (e) { }
                             try { if (graph.addAnnotationToSelection) graph.addAnnotationToSelection(an, track, annMenu); } catch (e) { }
+                            if (annMenu.length) annHits.push({ an: an, items: annMenu.filter(Boolean) });
+                        }
+                        // A CLICK ON THE PEPTIDE. Zoomed in far enough to draw the amino-acid letters, a
+                        // click on one opens the menu of the exon it sits in (the letters are well
+                        // above the exon bar, outside its 10 px band) with "Update ORF" at the top,
+                        // which re-translates the track from its current sequence. The row's height
+                        // above the baseline is recorded by track.js each frame it draws the letters
+                        // (tgraph.__pepMidUpPx); when the letters are not drawn there is nothing to hit.
+                        let __pepHit = null;
+                        try {
+                            const tg = track.tgraph;
+                            const cdsi = (track.orf && Array.isArray(track.orf.cdsi)) ? track.orf.cdsi : null;
+                            // letters are only drawn once a base is several pixels wide
+                            const cellPx = Math.abs(graph.X(tg.X(1)) - graph.X(tg.X(0)));
+                            const basePx = graph.Y(tg.Y(0));
+                            const pepPx = (typeof tg.__pepMidUpPx === 'number' && tg.__pepMidUpPx > 0) ? basePx - tg.__pepMidUpPx
+                                : (typeof tg.__pepMidPx === 'number' ? tg.__pepMidPx : null);
+                            if (cdsi && cdsi.length && cellPx >= 5 && pepPx != null) {
+                                const topPx = (typeof tg.__pepIndexTopUpPx === 'number') ? basePx - tg.__pepIndexTopUpPx : pepPx - 18;
+                                const yPx = graph.Y(y);
+                                if (yPx >= topPx - 4 && yPx <= pepPx + 10) {
+                                    const xi = Math.round(xw);
+                                    const c = cdsi.find((e) => e && e.index === xi) || cdsi.find((e) => e && Math.abs(e.index - xw) < 1);
+                                    if (c) __pepHit = c;
+                                }
+                            }
+                        } catch (e) { __pepHit = null; }
+                        if (__pepHit) {
+                            const xi = __pepHit.index;
+                            const exon = (track.annotations || []).find((a) => a && ('' + a.type).toLowerCase() === 'exon'
+                                && xi >= Math.min(+a.xi, +a.xf) && xi <= Math.max(+a.xi, +a.xf));
+                            if (exon && !annHits.some((h) => h.an === exon)) {
+                                try {
+                                    const mfToken = MenuFactory?.[exon.type];
+                                    const mf = mfToken ? getIon(mfToken) : null;
+                                    const menu = mf ? mf(exon, track, graph, genegraph_panel_layout, x) : null;
+                                    exon.select();
+                                    if (Array.isArray(menu) && menu.length) annHits.unshift({ an: exon, items: menu.filter(Boolean) });
+                                } catch (e) { }
+                            }
+                        }
+                        // The clicked annotations' menus, each under its own name when more than
+                        // one sits under the pointer (an exon and a CDS overlapping, say).
+                        const annName = (a) => '' + (a.name || a.type || 'Annotation');
+                        if (annHits.length === 1) {
+                            mergedMenu.items = annHits[0].items;
+                        } else if (annHits.length > 1) {
+                            for (const h of annHits) {
+                                if (mergedMenu.items.length) mergedMenu.items.push({ type: 'separator' });
+                                mergedMenu.items.push({ label: annName(h.an), header: true }, ...h.items);
+                            }
+                        }
+                        if (__pepHit) {
+                            const __aaName = { A: 'Ala', R: 'Arg', N: 'Asn', D: 'Asp', C: 'Cys', E: 'Glu', Q: 'Gln', G: 'Gly', H: 'His', I: 'Ile', L: 'Leu', K: 'Lys', M: 'Met', F: 'Phe', P: 'Pro', S: 'Ser', T: 'Thr', W: 'Trp', Y: 'Tyr', V: 'Val' };
+                            const __res = (__aaName[__pepHit.aa] || __pepHit.aa || '?') + ((+__pepHit.codon_index || 0) + 1)
+                                + (__pepHit.codon ? ' (' + __pepHit.codon + ')' : '');
+                            mergedMenu.items = [
+                                { label: __res, header: true },
+                                {
+                                    label: 'Update ORF',
+                                    click: async () => {
+                                        const __before = track.orf && track.orf.sequence;
+                                        try { graph.pushOntoHistory(); } catch (e) { }
+                                        await exec('baja/bio/orfs/refresh-orf-after-mutation.js', track, graph, __before);
+                                    }
+                                },
+                                ...(mergedMenu.items.length ? [{ type: 'separator' }] : []),
+                                ...mergedMenu.items
+                            ];
                         }
                         const xWorld = Math.round(
                             track.tgraph.Xwc(graph.mousex - track.tgraph.xi * 2)
@@ -1956,14 +2063,24 @@ function (graph, genegraph_panel_layout) {
                                     { label: '' + (snp.name || 'Variant'), header: true },
                                     ...orderMenu(snpItems),
                                     ...(mergedMenu.items.length ? [{ type: 'separator' }] : []),
-                                    ...orderMenu(mergedMenu.items)
+                                    // as built: re-ordering would lift every annotation's
+                                    // header above all of their items
+                                    ...mergedMenu.items
                                 ];
                             }
                         }
 
 
                         if (mergedMenu && mergedMenu.items && mergedMenu.items.length) {
-                            graph.showSideMenu(mergedMenu.items, x, y, ((snp && snp.name) ? ('' + snp.name) : 'Variant') + ' ▸');
+                            const __title = (snp && snp.name) ? ('' + snp.name)
+                                : (__pepHit ? ('Residue ' + ((+__pepHit.codon_index || 0) + 1))
+                                    : (annHits.length === 1 ? annName(annHits[0].an) : (snp ? 'Variant' : 'Annotations')));
+                            // At the pointer, like the variant and oligo menus; the side panel
+                            // only where a floating menu cannot open (mobile).
+                            const ds = graph.__downScreen || { x: graph.X(x), y: graph.Y(y) };
+                            let floated = false;
+                            try { floated = !!(graph.openFloatingMenu && graph.openFloatingMenu(mergedMenu.items, ds.x, ds.y, __title)); } catch (e) { floated = false; }
+                            if (!floated) graph.showSideMenu(mergedMenu.items, x, y, __title + ' ▸');
                         }
                     }
                 }
@@ -3580,13 +3697,33 @@ function (graph, genegraph_panel_layout) {
 
                 ]
 
-                // Compound actions, only when this track HAS compounds -- three dead entries on
-                // an empty track is worse than none. They act on every compound on the track,
-                // which is what "the compounds" means from a track menu; the per-compound
-                // actions live under Compounds ▸.
+                // Compound actions, only when there ARE compounds -- three dead entries on an
+                // empty track is worse than none. With a sequence selected (markstart..markend)
+                // "the compounds" means the ones in that window, so a window with none shows no
+                // compound items at all (Synthesis cost and Draw > Highlight Compounds included,
+                // below); with no selection it means every compound on the track. The
+                // per-compound actions live under Compounds ▸.
+                const __selRange = (() => {
+                    try {
+                        const a = +selectedTrack.markstart, b = +selectedTrack.markend;
+                        if (isFinite(a) && isFinite(b) && a >= 0 && b > a) return { lo: Math.min(a, b), hi: Math.max(a, b) };
+                    } catch (e) { }
+                    return null;
+                })();
+                const __scopeCs = (() => {
+                    try {
+                        const all = (selectedTrack && Array.isArray(selectedTrack.oligos)) ? selectedTrack.oligos.filter(Boolean) : [];
+                        if (!__selRange) return all;
+                        return all.filter((o) => {
+                            const a = +o.xi, b = (o.xf != null ? +o.xf : +o.xi);
+                            if (!isFinite(a)) return false;
+                            const lo = Math.min(a, isFinite(b) ? b : a), hi = Math.max(a, isFinite(b) ? b : a);
+                            return hi >= __selRange.lo && lo <= __selRange.hi;
+                        });
+                    } catch (e) { return []; }
+                })();
                 try {
-                    const __cs = (selectedTrack && Array.isArray(selectedTrack.oligos))
-                        ? selectedTrack.oligos.filter(Boolean) : [];
+                    const __cs = __scopeCs;
                     if (__cs.length) {
                         golist.push({
                             label: 'Highlight compounds (' + __cs.length + ')',
@@ -4608,7 +4745,8 @@ function (graph, genegraph_panel_layout) {
 
                                     }
                                 },
-                                {
+                                // only when there are compounds (in the selected window, if any)
+                                ...(__scopeCs.length ? [{
                                     label: `Highlight Compounds`,
                                     click: async () => {
                                         graph.setMessage(" Highlight compounds ")
@@ -4617,7 +4755,7 @@ function (graph, genegraph_panel_layout) {
                                         }
                                         graph.showSideMenu(null);
                                     }
-                                }
+                                }] : [])
 
                             ];
 
@@ -4677,7 +4815,8 @@ function (graph, genegraph_panel_layout) {
                         },
                         move: () => { }
                     },
-                    {
+                    // Only when there are compounds to price (in the selected window, if any).
+                    ...(__scopeCs.length ? [{
                         label: 'Synthesis cost',
                         click: async () => {
                             // What the compounds on this track cost to make, priced per
@@ -4685,7 +4824,7 @@ function (graph, genegraph_panel_layout) {
                             await exec('baja/manchester/menu/synthesis-cost.js', graph, selectedTrack, genegraph_panel_layout);
                         },
                         move: () => { }
-                    },
+                    }] : []),
                     {
                         label: 'Layers ▸',
                         click: async (scx, scy) => {
@@ -5428,6 +5567,19 @@ function (graph, genegraph_panel_layout) {
                                     label: cs.length === 1 ? ('Open ' + nameOf(cs[0], 0)) : ('Choose a compound (' + cs.length + ')…'),
                                     move: () => { },
                                     click: () => { pickOne(); }
+                                });
+                                // WHERE ARE THEY ALL. A minute of magenta twinkling, which is long
+                                // enough to pan and zoom around the track while they blink; the
+                                // five-second version on the Design library answers "did that
+                                // land" instead. Running it again, or Escape, stops it early.
+                                items.push({
+                                    label: (graph.__compoundPulse ? 'Stop highlighting' : ('Highlight compounds (' + cs.length + ')')),
+                                    move: () => { },
+                                    click: () => {
+                                        try { graph.showSideMenu(null); } catch (e) { }
+                                        Promise.resolve(exec('baja/manchester/menu/highlight-compounds-pulse.js',
+                                            graph, selectedTrack, { ms: 60000 })).catch(() => { });
+                                    }
                                 });
                                 items.push({
                                     label: 'Run off-targets…', move: () => { },

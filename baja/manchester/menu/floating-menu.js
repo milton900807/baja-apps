@@ -39,6 +39,8 @@ function (list, screenX, screenY, graph, opts) {
             + 'max-height:calc(100vh - 24px);overflow-y:auto;background:rgba(10,37,64,0.985);border:1px solid #1aa3bd;'
             + 'border-radius:10px;padding:6px;color:#eaf6f9;box-shadow:0 14px 38px rgba(10,37,64,0.45);'
             + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13px;user-select:none;';
+        // A panel that carries a result (html rows) gets a little more room to read it in.
+        if (rows.some((it) => it.type === 'html')) el.style.maxWidth = '420px';
         const ROW = 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:31px;padding:5px 10px;border:0;'
             + 'border-radius:7px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;';
         const rule = '<div style="height:1px;margin:5px 6px;background:rgba(159,196,212,0.22);"></div>';
@@ -50,6 +52,10 @@ function (list, screenX, screenY, graph, opts) {
             if (it.type === 'separator') { html += rule; return; }
             const label = ('' + it.label).replace(/^\s+/, '');
             if (it.type === 'text') { html += '<div style="padding:5px 10px;color:#9fc4d4;font-size:12px;">' + esc(label) + '</div>'; return; }
+            // type 'html': a block of formatted, unclickable content (a result shown in the menu's own panel,
+            // e.g. the exon-removal prediction). `html` is trusted markup built by the caller, which escapes
+            // any data in it; `label` is the plain-text form for menus that cannot draw markup.
+            if (it.type === 'html') { html += '<div style="padding:6px 10px;font-size:12.5px;line-height:1.45;color:#eaf6f9;user-select:text;">' + (it.html || esc(label)) + '</div>'; return; }
             if (isHeading(it)) { html += '<div style="padding:8px 10px 3px 10px;color:#9fc4d4;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;">' + esc(label.replace(/^[—–-]+\s*|\s*[—–-]+$/g, '')) + '</div>'; return; }
             const off = it.disabled === true || it.enabled === false;
             const danger = it.emphasis === 'danger' || /^delete\b/i.test(label);

@@ -6969,6 +6969,13 @@ function (MGrid) {
 
                 menuList.push(
                     {
+                        // To the user's own template library, as a timeline template.
+                        label: `Save as my template`, click: async (x, y) => {
+                            exec('baja/analytics/templates/publish', 'timeline', this)
+                        }
+                    })
+                menuList.push(
+                    {
                         label: `Open plot`,
                         __date: '',
                         click: async (scx, scy) => {

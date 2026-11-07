@@ -44,7 +44,12 @@ function (graph, genegraph_panel_layout) {
 
             }
             if (selectedTrack != null) {
-                let aannotation = selectedTrack.getAnnotationX(Math.floor(selectedTrack.tgraph.Xwc(x)))
+                // The pointer has to be ON the exon, not merely in its column. getAnnotationX
+                // tests x alone, so hovering anywhere above or below the bar -- over the peptide
+                // row, or the empty space above it -- armed this menu, and the next click
+                // anywhere opened it. getAnnotation() measures the distance to the line the
+                // annotation is actually drawn on (baja/bio/track.js).
+                                let aannotation = selectedTrack.getAnnotation(Math.floor(selectedTrack.tgraph.Xwc(x)), selectedTrack.tgraph.Ywc(y))
                 annotation = []
 
                 if (aannotation && aannotation.length > 0) {

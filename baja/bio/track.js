@@ -2120,7 +2120,13 @@ return new Promise(async (resolve, reject) => {
       let seqindex = [];
       let cdsIndex = [];
       let sindex = 0;
-      let codon_i = 1;
+      // 0-BASED, like every other builder of cdsi, because the amino-acid row draws
+      // `codon_index + 1` and three protein profiles use codon_index as a dense array
+      // index. This branch alone used to start at 1, so on a PLUS-STRAND gene every
+      // residue was labelled one too high: MAPK8IP3's Arg578 drew under 579. The
+      // minus-strand branch below has always started at 0, which is why the two
+      // disagreed and why this survived -- half the genes in the viewer were right.
+      let codon_i = 0;
       let codon_ii = 0;
       let base_i = 1;
       let codon_value = "";
@@ -2371,7 +2377,10 @@ return new Promise(async (resolve, reject) => {
                   _cdsi.push({ index: _gpos[i + ci], ci: ci, codon_index: i / 3, aa: _aa || 'X', codon: _codon });
                 }
               }
-              this.orf = this.orf || {};
+              // A fresh object, not this.orf filled in place: a copied track (Copy to new track,
+              // Object.assign) SHARES its source's orf object, so writing into it re-translated
+              // the source too -- the unmutated track showed the mutant peptide.
+              this.orf = Object.assign({}, this.orf || {});
               this.orf.cdsi = _cdsi;
               this.orf.sequence = _protein.join('');
               try { this.orfhash = compressJson(JSON.stringify(this.orf)); } catch (e) { }
@@ -2670,7 +2679,7 @@ return new Promise(async (resolve, reject) => {
       try {
         const __cds = this.getCDS();
         if (__cds && __cds.cdsi && __cds.cdsi.length) {
-          this.orf = this.orf || {};
+          this.orf = Object.assign({}, this.orf || {});   // never write into a shared orf (see above)
           this.orf.cdsi = __cds.cdsi;
           if (__cds.protein) this.orf.sequence = __cds.protein;
           this.orfhash = compressJson(JSON.stringify(this.orf));
@@ -4687,21 +4696,45 @@ return new Promise(async (resolve, reject) => {
     }
 
     getAnnotation(x, y) {
-      if (y < 0) {
-        y = y * -1;
-      }
-      let selected = [];
-      let yv = Math.floor(y);
-      let xv = Math.floor(x);
-      console.log(" yv " + yv + " y " + this.y);
-      if (yv === this.y) {
-        for (let annotation of this.annotations) {
-          if (annotation.inAnnotation(xv)) {
-            selected.push(annotation);
-          }
-        }
+      // ONLY WHAT THE CLICK LANDED ON.
+      //
+      // An annotation is drawn as a bar centred on tgrid.Y(annotation.y), which is 0 for
+      // an exon: the baseline. This used to compare the click's y against the TRACK's y
+      // instead, which is a different quantity altogether, so in practice any click in
+      // the column answered and the exon menu opened from empty space well above or
+      // below the exon it claimed to be about. It also folded negative y onto positive,
+      // which made a click as far below the line as the bar is above it look like a hit.
+      //
+      // The test is now the drawing's own: the distance from the click to the line this
+      // particular annotation is drawn on, within half the bar plus a little slack.
+      const selected = [];
+      const xv = Math.floor(x);
+      const band = this.annotationClickBand();
+      for (const annotation of this.annotations) {
+        if (!annotation.inAnnotation(xv)) continue;
+        const ay = +annotation.y || 0;      // the line this annotation is drawn on
+        if (Math.abs(y - ay) < band) selected.push(annotation);
       }
       return selected;
+    }
+    
+    // THE DRAWN SHAPE, and never the row above it. The exon capsule is 14px tall
+    // (exonWidth + 2 in flexigraph/gene-draw.js), centred on the line, so it occupies
+    // 7px either side; the amino-acid letters are drawn at grid.Y(0.15), which at a
+    // typical track scale is 6.9px up -- just inside the bar. A band of half the bar
+    // therefore still catches a click aimed at the peptide row, so the band stops
+    // short of that row: whichever is closer, the edge of the bar or the letters.
+    // The bar is measured in pixels, because that is what the reader is aiming at,
+    // and converted through the track's own grid so it holds at every zoom.
+    annotationClickBand() {
+      const BAR_PX = 14;          // the exon capsule, centred on the line
+      const PEPTIDE_Y = 0.15;     // the amino-acid row, drawn at grid.Y(0.15)
+      try {
+        const g = this.grid || this.tgraph;
+        const perUnit = Math.abs(g.screenHeight(1));
+        if (perUnit > 0.0001) return Math.min((BAR_PX / 2) / perUnit, PEPTIDE_Y);
+      } catch (e) { }
+      return PEPTIDE_Y;                     // a grid that cannot say: still short of the peptide row
     }
 
     quickHighlightOligos() {

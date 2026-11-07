@@ -186,22 +186,146 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                 // scale so arc weight / crest stay normalized either way.
                 const magMax = (mode === 'psi') ? 1 : 2;
                 layer.magMax = magMax;
-                // Junctions arrive as { d, a, dp, ap, mag, kind }.
+                // Junctions arrive as { d, a, dp, ap, mag, kind, annotated }. `annotated`
+                // must be carried: it is how the renderer tells the transcript's own exon
+                // structure from a topology only the model proposes, and dropping it made
+                // every cryptic junction look canonical. Absent (an older backend) means the
+                // junction came from the annotation, which is what that backend only emitted.
                 layer.junctions = junc.map((j) => {
                     let baseMag = (typeof j.mag === 'number') ? j.mag : Math.min(+j.dp || 0, +j.ap || 0);
                     return {
                         d: +j.d, a: +j.a,
                         dp: +j.dp || 0, ap: +j.ap || 0,
                         mag: (mode === 'psi') ? baseMag : baseMag * 2,   // sites: 0..1 -> 0..2
-                        kind: j.kind || 'junction'
+                        kind: j.kind || 'junction',
+                        annotated: (j.annotated === false) ? false : true,
+                        // Which exon's inclusion this arc reports. Two arcs share a junction
+                        // whenever two consecutive cassette exons do, so without this the
+                        // plot shows two different percentages on one line and looks wrong.
+                        exon: (j.exon == null ? null : +j.exon),
+                        // The exons this junction JOINS (one arc per junction now, so an
+                        // inclusion arc borders two of them). The skip arc carries the one
+                        // exon it skips.
+                        exons: Array.isArray(j.exons) ? j.exons.map(Number) : null,
+                        // A competing splice site (kind 'alt-acceptor' / 'alt-donor'): how far
+                        // it moves the exon edge, in nt, and its share of that edge.
+                        shift: (j.shift == null ? null : +j.shift),
+                        share: (j.share == null ? null : +j.share)
                     };
                 });
+                // Competing sites at each annotated edge (PSI mode), kept with the layer so a
+                // later run on an edited copy of the transcript can be compared with this one.
+                let __comp = [];
+                try { __comp = JSON.parse((data && data.competition) || '[]') || []; } catch (e) { }
+                layer.competition = __comp;
+                // Predicted branch point of each annotated acceptor: drawn under the track as
+                // a marker joined to its AG, and kept for comparison with a later run.
+                let __bps = [];
+                try { __bps = JSON.parse((data && data.branchPoints) || '[]') || []; } catch (e) { }
+                layer.branchPoints = __bps;
                 track.addLayer(layer);
 
                 if (graph.wake) graph.wake();
+                // COMPETING SITES, in words. The arcs show where a competitor sits; this says
+                // what using it would do to the protein and how its share compares with the
+                // same edge on any other track already run (the unedited transcript, when this
+                // is an edited copy), which is the comparison a variant question turns on.
+                // Listed: every competitor that takes 1% or more, and the nearest ones (within
+                // 12 nt) whatever their share, since a few-nt shift is the event a bulk assay
+                // cannot see.
+                const __competitionSummary = (comp, trk) => {
+                    if (!Array.isArray(comp) || !comp.length) return '';
+                    const pct = (v) => { v = 100 * (+v || 0); return v >= 10 ? v.toFixed(0) + '%' : v >= 1 ? v.toFixed(1) + '%' : v >= 0.1 ? v.toFixed(2) + '%' : '<0.1%'; };
+                    // The same edge on another track's earlier PSI run, matched by exon, site and
+                    // the competitor's shift (tracks of one transcript share local coordinates
+                    // only when nothing was inserted, so shift is the safer key).
+                    const other = [];
+                    try {
+                        for (const t of (graph.track || [])) {
+                            if (t === trk) continue;
+                            for (const L of (t.track_layers || [])) {
+                                if (L && L.magnitudeMode === 'psi' && Array.isArray(L.competition) && L.competition.length)
+                                    other.push({ name: t.name || 'other track', comp: L.competition });
+                            }
+                        }
+                    } catch (e) { }
+                    const ref = other.length ? other[other.length - 1] : null;
+                    const refAlt = (c, a) => {
+                        if (!ref) return null;
+                        const e = ref.comp.find((r) => r.exon === c.exon && r.site === c.site);
+                        if (!e) return { share: 0, noSite: true };
+                        const m = (e.alts || []).find((x) => x.shift === a.shift);
+                        return m ? m : { share: null };
+                    };
+                    const rows = [];
+                    for (const c of comp) {
+                        for (const a of (c.alts || [])) {
+                            const word = (c.site === 'acceptor' ? 'AG' : 'GT');
+                            const sh = (a.shift > 0 ? '+' : '\u2212') + Math.abs(a.shift);
+                            const eff = a.inFrame
+                                ? 'in-frame, ' + (a.codons > 0 ? '+' : '\u2212') + Math.abs(a.codons) + ' codon' + (Math.abs(a.codons) === 1 ? '' : 's')
+                                : 'frameshift';
+                            const r = refAlt(c, a);
+                            const vs = (r && r.share != null) ? ' (' + ref.name + ': ' + pct(r.share) + ')' : '';
+                            rows.push({ s: +a.share || 0, near: Math.abs(a.shift) <= 12,
+                                text: 'e' + c.exon + ' ' + c.site + ' ' + word + ' ' + sh + ' nt (' + eff + ') ' + pct(a.share) + vs });
+                        }
+                    }
+                    if (!rows.length) return '';
+                    rows.sort((x, y) => (y.s - x.s));
+                    const shown = rows.filter((r) => r.s >= 0.01).slice(0, 4);
+                    for (const r of rows) if (shown.length < 6 && r.near && !shown.includes(r)) shown.push(r);
+                    const method = comp[0] && comp[0].method ? ' [' + comp[0].method + ']' : '';
+                    return 'Competing sites' + method + ': ' + shown.map((r) => r.text).join('; ')
+                        + (rows.length > shown.length ? ' (+' + (rows.length - shown.length) + ' weaker)' : '') + '. ';
+                };
+                // BRANCH POINTS, in words: only for the exons with something to say -- an edge
+                // that has a competitor, a branch point that moved since another track's run, or
+                // one the splice-site model gives little support -- so a 40-exon gene does not
+                // produce a 40-item message. Every branch point is drawn regardless.
+                const __branchSummary = (bps, comp, trk) => {
+                    if (!Array.isArray(bps) || !bps.length) return '';
+                    let refBps = null;
+                    try {
+                        for (const t of (graph.track || [])) {
+                            if (t === trk) continue;
+                            for (const L of (t.track_layers || []))
+                                if (L && L.magnitudeMode === 'psi' && Array.isArray(L.branchPoints) && L.branchPoints.length) refBps = { name: t.name || 'other track', bps: L.branchPoints };
+                        }
+                    } catch (e) { }
+                    const compExons = new Set((comp || []).filter((c) => c.site === 'acceptor' && (c.alts || []).length).map((c) => c.exon));
+                    const rows = [];
+                    for (const b of bps) {
+                        const B = b.best; if (!B) continue;
+                        const r = refBps ? refBps.bps.find((x) => x.exon === b.exon) : null;
+                        const moved = r && r.best && (r.best.dist !== B.dist || r.best.motif !== B.motif);
+                        const weak = (B.support != null && B.support < 0.2);
+                        if (!compExons.has(b.exon) && !moved && !weak) continue;
+                        rows.push('e' + b.exon + ' ' + B.motif.slice(0, 3) + '[' + B.motif[3] + ']' + B.motif.slice(4) + ' at \u2212' + B.dist + ' nt'
+                            + (B.support != null ? ', model support ' + (+B.support).toFixed(2) : '')
+                            + (B.agez ? ', AG in exclusion zone' : '')
+                            + (moved ? ' (' + refBps.name + ': ' + r.best.motif + ' at \u2212' + r.best.dist + ')' : ''));
+                    }
+                    return rows.length ? 'Branch point' + (rows.length === 1 ? '' : 's') + ': ' + rows.slice(0, 4).join('; ') + '. ' : '';
+                };
                 const magLabel = (mode === 'psi') ? 'PSI inclusion' : 'site strength';
+                // A destroyed splice site is the thing the user most needs told, and it is
+                // not obvious from arcs that merely went quiet. The backend reports which
+                // annotated sites the sequence no longer supports.
+                let __lost = [];
+                try { __lost = JSON.parse((data && data.lostSites) || '[]') || []; } catch (e) { }
+                const __novel = layer.junctions.filter((j) => j.annotated === false).length;
                 graph.setMessage(' Sashimi plot added to ' + (track.name || 'track') +
-                    ' — ' + junc.length + ' junctions, magnitude = ' + magLabel + '. ');
+                    ' — ' + junc.length + ' junctions, magnitude = ' + magLabel + '. '
+                    + (__novel ? __novel + ' arc' + (__novel === 1 ? '' : 's')
+                        + ' are topologies the model predicts but the annotation does not. ' : '')
+                    + (__lost.length ? __lost.length + ' annotated splice site'
+                        + (__lost.length === 1 ? '' : 's') + ' no longer scored above 0.10: '
+                        + __lost.slice(0, 6).map((L) => L.kind + ' at ' + L.x
+                            + ' (' + (+L.p).toFixed(2) + ')').join(', ')
+                        + (__lost.length > 6 ? ', …' : '') + '. ' : '')
+                    + __competitionSummary(__comp, track)
+                    + __branchSummary(__bps, __comp, track));
                 // Model finished and the layer is added — bring the Models toolbar back.
                 resetModelsToolbar();
                 try { exec('baja/lib/work-status.js', null); } catch (e) { }

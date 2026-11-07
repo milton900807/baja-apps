@@ -1062,6 +1062,12 @@ function (pt, plate) {
 
                 }
             },
+            {
+                // To the user's own template library (baja-analytics Templates > Template library).
+                label: 'Save as my template', click: async (x, y) => {
+                    setTimeout(() => { exec('baja/analytics/templates/publish', 'table', plate) }, 100)
+                }
+            },
 
         )
 
