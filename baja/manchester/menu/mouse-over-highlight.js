@@ -1664,11 +1664,11 @@ function (graph, genegraph_panel_layout) {
                         L.push('   *** NO ann is typed "exon": 10px own-y branch applies ***');
                     }
                     // Y: exactly what the exon conditional compares
-                    const ySc = (typeof graph.mousey === 'number') ? graph.mousey : graph.Y(scy);
+                    const ySc = (typeof graph.mousey === 'number') ? (graph.mousey - 1) : graph.Y(scy);
                     const yi = graph.Y(tr.tgraph.Y(0));
                     const dy = Math.abs(yi - ySc);
                     L.push('');
-                    L.push('Y  pointer  graph.mousey = ' + (+ySc).toFixed(1));
+                    L.push('Y  pointer  graph.mousey-1 = ' + (+ySc).toFixed(1));
                     L.push('   exon yi  graph.Y(tgraph.Y(0)) = ' + (+yi).toFixed(1));
                     L.push('   |yi - pointer| = ' + dy.toFixed(1) + '   band = ' + EXON_HIT_Y_PX);
                     L.push('   => ' + (dy <= EXON_HIT_Y_PX ? 'PASS' : 'FAIL'));
@@ -2013,7 +2013,7 @@ function (graph, genegraph_panel_layout) {
                             // is used two ways in this file (graph.Y(y) in one place, Ywc(y) in
                             // another), so rather than guess which, the test reads the value
                             // that is screen by construction.
-                            const __ySc = (typeof graph.mousey === 'number') ? graph.mousey : graph.Y(y);
+                            const __ySc = (typeof graph.mousey === 'number') ? (graph.mousey - 1) : graph.Y(y);
                             if (!annHit(track, an, __ySc) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
@@ -6106,7 +6106,7 @@ function (graph, genegraph_panel_layout) {
                                 const isExon = ('' + (a && a.type)).toLowerCase() === 'exon';
                                 const yi = isExon ? graph.Y(selectedTrack.tgraph.Y(0))
                                     : graph.Y(selectedTrack.tgraph.Y(a.y));
-                                const ySc = (typeof graph.mousey === 'number') ? graph.mousey : graph.Y(y);
+                                const ySc = (typeof graph.mousey === 'number') ? (graph.mousey - 1) : graph.Y(y);
                                 return Math.abs(yi - ySc) <= (isExon ? 12 : 10);
                             } catch (e) { return false; }
                         };
