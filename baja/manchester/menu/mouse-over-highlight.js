@@ -1618,10 +1618,15 @@ function (graph, genegraph_panel_layout) {
         // The annotation's side is a composition on purpose: tgraph.Y() takes the track's own
         // world y into the graph's world, and graph.Y() takes that to the screen. That is the
         // same idiom the drawing uses, so this measures to the pixels the exon is drawn on.
-        const annHit = (track, an, y) => {
+        // ySc IS A SCREEN y, and callers must hand one over: the move listener is given
+        // screen coordinates already (scx, scy), but the up and down listeners are given
+        // WORLD ones and convert with graph.Y() -- as they do for every other hit test in
+        // them. One function called from both spaces is how this went wrong before: the
+        // hover compared world to world while the click compared screen to world.
+        const annHit = (track, an, ySc) => {
             const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
             const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
-            return Math.abs(yi - y) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
+            return Math.abs(yi - ySc) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
         };
 
         let current = null;
@@ -1947,7 +1952,7 @@ function (graph, genegraph_panel_layout) {
                         const annHits = [];
                         for (let an of annotations) {
                             if (!an) continue;
-                            if (!annHit(track, an, y) && !hovered.has(an)) continue;
+                            if (!annHit(track, an, graph.Y(y)) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
                             // It goes to the selection box, as before, AND opens where the click
@@ -6039,7 +6044,7 @@ function (graph, genegraph_panel_layout) {
                                 const isExon = ('' + (a && a.type)).toLowerCase() === 'exon';
                                 const yi = isExon ? graph.Y(selectedTrack.tgraph.Y(0))
                                     : graph.Y(selectedTrack.tgraph.Y(a.y));
-                                return Math.abs(yi - y) <= (isExon ? 5 : 10);
+                                return Math.abs(yi - graph.Y(y)) <= (isExon ? 5 : 10);
                             } catch (e) { return false; }
                         };
                         if (anns) for (let a of anns) {
