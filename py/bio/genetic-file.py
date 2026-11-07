@@ -1000,7 +1000,17 @@ def parse_p(s):
         # p.Gln1756Profs*74: the residue after the position is the first changed one,
         # but the event is the frameshift.
         op = "fs"
-    return {"ref": ref, "pos": int(m.group(2)), "alt": alt, "op": op or ("sub" if alt else "")}
+    # 0-BASED. HGVS numbers residues from 1 (Met1), so the number on the string is one
+    # more than the index of that residue in the translated sequence, and every consumer
+    # used to write that -1 itself. The conversion happens once, here, and the key is
+    # called `index` rather than `pos` so that anything still expecting the 1-based number
+    # raises instead of being quietly one residue out. The HGVS number itself is never
+    # changed: it is an identifier shared with ClinVar, LOVD and UniProt, and it is
+    # printed back as index + 1 wherever a person or a report reads it.
+    n = int(m.group(2))
+    if n < 1:
+        return None                      # p.Arg0Gly and the like: not a residue
+    return {"ref": ref, "index": n - 1, "alt": alt, "op": op or ("sub" if alt else "")}
 
 
 # ---------------------------------------------------------------- resolution
@@ -1237,7 +1247,7 @@ class Resolver:
             if not cds:
                 continue
             prot = translate(cds)
-            if 1 <= p["pos"] <= len(prot) and prot[p["pos"] - 1] == p["ref"]:
+            if 0 <= p["index"] < len(prot) and prot[p["index"]] == p["ref"]:
                 chosen = t
                 break
         if chosen is None:
@@ -1246,12 +1256,13 @@ class Resolver:
             prot = translate(cds) if cds else ""
             if not prot:
                 return None, "%s: could not read the coding sequence of %s off the genome" % (label, t.id)
-            if p["pos"] > len(prot):
+            if p["index"] >= len(prot):
                 return None, "%s: %s is only %d residues long" % (label, t.id, len(prot))
+            # Printed as the HGVS number the report used, not as the index.
             return None, ("%s: residue %d of %s is %s, not %s -- the report's transcript may number "
-                          "differently" % (label, p["pos"], t.id, prot[p["pos"] - 1], p["ref"]))
+                          "differently" % (label, p["index"] + 1, t.id, prot[p["index"]], p["ref"]))
         t = chosen
-        i0 = (p["pos"] - 1) * 3            # 0-based CDS offset of the codon's first base
+        i0 = p["index"] * 3                # 0-based CDS offset of the codon's first base
         codon = cds[i0:i0 + 3]
         note = ""
         want = (v.get("transcript") or "").split(".")[0]
@@ -1297,7 +1308,7 @@ class Resolver:
             ref, alt = span, "N"
         return {"chrom": t.contig, "pos": max(1, lo - 1) if p["op"] in ("del", "fs", "dup", "ins") else lo,
                 "ref": ref, "alt": alt, "how": "protein change on " + t.id,
-                "note": (note + "; " if note else "") + "placed at codon %d; the protein description does not give the exact bases" % p["pos"],
+                "note": (note + "; " if note else "") + "placed at codon %d; the protein description does not give the exact bases" % (p["index"] + 1),
                 "transcript": t.id}, ""
 
     def resolve(self, v, karyotype_assembly):

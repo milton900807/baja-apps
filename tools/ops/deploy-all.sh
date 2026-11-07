@@ -199,6 +199,10 @@ if [[ $DO_API -eq 1 ]]; then
   # alleles, and those were being written into transcript-orientation windows uncomplemented:
   # right flanks, one wrong base, and an oligo matching neither allele at the only position
   # that discriminates. All four together or none.
+  # Protein residue indexing: parse_p hands back a 0-based index rather than the HGVS
+  # number, so no consumer writes its own -1. The HGVS number itself is unchanged.
+  install_group "protein residue indexing" \
+    "py/bio/genetic-file.py:return {\"ref\": ref, \"index\": n - 1"
   install_group "allele-selective design: the variant's strand" \
     "baja/bio/track-strand.js:allelesInFrame" \
     "baja/manchester/menu/allele-selective-design.js:allelesInFrame" \
