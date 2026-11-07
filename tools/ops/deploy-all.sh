@@ -205,6 +205,11 @@ if [[ $DO_API -eq 1 ]]; then
   # halves of the same ORF builder and they must agree on the base.
   # The exon menu answers only a click near the line the exon is drawn on. Same two files
   # as the residue numbering, so they travel together.
+  # The exon hover and its menu: annHit was transforming the pointer's SCREEN y through
+  # graph.Y(), which maps world to screen, so the hit band landed mirrored about the
+  # origin and the menu opened from well above the bar.
+  install_group "exon hover hit test" \
+    "baja/manchester/menu/mouse-over-highlight.js:BOTH SIDES IN SCREEN PIXELS"
   install_group "exon click target" \
     "baja/bio/track.js:THE DRAWN SHAPE, and never the row above it" \
     "baja/bio/track-flexi.js:THE DRAWN SHAPE, and never the row above it" \

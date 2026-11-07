@@ -1607,10 +1607,21 @@ function (graph, genegraph_panel_layout) {
         // it is hit-tested there, and tighter: within EXON_HIT_Y_PX screen pixels of that line. Testing
         // against an.y put the hit band away from the bar that is actually drawn.
         const EXON_HIT_Y_PX = 5;
+        // BOTH SIDES IN SCREEN PIXELS. `y` is the pointer, and the pointer arrives from the
+        // mouse listeners already in screen coordinates -- which is why the callers convert it
+        // the other way, with Ywc(), when they want world. graph.Y() maps world TO screen, so
+        // graph.Y(y) transformed a screen coordinate as though it were a world one. The
+        // comparison that came out of it was not a distance at all: the band landed mirrored
+        // about the graph's origin, so the pointer lit an exon, and opened its menu, from
+        // somewhere well above the bar while a click on the bar itself could miss.
+        //
+        // The annotation's side is a composition on purpose: tgraph.Y() takes the track's own
+        // world y into the graph's world, and graph.Y() takes that to the screen. That is the
+        // same idiom the drawing uses, so this measures to the pixels the exon is drawn on.
         const annHit = (track, an, y) => {
             const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
             const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
-            return Math.abs(yi - graph.Y(y)) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
+            return Math.abs(yi - y) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
         };
 
         let current = null;
