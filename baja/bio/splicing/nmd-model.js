@@ -1,7 +1,6 @@
 function (graph, genegraph_panel_layout) {
 
     return new Promise(async (res, reject) => {
-        const TrackLayer = await exec('baja/bio/track-layer')
         const num = (v, d = 0) => {
             const f = typeof v === "number" ? v : parseFloat(String(v));
             return Number.isFinite(f) ? f : d;
@@ -32,35 +31,19 @@ function (graph, genegraph_panel_layout) {
         })
         graph.addMouseUpListener(async (x, y) => {
             let trackIndex = graph.getTrack(x, y);
-            console.log('debubg');
             if (trackIndex >= 0) {
                 selectedTrack = graph.track[trackIndex]
-<<<<<<< HEAD
-                let r = await GETJSON(`http://localhost:8080/transcripts/${selectedTrack.name}`)
-                let rr = await exec('py/bio/nmd/orfi.py', selectedTrack.sequence, selectedTrack.strand, selectedTrack.name)
-=======
-
-                console.log('debubg');
-
+                // orfi.py reports through works.progress / works.msg, so hand it an
+                // EngineMonitor and relay both onto the graph's own message line. It reads
+                // only param 1 (the sequence); strand and name are discarded by its Ion
+                // entry point, so there is no point passing them.
                 let engineMonitor = new EngineMonitor((msg) => {
-                    pt.setMessage(msg)
+                    graph.setMessage(' ' + msg + ' ');
                 });
                 engineMonitor.addProgressListener(async (v) => {
-                    pt.setMessage('' + v);
-
-                })
-
+                    graph.setMessage(' ' + v + '% ');
+                });
                 let rr = await exec('py/bio/nmd/orfi.py', selectedTrack.sequence, engineMonitor)
-                let trackLayer = new TrackLayer('' + Math.random(), selectedTrack.tgraph.xmin, 0, selectedTrack.tgraph.xmax, 1)
-                trackLayer.setXi(graph.X(selectedTrack.tgraph.xi))
-                trackLayer.setYi(graph.Y(selectedTrack.tgraph.yi))
-                trackLayer.setHeight(graph.screenHeight(selectedTrack.tgraph.height));
-                trackLayer.setWidth(graph.screenWidth(selectedTrack.tgraph.width))
-                trackLayer.tgraph.rescale();
-                const slice = trackLayer.queryRange(1000, 5000, { clamp: true });
-                const visible = trackLayer.queryVisible(graph, { includePolygon: false });
-
->>>>>>> 0743cc79800decc479349f9120a6ba95e1677add
                 showModal({
                     wid: 'json',
                     data: JSON.stringify(rr)
