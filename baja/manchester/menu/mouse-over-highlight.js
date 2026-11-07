@@ -1646,24 +1646,34 @@ function (graph, genegraph_panel_layout) {
                     document.body.appendChild(d);
                 }
                 const L = [];
-                L.push('move handler gets  scx=' + (+scx).toFixed(1) + '  scy=' + (+scy).toFixed(1));
-                L.push('graph.X(scx)=' + (+graph.X(scx)).toFixed(1) + '  graph.Y(scy)=' + (+graph.Y(scy)).toFixed(1));
-                try { L.push('graph.Ywc(scy)=' + (+graph.Ywc(scy)).toFixed(3)); } catch (e) { L.push('graph.Ywc(scy)= n/a'); }
                 const ti = graph.getTrack(scx, scy);
-                L.push('getTrack=' + ti);
-                if (ti >= 0 && graph.track[ti]) {
+                if (ti < 0 || !graph.track[ti]) {
+                    L.push('no track under pointer (getTrack=' + ti + ')');
+                } else {
                     const tr = graph.track[ti];
-                    const base = graph.Y(tr.tgraph.Y(0));
-                    L.push('baseline graph.Y(tgraph.Y(0))=' + (+base).toFixed(1));
-                    L.push('  scy-baseline=' + (scy - base).toFixed(1)
-                        + '   graph.Y(scy)-baseline=' + (graph.Y(scy) - base).toFixed(1));
+                    // X: is the exon even returned for this column?
                     const xw = tr.tgraph.Xwc(scx - tr.tgraph.xi * 2);
                     const anns = (tr.getAnnotationsInRange ? tr.getAnnotationsInRange(xw - 1, xw + 1) : []) || [];
-                    L.push('annotations under x: ' + anns.length);
-                    for (const a of anns.slice(0, 4)) {
-                        if (!a) continue;
-                        L.push('  type=' + a.type + '  a.y=' + a.y
-                            + '  own=' + (+graph.Y(tr.tgraph.Y(a.y))).toFixed(1));
+                    const exons = anns.filter((a) => a && ('' + a.type).toLowerCase() === 'exon');
+                    L.push('X  screen=' + (+scx).toFixed(1) + '  world=' + (+xw).toFixed(1));
+                    L.push('   getAnnotationsInRange -> ' + anns.length + ' ann, ' + exons.length + ' exon');
+                    if (!anns.length) {
+                        L.push('   *** X FINDS NOTHING: the y test never runs ***');
+                    } else if (!exons.length) {
+                        L.push('   types: ' + anns.map((a) => a && a.type).join(', '));
+                        L.push('   *** NO ann is typed "exon": 10px own-y branch applies ***');
+                    }
+                    // Y: exactly what the exon conditional compares
+                    const ySc = (typeof graph.mousey === 'number') ? graph.mousey : graph.Y(scy);
+                    const yi = graph.Y(tr.tgraph.Y(0));
+                    const dy = Math.abs(yi - ySc);
+                    L.push('');
+                    L.push('Y  pointer  graph.mousey = ' + (+ySc).toFixed(1));
+                    L.push('   exon yi  graph.Y(tgraph.Y(0)) = ' + (+yi).toFixed(1));
+                    L.push('   |yi - pointer| = ' + dy.toFixed(1) + '   band = ' + EXON_HIT_Y_PX);
+                    L.push('   => ' + (dy <= EXON_HIT_Y_PX ? 'PASS' : 'FAIL'));
+                    for (const a of exons.slice(0, 3)) {
+                        L.push('   exon a.y=' + a.y + '  xi=' + a.xi + ' xf=' + a.xf);
                     }
                 }
                 d.textContent = L.join('\n');
