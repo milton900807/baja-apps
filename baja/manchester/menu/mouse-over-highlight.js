@@ -1633,6 +1633,41 @@ function (graph, genegraph_panel_layout) {
         graph.addMouseMoveListener(async (scx, scy) => {
             let x = scx;
             let y = scy;
+            // TEMPORARY READOUT. Shows, live, what the move listener is handed and what each
+            // candidate conversion makes of it, next to where the exon is actually drawn.
+            try {
+                let d = document.getElementById('__exonProbe');
+                if (!d) {
+                    d = document.createElement('div');
+                    d.id = '__exonProbe';
+                    d.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;'
+                        + 'background:rgba(8,20,28,0.92);color:#bfe9ff;font:11px/1.45 Menlo,Consolas,monospace;'
+                        + 'padding:8px 10px;border-radius:6px;white-space:pre;pointer-events:none;';
+                    document.body.appendChild(d);
+                }
+                const L = [];
+                L.push('move handler gets  scx=' + (+scx).toFixed(1) + '  scy=' + (+scy).toFixed(1));
+                L.push('graph.X(scx)=' + (+graph.X(scx)).toFixed(1) + '  graph.Y(scy)=' + (+graph.Y(scy)).toFixed(1));
+                try { L.push('graph.Ywc(scy)=' + (+graph.Ywc(scy)).toFixed(3)); } catch (e) { L.push('graph.Ywc(scy)= n/a'); }
+                const ti = graph.getTrack(scx, scy);
+                L.push('getTrack=' + ti);
+                if (ti >= 0 && graph.track[ti]) {
+                    const tr = graph.track[ti];
+                    const base = graph.Y(tr.tgraph.Y(0));
+                    L.push('baseline graph.Y(tgraph.Y(0))=' + (+base).toFixed(1));
+                    L.push('  scy-baseline=' + (scy - base).toFixed(1)
+                        + '   graph.Y(scy)-baseline=' + (graph.Y(scy) - base).toFixed(1));
+                    const xw = tr.tgraph.Xwc(scx - tr.tgraph.xi * 2);
+                    const anns = (tr.getAnnotationsInRange ? tr.getAnnotationsInRange(xw - 1, xw + 1) : []) || [];
+                    L.push('annotations under x: ' + anns.length);
+                    for (const a of anns.slice(0, 4)) {
+                        if (!a) continue;
+                        L.push('  type=' + a.type + '  a.y=' + a.y
+                            + '  own=' + (+graph.Y(tr.tgraph.Y(a.y))).toFixed(1));
+                    }
+                }
+                d.textContent = L.join('\n');
+            } catch (e) { }
             graph.mousex = scx;
             graph.mousey = scy;
             // A CORNER DRAG IN PROGRESS. The grip is the track's bottom-right corner, so the
