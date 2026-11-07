@@ -1950,6 +1950,17 @@ function (graph, genegraph_panel_layout) {
                         const HIT_Y_PX = ANN_HIT_Y_PX;
                         const mergedMenu = { title: "Annotations", items: [] };
                         const annHits = [];
+                        try {
+                            const __b = { raw_y: y, graphY_y: graph.Y(y),
+                                baseline_screen: graph.Y(track.tgraph.Y(0)),
+                                mousey: graph.mousey, downScreen: graph.__downScreen };
+                            __b.anns = (annotations || []).map((a) => a ? {
+                                type: a.type, an_y: a.y,
+                                own_screen: graph.Y(track.tgraph.Y(a.y)),
+                                hovered: !!(a.highlighted || (a.isSelected && a.isSelected()))
+                            } : null);
+                            console.log('EXONPROBE', JSON.stringify(__b, null, 1));
+                        } catch (e) { console.log('EXONPROBE failed', e); }
                         for (let an of annotations) {
                             if (!an) continue;
                             if (!annHit(track, an, graph.Y(y)) && !hovered.has(an)) continue;
