@@ -3573,23 +3573,28 @@ return new Promise(async (resolve, reject) => {
           for (const annotation of this.annotations) {
             if (!annotation.inAnnotation(xv)) continue;
             const ay = +annotation.y || 0;      // the line this annotation is drawn on
-            if (Math.abs(y - ay) <= band) selected.push(annotation);
+            if (Math.abs(y - ay) < band) selected.push(annotation);
           }
           return selected;
         }
         
-        // Half the drawn bar plus slack, in the world units this hit test works in. The size
-        // is defined in PIXELS because that is what the reader is aiming at, and converted
-        // through the track's own grid, so the target stays the same size on screen at every
-        // zoom. 14px is the exon capsule: exonWidth + 2 in flexigraph/gene-draw.js.
+        // THE DRAWN SHAPE, and never the row above it. The exon capsule is 14px tall
+        // (exonWidth + 2 in flexigraph/gene-draw.js), centred on the line, so it occupies
+        // 7px either side; the amino-acid letters are drawn at grid.Y(0.15), which at a
+        // typical track scale is 6.9px up -- just inside the bar. A band of half the bar
+        // therefore still catches a click aimed at the peptide row, so the band stops
+        // short of that row: whichever is closer, the edge of the bar or the letters.
+        // The bar is measured in pixels, because that is what the reader is aiming at,
+        // and converted through the track's own grid so it holds at every zoom.
         annotationClickBand() {
-          const BAR_PX = 14, SLACK_PX = 5;
+          const BAR_PX = 14;          // the exon capsule, centred on the line
+          const PEPTIDE_Y = 0.15;     // the amino-acid row, drawn at grid.Y(0.15)
           try {
             const g = this.grid || this.tgraph;
             const perUnit = Math.abs(g.screenHeight(1));
-            if (perUnit > 0.0001) return ((BAR_PX / 2) + SLACK_PX) / perUnit;
+            if (perUnit > 0.0001) return Math.min((BAR_PX / 2) / perUnit, PEPTIDE_Y);
           } catch (e) { }
-          return 0.5;                           // a grid that cannot say: a tight band, not the column
+          return PEPTIDE_Y;                     // a grid that cannot say: still short of the peptide row
         }
 
         quickHighlightOligos() {

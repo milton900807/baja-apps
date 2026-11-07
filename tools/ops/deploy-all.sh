@@ -206,8 +206,13 @@ if [[ $DO_API -eq 1 ]]; then
   # The exon menu answers only a click near the line the exon is drawn on. Same two files
   # as the residue numbering, so they travel together.
   install_group "exon click target" \
-    "baja/bio/track.js:ONLY WHAT THE CLICK LANDED ON" \
-    "baja/bio/track-flexi.js:ONLY WHAT THE CLICK LANDED ON"
+    "baja/bio/track.js:THE DRAWN SHAPE, and never the row above it" \
+    "baja/bio/track-flexi.js:THE DRAWN SHAPE, and never the row above it" \
+    "baja/manchester/menu/annotation/edit-exon.js:has to be ON the exon" \
+    "baja/manchester/menu/annotation/edit-exons.js:has to be ON the exon" \
+    "baja/manchester/menu/annotation/edit.js:has to be ON the exon" \
+    "baja/manchester/menu/annotation/exon-inclusion-scan-.js:has to be ON the exon" \
+    "baja/manchester/menu/protein-menu-options.js:has to be ON the exon"
   install_group "peptide residue numbering" \
     "baja/bio/track.js:0-BASED, like every other builder of cdsi" \
     "baja/bio/track-flexi.js:0-BASED, like every other builder of cdsi"
