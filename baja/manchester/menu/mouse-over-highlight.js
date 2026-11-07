@@ -13,17 +13,6 @@ function (graph, genegraph_panel_layout) {
     // swallowed it first. Installs once per canvas; calling it again just refreshes the graph.
     try { Promise.resolve(exec('baja/manchester/menu/layer-row-press.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
 
-    // A press on one monomer of a zoomed-in compound opens its chemistry menu. Same
-    // treatment and for the same reasons as the layer rows above: the graph's mouse-down
-    // chain does not run while a menu or the selection window is up, which is precisely
-    // when a user clicks a compound they have just selected.
-    try { Promise.resolve(exec('baja/chem/ui/chem-part-press.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
-
-    // Ctrl+C / Ctrl+V for the selected compounds. Also a window listener, and for the same
-    // reason: compounds are selected precisely when the selection window is up, which is
-    // when the graph's own key handling does not run.
-    try { Promise.resolve(exec('baja/manchester/compound-clipboard.js', graph, genegraph_panel_layout)).catch(() => { }); } catch (e) { }
-
     // Ask the folding host whether it is up, now, in the background. The Fold item is only
     // drawn when it is, and finding that out costs a round trip -- done here, once, the answer
     // is already cached by the time anyone opens a track menu, so no menu ever waits on it.
@@ -2004,20 +1993,13 @@ function (graph, genegraph_panel_layout) {
                                 }
                             }
                         } catch (e) { __pepHit = null; }
-                        if (__pepHit) {
-                            const xi = __pepHit.index;
-                            const exon = (track.annotations || []).find((a) => a && ('' + a.type).toLowerCase() === 'exon'
-                                && xi >= Math.min(+a.xi, +a.xf) && xi <= Math.max(+a.xi, +a.xf));
-                            if (exon && !annHits.some((h) => h.an === exon)) {
-                                try {
-                                    const mfToken = MenuFactory?.[exon.type];
-                                    const mf = mfToken ? getIon(mfToken) : null;
-                                    const menu = mf ? mf(exon, track, graph, genegraph_panel_layout, x) : null;
-                                    exon.select();
-                                    if (Array.isArray(menu) && menu.length) annHits.unshift({ an: exon, items: menu.filter(Boolean) });
-                                } catch (e) { }
-                            }
-                        }
+                        // A CLICK ON A PEPTIDE LETTER DOES NOT OPEN THE EXON'S MENU. The letters
+                        // are drawn well above the exon bar, outside annHit's band, and opening
+                        // the exon menu from up there is the exact behaviour annHit exists to
+                        // stop: it came back through this path, which annHit never sees, and it
+                        // unshifted itself to the FRONT so it also became the menu's title. The
+                        // residue's own menu (its header and Update ORF) is built further down
+                        // from __pepHit and does not need the exon.
                         // The clicked annotations' menus, each under its own name when more than
                         // one sits under the pointer (an exon and a CDS overlapping, say).
                         const annName = (a) => '' + (a.name || a.type || 'Annotation');
@@ -5694,9 +5676,6 @@ function (graph, genegraph_panel_layout) {
             // A floating menu session (see gene.js openFloatingMenu) that is armed but has no menu on screen
             // is over: this press is a new gesture, and a side menu opened by it must be a side menu.
             try { if (graph.__floatAt && !window.__bajaFloatingMenu) graph.__floatAt = null; } catch (e) { }
-            // ...and so is the remembered place of one that was closed a moment ago (showSideMenu's
-            // __floatMemo): it only ever means "the next level of the handoff already in progress".
-            try { graph.__floatMemo = null; } catch (e) { }
 
             // A menu is open — the click is landing on the menu. Record it so the
             // matching mouse-up also skips (the engine may clear side_menu before
@@ -5761,12 +5740,6 @@ function (graph, genegraph_panel_layout) {
                     }
                 }
             } catch (e) { }
-
-            // (The monomer press is handled at the window in the capture phase by
-            // baja/chem/ui/chem-part-press.js, installed at the top of this file. It cannot
-            // live here: graph.__downScreen is undefined in this file, and this listener
-            // chain does not run while a menu or the selection window is up -- which is
-            // exactly when a selected compound gets clicked.)
 
             // Press on a LAYER ROW under a track name → its floating menu. Same rectangles
             // the track draws, kept on the track each frame. Handled here, like the
@@ -6053,7 +6026,24 @@ function (graph, genegraph_panel_layout) {
                     if (selectedTrack.getAnnotationsInRange) {
                         let xw = selectedTrack.tgraph.Xwc(x - selectedTrack.tgraph.xi * 2);
                         let anns = selectedTrack.getAnnotationsInRange(xw - 1, xw + 1);
+                        // getAnnotationsInRange ANSWERS ON X ALONE, so this selected -- and put in
+                        // the selection window -- every annotation in the pointer's column however
+                        // far above or below it the press landed. A press on the peptide row, or on
+                        // empty space over a gene, lit the exon under it, and because a.select()
+                        // sets the state the mouse-up reads back as `hovered`, that press also
+                        // waved the exon past annHit and opened its menu. So the same vertical test
+                        // annHit uses is applied here: screen pixels on both sides, an exon measured
+                        // to the baseline it is drawn on rather than to its own y.
+                        const __annNearPress = (a) => {
+                            try {
+                                const isExon = ('' + (a && a.type)).toLowerCase() === 'exon';
+                                const yi = isExon ? graph.Y(selectedTrack.tgraph.Y(0))
+                                    : graph.Y(selectedTrack.tgraph.Y(a.y));
+                                return Math.abs(yi - y) <= (isExon ? 5 : 10);
+                            } catch (e) { return false; }
+                        };
                         if (anns) for (let a of anns) {
+                            if (!__annNearPress(a)) continue;
                             if (a && a.select) a.select();
                             // Add the clicked annotation to the selection box (same shape
                             // the lasso builds), so its options appear under the
