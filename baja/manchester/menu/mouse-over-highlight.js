@@ -1623,10 +1623,17 @@ function (graph, genegraph_panel_layout) {
         // WORLD ones and convert with graph.Y() -- as they do for every other hit test in
         // them. One function called from both spaces is how this went wrong before: the
         // hover compared world to world while the click compared screen to world.
-        const annHit = (track, an, ySc) => {
+        // THE SAME LOGIC THE PEPTIDE TEST USES, which works: the pointer is converted with
+        // graph.Y() and compared against graph.Y(tgraph.Y(0)), the track's baseline in screen
+        // pixels. The peptide block does exactly this a few hundred lines down
+        //     const basePx = graph.Y(tg.Y(0));  const yPx = graph.Y(y);
+        // and hits its row reliably, so the conversion is not the thing that was wrong.
+        // Callers pass their handler's raw y; the one conversion lives here.
+        const annHit = (track, an, yRaw) => {
             const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
+            const yPx = graph.Y(yRaw);
             const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
-            return Math.abs(yi - ySc) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
+            return Math.abs(yi - yPx) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
         };
 
         let current = null;
@@ -1664,11 +1671,11 @@ function (graph, genegraph_panel_layout) {
                         L.push('   *** NO ann is typed "exon": 10px own-y branch applies ***');
                     }
                     // Y: exactly what the exon conditional compares
-                    const ySc = (typeof graph.mousey === 'number') ? (graph.mousey - 1) : graph.Y(scy);
+                    const ySc = graph.Y(scy);
                     const yi = graph.Y(tr.tgraph.Y(0));
                     const dy = Math.abs(yi - ySc);
                     L.push('');
-                    L.push('Y  pointer  graph.mousey-1 = ' + (+ySc).toFixed(1));
+                    L.push('Y  pointer  graph.Y(scy) = ' + (+ySc).toFixed(1));
                     L.push('   exon yi  graph.Y(tgraph.Y(0)) = ' + (+yi).toFixed(1));
                     L.push('   |yi - pointer| = ' + dy.toFixed(1) + '   band = ' + EXON_HIT_Y_PX);
                     L.push('   => ' + (dy <= EXON_HIT_Y_PX ? 'PASS' : 'FAIL'));
@@ -2008,13 +2015,7 @@ function (graph, genegraph_panel_layout) {
                         } catch (e) { console.log('EXONPROBE failed', e); }
                         for (let an of annotations) {
                             if (!an) continue;
-                            // graph.mousey IS A SCREEN y: the move listener sets it from scy,
-                            // which it is handed in screen coordinates. The up listener's own y
-                            // is used two ways in this file (graph.Y(y) in one place, Ywc(y) in
-                            // another), so rather than guess which, the test reads the value
-                            // that is screen by construction.
-                            const __ySc = (typeof graph.mousey === 'number') ? (graph.mousey - 1) : graph.Y(y);
-                            if (!annHit(track, an, __ySc) && !hovered.has(an)) continue;
+                            if (!annHit(track, an, y) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
                             // It goes to the selection box, as before, AND opens where the click
@@ -6106,8 +6107,7 @@ function (graph, genegraph_panel_layout) {
                                 const isExon = ('' + (a && a.type)).toLowerCase() === 'exon';
                                 const yi = isExon ? graph.Y(selectedTrack.tgraph.Y(0))
                                     : graph.Y(selectedTrack.tgraph.Y(a.y));
-                                const ySc = (typeof graph.mousey === 'number') ? (graph.mousey - 1) : graph.Y(y);
-                                return Math.abs(yi - ySc) <= (isExon ? 12 : 10);
+                                return Math.abs(yi - graph.Y(y)) <= (isExon ? 12 : 10);
                             } catch (e) { return false; }
                         };
                         if (anns) for (let a of anns) {
