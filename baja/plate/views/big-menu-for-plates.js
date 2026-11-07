@@ -268,33 +268,34 @@ function (pt, sp) {
             return orderFoldersFirst(items).map((item) => {
                 if (!item || typeof item !== 'object') return item;
 
-                const color = MENU_COLORS[__menuColorCounter++ % MENU_COLORS.length];
                 const folder = hasSubmenu(item);
                 const label = normalizeMenuLabel(item.label);
-                const cleanLabel = label.startsWith(FOLDER_ICON)
+                let cleanLabel = label.startsWith(FOLDER_ICON)
                     ? label.slice(FOLDER_ICON.length).trimStart()
                     : label;
+                cleanLabel = cleanLabel.replace(/\s*[▸►]\s*$/, '').trim();
 
+                // ONE MENU, NOT A PAINT CHART. Every row used to be given its own pastel
+                // from a twelve-colour rotation -- a different background per line, in a
+                // canvas whose every other menu is white with navy text. The colours said
+                // nothing (they were handed out in order, not by meaning) and no other menu
+                // in the app has them, so the row keeps the menu's own styling.
+                //
+                // A submenu is marked the way the rest of the app marks one: a trailing ▸,
+                // which is also what orderMenu (baja/manchester/menu/mouse-over-highlight.js)
+                // groups on. A folder emoji was a third convention for the same idea.
                 const next = {
                     ...item,
-                    label: folder ? `${FOLDER_ICON} ${cleanLabel}` : cleanLabel,
-
-                    // Force every item to use its own color. Do not preserve old yellow/black values.
-                    bg: color.bg,
-                    fg: color.fg,
-
-                    // A few menu renderers use alternate field names; keep these in sync.
-                    background: color.bg,
-                    foreground: color.fg,
-                    textColor: color.fg,
-                    color: color.fg,
-                    style: {
-                        ...(item.style || {}),
-                        background: color.bg,
-                        backgroundColor: color.bg,
-                        color: color.fg,
-                    },
+                    label: folder ? `${cleanLabel} ▸` : cleanLabel,
                 };
+                delete next.bg; delete next.fg;
+                delete next.background; delete next.foreground;
+                delete next.textColor; delete next.color;
+                if (next.style) {
+                    const st = { ...next.style };
+                    delete st.background; delete st.backgroundColor; delete st.color;
+                    next.style = st;
+                }
 
                 if (Array.isArray(next.children)) next.children = decorateMenuItems(next.children, depth + 1);
                 if (Array.isArray(next.items)) next.items = decorateMenuItems(next.items, depth + 1);
@@ -323,7 +324,7 @@ function (pt, sp) {
             pt.setMenu(decorateMenuLike(items));
         };
 
-        const makeDecoratedMenu = (items, x, y, bg = 'rgb(205, 255, 155)', fg = 'black', cols = 1) => {
+        const makeDecoratedMenu = (items, x, y, bg = 'rgba(255,255,255,0.98)', fg = '#0a2540', cols = 1) => {
             return new Menu(
                 decorateMenuItems(items),
                 x,
@@ -468,13 +469,19 @@ function (pt, sp) {
         if (sp.plateType) {
             let TableOps = await exec('baja/table/table-ops')
             let context_specific = await TableOps.load(pt, sp)
-            cond.push({
-                label: sp.plateType,
-                click: async () => {
-                    pt.setMenu(context_specific)
-                },
-                bg: 'yellow', fg: 'black'
-            })
+            // ONLY WHEN THERE IS SOMETHING IN IT. This row is named after the plate's TYPE,
+            // which for an ordinary table is the word "default" -- and baja/plate/ops/default.js
+            // returns no operations at all, so the row was a meaningless name opening an
+            // empty menu. Types that do have operations keep it, under their own name.
+            if (Array.isArray(context_specific) && context_specific.length) {
+                const __t = ('' + (sp.plateType || '')).trim();
+                cond.push({
+                    label: (__t ? __t.charAt(0).toUpperCase() + __t.slice(1) : 'Type') + ' actions',
+                    click: async () => {
+                        pt.setMenu(context_specific)
+                    }
+                })
+            }
         }
         cond.push({
             label: 'Table',
@@ -5290,7 +5297,9 @@ function (pt, sp) {
             { label: 'Expand \u2192', click: async () => { sp.deselectAll(); sp.addColumn(); } },
             { label: 'Expand \u2193', click: async () => { sp.deselectAll(); sp.addRow(); } },
             {
-                label: '...',
+                // WHAT IT OPENS, RATHER THAN AN ELLIPSIS. "..." is not a name; this row is
+                // the rest of the table's menu.
+                label: 'More',
                 click: (_x, _y) => {
                     setTimeout(async () => {
                         const m = await sp.createConnectMenu('baja/plate/views/big-menu', pt, sp);

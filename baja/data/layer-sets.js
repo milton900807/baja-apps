@@ -106,9 +106,16 @@ function () {
             labelZoomThreshold: 0.4,
             // NB: no assignees TSV. This BED's column 4 is a sequential record id ('2|2|'),
             // not a patent number, and nothing on disk maps it to one -- so a hit from this
-            // index cannot name its patent. The aso_sirna_gt and lipid_patents BEDs DO carry
-            // real numbers (12186406, 10859585) with a TSV each. Everything that loads this
-            // key goes through baja/data/patents.js, which says the same thing at more length.
+            // index cannot name its patent, and cannot say who owns it or when it was filed.
+            // The aso_sirna_gt and lipid_patents BEDs DO carry real numbers (12186406,
+            // 10859585) with a TSV each. Everything that loads this key goes through
+            // baja/data/patents.js, which says the same thing at more length.
+            //
+            // idLabel says RECORD, because the bar read 'Patent: 15814340' and that is not a
+            // patent number -- it is an id from the database the BED was built against, and
+            // one that looks enough like a US application serial number to be believed. A
+            // label that cannot be looked up should not invite the attempt.
+            idLabel: 'Record',
             noun: 'patent hit',
         },
     };

@@ -108,6 +108,8 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
         const RED = '#dc2626';
         const MAX_ALLELE = 50;
         const mapped = [];
+        let loh = null;
+        try { loh = await exec('baja/manchester/menu/loh-label.js'); } catch (e) { loh = null; }
         for (const v of patho) {
             try {
                 if (v.chr && ('' + v.chr).replace(/^chr/, '') !== chr) continue;
@@ -135,7 +137,9 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
                 }
                 const cs = (v.clinsig || []).join(', ');
                 const dis = (v.disease && !/^not (provided|specified)$/i.test('' + v.disease)) ? ('' + v.disease) : '';
-                const ann = [cs, dis].filter(Boolean).join(' — ');
+                const L = (loh && loh.count) ? loh.at(v.chr || chr, Math.floor(+v.start)) : null;
+                const ann = [cs, dis, L ? L.word : ''].filter(Boolean).join(' — ');
+                try { if (L) snp.loh = L.text; } catch (e) { }
                 try { snp.name = v.id || 'variant'; } catch (e) { }
                 try { if (cs) snp.clinsig = cs; } catch (e) { }
                 try { if (ann) { snp.annotation = ann; snp.showAnnotation = true; } } catch (e) { }

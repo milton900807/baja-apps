@@ -1606,6 +1606,30 @@ function (graph, genegraph_panel_layout) {
             return null;
         }
 
+        // HOW CLOSE THE POINTER HAS TO BE, vertically, for the hover to light an annotation
+        // and a click to open its menu. One test for both, because what is lit has to be what
+        // a click acts on; when they disagreed, the looser one decided and the menu opened
+        // from wherever the hover had reached.
+        //
+        // Measured in SCREEN PIXELS, on both sides. `y` is the pointer, and it arrives from
+        // the mouse listeners already in screen coordinates -- which is why the callers put it
+        // through Ywc() when they want world units. graph.Y() maps world TO screen, so
+        // graph.Y(y) transformed a screen coordinate as though it were a world one and the
+        // result was not a distance at all. The old hover test was in world units instead
+        // (0.05 of a track), which scaled with the track's height: on a tall track an exon lit,
+        // and its menu opened, from well above the bar.
+        const ANN_HIT_Y_PX = 10;
+        // AN EXON IS DRAWN ON THE TRACK'S BASELINE, graph.Y(track.tgraph.Y(0)), not at its own
+        // y, so it is hit-tested there and tighter: its capsule is 14px tall, so 5px either
+        // side of the line keeps the target inside the bar and clear of the peptide letters
+        // just above it.
+        const EXON_HIT_Y_PX = 5;
+        const annHit = (track, an, y) => {
+            const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
+            const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
+            return Math.abs(yi - y) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
+        };
+
         let current = null;
         graph.addMouseMoveListener(async (scx, scy) => {
             let x = scx;
@@ -1830,7 +1854,8 @@ function (graph, genegraph_panel_layout) {
                     str.deselect();
                 }
                 for (let an of annotations) {
-                    if (Math.abs(yw - an.y) < 0.05)
+                    // The same test the click uses, so what is lit is what a click acts on.
+                    if (annHit(track, an, y))
                         an.select();
                 }
             }
@@ -1914,22 +1939,20 @@ function (graph, genegraph_panel_layout) {
                         let xw = track.tgraph.Xwc(x - track.tgraph.xi * 2);
                         let yw = (track.tgraph.Ywc(y - track.tgraph.yi * 2))
                         let annotations = track.getAnnotationsInRange(xw - 1, xw + 1);
-                        // WHAT THE HOVER LIT IS WHAT THE CLICK ACTS ON. The hover highlight
-                        // (mouse-move, above) picks annotations with its own test, in world
-                        // units, and that test is looser than the 10 px one below -- so an exon
-                        // could be lit under the pointer and the click on it still miss. Read
-                        // the hover's answer before the deselect below wipes it.
+                        // WHAT THE HOVER LIT IS WHAT THE CLICK ACTS ON. Both use annHit now,
+                        // so they cannot disagree; the hover's answer is still read first,
+                        // before the deselect below wipes it, so a release a pixel off a lit
+                        // exon still counts.
                         const hovered = new Set((track.annotations || []).filter((a) => a && (a.highlighted || (a.isSelected && a.isSelected()))));
                         for (let str of track.annotations) {
                             str.deselect();
                         }
-                        const HIT_Y_PX = 10;
+                        const HIT_Y_PX = ANN_HIT_Y_PX;
                         const mergedMenu = { title: "Annotations", items: [] };
                         const annHits = [];
                         for (let an of annotations) {
                             if (!an) continue;
-                            const dy = Math.abs(graph.Y(track.tgraph.Y(an.y)) - graph.Y(y));
-                            if (dy > HIT_Y_PX && !hovered.has(an)) continue;
+                            if (!annHit(track, an, y) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
                             // It goes to the selection box, as before, AND opens where the click

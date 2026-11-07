@@ -1,4 +1,11 @@
 function (track, genegraph_panel_layout, graph, focusLayer) {
+    // MENUS AT THE POINTER, NOT IN THE CORNER. This module is entered from a menubar or a
+    // toolbar, so there is no canvas press behind it and showSideMenu had nothing to anchor
+    // to -- every question it asks came up as the top-left side panel, in a different place
+    // and a different style from every menu reached by clicking the canvas.
+    // graph.openMenuAtPointer (flexigraph/gene.js) draws the same list at the pointer, and
+    // defers to an open floating session when this module is instead reached from a press,
+    // so the mixed-entry callers keep their place. The || keeps older graphs working.
     // Edit a track's layers via a cascading SIDE MENU (hide / show / order / rename /
     // interaction / background / delete), instead of opening the full-panel layer editor.
     // Root lists every layer (with a shown/hidden dot) plus bulk "all layers"
@@ -121,7 +128,7 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
             );
             graph.setMessage(' ' + layerName(layer) + (vis ? '  (shown)' : '  (hidden)')
                 + (all.length > 1 ? '  ·  ' + (isFront ? 'front' : isBack ? 'back' : 'layer ' + (all.length - z) + ' of ' + all.length + ' from the front') : '') + ' ');
-            graph.showSideMenu(items);
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, items);
         };
 
         // ---- root: list layers + bulk actions ----
@@ -149,7 +156,7 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
             }
             items.push({ label: 'Close', move: () => { }, click: () => restoreHover() });
             graph.setMessage(' Track layers — ' + (track.name || 'track') + ' ');
-            graph.showSideMenu(items);
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, items);
         };
 
         if (focusLayer && ((track.track_layers || []).indexOf(focusLayer) >= 0)) showLayer(focusLayer);

@@ -300,12 +300,39 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
         const targets = plan.map((p) => p.track);
 
         // Place the described variant on ONE track. Returns a short outcome for the summary.
+        // ONE ENTRY PER TRANSCRIPT BASE, 5' to 3', carrying the track x of that base -- the
+        // same shape the CDS map has, for the numbering every transcript has. n. numbering is
+        // simply this: base 1 at the 5' end of the spliced transcript. A non-coding transcript
+        // -- an snRNA, a lncRNA, a pseudogene -- has no CDS and no protein and is described in
+        // nothing else.
+        const transcriptEntries = (track) => {
+            const out = [];
+            try {
+                const minus = Strand.geneStrand(track) < 0;
+                let exons = (track.annotations || [])
+                    .filter((a) => a && ('' + a.type).toLowerCase() === 'exon')
+                    .map((a) => ({ xi: Math.min(+a.xi, +a.xf), xf: Math.max(+a.xi, +a.xf) }))
+                    .filter((e) => Number.isFinite(e.xi) && Number.isFinite(e.xf));
+                if (!exons.length) {
+                    // No exon annotation: the track's own span is the transcript.
+                    const lo = Math.min(+track.xi, +track.xf), hi = Math.max(+track.xi, +track.xf);
+                    if (Number.isFinite(lo) && Number.isFinite(hi)) exons = [{ xi: lo, xf: hi }];
+                }
+                exons.sort((a, b) => (minus ? b.xi - a.xi : a.xi - b.xi));
+                for (const e of exons) {
+                    if (minus) { for (let p = e.xf; p >= e.xi; p--) out.push({ index: p }); }
+                    else { for (let p = e.xi; p <= e.xf; p++) out.push({ index: p }); }
+                }
+            } catch (e) { }
+            return out;
+        };
+
         const placeOn = async (track, given) => {
             // ---- the coding sequence, from the ORF the track already has ------------------------
             try { if (!track.orf && track.generateORF) track.generateORF(); } catch (e) { }
             const cdsi = (track.orf && Array.isArray(track.orf.cdsi)) ? track.orf.cdsi : [];
-            if (!cdsi.length || typeof track.sequence !== 'string') {
-                return { ok: false, why: (track.name || 'that track') + ' has no coding sequence' };
+            if (typeof track.sequence !== 'string') {
+                return { ok: false, why: (track.name || 'that track') + ' has no sequence' };
             }
             const orient = Strand.orientation(track);
             // cdsi is in CDS order (codon_index, then base within the codon), each entry carrying
@@ -313,13 +340,28 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             // the CDS in transcript orientation, whatever the track's storage orientation.
             const entries = cdsi.slice().sort((a, b) => (a.codon_index - b.codon_index) || (a.ci - b.ci));
             const cds = entries.map((e) => Strand.codingBaseAt(track, e.index, orient)).join('');
+            // AND THE TRANSCRIPT, always. A track with no ORF used to stop here -- "has no
+            // coding sequence" -- which is true and is not a reason to refuse the variant:
+            // n.64_65insT on an snRNA names a base on the transcript, and the transcript is
+            // right there.
+            const txEntries = transcriptEntries(track);
+            const txseq = txEntries.map((e) => Strand.codingBaseAt(track, e.index, orient)).join('');
+            const noncoding = entries.length < 3;
+            if (noncoding && txseq.length < 2) {
+                return { ok: false, why: (track.name || 'that track') + ' has neither a coding sequence nor a readable transcript sequence' };
+            }
+            // A base outside the stored sequence reads as '', which joins to nothing -- so a
+            // short result, not a marker, is what says the map and the sequence disagree.
+            if (noncoding && txseq.length !== txEntries.length) {
+                return { ok: false, why: (track.name || 'that track') + ' could not be read base by base along its exons' };
+            }
 
             const gene = geneSymbolOf(track);
 
             // ---- ask ----------------------------------------------------------------------------
             const ctx = {
                 gene: gene, transcript: track.transcriptID || '', description: track.description || '',
-                strand: track.strand, chr: track.contig || track.chr, cds: cds,
+                strand: track.strand, chr: track.contig || track.chr, cds: cds, txseq: txseq,
             };
             say('Reading "' + text + '" for ' + (gene || track.name) + '…');
             let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
@@ -363,26 +405,62 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             let placed = 0, first = null;
             const placedLabels = [], refusedLabels = [];
             const labelOf = (e) => ('' + ((e && (e.label || e.hgvs_p || e.hgvs_c)) || '')).trim();
+            // THE EDIT AS A VCF WOULD WRITE IT: a plus-strand anchor position with plus-strand
+            // alleles, which is what SnpIndel takes -- it complements for display itself.
+            //
+            // On the minus strand transcript order runs the other way from genomic order, so
+            // the anchor base that sits BEFORE a change in the transcript sits AFTER it on the
+            // plus strand. Anchoring it as written put an indel at the wrong end of itself,
+            // which is why indels on minus-strand tracks used to be refused outright rather
+            // than placed. The anchor moves to the other end of the span and the alleles are
+            // reverse-complemented; a substitution, having no anchor, just complements.
+            const toGenomic = (ed, list, off, ref, alt) => {
+                const type = '' + (ed.type || 'snp');
+                if (!minus) {
+                    const xs = list.slice(off, off + ref.length).map((e) => e.index);
+                    const x = Math.min.apply(null, xs);
+                    // Same anchoring as load-variants.js: a deletion is drawn one base past
+                    // its anchor on the plus strand.
+                    return { xi: (type === 'del' ? x + 1 : x), ref: ref, alt: alt };
+                }
+                if (type !== 'del' && type !== 'ins' && type !== 'delins') {
+                    return { xi: list[off].index, ref: Strand.reverseComplement(ref), alt: Strand.reverseComplement(alt) };
+                }
+                // The span the transcript-order allele covers, and the base just past it --
+                // which is the LOWEST genomic position, and so the plus-strand anchor.
+                const nx = off + ref.length;
+                if (nx >= list.length) return null;
+                const x = list[nx].index;
+                const anchor = Strand.complement(Strand.codingBaseAt(track, x, orient));
+                if (!anchor || anchor === 'N') return null;
+                if (type === 'ins') {
+                    // ref is the anchor base alone; everything after it in alt is inserted.
+                    return { xi: x, ref: anchor, alt: anchor + Strand.reverseComplement(alt.slice(ref.length)) };
+                }
+                return { xi: x, ref: anchor + Strand.reverseComplement(ref.slice(1)),
+                         alt: anchor + Strand.reverseComplement(alt.slice(1)) };
+            };
             for (const ed of edits) {
-                const off = +ed.cds_offset;
+                // WHICH SEQUENCE THE OFFSET COUNTS INTO. A coding change is numbered from the
+                // ATG (c./p.); an n. change is numbered from the 5' end of the transcript,
+                // which is the only numbering a transcript without a CDS has.
+                const onTx = (ed.tx_offset !== undefined && ed.tx_offset !== null);
+                const list = onTx ? txEntries : entries;
+                const where = onTx ? 'transcript' : 'coding sequence';
+                const off = onTx ? +ed.tx_offset : +ed.cds_offset;
                 const ref = ('' + ed.ref).toUpperCase(), alt = ('' + ed.alt).toUpperCase();
-                if (!(off >= 0 && off + ref.length <= entries.length)) { say('Edit falls outside the coding sequence.'); refusedLabels.push({ label: labelOf(ed), why: 'falls outside the coding sequence' }); continue; }
-                // Re-check on the track itself: the coding bases at those CDS positions must be ref.
-                const have = entries.slice(off, off + ref.length).map((e) => Strand.codingBaseAt(track, e.index, orient)).join('');
+                if (!(off >= 0 && off + ref.length <= list.length)) { say('Edit falls outside the ' + where + '.'); refusedLabels.push({ label: labelOf(ed), why: 'falls outside the ' + where }); continue; }
+                // Re-check on the track itself: the coding bases at those positions must be ref.
+                const have = list.slice(off, off + ref.length).map((e) => Strand.codingBaseAt(track, e.index, orient)).join('');
                 if (have !== ref) { say('The track reads ' + have + ' where ' + ref + ' was expected; not placed.'); refusedLabels.push({ label: labelOf(ed), why: 'this transcript reads ' + have + ' where ' + ref + ' was expected' }); continue; }
-                if ((ed.type === 'del' || ed.type === 'ins') && minus) {
-                    say('Insertions and deletions are placed on plus-strand tracks only for now; ' + ed.label + ' was not placed.');
-                    refusedLabels.push({ label: labelOf(ed), why: 'indels are placed on plus-strand tracks only for now' });
+                const gpos = toGenomic(ed, list, off, ref, alt);
+                if (!gpos) {
+                    say(labelOf(ed) + ' sits at the very end of the ' + where + ', with no base to anchor it to.');
+                    refusedLabels.push({ label: labelOf(ed), why: 'it sits at the end of the ' + where + ' with no anchor base beside it' });
                     continue;
                 }
-                // SnpIndel takes PLUS-strand alleles and complements them itself for a minus-strand
-                // track; a multi-base allele on the minus strand also runs the other way in x.
-                const xs = entries.slice(off, off + ref.length).map((e) => e.index);
-                const x = Math.min.apply(null, xs);
-                const refG = minus ? Strand.reverseComplement(ref) : ref;
-                const altG = minus ? Strand.reverseComplement(alt) : alt;
-                let placeXi = x;
-                if (ed.type === 'del' && !minus) placeXi = x + 1;   // same anchoring as load-variants.js
+                const refG = gpos.ref, altG = gpos.alt, placeXi = gpos.xi;
+                const x = placeXi;
                 // In a cohort every edit is a different variant, so the name has to come from
                 // the edit; the single-variant path has only r.hgvs_p and falls back to it.
                 const hp = ed.hgvs_p || r.hgvs_p, hc = ed.hgvs_c || r.hgvs_c;
@@ -390,7 +468,13 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                 // short way (R175H), because a track carrying eight of them has to stay readable.
                 const label = (gene ? gene + ' ' : '')
                     + (r.cohort ? (ed.label || hp || text) : (hp || ed.label || text));
-                const snp = new SnpIndel(ed.type || 'snp', placeXi, refG, altG, 0, track.strand, label, null, '#d1342f');
+                // SnpIndel knows snp / ins / del. A delins is whichever of those its alleles
+                // make it, classified the same way a VCF record is (load-variants.js).
+                let kind = ed.type || 'snp';
+                if (kind === 'delins' || !kind) {
+                    kind = (refG.length === altG.length) ? 'snp' : (altG.length > refG.length ? 'ins' : 'del');
+                }
+                const snp = new SnpIndel(kind, placeXi, refG, altG, 0, track.strand, label, null, '#d1342f');
                 try {
                     snp.name = label;
                     snp.source = 'Described';

@@ -214,8 +214,11 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 layer.type = 'TrackLayer';
                 layer.data_type = 'CDD';
                 layer.drawStyle = 'interval';
-                layer.color = 'rgba(43,176,191,0.35)';
-                layer.fillstyle = 'rgba(43,176,191,0.35)';
+                // Lighter: the domain bar is a backdrop for everything drawn over it (sites,
+                // variants, the sequence), so it has to be readable as a region without
+                // competing with them.
+                layer.color = 'rgba(43,176,191,0.20)';
+                layer.fillstyle = 'rgba(43,176,191,0.20)';
                 try { layer.setLabelFont('10px Arial'); } catch (e) { }
                 // NAME THE DOMAINS AT ANY ZOOM. The default threshold (0.4 px per base) means
                 // labels only appear once the track is zoomed in near enough to read the
@@ -240,6 +243,12 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 // helper searches its own 0.05/0.08 ladder and cannot find a lane among y values
                 // it did not choose.
                 const BASE = 0.50, STEP = 0.22;
+                // A DOMAIN BAR IS A BAR, AT ANY TRACK HEIGHT. y doubles as the bar's depth, so
+                // BASE = 0.50 meant "half the band" -- about 17px on the 35px band this was
+                // written for, and a slab covering half the screen on a track given real
+                // vertical room. The lane positions stay in world y; only the depth is pinned.
+                layer.barHeightPx = 12;
+                layer.laneStep = STEP;
                 const spans = [];
                 for (const d of domains) {
                     const a = posOf(d.start), b = posOf(d.end);
@@ -265,7 +274,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
                     // it. It is kept, very faint and unlabelled; the hover panel still names it.
                     const faint = /transcript/i.test(sp.nm);
                     layer.addInterval(sp.x1, sp.x2, y, sp.nm);
-                    try { layer.setIntervalColor(sp.x1, sp.x2, y, sp.nm, colorOf(sp.nm, faint ? 0.06 : 0.42)); } catch (e) { }
+                    try { layer.setIntervalColor(sp.x1, sp.x2, y, sp.nm, colorOf(sp.nm, faint ? 0.05 : 0.26)); } catch (e) { }
                     if (faint) {
                         const iv = (layer.intervals || []).find((v) => v.x1 === sp.x1 && v.x2 === sp.x2);
                         if (iv) iv.noLabel = true;
@@ -290,6 +299,16 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 slayer.type = 'TrackLayer';
                 slayer.data_type = 'CDD';
                 slayer.drawStyle = 'interval';
+                // SITES STAY PROPORTIONAL, deliberately, unlike the domain bars above. A site
+                // is a single residue, and its mark's job is to reach DOWN from its lane to
+                // the sequence row so the eye can carry it to the residue it marks. That reach
+                // is the depth, so pinning it to a fixed pixel height (which was tried, to
+                // match the domains) turned each site into a short floating tick that stopped
+                // well above the peptide and pointed at nothing.
+                //
+                // (An earlier version of this comment claimed `__pepTopPx` was never assigned.
+                // That was wrong: baja/bio/track.js DOES publish it -- plain grep returns
+                // nothing on that file because it is detected as binary, so use `grep -a`.)
                 slayer.color = 'rgba(190,60,60,0.55)';
                 slayer.fillstyle = 'rgba(190,60,60,0.55)';
                 try { slayer.setLabelFont('10px Arial'); } catch (e) { }

@@ -186,22 +186,48 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                 // scale so arc weight / crest stay normalized either way.
                 const magMax = (mode === 'psi') ? 1 : 2;
                 layer.magMax = magMax;
-                // Junctions arrive as { d, a, dp, ap, mag, kind }.
+                // Junctions arrive as { d, a, dp, ap, mag, kind, annotated }. `annotated`
+                // must be carried: it is how the renderer tells the transcript's own exon
+                // structure from a topology only the model proposes, and dropping it made
+                // every cryptic junction look canonical. Absent (an older backend) means the
+                // junction came from the annotation, which is what that backend only emitted.
                 layer.junctions = junc.map((j) => {
                     let baseMag = (typeof j.mag === 'number') ? j.mag : Math.min(+j.dp || 0, +j.ap || 0);
                     return {
                         d: +j.d, a: +j.a,
                         dp: +j.dp || 0, ap: +j.ap || 0,
                         mag: (mode === 'psi') ? baseMag : baseMag * 2,   // sites: 0..1 -> 0..2
-                        kind: j.kind || 'junction'
+                        kind: j.kind || 'junction',
+                        annotated: (j.annotated === false) ? false : true,
+                        // Which exon's inclusion this arc reports. Two arcs share a junction
+                        // whenever two consecutive cassette exons do, so without this the
+                        // plot shows two different percentages on one line and looks wrong.
+                        exon: (j.exon == null ? null : +j.exon),
+                        // The exons this junction JOINS (one arc per junction now, so an
+                        // inclusion arc borders two of them). The skip arc carries the one
+                        // exon it skips.
+                        exons: Array.isArray(j.exons) ? j.exons.map(Number) : null
                     };
                 });
                 track.addLayer(layer);
 
                 if (graph.wake) graph.wake();
                 const magLabel = (mode === 'psi') ? 'PSI inclusion' : 'site strength';
+                // A destroyed splice site is the thing the user most needs told, and it is
+                // not obvious from arcs that merely went quiet. The backend reports which
+                // annotated sites the sequence no longer supports.
+                let __lost = [];
+                try { __lost = JSON.parse((data && data.lostSites) || '[]') || []; } catch (e) { }
+                const __novel = layer.junctions.filter((j) => j.annotated === false).length;
                 graph.setMessage(' Sashimi plot added to ' + (track.name || 'track') +
-                    ' — ' + junc.length + ' junctions, magnitude = ' + magLabel + '. ');
+                    ' — ' + junc.length + ' junctions, magnitude = ' + magLabel + '. '
+                    + (__novel ? __novel + ' arc' + (__novel === 1 ? '' : 's')
+                        + ' are topologies the model predicts but the annotation does not. ' : '')
+                    + (__lost.length ? __lost.length + ' annotated splice site'
+                        + (__lost.length === 1 ? '' : 's') + ' no longer scored above 0.10: '
+                        + __lost.slice(0, 6).map((L) => L.kind + ' at ' + L.x
+                            + ' (' + (+L.p).toFixed(2) + ')').join(', ')
+                        + (__lost.length > 6 ? ', …' : '') + '. ' : ''));
                 // Model finished and the layer is added — bring the Models toolbar back.
                 resetModelsToolbar();
                 try { exec('baja/lib/work-status.js', null); } catch (e) { }

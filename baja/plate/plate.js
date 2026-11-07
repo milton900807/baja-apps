@@ -685,10 +685,12 @@ function () {
                         name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null('minimize', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'M'
                     },
-                    {
-                        name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.test_menu(bx, by, x, y, pt) },
-                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('close', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'c'
-                    },
+                    // NO CLOSE BUTTON ON THE BAR. A one-click delete sat next to
+                    // maximize and the menu, on every table and chart, a slip away from
+                    // work that took minutes to build -- and it is the only button of the
+                    // four whose mistake is not obvious the moment you make it. Deleting a
+                    // table is still there, where a deliberate act belongs: the menu (M) ▸
+                    // More ▸ Delete table.
                 ];
 
                 this.bottom_buttons = [
@@ -752,10 +754,12 @@ function () {
                         name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.showMenuOptions(pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null('minimize', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'M'
                     },
-                    {
-                        name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.test_menu(bx, by, x, y, pt) },
-                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('close', pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'c'
-                    },
+                    // NO CLOSE BUTTON ON THE BAR. A one-click delete sat next to
+                    // maximize and the menu, on every table and chart, a slip away from
+                    // work that took minutes to build -- and it is the only button of the
+                    // four whose mistake is not obvious the moment you make it. Deleting a
+                    // table is still there, where a deliberate act belongs: the menu (M) ▸
+                    // More ▸ Delete table.
 
                 ];
                 this.icon_buttons = [
@@ -8219,6 +8223,45 @@ function () {
                             });
                         }
                         list.unshift({ label: 'Maximize', click: async () => { pt.maximizeObject(this); }, move: () => { } });
+                        // OPTIMIZE (topt). Fit this table to the room it has and divide that
+                        // width between its columns so the most characters are on screen --
+                        // see baja/plate/ops/topt.js. It says what it did, because a layout
+                        // change that looks like nothing happened is indistinguishable from a
+                        // layout change that did nothing.
+                        list.unshift({
+                            label: 'Optimize this table', move: () => { },
+                            click: async () => {
+                                try {
+                                    const r = pt.topt(this);
+                                    if (!r || r.ok === false) {
+                                        pt.setMessage((r && r.why) ? ('Could not optimize: ' + r.why) : 'Could not optimize this table.', 2);
+                                        return;
+                                    }
+                                    // ZOOM TO IT. A table that has just been re-sized is worth
+                                    // looking at, and on a large canvas the one thing you can be
+                                    // sure of is that the view is not framed on it.
+                                    try { if (pt.zoomintoplate) pt.zoomintoplate(this); } catch (e) { }
+                                    const whole = Math.max(0, (r.cells || 0) - (r.truncated || 0));
+                                    pt.setMessage(r.empty
+                                        ? (r.cols + ' empty column' + (r.cols === 1 ? '' : 's') + ' spread across the space \u2014 nothing in this table to fit yet.')
+                                        : (r.cols + ' column' + (r.cols === 1 ? '' : 's') + ' fitted at '
+                                            + r.fontPx + 'px \u2014 ' + whole + ' of ' + (r.cells || 0) + ' cells now read in full.'), 3);
+                                    if (pt.wake) pt.wake();
+                                } catch (e) { console.warn('topt', e); }
+                            }
+                        });
+                        // DELETE LIVES HERE NOW. The bar used to carry a ✕ next to maximize
+                        // and the menu; it was one slip away from work that took minutes to
+                        // build, and the only one of the four buttons whose mistake is not
+                        // obvious the moment you make it. Deleting a table is a deliberate
+                        // act, so it is a menu item -- last, and marked as destructive, the
+                        // way the drawing menu marks its own. It still asks first, and one
+                        // undo still brings the table back.
+                        list.push({ type: 'separator' });
+                        list.push({
+                            label: 'Delete table…', emphasis: 'danger', move: () => { },
+                            click: async () => { try { await this.test_menu(0, 0, 0, 0, pt); } catch (e) { console.warn('delete table', e); } }
+                        });
                     }
                     return list;
                 };
@@ -8996,6 +9039,9 @@ function () {
             fireBarButton(x, y, pt) {
                 const hit = this.barButtonAt(x, y, pt);
                 if (!hit) return false;
+                // One press, one firing: the canvas fires this when it sees a press on the
+                // bar, and the table's own handler fires it too when it is installed.
+                if (this.__btnJustFired()) return true;
                 this.__btnFiredAt = Date.now();
                 try { this.highlightbutton = hit.button.name; } catch (e) { }
                 try { hit.button.action(hit.x, hit.y, x, y, pt); } catch (e) { console.warn('[button]', e); }
@@ -13102,6 +13148,7 @@ function () {
                     name: this.name,
                     selected: this.selected,
                     hidden: this.hidden,
+                    zorder: this.zorder,        // where it sits in the stack, so a reload keeps it
                     parent_reference: this.parent_reference,
 
                     visible_cell_aspect_ratio_max: this.visible_cell_aspect_ratio_max,
@@ -15615,16 +15662,40 @@ function () {
             __columnFonts(ctx, x0, x1, y0, y1) {
                 if (!this.__colFontCache) this.__colFontCache = {};
                 const NUMERIC = /^[-+]?[\d,.$%\s()]+(e[-+]?\d+)?$/i;
+                // ONE SIZE ALL THE WAY DOWN A COLUMN, by default. A cell that finds its own
+                // size finds a different one from the cell above it, and a column of text at
+                // four sizes reads as four columns. Set uniformColumnFont = false on a table
+                // to let its cells size themselves again.
+                const uniform = this.uniformColumnFont !== false;
+                // WHICH WAY `wells` RUNS. Most builders fill it column-major, createTable
+                // fills it row-major, and this walked it as columns either way -- so on a
+                // row-major table the "column font" was computed down a ROW and every real
+                // column came out mixed, which is the thing it exists to prevent.
+                const nCols = (typeof this.__colCount === 'function' && this.__colCount() > 0)
+                    ? this.__colCount() : (this.wells ? this.wells.length : 0);
+                const colMajor = !this.wells || this.wells.length === nCols;
+                const cellAt = (c, r) => (colMajor ? ((this.wells[c] || [])[r]) : ((this.wells[r] || [])[c]));
+                const nRows = colMajor ? ((this.wells && this.wells[0]) ? this.wells[0].length : 0)
+                    : (this.wells ? this.wells.length : 0);
+                // THE WHOLE COLUMN, not the slice of it on screen. Sizing from the visible
+                // rows meant the size was a function of the scroll position: a row arriving
+                // from below either had no column size at all (it was outside the range that
+                // set them) or changed the one every other row was using. A column's size is
+                // a property of the column.
+                const SAMPLE_CAP = 400;
+                const stride = Math.max(1, Math.ceil(nRows / SAMPLE_CAP));
                 for (let x = x0; x < x1; x++) {
-                    const col = this.wells && this.wells[x];
-                    if (!col) continue;
+                    if (!this.wells || x >= nCols) continue;
                     const cells = [];
                     let key = '';
-                    for (let y = y0; y < y1; y++) {
-                        const w = col[y];
+                    for (let y = 0; y < nRows; y++) {
+                        const w = cellAt(x, y);
                         if (!w) continue;
                         cells.push(w);
-                        key += (w.__screen_width | 0) + ':' + (w.__screen_height | 0) + ':' + (w.value == null ? '' : ('' + w.value)) + '|';
+                        // The key samples a long column; every cell still RECEIVES the size.
+                        if (y === 0 || (y % stride) === 0) {
+                            key += (w.__screen_width | 0) + ':' + (w.__screen_height | 0) + ':' + (w.value == null ? '' : ('' + w.value)) + '|';
+                        }
                     }
                     const c = this.__colFontCache[x];
                     let px;
@@ -15632,22 +15703,63 @@ function () {
                     else {
                         let rowPx = 0;
                         for (const w of cells) if (w.__screen_height > rowPx) rowPx = w.__screen_height;
+                        // A cell that has never been drawn has no screen height; on the first
+                        // pass over a column below the fold that is every cell in it, and a
+                        // height of zero would size the column from nothing. Fall back to the
+                        // rows that HAVE been measured.
+                        if (!(rowPx > 0)) {
+                            for (let y = y0; y < Math.min(y1, nRows); y++) {
+                                const w = cellAt(x, y);
+                                if (w && w.__screen_height > rowPx) rowPx = w.__screen_height;
+                            }
+                        }
                         const target = rowPx > 0 ? Math.max(7, Math.round(rowPx * 0.55)) : null;
                         px = target;
                         if (target != null) {
                             for (const w of cells) {
-                                if (!w.fitFontPx || w.skin_transient || w.skin_type) continue;
+                                if (!w.fitFontPx || w.skin_transient) continue;
                                 if (w.isHeader && w.isHeader()) continue;
                                 const t = w.__displayText ? w.__displayText() : w.value;
                                 const numeric = typeof w.value === 'number' || NUMERIC.test(('' + (t == null ? '' : t)).trim());
-                                if (!numeric) continue;                              // labels keep the table's size
+                                // A CUT NUMBER IS A WRONG NUMBER, so a column of numbers that
+                                // will not fit steps down TOGETHER until they all do: one
+                                // number set smaller than the rest reads as a different kind
+                                // of quantity, so the whole column moves or none of it does.
+                                //
+                                // A LABEL IS NOT HELD TO THAT. It used to be -- it stayed at
+                                // the column's size and was cut with an ellipsis, on the
+                                // grounds that shrinking one label is the ragged column this
+                                // is preventing. That trade was wrong: a cell reading
+                                // "Addressable patients…" has lost the thing it exists to say,
+                                // and a point of size difference costs far less than the words.
+                                // A text cell that does not fit now steps down on its own at
+                                // draw time (baja/plate/well.js, the __colFontPx branch),
+                                // starting FROM the column's size -- so a column whose size
+                                // was already right is untouched and stays uniform, and only
+                                // the cells that would have been cut differ.
+                                if (!numeric) continue;
                                 const f = w.fitFontPx(ctx);
                                 if (f != null) px = Math.min(px, f);
                             }
                         }
                         this.__colFontCache[x] = { key, px };
                     }
-                    for (const w of cells) w.__colFontPx = (w.skin_transient || w.skin_type || (w.isHeader && w.isHeader())) ? null : px;
+                    // EVERY CELL IN THE COLUMN, not just the plain ones. A skinned cell used
+                    // to be sent back to sizing itself, so one coloured cell in a column of
+                    // labels came out at its own size.
+                    //
+                    // TWO EXCEPTIONS, both deliberate. A HEADER sizes itself: it is the label
+                    // for the column rather than one of its values, it is read as a heading
+                    // and not compared down the column, and holding it to the body's size
+                    // makes a long one ellipsise where it could simply have been set smaller
+                    // and stayed whole. A TRANSIENT skin is left alone too -- it is an overlay
+                    // on top of the table rather than part of the column.
+                    for (const w of cells) {
+                        const own = w.skin_transient
+                            || (w.isHeader && w.isHeader())
+                            || (!uniform && w.skin_type);
+                        w.__colFontPx = own ? null : px;
+                    }
                 }
             }
             drawBackgroundTableTitles(ctx, name, x, y, w, h) {

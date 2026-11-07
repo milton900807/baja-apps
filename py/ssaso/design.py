@@ -14,21 +14,36 @@ RNA_BASES = set("AUGC")
 ALLOWED_BACKBONES = {"PS", "PO"}
 
 # Default HELM monomer symbols
+# Every chemistry the design dialog offers must have a symbol here, or resolve_helm_symbol
+# raises and the whole design run fails. cEt, 2'-F and PMO were offered by the dialog and
+# missing from this map (and rejected by normalize_wing_mod below), so choosing one of them
+# produced an error rather than a design.
 DEFAULT_HELM_SYMBOLS = {
     "DNA": "d",
-    "2'-MOE": "moe",
     "RNA": "r",
-    "LNA": "lna",
+    "2'-MOE": "moe",
     "2'-OMe": "m",
+    "2'-F": "f",
+    "LNA": "lna",
+    "cEt": "cet",
+    "ENA": "ena",
+    "PMO": "pmo",
 }
 
 # Heuristic per-residue Tm bonuses layered on top of Wallace estimate.
+# Approximate per-residue Tm contribution over DNA. cEt is close to LNA (both are bridged
+# bicyclics); 2'-F sits near 2'-MOE; PMO is uncharged so its duplex stability does not
+# follow the same rule at all -- 0.0 is a placeholder, not a measurement.
 MODIFICATION_TM_BONUS_C = {
     "DNA": 0.0,
     "RNA": 0.0,
     "2'-OMe": 0.75,
+    "2'-F": 1.2,
     "2'-MOE": 1.25,
     "LNA": 2.5,
+    "cEt": 2.2,
+    "ENA": 2.0,
+    "PMO": 0.0,
 }
 
 # Default panel of DNA cleavage motifs commonly used as nuclease / endonuclease
@@ -328,17 +343,43 @@ def plateau_score(value: float, low: float, high: float, soft_margin: float) -> 
     return clamp01(1.0 - (value - high) / max(soft_margin, 1e-9))
 
 
+# The gapmer wing chemistries this designer accepts. Kept in step with the options the
+# design dialog offers (baja/manchester/menu/aso-design-dialog.js): the dialog listed cEt
+# and 2'-F, this set did not, and picking either failed the run with a validation error
+# rather than designing anything. PMO is deliberately NOT here -- a phosphorodiamidate
+# morpholino has no 2'-position and no charged backbone, so it cannot be a gapmer wing
+# flanking a DNA gap; it is a steric blocker chemistry and belongs to that designer.
+ALLOWED_WING_MODS = {"LNA", "2'-OMe", "2'-MOE", "2'-F", "cEt", "ENA"}
+
+WING_MOD_ALIASES = {
+    "MOE": "2'-MOE",
+    "2'-OMETHYL": "2'-OMe",
+    "2'-OMETHOXYETHYL": "2'-MOE",
+    "OME": "2'-OMe",
+    "2OME": "2'-OMe",
+    "2'-O-METHYL": "2'-OMe",
+    "F": "2'-F",
+    "2F": "2'-F",
+    "2'-FLUORO": "2'-F",
+    "CET": "cEt",
+    "S-CET": "cEt",
+    "ENA": "ENA",
+    "BNA": "LNA",
+}
+
+
 def normalize_wing_mod(mod: str) -> str:
     m = str(mod or "LNA").strip()
-    aliases = {
-        "MOE": "2'-MOE",
-        "2'-OMETHYL": "2'-OMe",
-        "2'-OMETHOXYETHYL": "2'-MOE",
-    }
-    m = aliases.get(m.upper(), m)
-    if m not in {"LNA", "2'-OMe", "2'-MOE"}:
-        raise ValueError("wing_modification must be one of: LNA, 2'-OMe, 2'-MOE")
-    return m
+    m = WING_MOD_ALIASES.get(m.upper(), m)
+    # Case-insensitive match against the allowed set, so "cet"/"CET"/"cEt" all land on the
+    # canonical spelling the symbol map and the Tm table are keyed by.
+    for allowed in ALLOWED_WING_MODS:
+        if m.upper() == allowed.upper():
+            return allowed
+    raise ValueError(
+        "wing_modification must be one of: " + ", ".join(sorted(ALLOWED_WING_MODS))
+        + f" (got {mod!r}). PMO is a steric-blocker chemistry and cannot form a gapmer wing."
+    )
 
 
 def normalize_backbone(backbone: str) -> str:
@@ -367,15 +408,48 @@ def resolve_helm_symbol(sugar: str, symbol_map: Dict[str, str | None]) -> str:
     return symbol
 
 
+# HELM linker monomer per backbone chemistry. These are the symbols the renderer and the
+# monomer library already use ('sp' phosphorothioate, 'p' phosphodiester); anything else
+# reads as "no linkage specified".
+BACKBONE_HELM_SYMBOLS = {
+    "PS": "sp",
+    "PO": "p",
+}
+
+
+def helm_token(symbol: str) -> str:
+    """Bracket a monomer symbol iff it is longer than one character.
+
+    That is the HELM rule -- `[moe](C)` but `d(A)p` -- and emitting the wrong form gives a
+    string that only parses by luck.
+    """
+    s = str(symbol)
+    return f"[{s}]" if len(s) > 1 else s
+
+
 def build_helm_structure(
     chemistry_layout: List[Dict[str, Any]],
     symbol_map: Dict[str, str | None],
 ) -> str:
+    # THE BACKBONE HAS TO BE IN THE STRING. This emitted sugar and base only, so every
+    # designed gapmer arrived with `backbone_to_next` computed, a backbone_pattern stored
+    # alongside it, and a HELM that said nothing about either. Downstream, the renderer's
+    # `isPS || isPO` test was false for every linkage, so the drawing showed plain bonds --
+    # no phosphorus, no =O, no =S -- and a PS and a PO compound were indistinguishable on
+    # screen. Anything else reading the HELM (the IDT export, the chemistry editor) had the
+    # same blank to work from.
     monomers: List[str] = []
-    for residue in chemistry_layout:
+    n = len(chemistry_layout)
+    for idx, residue in enumerate(chemistry_layout):
         symbol = resolve_helm_symbol(residue["sugar"], symbol_map)
         base = str(residue["base"]).upper()
-        monomers.append(f"{symbol}({base})")
+        unit = f"{helm_token(symbol)}({base})"
+        # The 3' terminal residue has no following linkage, so it carries no linker token.
+        if idx < n - 1:
+            link = BACKBONE_HELM_SYMBOLS.get(str(residue.get("backbone_to_next") or "").upper())
+            if link:
+                unit += helm_token(link)
+        monomers.append(unit)
     return f"RNA1{{{'.'.join(monomers)}}}$$$$"
 
 
@@ -742,6 +816,46 @@ def select_top_non_overlapping(
     return selected
 
 
+def select_tiled(
+    candidates: List[GapmerCandidate],
+    step: int,
+    top_n: int = 0,
+) -> List[GapmerCandidate]:
+    """A WALK ACROSS THE TARGET: the best candidate starting at each step along it.
+
+    Every start is still generated and scored exactly as it is for a ranked design -- this
+    changes only which of them come back. At each position the best of that start's layouts
+    (its lengths and gap sizes) is the one kept, so a tile is the best ASO that begins there,
+    not an arbitrary one.
+
+    `step` is the increment in bases; 0 means end to end, where the next tile starts one base
+    after the last one finishes. The step is measured from the tile ACTUALLY TAKEN rather
+    than from a fixed grid, so a position with no candidate -- an excluded region, a motif
+    hit -- moves the next tile along instead of dropping it.
+    """
+    best_at: Dict[int, GapmerCandidate] = {}
+    for cand in candidates:
+        cur = best_at.get(cand.start)
+        if cur is None or cand.score > cur.score:
+            best_at[cand.start] = cand
+    if not best_at:
+        return []
+    starts = sorted(best_at)
+    selected: List[GapmerCandidate] = []
+    want = starts[0]
+    for s in starts:
+        if s < want:
+            continue
+        cand = best_at[s]
+        selected.append(cand)
+        want = (cand.end + 1) if step <= 0 else (s + step)
+        if top_n and len(selected) >= top_n:
+            break
+    for idx, candidate in enumerate(selected, start=1):
+        candidate.rank = idx
+    return selected
+
+
 def generate_gapmer_candidates(
     long_sequence: str,
     lengths: Iterable[int] = (16, 17, 18, 19, 20),
@@ -931,6 +1045,9 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "helm_symbols": {},
             "enforce_non_overlapping": True,
             "min_separation": 0,
+            # A bare sequence is the rule-based design, as it has always been.
+            "design_mode": "rules",
+            "tile_step": 0,
             "endonuclease_motifs": list(DEFAULT_ENDONUCLEASE_MOTIFS_DNA),
             "exclude_gap_cleavage_motif_hits": True,
             "offtarget_index": None,
@@ -973,6 +1090,18 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             # it returns the best site written out N times at one-base offsets.
             "enforce_non_overlapping": bool(payload.get("enforce_non_overlapping", True)),
             "min_separation": int(payload.get("min_separation", 0)),
+            # HOW THE ANSWER IS CHOSEN, which is a different question from how it is scored.
+            #   "rules" walks the ranking and returns the best sites anywhere in the target.
+            #   "tile"  walks the TARGET and returns one at every step along it, scored the
+            #           same way, so the result is a even walk rather than a shortlist.
+            # A tiling panel is what you order when you mean to test the transcript rather
+            # than to pick a compound from it, and ranking cannot give you one: the best
+            # sites cluster, and the stretches between them are exactly what a walk is for.
+            "design_mode": ("tile" if str(payload.get("design_mode", "rules")).lower().startswith("til")
+                            else "rules"),
+            # The increment, in bases. 0 means END TO END: each tile starts where the last
+            # one finished, so the target is covered once with no overlap and no gap.
+            "tile_step": max(0, int(payload.get("tile_step", 0))),
             "endonuclease_motifs": list(motifs),
             "exclude_gap_cleavage_motif_hits": bool(payload.get("exclude_gap_cleavage_motif_hits", True)),
             # [[from, to), …] index ranges of this sequence no candidate may overlap: the
@@ -1019,6 +1148,8 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     helm_symbols = request["helm_symbols"]
     enforce_non_overlapping = request["enforce_non_overlapping"]
     min_separation = request["min_separation"]
+    design_mode = request["design_mode"]
+    tile_step = request["tile_step"]
     endonuclease_motifs = normalize_motif_list(request["endonuclease_motifs"])
     exclude_gap_cleavage_motif_hits = request["exclude_gap_cleavage_motif_hits"]
     exclude_regions = request.get("exclude_regions") or []
@@ -1115,11 +1246,27 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     # The oversample is the room the penalty has. Screening exactly top_n could only reorder
     # the answer; screening 3x can change which sites are in it.
     screen = _load_offtarget_search() if offtarget_index else None
-    want = (top_n * offtarget_oversample) if screen else top_n
-    if screen:
+    # The oversample is room for the screen to CHANGE which sites come back, which only makes
+    # sense when the answer is a shortlist. A tiling is a walk: every step of it is wanted,
+    # and screening more of them than that would only mean throwing some away.
+    want = (top_n * offtarget_oversample) if (screen and design_mode != "tile") else top_n
+    if screen and design_mode != "tile":
         want = min(want, offtarget_screen_cap)
 
-    if enforce_non_overlapping:
+    if design_mode == "tile":
+        # A WALK, NOT A SHORTLIST. The ranking is not consulted for WHICH sites come back --
+        # only for which layout is kept at each one -- so the result covers the target evenly
+        # and the scores are there to read afterwards rather than to select on.
+        works.msg(
+            "Tiling the target %s"
+            % ("end to end" if tile_step <= 0 else "every %d base%s" % (tile_step, "" if tile_step == 1 else "s"))
+        )
+        top_candidates = select_tiled(all_candidates, step=tile_step, top_n=want)
+        works.msg(
+            "%d tile%s across %d nt"
+            % (len(top_candidates), "" if len(top_candidates) == 1 else "s", len(normalized_rna))
+        )
+    elif enforce_non_overlapping:
         works.msg(
             "Ranking every candidate, then taking the best %d sites%s"
             % (want, (" at least %d nt apart" % min_separation) if min_separation else ", non-overlapping")
@@ -1188,9 +1335,16 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
                 ]
                 if symbols:
                     c.notes.append("Nearest off-targets: " + ", ".join(symbols))
-            top_candidates.sort(key=lambda x: (-x.score, abs(x.tm_c - 60.0),
-                                               abs(x.gc_percent - 50.0), -x.length))
-            top_candidates = top_candidates[:top_n]
+            if design_mode == "tile":
+                # THE WALK IS THE ANSWER and the screen must not rewrite it. Re-ranking here
+                # would hand back the best-scoring tiles rather than a walk across the target,
+                # which is the one thing a tiling was asked for. The off-target numbers stay
+                # on each tile, to be read.
+                top_candidates.sort(key=lambda x: x.start)
+            else:
+                top_candidates.sort(key=lambda x: (-x.score, abs(x.tm_c - 60.0),
+                                                   abs(x.gc_percent - 50.0), -x.length))
+                top_candidates = top_candidates[:top_n]
             for idx, c in enumerate(top_candidates, start=1):
                 c.rank = idx
             offtarget_report["ran"] = True
@@ -1263,7 +1417,11 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         "top_n": top_n,
         "coverage": coverage,
         "offtarget_screen": offtarget_report,
-        "selection_mode": "rank_order_across_sequence_space" if enforce_non_overlapping else "global_top_n_overlaps_allowed",
+        "selection_mode": ("tiled_across_target" if design_mode == "tile"
+                           else ("rank_order_across_sequence_space" if enforce_non_overlapping
+                                 else "global_top_n_overlaps_allowed")),
+        "design_mode": design_mode,
+        "tile_step": (tile_step if design_mode == "tile" else None),
         "min_separation": min_separation,
         "lengths_scanned": list(lengths),
         "gap_sizes_scanned": list(gap_sizes),

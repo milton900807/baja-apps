@@ -1,4 +1,11 @@
 function (graph, genegraph_panel_layout) {
+    // MENUS AT THE POINTER, NOT IN THE CORNER. This module is entered from a menubar or a
+    // toolbar, so there is no canvas press behind it and showSideMenu had nothing to anchor
+    // to -- every question it asks came up as the top-left side panel, in a different place
+    // and a different style from every menu reached by clicking the canvas.
+    // graph.openMenuAtPointer (flexigraph/gene.js) draws the same list at the pointer, and
+    // defers to an open floating session when this module is instead reached from a press,
+    // so the mixed-entry callers keep their place. The || keeps older graphs working.
     // A drill-down SIDE menu off Navigate -> Mutations:
     //   tracks (that have mutations)  ->  mutation types  ->  variants by g. location.
     // Any level with more than PAGE entries pages with a "More…" item and a "‹ Back" item
@@ -30,50 +37,19 @@ function (graph, genegraph_panel_layout) {
             for (const it of slice) menu.push({ label: it.label, move: () => { }, click: () => it.onClick() });
             if (start + PAGE < items.length) menu.push({ label: 'More… (' + (items.length - (start + PAGE)) + ' more)', move: () => { }, click: () => showPaged(items, page + 1, onParent) });
             if (!onParent) menu.push({ label: 'Close', move: () => { }, click: () => closeMenu() });
-            try { graph.showSideMenu(menu); } catch (e) { }
+            try { (graph.openMenuAtPointer || graph.showSideMenu).call(graph, menu); } catch (e) { }
         };
 
         // Leaf action: ANIMATE a zoom onto a single variant, centered, but backed off so the
         // marker's label + some buffer are visible (not zoomed all the way to the sequence).
+        // One implementation, shared with the ClinVar splice tool's results window: see
+        // baja/manchester/menu/zoom-to-variant.js for what "correctly" means here (sequence
+        // visible, vertical room for the lollipop, spotlight before the animation).
         const zoomToSnp = async (t, s, opts) => {
             try {
-                const tg = t && t.tgraph;
-                if (!tg || !tg.X) return;
-
-                // Zoom just close enough to SEE the base sequence, but no closer. Track
-                // sequence letters only render above screencell > 5 px/base (track.js), so
-                // target just past that threshold — the most zoomed-out view that still
-                // shows the sequence (maximizing surrounding context). Window width in bases
-                // = grid pixel width / target px-per-base, centered on the SNP; zoomRect fits
-                // it to the same pixel width, landing the final zoom at exactly TARGET px/base.
-                const TARGET_PXPB = 6;                 // px per base: just above the >5 sequence-visible threshold
-                let gridW = 800;
-                try { gridW = (graph.grid && graph.grid.width) || (graph.canvas && graph.canvas.width) || 800; } catch (e) { }
-                const worldPerBase = Math.abs((tg.screenWidth ? tg.screenWidth(1) : (tg.X(s.xi + 1) - tg.X(s.xi))) || 1) || 1;
-                const halfWorld = (worldPerBase * gridW) / (2 * TARGET_PXPB);
-                const centerW = tg.X(s.xi);
-                const xMin = centerW - halfWorld, xMax = centerW + halfWorld;
-                const yA = tg.yi, yB = tg.yi + (tg.height || 0);
-                const cy = (yA + yB) / 2;
-                const span = (Math.abs(yB - yA) || 0.1);
-                // The SNP lollipop pops a FIXED ~30–150px (stem + head + label) UP from the track
-                // and can fan to either side. Reserve generous vertical room — biased toward the
-                // top (lollipop side) so it never clips off-screen — while staying zoomed in enough
-                // for the sequence. Keep room below too so a down-fanned marker also stays visible.
-                const topExt = span * 3.6;   // toward screen top (the ymin side)
-                const botExt = span * 2.2;   // toward screen bottom
-                // Deselect all other mutations and select THIS one BEFORE zooming (spotlight).
-                // A row pressed in the list IS a choice and goes into the selection window;
-                // a stop on the tour is not, and does not (opts.select === false below).
-                try { await exec('baja/manchester/menu/focus-mutation.js', graph, s, 10000, Object.assign({ track: t }, opts || {})); } catch (e) { }
-                if (graph.zoomRect) {
-                    await graph.zoomRect(xMin, xMax, cy + topExt, cy - botExt, 500);   // smooth animated
-                } else if (graph.graph && graph.graph.setxmin) {
-                    graph.graph.setxmin(xMin); graph.graph.setxmax(xMax);
-                    graph.graph.setymin(cy + topExt); graph.graph.setymax(cy - botExt);
-                }
-                if (graph.wake) graph.wake();
-            } catch (e) { }
+                const ZV = await exec('baja/manchester/menu/zoom-to-variant.js');
+                return await ZV(graph, t, s, opts);
+            } catch (e) { return false; }
         };
 
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

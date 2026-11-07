@@ -84,83 +84,25 @@ function (graph, oligo, genegraph_panel_layout) {
         }
 
         // ---- Render as an overlay fitted to the canvas (does NOT replace it) -----------------
-        // The VISIBLE gene-graph canvas: largest by on-screen display area, so an off-screen or
-        // buffer canvas can't be picked and the rect we fit to is the one the user is looking at.
-        const biggestCanvas = () => {
-            let best = null, area = -1;
-            try {
-                const vh = window.innerHeight || 1e9, vw = window.innerWidth || 1e9;
-                for (const c of document.querySelectorAll('canvas')) {
-                    const r = c.getBoundingClientRect();
-                    if (!r || r.width <= 1 || r.height <= 1) continue;
-                    if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) continue;   // off-screen
-                    const a = r.width * r.height;
-                    if (a > area) { area = a; best = c; }
-                }
-            } catch (e) { }
-            return best;
-        };
+        // The shell -- navy ground, pinned header with the title and Close, one scrolling body,
+        // fitted to the gene-graph canvas and tracking it -- is baja/lib/canvas-overlay-panel.js.
+        // It used to be built by hand here; it is shared so every result window in the editor is
+        // the same window (see that module's header).
+        //
+        // An async IIFE, not an async module body: every module in this tree is a plain
+        // `function (...)` expression, and the shell has to be loaded with exec before the
+        // window can be built. The module still returns `graph` synchronously, as its callers
+        // expect -- the window simply appears a tick later.
+        (async () => {
+        const OV = await exec('baja/lib/canvas-overlay-panel.js');
+        const __ov = OV.open({
+            id: 'baja-aso-ot-summary',
+            // Raw, not esc(): the shell sets the title with textContent, which escapes it.
+            title: 'Off-targets — ' + nm,
+            body: body
+        });
+        const panel = __ov.panel, close = __ov.close;
 
-        const old = document.getElementById('baja-aso-ot-summary'); if (old && old.parentNode) old.parentNode.removeChild(old);
-        const panel = document.createElement('div');
-        panel.id = 'baja-aso-ot-summary';
-        // Column layout: a fixed-height header that never scrolls + a scrolling body beneath it.
-        panel.style.cssText = 'position:fixed;z-index:2147483000;display:flex;flex-direction:column;overflow:hidden;'
-            + 'background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);'
-            + 'border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;box-sizing:border-box;';
-
-        // Fit the panel to the canvas currently under it. Re-run on resize so it keeps matching.
-        const fitToCanvas = () => {
-            try {
-                const cv = biggestCanvas();
-                const r = cv ? cv.getBoundingClientRect() : null;
-                if (r && r.width > 1 && r.height > 1) {
-                    panel.style.left = Math.round(r.left) + 'px';
-                    panel.style.top = Math.round(r.top) + 'px';
-                    panel.style.width = Math.round(r.width) + 'px';
-                    panel.style.height = Math.round(r.height) + 'px';
-                } else {   // no canvas found — fall back to a centerd sheet
-                    panel.style.left = '50%'; panel.style.top = '60px'; panel.style.transform = 'translateX(-50%)';
-                    panel.style.width = 'min(720px,94vw)'; panel.style.height = 'min(80vh,820px)';
-                }
-            } catch (e) { }
-        };
-
-        // Header: flex-none, so it holds its height and the Close button is on screen from the
-        // start — the hit list scrolls underneath it, never past it.
-        const head = document.createElement('div');
-        head.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:14px 18px;'
-            + 'border-bottom:1px solid rgba(255,255,255,0.14);background:#0b2545;border-radius:12px 12px 0 0;';
-        head.innerHTML = '<div style="font:700 16px Arial;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Off-targets — ' + esc(nm) + '</div>'
-            + '<button id="aso-ot-close" data-rec="Off-targets close" title="Close (Esc)" style="cursor:pointer;flex:0 0 auto;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Close</button>';
-
-        // Body: the only scrolling region.
-        const bodyEl = document.createElement('div');
-        bodyEl.style.cssText = 'flex:1 1 auto;min-height:0;overflow:auto;padding:16px 18px 18px;';
-        bodyEl.innerHTML = body;
-
-        panel.appendChild(head); panel.appendChild(bodyEl);
-        fitToCanvas();
-        document.body.appendChild(panel);
-
-        let onKey = null, onResize = null, ro = null;
-        const close = () => {
-            try { if (onResize) window.removeEventListener('resize', onResize); } catch (e) { }
-            try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
-            try { if (ro) ro.disconnect(); } catch (e) { }
-            try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
-        };
-        onResize = () => fitToCanvas();
-        window.addEventListener('resize', onResize);
-        onKey = (e) => { try { if (e.key === 'Escape') { close(); } } catch (er) { } };
-        document.addEventListener('keydown', onKey, true);
-        // Track the canvas itself changing size (panel splits, sidebar toggles), not just the window.
-        try {
-            const cv0 = biggestCanvas();
-            if (cv0 && typeof ResizeObserver === 'function') { ro = new ResizeObserver(() => fitToCanvas()); ro.observe(cv0); }
-        } catch (e) { }
-
-        const cb = panel.querySelector('#aso-ot-close'); if (cb) cb.onclick = () => close();
         try {
             panel.querySelectorAll('.aso-ot-map').forEach((btn) => {
                 btn.onclick = () => {
@@ -179,6 +121,7 @@ function (graph, oligo, genegraph_panel_layout) {
                 };
             });
         } catch (e) { }
+        })().catch((e) => { try { graph.setMessage(' Off-target mapper failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } });
     } catch (e) { try { graph.setMessage(' Off-target mapper failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
 
     return graph;

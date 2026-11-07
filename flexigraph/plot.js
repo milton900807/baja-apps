@@ -326,28 +326,60 @@ function (MGrid) {
             return ms / (365.2425 * 24 * 3600 * 1000);
         }
 
+        // THE ONE CONVERSION BETWEEN A TIMELINE'S AXIS AND DATES: an axis value is HOURS
+        // AFTER startDate. Nothing else -- not the width of the axis, not where the axis
+        // happens to be scrolled to -- enters into it.
+        //
+        // This is what the ruler draws. drawXAxisTimeTicks puts the pill for a year at
+        // _grid.X((ms - startMs) / hourToMs), and drawXAxisTimeTicks_HEIGHT does the same,
+        // so the ruler is the absolute reading of the axis and it is what the user is
+        // looking at when they compare a milestone to a year.
+        //
+        // These functions used to read an axis value the other way: as a FRACTION of
+        // [xMin, xMax] mapped onto [startDate, endDate]. The two agree on exactly one
+        // condition --
+        //
+        //     xMin === 0  AND  xMax === (endDate - startDate) in hours
+        //
+        // -- which holds for a timeline as built (py/openai/timeline.py measures x as hours
+        // from window.start and gantt-factory.js zooms to 0..the full span) and STOPS
+        // HOLDING THE MOMENT ANYONE ZOOMS, because xMin and xMax then move and startDate
+        // and endDate do not. Every date the fractional reading produced after a zoom was
+        // wrong by the ratio of the two ranges while the ruler beside it stayed right: the
+        // date under the cursor, the range the drag tool reported, the dates written into
+        // the timeline report, and -- through normalizeTimePoints, which rewrites a point's
+        // x from its date on every frame -- the positions of the points themselves, which
+        // were re-spread to fill whatever window you had zoomed to, so zooming in never
+        // showed fewer events.
+        //
+        // xMin and xMax stay in these signatures because some sixty call sites pass them
+        // and a parameter list is not worth a sixty-line diff. They are not read.
+        const TL_HOUR_MS = 3600 * 1000;
+
+        function tlDateFromX(x, start) {
+            const s = toMillis(start);
+            const h = Number(x);
+            if (!isFinite(s) || !isFinite(h)) return new Date(NaN);
+            return new Date(s + h * TL_HOUR_MS);
+        }
+
+        function tlXFromDate(when, start) {
+            const s = toMillis(start);
+            const t = toMillis(when);
+            if (!isFinite(s) || !isFinite(t)) return NaN;
+            return (t - s) / TL_HOUR_MS;
+        }
+
         function formatTimeLabel(x, xMin, xMax, start, end) {
             return formatTime(x, xMin, xMax, start, end)
         }
 
         function formatTime(x, xMin, xMax, start, end) {
-            const startMs = toMillis(start);
-            const endMs = toMillis(end);
-            const totalCanvasRange = xMax - xMin;
-            const totalTimeRange = endMs - startMs;
-            const normalizedX = (x - xMin) / totalCanvasRange;
-            const t = startMs + normalizedX * totalTimeRange;
-            return new Date(t);
+            return tlDateFromX(x, start);
         }
 
         function timeToX(time, xMin, xMax, start, end) {
-            const totalCanvasRange = xMax - xMin;
-            const startMs = toMillis(start);
-            const endMs = toMillis(end);
-            const totalTimeRange = endMs - startMs;
-            const t = toMillis(time);
-            const normalized = (t - startMs) / totalTimeRange;
-            return xMin + normalized * totalCanvasRange;
+            return tlXFromDate(time, start);
         }
 
         const integerAxis = (ctx, _grid, minVal, maxVal) => {
@@ -643,12 +675,8 @@ function (MGrid) {
         }
 
         function getXFromDate(date, xMin, xMax, start, end) {
-            const totalCanvasRange = xMax - xMin;
-            const totalTimeRange = end.getTime() - start.getTime();
-            const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-            const normalizedTime = timeSinceStart / totalTimeRange;
-            return xMin + normalizedTime * totalCanvasRange;
+            // Hours after start -- the same reading as the ruler (see tlXFromDate).
+            return tlXFromDate(date, start);
         }
 
         function distanceFromPointToHorizontalSegment(px, x1, x2) {
@@ -2694,8 +2722,12 @@ function (MGrid) {
                     highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('minimize') }, color: 'lightcyan'
                 },
                 {
+                    // A CHART AND A TIMELINE KEEP THEIRS. The ✕ came off a TABLE's bar
+                    // because a table is a sheet of work and its delete is one slip from the
+                    // maximize beside it -- but a chart or a timeline is one object, closing
+                    // it is the ordinary thing to do with it, and it asks first either way.
                     name: "close", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return await this.closePlot(pt) },
-                    highlight: async () => { return await this.highlightButton("close") }, color: 'lightcyan'
+                    highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('close') }, color: 'lightcyan'
                 },
             ];
             themeName = null;
@@ -4046,6 +4078,7 @@ function (MGrid) {
                     if (data.showBudget !== undefined) plot.showBudget = data.showBudget !== false;
                     if (data.showNowBar !== undefined) plot.showNowBar = data.showNowBar !== false;
                     plot.isBackground = data.isBackground;
+                    if (typeof data.zorder === 'number') plot.zorder = data.zorder;
                     plot.x = data.x;
                     plot.y = data.y;
                     plot.backgroundColor = data.backgroundColor;
@@ -5034,39 +5067,54 @@ function (MGrid) {
                 this.unhighlight();
             }
 
-            // Axis units -> Date on a timeline (the inverse of normalizeTimePoints' mapping).
+            // Axis units -> Date on a timeline: hours after startDate, the same reading the
+            // ruler draws (see tlDateFromX). Returns null rather than an invalid Date,
+            // because its callers test the result before using it.
             __tlUnitsToDate(xu) {
-                if (!this.startDate || !this.endDate || !this.grid) return null;
-                const s = toMillis(this.startDate), e = toMillis(this.endDate);
-                const xmin = this.grid.xmin, xmax = this.grid.xmax;
-                if (!isFinite(s) || !isFinite(e) || !(xmax > xmin)) return null;
-                const d = new Date(s + (xu - xmin) / (xmax - xmin) * (e - s));
+                if (!this.startDate) return null;
+                const d = tlDateFromX(xu, this.startDate);
                 return isNaN(d.getTime()) ? null : d;
             }
+            // Move the time origin without moving anything against the dates it stands for.
+            // An axis value is hours after startDate, so changing startDate on its own would
+            // slide every point and every tick by the size of the change; the shift has to
+            // come out of the values at the same moment it goes into the origin.
+            __tlReorigin(newStart) {
+                const shift = tlXFromDate(newStart, this.startDate);   // hours; negative when earlier
+                if (!Number.isFinite(shift) || shift === 0) return false;
+                const pts = (this.scatterData && Array.isArray(this.scatterData.points)) ? this.scatterData.points : [];
+                for (const p of pts) {
+                    if (!p) continue;
+                    if (Number.isFinite(p.x)) p.x -= shift;
+                    if (Number.isFinite(p.startX)) p.startX -= shift;
+                }
+                if (this.grid) {
+                    if (Number.isFinite(this.grid.xmin)) this.grid.xmin -= shift;
+                    if (Number.isFinite(this.grid.xmax)) this.grid.xmax -= shift;
+                }
+                this.startDate = (newStart instanceof Date) ? newStart : new Date(toMillis(newStart));
+                return true;
+            }
+            // A point that carries a date is placed BY that date, every frame, so a drag or
+            // an edit that changes the date moves the point. The position is hours after
+            // startDate and nothing else.
+            //
+            // It used to be a fraction of the axis: the points were spread across
+            // [grid.xmin, grid.xmax] in proportion to where their dates fell between
+            // startDate and endDate. On an unzoomed, well-formed timeline that is the same
+            // number -- but zoom the axis and the points were re-spread to fill the new
+            // window, so zooming in never showed fewer events, and every point drifted off
+            // the year the ruler had it standing on.
             normalizeTimePoints(graph) {
-                const screen_ = 200;
-                let xwm = graph.worldWidth(this.grid.worldWidth(screen_))
-
-                const xMin = this.grid.xmin;
-                const xMax = this.grid.xmax;
-
-                const totalCanvasRange = xMax - xMin;
-
-                const startMs = toMillis(this.startDate);
-                const endMs = toMillis(this.endDate);
-                const totalTimeRange = endMs - startMs;
-
-                if (!isFinite(totalCanvasRange) || totalCanvasRange === 0) return;
-                if (!isFinite(totalTimeRange) || totalTimeRange === 0) return;
+                if (!this.startDate || !this.scatterData || !Array.isArray(this.scatterData.points)) return;
 
                 for (const p of this.scatterData.points) {
                     if (!p || !p.date) continue;
 
-                    const t = toMillis(p.date);
-                    if (!isFinite(t)) continue;
+                    const x = tlXFromDate(p.date, this.startDate);
+                    if (!isFinite(x)) continue;
 
-                    const normalized = (t - startMs) / totalTimeRange;
-                    p.x = xMin + normalized * totalCanvasRange;
+                    p.x = x;
                 }
             }
 
@@ -5251,6 +5299,209 @@ function (MGrid) {
                         move: () => {
                         }
                     });
+
+                // ---- Select a time range, by dragging across the timeline -----------------
+                //
+                // The timeline already had a range gesture, but only MAXIMIZED and only as a
+                // hold-then-tap: press and keep still for 550ms to open it, tap again to
+                // close. Nothing says it is there, it does not work on the canvas, and a
+                // press-and-drag -- which is what everyone tries first -- panned the window
+                // through time instead. This is the same range, reachable from the menu and
+                // drawn with the dates on it while you make it.
+                //
+                // The readout is the point of the exercise: a timeline axis is labelled in
+                // whatever units fit the zoom, so the date under the pointer is otherwise a
+                // thing you estimate between two ticks. It follows the pointer from the
+                // moment the tool is armed, before anything is pressed.
+                menuList.push({
+                    label: 'Select a time range\u2026',
+                    __date: '',
+                    click: async () => {
+                        if (!pt) return;
+                        const plot = this;
+                        let armed = true;
+                        let drag = null;            // { x0, xu0, y } once the press lands
+                        const disarm = () => {
+                            armed = false; drag = null;
+                            try { pt.__tlDrawing = false; } catch (e) { }
+                            try { plot.__date = ''; } catch (e) { }
+                            try { pt.wb(null); } catch (e) { }
+                            try { if (typeof pt.__rehover === 'function') pt.__rehover(); } catch (e) { }
+                        };
+                        const msAt = (x) => {
+                            try {
+                                const xu = (typeof pt.__tlXUnitsAt === 'function')
+                                    ? pt.__tlXUnitsAt(plot, x) : plot.grid.Xwc(x - plot.grid.xi * 2);
+                                return { xu, ms: pt.__tlXToMs(plot, xu) };
+                            } catch (e) { return { xu: NaN, ms: NaN }; }
+                        };
+                        // THE DATE **AND THE TIME**. pt.__tlFmt is date-only
+                        // (toLocaleDateString with year/month/day), so a range picked inside a
+                        // single day read as the same string at both ends. This is what the
+                        // readout was asked for, so it carries the clock as well -- and drops
+                        // it again once the range is wide enough that minutes are noise.
+                        const fmtDT = (ms, withTime) => {
+                            const d = new Date(ms);
+                            if (isNaN(d.getTime())) return '';
+                            const day = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                            if (!withTime) return day;
+                            const hm = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                            return day + '  ' + hm;
+                        };
+                        // Minutes matter when the view is inside a few days; past that the
+                        // clock on a timeline label is precision nobody asked for.
+                        const clockWorthIt = () => {
+                            try {
+                                const g = plot.grid;
+                                const a = pt.__tlXToMs(plot, g.xmin), b = pt.__tlXToMs(plot, g.xmax);
+                                return Number.isFinite(a) && Number.isFinite(b) && Math.abs(b - a) <= 14 * 864e5;
+                            } catch (e) { return true; }
+                        };
+                        // Its own span, said the way a person would: a range over an afternoon
+                        // is not usefully "0.2 days", and one over three years is not 1,095 of
+                        // anything anyone counts.
+                        const spanText = (ms) => {
+                            const a = Math.abs(ms);
+                            const m = a / 60000, h = a / 3600000, d = a / 864e5;
+                            if (m < 90) return Math.round(m) + ' min';
+                            if (h < 48) return (h < 10 ? h.toFixed(1) : Math.round(h)) + ' h';
+                            if (d < 70) return (d < 10 ? d.toFixed(1) : Math.round(d)) + ' days';
+                            if (d < 730) return (d / 30.44).toFixed(1) + ' months';
+                            return (d / 365.25).toFixed(1) + ' years';
+                        };
+                        try { pt.setMessage('Drag across the timeline to pick a range. Escape cancels.', 6); } catch (e) { }
+                        try { pt.__tlDrawing = true; } catch (e) { }
+
+                        const tool = {
+                            id: 'tl-pick-range' + Math.random(),
+                            // ESCAPE CANCELS, which the message above promises. Without it the
+                            // only way out was to complete a range.
+                            keydown: (ev) => {
+                                if (ev && ev.key === 'Escape') {
+                                    disarm();
+                                    try { pt.setMessage('Range cancelled.', 2); } catch (e) { }
+                                }
+                            },
+                            // AND ANYTHING THAT REPLACES THIS WORKBENCH DISARMS IT. wb() calls
+                            // close() on the outgoing tool, so this is the one hook that fires
+                            // however the pointer is taken away -- another tool, a menu, a
+                            // teardown from somewhere that knows nothing about timelines.
+                            //
+                            // It matters more than it looks: __tlDrawing now holds the canvas
+                            // hover off (plate-track.mouseMove), so a tool that goes away
+                            // without clearing it would leave the whole board unresponsive to
+                            // hover until something else happened to reset it.
+                            close: () => {
+                                armed = false; drag = null;
+                                try { pt.__tlDrawing = false; } catch (e) { }
+                                try { plot.__date = ''; } catch (e) { }
+                            },
+                            mouseMoveListener: (x, y) => {
+                                if (!armed) return;
+                                try {
+                                    plot.grid.rescale();
+                                    plot.__scx_ = x; plot.__scy_ = y;
+                                    const tx = plot.grid.Xwc(x - plot.grid.xi * 2);
+                                    plot.__date = formatTime(tx, plot.grid.xmin, plot.grid.xmax, plot.startDate, plot.endDate);
+                                } catch (e) { }
+                            },
+                            mouseDownListener: (x, y) => {
+                                if (!armed) return;
+                                const a = msAt(x);
+                                if (!Number.isFinite(a.ms)) { try { pt.setMessage('No date under the pointer there.', 3); } catch (e) { } return; }
+                                let yu = 0.5;
+                                try { if (typeof pt.__tlYUnitsAt === 'function') yu = pt.__tlYUnitsAt(plot, y); } catch (e) { }
+                                drag = { x0: x, xu0: a.xu, ms0: a.ms, y: yu };
+                            },
+                            mouseUpListener: async (x, y) => {
+                                if (!armed || !drag) return;
+                                const d = drag; drag = null;
+                                // A press that did not travel is not a range. Kept armed, so a
+                                // mis-click costs the gesture and not the tool.
+                                if (Math.abs(x - d.x0) < 4) {
+                                    try { pt.setMessage('Drag further to make a range.', 3); } catch (e) { }
+                                    return;
+                                }
+                                disarm();
+                                // __tlAddRange takes the START in its r, the END from the x it
+                                // is handed, orders the two itself and asks for the name.
+                                try { await pt.__tlAddRange(plot, { startX: d.xu0, y: d.y }, x, y); }
+                                catch (e) { try { pt.setMessage('Could not add that range: ' + (e && e.message ? e.message : e), 4); } catch (e2) { } }
+                            },
+                            // THE READOUT, and the band while one is being dragged. A lasso
+                            // paints its own overlay, so this is the only thing that draws
+                            // either -- the same reason the budgeted-milestone tool carries
+                            // its own draw. `drag` is read live from the closure, so the band
+                            // follows the pointer without the tool being rebuilt.
+                            draw: (_grid, ctx) => {
+                                if (!armed || !ctx) return;
+                            try {
+                                const x = plot.__scx_, y = plot.__scy_;
+                                if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                                const g = plot.grid;
+                                const top = Math.min(g.yi, g.yi + g.height);
+                                const hgt = Math.abs(g.height);
+
+                                ctx.save();
+                                if (drag) {
+                                    const x0 = g.X(drag.xu0);
+                                    ctx.fillStyle = 'rgba(26,163,189,0.22)';
+                                    ctx.fillRect(Math.min(x0, x), top, Math.max(2, Math.abs(x - x0)), hgt);
+                                    ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 2;
+                                    ctx.beginPath(); ctx.moveTo(x0, top); ctx.lineTo(x0, top + hgt); ctx.stroke();
+                                }
+                                // The tick at the pointer, then the pill beside it.
+                                ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 2;
+                                ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + hgt); ctx.stroke();
+
+                                let label = '';
+                                const here = msAt(x);
+                                const withTime = clockWorthIt();
+                                if (Number.isFinite(here.ms)) label = fmtDT(here.ms, withTime);
+                                if (drag && Number.isFinite(here.ms) && Number.isFinite(drag.ms0)) {
+                                    const a = Math.min(drag.ms0, here.ms), b = Math.max(drag.ms0, here.ms);
+                                    // Inside one day the clock is the only thing that differs
+                                    // between the two ends, so it is shown whatever the zoom.
+                                    const t = withTime || (b - a) < 2 * 864e5;
+                                    label = fmtDT(a, t) + '  \u2192  ' + fmtDT(b, t) + '   (' + spanText(b - a) + ')';
+                                }
+                                if (!label) { ctx.restore(); return; }
+
+                                ctx.font = '13px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+                                ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                                const w = ctx.measureText(label).width + 22, h = 26;
+                                // Beside the pointer, and flipped to its left near the right
+                                // edge so the pill is not written off the canvas.
+                                let bx = x + 16;
+                                try { if (bx + w > ctx.canvas.width - 8) bx = x - 16 - w; } catch (e) { }
+                                const by = Math.max(top + h / 2 + 2, y - 30);
+                                ctx.beginPath();
+                                if (ctx.roundRect) ctx.roundRect(bx, by - h / 2, w, h, 7);
+                                else ctx.rect(bx, by - h / 2, w, h);
+                                ctx.fillStyle = 'rgba(17,24,39,0.88)'; ctx.fill();
+                                ctx.fillStyle = '#FFFFFF'; ctx.fillText(label, bx + 11, by);
+                                ctx.restore();
+                            } catch (e) { }
+                            }
+                        };
+                        // INSTALLED AFTER THIS CLICK IS OVER, not during it.
+                        //
+                        // The press that chose this menu item is still in flight: its RELEASE
+                        // reaches plate-track.mouseUp, which calls wb(null) when the release
+                        // lands anywhere that is not a plate -- and the menu is not a plate.
+                        // Installing the tool synchronously therefore armed it and had it torn
+                        // down again within the same click, which is why the ordinary
+                        // mouse-over highlight was still running afterwards: wb(null) restores
+                        // drag-navigate.
+                        //
+                        // The same 300ms the menu itself waits on when it opens a submenu
+                        // (__open, below), for the same reason. The budgeted-milestone tool
+                        // never hit this because it awaits a modal before it arms.
+                        setTimeout(() => { try { if (armed) pt.wb(tool); } catch (e) { } }, 320);
+                    },
+                    move: () => { }
+                });
+
                 // ---- Download: the picture, or the events as a table ----------------------
                 // PNG is the plot itself (toPNG renders it off-screen at 1500px rather than
                 // grabbing the canvas, so it does not come out at whatever the window
@@ -6015,19 +6266,12 @@ function (MGrid) {
                                             return result;
                                         }
                                         function dateFromX(x, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const normalizedX = (x - xMin) / totalCanvasRange;
-                                            const date = new Date(start.getTime() + normalizedX * totalTimeRange);
-                                            return date;
-                                        }
+     // Hours after start -- the same reading as the ruler (see tlDateFromX).
+     return tlDateFromX(x, start);
+ }
                                         function getXFromDate(date, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-                                            const normalizedTime = timeSinceStart / totalTimeRange;
-                                            return xMin + normalizedTime * totalCanvasRange;
+                                            // Hours after start -- the same reading as the ruler (see tlXFromDate).
+                                            return tlXFromDate(date, start);
                                         }
                                         function convertToTimelinePoints(events, xMin, xMax, startDate, endDate, currentY) {
                                             if (events.length === 0) return [];
@@ -6251,19 +6495,12 @@ function (MGrid) {
                                         }
 
                                         function dateFromX(x, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const normalizedX = (x - xMin) / totalCanvasRange;
-                                            const date = new Date(start.getTime() + normalizedX * totalTimeRange);
-                                            return date;
-                                        }
+     // Hours after start -- the same reading as the ruler (see tlDateFromX).
+     return tlDateFromX(x, start);
+ }
                                         function getXFromDate(date, xMin, xMax, start, end) {
-                                            const totalCanvasRange = xMax - xMin;
-                                            const totalTimeRange = end.getTime() - start.getTime();
-                                            const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-                                            const normalizedTime = timeSinceStart / totalTimeRange;
-                                            return xMin + normalizedTime * totalCanvasRange;
+                                            // Hours after start -- the same reading as the ruler (see tlXFromDate).
+                                            return tlXFromDate(date, start);
                                         }
 
                                         function convertToTimelinePoints(events, xMin, xMax, startDate, endDate, currentY) {
@@ -7033,19 +7270,12 @@ function (MGrid) {
                             }
 
                             function dateFromX(x, xMin, xMax, start, end) {
-                                const totalCanvasRange = xMax - xMin;
-                                const totalTimeRange = end.getTime() - start.getTime();
-                                const normalizedX = (x - xMin) / totalCanvasRange;
-                                const date = new Date(start.getTime() + normalizedX * totalTimeRange);
-                                return date;
-                            }
+     // Hours after start -- the same reading as the ruler (see tlDateFromX).
+     return tlDateFromX(x, start);
+ }
                             function getXFromDate(date, xMin, xMax, start, end) {
-                                const totalCanvasRange = xMax - xMin;
-                                const totalTimeRange = end.getTime() - start.getTime();
-                                const timeSinceStart = new Date(date).getTime() - new Date(start).getTime();
-
-                                const normalizedTime = timeSinceStart / totalTimeRange;
-                                return xMin + normalizedTime * totalCanvasRange;
+                                // Hours after start -- the same reading as the ruler (see tlXFromDate).
+                                return tlXFromDate(date, start);
                             }
 
                             function convertToTimelinePoints(events, xMin, xMax, startDate, endDate, currentY) {
@@ -9205,12 +9435,12 @@ function (MGrid) {
                                             let model = await exec('py/openai/adjust-start-time.py', m, this.endDate)
                                             if (model && model.datetime) {
                                                 let d = new Date(model.datetime)
-                                                const totalCanvasRange = this.grid.xmax - this.grid.xmin;
-                                                const totalTimeRange = this.endDate.getTime() - this.startDate.getTime();
-                                                const normalizedTime = (d - this.startDate.getTime()) / totalTimeRange;
-                                                const x = this.grid.xmin + normalizedTime * totalCanvasRange;
-                                                this.grid.xmax = x;
-                                                this.endDate = d
+                                                // The axis end is just where d falls on it: hours after startDate.
+                                                const x = tlXFromDate(d, this.startDate);
+                                                if (Number.isFinite(x)) {
+                                                    this.grid.xmax = x;
+                                                    this.endDate = d
+                                                }
 
                                             } else {
                                                 infoPrompt(" I could not determine the time from your text. ")
@@ -9227,12 +9457,11 @@ function (MGrid) {
                                             let model = await exec('py/openai/adjust-start-time.py', m, this.endDate)
                                             if (model && model.datetime) {
                                                 let d = new Date(model.datetime)
-                                                const totalCanvasRange = this.grid.xmax - this.grid.xmin;
-                                                const totalTimeRange = this.endDate.getTime() - this.startDate.getTime();
-                                                const normalizedTime = (d - this.startDate.getTime()) / totalTimeRange;
-                                                const x = this.grid.xmin + normalizedTime * totalCanvasRange;
-                                                this.grid.xmin = x;
-                                                this.startDate = d
+                                                // Extending backwards moves the origin, so the points and the axis are
+                                                // shifted with it and the axis then starts at the new origin. Setting
+                                                // startDate alone would slide the whole timeline later by the size of
+                                                // the extension.
+                                                if (this.__tlReorigin(d)) this.grid.xmin = 0;
 
                                             } else {
                                                 infoPrompt(" I could not determine the time from your text. ")
@@ -9549,7 +9778,13 @@ function (MGrid) {
                     ['Goto time', 'Go to a date…'],
                     ['Set start time', 'Set start date…'],
                     ['Set Time Range', 'Set date range…'],
-                    ['Extend timeline', 'Extend the range…']
+                    ['Extend timeline', 'Extend the range…'],
+                    // ANYTHING THIS GROUPING DOES NOT NAME IS SWEPT INTO "More", which is where
+                    // the range tool landed when it was only pushed onto the flat list: present,
+                    // two levels down, and effectively invisible. Named here so it sits with the
+                    // other date tools, and worded to say how it is used -- "Set date range"
+                    // above it sets the AXIS, this one marks a span on the timeline.
+                    ['Select a time range', 'Select a range by dragging…']
                 );
                 const __edit = __pick(
                     ['Select', 'Select…'],
@@ -13081,6 +13316,7 @@ function (MGrid) {
                     startDate: this.startDate,
                     endDate: this.endDate,
                     isBackground: this.isBackground,
+                    zorder: this.zorder,        // where it sits in the stack, so a reload keeps it
                     maximize: this.maximize,
                     // Saved with the timeline, or the choice is made again every time it opens.
                     fillScreenWhenZoomed: this.fillScreenWhenZoomed === true,
@@ -14111,27 +14347,28 @@ function (MGrid) {
                 grid.rescale();
                 graph.rescale();
 
-                // A TIMELINE GROWS TO FIT ITS LABELS. Milestone panels stack upward from the
-                // axis; with enough of them the top ones sat above the frame. Last frame's
-                // topmost panel (recorded below, in the milestone branch) is compared with the
-                // frame's top edge: the shortfall, plus a margin, is added to the height at
-                // the TOP (y up, h up; the axis at the bottom stays put). Only ever grows,
-                // capped at four times the height it started with, so it cannot run away.
-                if (!isFixed && this.type === 'timeline' && Number.isFinite(this.__tlTopmostPx)) {
-                    const shortfall = (grid.yi + 8) - this.__tlTopmostPx;
-                    if (shortfall > 1) {
-                        if (!Number.isFinite(this.__tlBaseH)) this.__tlBaseH = this.h;
-                        const dy = graph.worldHeight(shortfall + 12);
-                        const maxH = this.__tlBaseH * 4;
-                        if (Number.isFinite(dy) && dy > 0 && this.h + dy <= maxH) {
-                            this.y += dy;
-                            this.h += dy;
-                            grid.yi = graph.Y(this.y);
-                            grid.height = graph.screenHeight(this.h) + 10;
-                            grid.rescale();
-                        }
-                    }
-                }
+                // THE TIMELINE'S FRAME IS THE SIZE IT WAS GIVEN. It used to GROW UPWARD to fit
+                // its labels -- milestone panels stack up from the axis, and when the top ones
+                // rose above the frame the shortfall was added to the height at the top
+                // (this.y += dy; this.h += dy), leaving the axis at the bottom put.
+                //
+                // The top of the window moved, which is the thing a resized window must not
+                // do: an object the user sized to a band re-sized itself from underneath them
+                // whenever a label stacked one row higher.
+                //
+                // It also crept. The shortfall was measured in SCREEN px and converted to
+                // world (graph.worldHeight), the height was written back through
+                // graph.screenHeight -- and then a bare `+ 10` SCREEN px was added to the
+                // result. Mixing the two units in one expression means the box that comes out
+                // is not the box that was asked for, so the next frame measured a fresh
+                // shortfall against it and grew again: the top drifted up frame after frame
+                // rather than settling. The cap at four times the starting height bounded how
+                // far it went, not whether it moved.
+                //
+                // Nothing needs to grow now. The block immediately below already SHRINKS the
+                // labels to the room between the axis and the top of the frame, which is the
+                // right answer to "too many labels" for a fixed frame, and anything still
+                // outside is clipped to the frame when the points are drawn.
                 this.__tlTopmostPx = Infinity;
 
                 // MILESTONE LABELS SHRINK TO FIT THE PLOT. Their pills are laid out in screen
@@ -14175,7 +14412,13 @@ function (MGrid) {
                             // pixels by the draw above (graph.screenHeight(this.h)); ymin/ymax
                             // are the plot's own 0..1 units and mean nothing to the canvas
                             // grid, so converting them with graph.Y gives a nonsense number.
-                            let roomPx = Number(this.grid && this.grid.height) || 0;
+                            // ABSOLUTE. grid.height is signed, and the fallback below already
+                            // took Math.abs of its own answer while this line did not -- so on a
+                            // plot whose height came out negative roomPx was negative, the
+                            // "does it fit?" test below (roomPx > 0) was false, and the labels
+                            // were never shrunk at all. They then stacked out of the frame,
+                            // which is the overflow this block exists to prevent.
+                            let roomPx = Math.abs(Number(this.grid && this.grid.height) || 0);
                             if (!roomPx && typeof graph.screenHeight === 'function') {
                                 roomPx = Math.abs(graph.screenHeight(this.h) || 0);
                             }
@@ -14543,11 +14786,48 @@ function (MGrid) {
                         const showMonths = pxPerMonth >= 45;
                         const showYears = pxPerYear >= 10;
 
-                        // Not maximized: the points, and above all the range arrows, are clipped to the
-                        // timeline's frame, so a range that runs past the visible window stops at the
-                        // border instead of shooting across the canvas. Maximized, the frame IS the view.
-                        const __clipFrame = !this.__maximizedView;
-                        if (__clipFrame) { ctx.save(); ctx.beginPath(); ctx.rect(grid.xi - 2, grid.yi - 2, grid.width + 4, grid.height + 4); ctx.clip(); }
+                        // THE POINTS ARE CLIPPED TO THE TIMELINE'S FRAME, always. A range that
+                        // runs past the visible window stops at the border instead of shooting
+                        // across the canvas, and a milestone whose pill or label falls outside
+                        // the timeline is cut at the edge rather than drawn on the board.
+                        //
+                        // This used to be skipped while MAXIMIZED, on the grounds that the
+                        // frame was then the view: a maximized timeline was stretched to fill
+                        // the window in both directions, so there was nothing outside it to
+                        // draw on. That is no longer true. A maximized timeline now keeps its
+                        // own scale and sits on the bottom (plate-track.js maximizeObject), so
+                        // the room above it is empty canvas -- and unclipped, the pills and
+                        // their labels drew up into it, outside the object they belong to.
+                        //
+                        // The 2px allowance is for the frame's own border stroke, not for
+                        // content: it lets a line drawn ON the boundary keep its width.
+                        const __clipFrame = true;
+                        if (__clipFrame) {
+                            // NORMALISED, because grid.width and grid.height are signed. A plot
+                            // whose height comes out negative (screenHeight of a world height on
+                            // an inverted axis) gave ctx.rect a negative extent, and the clip
+                            // region was then the band ABOVE the frame instead of the frame --
+                            // which is how pills came to be clipped INTO the toolbar rather than
+                            // away from it. normalizedRect is what the rest of this file already
+                            // uses for the same reason.
+                            const __cr = normalizedRect(grid.xi, grid.yi, grid.width, grid.height);
+                            let __top = __cr.y - 2;
+                            const __bot = __cr.y + __cr.h + 2;
+                            // AND NOT PAST THE TOP TOOLBAR. The object's bar is drawn in the
+                            // strip immediately above its frame (plate-track __plotBar:
+                            // y = frameTop - barHeight), and it carries the buttons. Pills stack
+                            // upward, so the 2px of slack above the frame put them on it. The
+                            // clip's top edge stops at the bottom of the bar when one is drawn.
+                            try {
+                                const __bb = this.__barRect;
+                                if (this.__barDrawn && __bb && Number.isFinite(__bb.y) && Number.isFinite(__bb.h)) {
+                                    __top = Math.max(__top, __bb.y + __bb.h);
+                                }
+                            } catch (e) { }
+                            ctx.save(); ctx.beginPath();
+                            ctx.rect(__cr.x - 2, __top, __cr.w + 4, Math.max(1, __bot - __top));
+                            ctx.clip();
+                        }
                         try {
                         for (const point of sortedPoints) {
                             if (point.y > this.grid.ymax) {
@@ -15510,6 +15790,37 @@ function (MGrid) {
                                                 w: nameBox.w, h: boxHeight,
                                                 stemX: x, axis
                                             };
+                                            // A PILL THE CLIP CUT AWAY IS NOT CLICKABLE EITHER.
+                                            //
+                                            // The box above is the geometry the pill WOULD have;
+                                            // the canvas clip decides what is actually painted.
+                                            // Left as it is, a milestone whose pill lies outside
+                                            // the timeline's frame is invisible and still answers
+                                            // __msHit -- a menu opening from blank canvas, which
+                                            // is worse than the overdraw the clip was added for.
+                                            // Wholly outside: no box. Partly outside is kept, so
+                                            // the visible half of an edge pill still takes a press.
+                                            try {
+                                                // Signed again: the frame has to be normalised
+                                                // here for the same reason the clip does, or the
+                                                // test runs against a box above the plot.
+                                                const __nr = normalizedRect(grid.xi, grid.yi, grid.width, grid.height);
+                                                const __fx0 = __nr.x - 2, __fx1 = __nr.x + __nr.w + 2;
+                                                let __fy0 = __nr.y - 2;
+                                                const __fy1 = __nr.y + __nr.h + 2;
+                                                try {
+                                                    const __bb2 = this.__barRect;
+                                                    if (this.__barDrawn && __bb2 && Number.isFinite(__bb2.y) && Number.isFinite(__bb2.h)) {
+                                                        __fy0 = Math.max(__fy0, __bb2.y + __bb2.h);
+                                                    }
+                                                } catch (e) { }
+                                                const __b = point.__tlBox;
+                                                if (__b.x + __b.w < __fx0 || __b.x > __fx1
+                                                    || __b.y + __b.h < __fy0 || __b.y > __fy1) {
+                                                    point.__tlBox = null;
+                                                    point.isInside = () => false;
+                                                }
+                                            } catch (e) { }
 
                                             behindLabels.push(() => {
                                                 ctx.save();
@@ -17553,6 +17864,49 @@ function (MGrid) {
             }
             // No wait before a button answers: they run on the PRESS now (see plate.js
             // fireBarButton for why the wait was there and why it no longer is).
+            // THE BUTTON UNDER A SCREEN POINT, or null. One geometry with the drawing
+            // (__btnRowGeom), so the row can never be drawn in one place and clicked in
+            // another. Unlike inButtons it does not highlight anything: asking what is there
+            // is not the same as pressing it.
+            //
+            // These three were CALLED but never defined -- clk_drag's mouse-down runs
+            // `if (this.fireBarButton(x, y, pt)) return;` and the release runs
+            // `this.__btnJustFired()`. Both threw TypeError on every press, which killed the
+            // handler before it reached anything else: the bar's buttons did nothing, and so
+            // did the rest of that press.
+            barButtonAt(x, y, pt) {
+                try {
+                    const b = this.buttons || [];
+                    const g = this.__btnRowGeom();
+                    for (let i = 0; i < b.length; i++) {
+                        const bx = g.init + i * bsize;
+                        if (x >= bx && x <= bx + bsize && y >= g.y && y <= g.y + (b[i].height || 20)) {
+                            return { button: b[i], x: bx, y: g.y };
+                        }
+                    }
+                } catch (e) { }
+                return null;
+            }
+            // A bar button answers on the PRESS, for the reason plate.js gives: a release can
+            // land somewhere else entirely, and the button looks pressed a beat earlier.
+            fireBarButton(x, y, pt) {
+                const hit = this.barButtonAt(x, y, pt);
+                if (!hit) return false;
+                // ONE PRESS, ONE FIRING. The press reaches this from two directions -- the
+                // canvas dispatches it when it sees a press on the bar, and the object's own
+                // clk_drag handler runs it too when that handler happens to be installed.
+                // Answering "yes, handled" the second time without running the action again
+                // is what keeps a single click from opening two menus.
+                if (this.__btnJustFired()) return true;
+                this.__btnFiredAt = Date.now();
+                try { if (hit.button.highlight) hit.button.highlight(hit.x, hit.y, x, y, pt); } catch (e) { }
+                try { hit.button.action(hit.x, hit.y, x, y, pt); } catch (e) { console.warn('[plot button]', e); }
+                return true;
+            }
+            __btnJustFired() {
+                return !!(this.__btnFiredAt && (Date.now() - this.__btnFiredAt) < 700);
+            }
+
             inButtons(x, y, pt) {
                 let b = this.buttons;
                 const __g = this.__btnRowGeom();

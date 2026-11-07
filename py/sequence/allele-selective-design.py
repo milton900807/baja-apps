@@ -45,6 +45,9 @@ Params (after the EngineMonitor):
         "modality": "sirna" | "gapmer",
         "lengths": [21],           oligo lengths to try
         "top_n": 0,          # 0 / absent = every register; a number caps the list
+        "design_mode": "rules"|"tile",   rules (default) = rank by discrimination;
+                                         tile = one every tile_step registers, in position order
+        "tile_step": 1,      registers between tiles (>= 1; there is no end-to-end here)
         "gapmer": { "wing": 5, "gap": 10, "strict": true },   strict: the geometry is exact
 
         "chemistry": { "template": "standard"|"esc"|"esc_plus"|"galnac_esc"|"all_2ome",   siRNA
@@ -52,6 +55,7 @@ Params (after the EngineMonitor):
                        "backbone": "PS" } }
 
 Resolves { ok, modality, candidates: [...], considered, discriminating, haplotype_size,
+          selection_mode, design_mode, tile_step,
 rejected, error }. Each candidate carries its offset into the window, both strands, every
 phased site it covers with that site's position in the antisense strand (1-based from its 5'
 end) in variant_positions, the dominant one repeated as the scalar variant_position for
@@ -211,6 +215,38 @@ def quality(seq, modality):
     return max(0.0, min(1.0, q)), notes
 
 
+def select_tiled(candidates, step, top_n=0):
+    """A WALK ACROSS THE REGISTERS: the best candidate at every `step` positions.
+
+    Every register is still generated and scored exactly as it is for a ranked answer -- this
+    changes only which of them come back. At each register the best of that register's lengths
+    is kept, so a tile is the best oligo whose window begins there, not an arbitrary one. The
+    step is measured from the register ACTUALLY TAKEN, so a register with nothing designable
+    moves the next tile along instead of dropping it.
+
+    Returned in POSITION order, which is what makes the result a walk: the variant moves one
+    step further along the oligo with each candidate."""
+    best_at = {}
+    for c in candidates:
+        off = int(c.get("offset", 0))
+        cur = best_at.get(off)
+        if cur is None or c.get("score", 0) > cur.get("score", 0):
+            best_at[off] = c
+    if not best_at:
+        return []
+    offs = sorted(best_at)
+    selected = []
+    want = offs[0]
+    for off in offs:
+        if off < want:
+            continue
+        selected.append(best_at[off])
+        want = off + max(1, step)
+        if top_n and len(selected) >= top_n:
+            break
+    return selected
+
+
 def design(cfg):
     wt = re.sub(r"[^ACGTN]", "", str(cfg.get("target_wt") or "").upper())
     mut = re.sub(r"[^ACGTN]", "", str(cfg.get("target_mut") or "").upper())
@@ -218,6 +254,17 @@ def design(cfg):
     lengths = [int(x) for x in (cfg.get("lengths") or ([21] if modality == "sirna" else [16, 18, 20])) if int(x) > 5]
     _tn = cfg.get("top_n")
     top_n = max(1, int(_tn)) if _tn else 0        # 0 = keep every register designed
+    # HOW THE ANSWER IS CHOSEN. This designer already walks every register -- one candidate
+    # per base of the oligo, the variant at position 1 of the first and position L of the last
+    # -- so a walk is not new here; what is new is being able to STEP it.
+    #   "rules" (the default, and what every caller got before this existed) returns those
+    #           registers in rank order, best discrimination first, capped by top_n.
+    #   "tile"  returns one every `tile_step` registers, in POSITION order along the oligo --
+    #           an evenly spaced panel rather than a ranked list.
+    # There is no end-to-end step here: every candidate has to cover the variant, so the walk
+    # is only as long as the oligo and a step past it would return one candidate.
+    design_mode = "tile" if str(cfg.get("design_mode") or "rules").lower().startswith("til") else "rules"
+    tile_step = max(1, int(cfg.get("tile_step") or 1))
     gcfg = cfg.get("gapmer") or {}
     wing = max(2, int(gcfg.get("wing") or 5))
     gap_len = max(4, int(gcfg.get("gap") or 10))
@@ -417,11 +464,18 @@ def design(cfg):
 
     out.sort(key=lambda c: (not c["discriminates"], -c["score"], -c["variants_discriminating"],
                             -c["selectivity"], c["offset"]))
-    kept = out[:top_n] if top_n else out
+    if design_mode == "tile":
+        kept = select_tiled(out, tile_step, top_n)
+    else:
+        kept = out[:top_n] if top_n else out
     for i, c in enumerate(kept, 1):
         c["rank"] = i
     return {"candidates": kept, "considered": considered, "rejected": rejected,
             "haplotype_size": len(variants),
+            "selection_mode": ("tiled_across_registers" if design_mode == "tile"
+                               else "rank_order_by_discrimination"),
+            "design_mode": design_mode,
+            "tile_step": (tile_step if design_mode == "tile" else None),
             "discriminating": sum(1 for c in kept if c["discriminates"])}, None
 
 
@@ -446,5 +500,10 @@ works.resolve({
     "rejected": json.dumps((res or {}).get("rejected") or {}),
     # How many phased sites the haplotype was defined by.
     "haplotype_size": (res or {}).get("haplotype_size") or 0,
+    # Which of them came back, and why those: ranked by discrimination, or a walk across the
+    # registers at a fixed step.
+    "selection_mode": (res or {}).get("selection_mode") or "rank_order_by_discrimination",
+    "design_mode": (res or {}).get("design_mode") or "rules",
+    "tile_step": (res or {}).get("tile_step"),
     "error": err,
 })

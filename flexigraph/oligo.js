@@ -259,6 +259,12 @@ function () {
                 if (!graph || !graph.canvas) {
                     return;
                 }
+                // Per-monomer hit geometry is only valid for the frame that drew it. Cleared
+                // here and re-set by the polymer renderer, so a compound that is no longer
+                // drawn as molecules -- zoomed out, or drawn by a shape that has no monomers
+                // -- cannot leave a stale hit box behind for a click to land on.
+                this.__chemGeom = null;
+                this.__screenBox = null;
 
                 if (this.y != null) {
                     y = this.y;
@@ -330,6 +336,20 @@ function () {
                 const screenX2 = graph.X(tgraph.X(this.xf));
                 const screenY = graph.Y(tgraph.Y(y));
                 const screenMidX = (screenX1 + screenX2) / 2;
+
+                // WHERE THIS COMPOUND IS ON SCREEN, recorded for EVERY compound whatever
+                // shape draws it. __chemGeom (set by the polymer renderer) is richer but
+                // only exists for the shapes that draw monomers; this box is the floor, so
+                // a click can always be resolved against the compound the user can see.
+                // Written before any of the early returns below for the same reason.
+                try {
+                    this.__screenBox = {
+                        x1: Math.min(screenX1, screenX2),
+                        x2: Math.max(screenX1, screenX2),
+                        sy: screenY,
+                        at: Date.now(),
+                    };
+                } catch (e) { }
 
                 // Don't draw anything that isn't on the screen: if this oligo's whole span
                 // (plus a margin for badges/labels that extend past the body) is off-canvas,
@@ -563,7 +583,11 @@ function () {
                             tgraph.X(this.xf),
                             tgraph.Y(y),
                             this.__overlapsAmplicon ? "magenta" : this.color,
-                            this.structure
+                            this.structure,
+                            // The compound itself, so the polymer renderer can record where it
+                            // put each monomer (this.__chemGeom) and draw the selected one.
+                            // Without it a click on a sugar has nothing to resolve against.
+                            this
                         );
                     } else {
                         // Reached only by a compound with no chemistry AND no shape for its
@@ -686,7 +710,11 @@ function () {
                             tgraph.X(this.xf),
                             tgraph.Y(y),
                             this.__overlapsAmplicon ? "magenta" : this.color,
-                            this.structure
+                            this.structure,
+                            // The compound itself, so the polymer renderer can record where it
+                            // put each monomer (this.__chemGeom) and draw the selected one.
+                            // Without it a click on a sugar has nothing to resolve against.
+                            this
                         );
                     } else {
                         // Reached only by a compound with no chemistry AND no shape for its

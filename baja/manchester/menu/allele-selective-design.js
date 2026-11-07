@@ -1,4 +1,11 @@
 function (server, graph, genegraph_panel_layout, presetTrack) {
+    // MENUS AT THE POINTER, NOT IN THE CORNER. This module is entered from a menubar or a
+    // toolbar, so there is no canvas press behind it and showSideMenu had nothing to anchor
+    // to -- every question it asks came up as the top-left side panel, in a different place
+    // and a different style from every menu reached by clicking the canvas.
+    // graph.openMenuAtPointer (flexigraph/gene.js) draws the same list at the pointer, and
+    // defers to an open floating session when this module is instead reached from a press,
+    // so the mixed-entry callers keep their place. The || keeps older graphs working.
     // Allele-selective design: oligos that hit the MUTANT allele and leave the wild-type one
     // alone. The discrimination is positional -- see py/sequence/allele-selective-design.py --
     // so everything here is about getting the mutant sequence and the variant's place in it
@@ -104,7 +111,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         const nameOf = (s) => (s.name || s.id || 'variant') + '  ' + (s.reference0 || s.reference || '?') + '>' + (s.alternate0 || s.alternate || '?') + '  @' + Math.round(s.xi);
 
         const listPick = (entries, title) => new Promise((resolve) => {
-            graph.showSideMenu(entries.slice(0, 40).map((e) => ({
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, entries.slice(0, 40).map((e) => ({
                 label: nameOf(e.snp) + (entries.some((o) => o.track !== e.track) ? '   [' + ((e.track && e.track.name) || 'track') + ']' : ''),
                 move: () => { },
                 click: () => { graph.showSideMenu(null); resolve(e); }
@@ -193,7 +200,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
 
         // ---- 2. the modality ----------------------------------------------------------------
         const pickModality = () => new Promise((resolve) => {
-            graph.showSideMenu([
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, [
                 {
                     label: 'siRNA (RISC guide)', move: () => { },
                     click: () => { graph.showSideMenu(null); resolve({ modality: 'sirna', label: 'siRNA', lengths: [21], gapmer: null }); }
@@ -235,7 +242,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         ];
         const pickChemistry = () => new Promise((resolve) => {
             const opts = (mode.modality === 'sirna') ? SIRNA_CHEM : GAPMER_CHEM;
-            graph.showSideMenu(opts.map((c) => ({
+            (graph.openMenuAtPointer || graph.showSideMenu).call(graph, opts.map((c) => ({
                 label: c.label, move: () => { },
                 click: () => {
                     graph.showSideMenu(null);
@@ -255,6 +262,128 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             mode.lengths = [chem.geometry.length];
             mode.gapmer = { wing: chem.geometry.wing, gap: chem.geometry.gap, strict: true };
         }
+
+        // ---- 2c. HOW THE ANSWER IS CHOSEN ---------------------------------------------------
+        //
+        // This designer already walks every register -- one candidate per base of the oligo,
+        // the variant at position 1 of the first and position L of the last -- so a walk is
+        // not new here. What the strategy adds is the STEP on that walk, and the alternative
+        // of a ranked shortlist:
+        //
+        //   Rule-based  the registers ranked by discrimination, best first. What every run did
+        //               before this existed, and still the default.
+        //   Tiling      one every N registers, in position order: the variant a fixed number
+        //               of bases further along the oligo each time. A panel to test the
+        //               position dependence with, rather than a shortlist to pick from.
+        //
+        // There is no end-to-end step: every candidate has to cover the variant, so the walk
+        // is only ever as long as the oligo.
+        const pickStrategy = (oligoLen) => new Promise((resolve) => {
+            try {
+                const old = document.getElementById('baja-allele-strategy');
+                if (old && old.parentNode) old.parentNode.removeChild(old);
+                const lbl = 'display:block;font:600 12px Arial;color:#9fb3c8;margin:14px 0 4px;';
+                const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;'
+                    + 'border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:9px 11px;font:13px Arial;';
+                const panel = document.createElement('div');
+                panel.id = 'baja-allele-strategy';
+                panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
+                    + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+                panel.innerHTML = ''
+                    + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
+                    + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                    + '<div style="min-width:0;"><div style="font:700 20px Arial;">Allele-selective design</div>'
+                    + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
+                    + (mode.label || '') + ' \u00b7 ' + (chem.label || '') + ' \u00b7 against ' + ((snp && snp.name) ? snp.name : 'the selected variant')
+                    + '</div></div>'
+                    + '<div style="margin-left:auto;display:flex;gap:10px;">'
+                    + '<button id="as-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
+                    + '<button id="as-run" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Run design</button>'
+                    + '</div></div>'
+                    + '<div style="flex:1 1 auto;overflow:auto;padding:24px 22px 32px;">'
+                    + '<div style="width:100%;max-width:640px;margin:0 auto;">'
+                    + '<label style="' + lbl + '">Design strategy</label>'
+                    + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
+                    + '<button id="as-strat-rules" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Rule-based</button>'
+                    + '<button id="as-strat-tile" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Tiling</button>'
+                    + '</div>'
+                    + '<div id="as-note" style="font:11.5px Arial;color:#9fb3c8;margin-top:6px;"></div>'
+                    + '<div id="as-tilewrap" style="display:none;margin-top:12px;">'
+                    + '<label style="font:600 11px Arial;color:#9fb3c8;">Step along the oligo</label>'
+                    + '<select id="as-tilestep" style="' + inp + '">'
+                    + '<option value="1" selected>Every register (the variant one base further each time)</option>'
+                    + '<option value="2">Every 2 registers</option>'
+                    + '<option value="3">Every 3 registers</option>'
+                    + '<option value="5">Every 5 registers</option>'
+                    + '<option value="custom">Custom\u2026</option>'
+                    + '</select>'
+                    + '<div id="as-customwrap" style="display:none;margin-top:8px;">'
+                    + '<label style="font:600 11px Arial;color:#9fb3c8;">Custom step (registers)</label>'
+                    + '<input id="as-custom" type="number" min="1" max="40" value="4" style="' + inp + '"/></div>'
+                    + '<div id="as-est" style="font:11.5px Arial;color:#9fb3c8;margin-top:8px;"></div>'
+                    + '</div>'
+                    + '<label style="' + lbl + '" id="as-cap-label">Maximum candidates</label>'
+                    + '<input id="as-cap" type="number" min="0" max="500" value="0" style="' + inp + '"/>'
+                    + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 2px;">0 keeps every candidate the strategy produces.</div>'
+                    + '</div></div>';
+                document.body.appendChild(panel);
+                const q = (id) => panel.querySelector(id);
+                let strategy = 'rules';
+                const stepNow = () => {
+                    const sel = q('#as-tilestep');
+                    if (!sel) return 1;
+                    if (sel.value === 'custom') {
+                        const v = parseInt(q('#as-custom').value, 10);
+                        return (Number.isFinite(v) && v > 0) ? Math.min(40, v) : 1;
+                    }
+                    return Math.max(1, parseInt(sel.value, 10) || 1);
+                };
+                const estimate = () => {
+                    const el = q('#as-est'); if (!el) return;
+                    const step = stepNow();
+                    const L = Math.max(1, oligoLen || 21);
+                    const n = Math.max(1, Math.floor((L - 1) / step) + 1);
+                    el.innerHTML = 'About <b>' + n + '</b> candidate' + (n === 1 ? '' : 's')
+                        + ' \u2014 the variant at position 1' + (step > 1 ? (', ' + (1 + step)) : ', 2')
+                        + ', \u2026 of a ' + L + '-mer.';
+                };
+                const setStrategy = (v) => {
+                    strategy = v;
+                    const tiling = (v === 'tile');
+                    const on = q('#as-strat-tile'), off = q('#as-strat-rules');
+                    on.style.background = tiling ? '#22c55e' : 'transparent';
+                    on.style.color = tiling ? '#04210f' : '#fff';
+                    off.style.background = tiling ? 'transparent' : '#22c55e';
+                    off.style.color = tiling ? '#fff' : '#04210f';
+                    q('#as-tilewrap').style.display = tiling ? 'block' : 'none';
+                    q('#as-cap-label').textContent = tiling ? 'Maximum tiles' : 'Maximum candidates';
+                    q('#as-note').textContent = tiling
+                        ? 'One candidate every N registers, in order along the oligo, so the variant sits a fixed number of bases further along each time. The discrimination scores come back with them, to read rather than to select on.'
+                        : 'Every register is designed and scored, and they come back ranked by how well they discriminate the wild-type allele, best first.';
+                    if (tiling) estimate();
+                };
+                setStrategy('rules');
+                q('#as-strat-rules').onclick = () => setStrategy('rules');
+                q('#as-strat-tile').onclick = () => setStrategy('tile');
+                q('#as-tilestep').onchange = () => {
+                    q('#as-customwrap').style.display = (q('#as-tilestep').value === 'custom') ? 'block' : 'none';
+                    estimate();
+                };
+                q('#as-custom').addEventListener('input', estimate);
+                const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+                q('#as-cancel').onclick = () => { close(); resolve(null); };
+                q('#as-run').onclick = () => {
+                    try { if (graph && graph.showSideMenu) graph.showSideMenu(null); } catch (e) { }
+                    const cap = Math.max(0, Math.min(500, parseInt(q('#as-cap').value, 10) || 0));
+                    const out = (strategy === 'tile')
+                        ? { design_mode: 'tile', tile_step: stepNow(), top_n: cap }
+                        : { design_mode: 'rules', tile_step: 1, top_n: cap };
+                    close(); resolve(out);
+                };
+            } catch (e) { resolve({ design_mode: 'rules', tile_step: 1, top_n: 0 }); }
+        });
+        const strat = await pickStrategy(Math.max.apply(null, mode.lengths));
+        if (!strat) { restoreHover(); return false; }
 
         // ---- 3. the window, as sense mRNA in transcript orientation --------------------------
         const orient = Strand.orientation(track);
@@ -337,7 +466,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             const listFor = (ph) => onSide(ph).map((v) => (v.name || 'variant') + ' '
                 + ((v.reference0 || v.reference || '?') + '>' + (v.alternate0 || v.alternate || '?'))).join(', ');
             const askPhase = () => new Promise((resolve) => {
-                graph.showSideMenu([
+                (graph.openMenuAtPointer || graph.showSideMenu).call(graph, [
                     { label: 'Variants sit on BOTH copies here \u2014 choose the one to design against', move: () => { }, click: () => { } },
                     { label: (phaseOf(snp) === 1 ? '\u2713 ' : '') + 'Copy 1 (above): ' + (listFor(1) || 'nothing else'),
                         move: () => { }, click: () => { graph.showSideMenu(null); resolve(1); } },
@@ -427,7 +556,11 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 // it, the variant at position 1 of the first and position 20 of the last -- and
                 // a flat cap of 20 also quietly lost the last register of a 21-mer siRNA.
                 // 0 tells the designer to keep them all.
-                modality: mode.modality, lengths: mode.lengths, top_n: 0, gapmer: mode.gapmer || {},
+                modality: mode.modality, lengths: mode.lengths, gapmer: mode.gapmer || {},
+                // Rule-based keeps the old behaviour exactly: 0 = every register, ranked.
+                top_n: strat.top_n || 0,
+                design_mode: strat.design_mode || 'rules',
+                tile_step: strat.tile_step || 1,
                 chemistry: chem
             }));
         } catch (e) { r = null; }

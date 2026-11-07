@@ -37,6 +37,36 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
     const FIELDS = cfg.fields || ['Patent', 'Title', 'Filed', 'Assignee', 'Inventors', 'Abstract'];
     const ID_LABEL = cfg.idLabel || 'Patent';
 
+    // WHAT THE ONE DRAWN LINE SAYS.
+    //
+    // buildLabel returns every metadata field on its own line, and both label renderers --
+    // vertical, and horizontal with avoidLabelOverlap -- draw the FIRST LINE ONLY. So a patent
+    // hit with a title, a filing date, a grant date and an assignee joined to it showed
+    // 'Patent: US12186406' on the track and nothing else: who owns it and when it was filed
+    // were in the string, one line too far down to ever be seen.
+    //
+    // The first line is now the summary a reader actually wants off a patent bar -- the number,
+    // the owner, the date -- and the full field list follows it, unchanged, for the hover.
+    // Which fields those are is read from FIELDS by NAME rather than by position, because the
+    // sets disagree: the ASO/siRNA index packs number/title/filed/granted/assignee, the
+    // pipeline's own contract packs number/title/filed/assignee/inventors, and a positional
+    // guess would print a grant date as the assignee on one of them.
+    const __fieldIndex = (re) => {
+        for (let i = 0; i < FIELDS.length; i++) { if (re.test('' + FIELDS[i])) return i; }
+        return -1;
+    };
+    const I_OWNER = __fieldIndex(/assign|owner|applicant/i);
+    // Granted beats filed when a set carries both: it is the date the claim became enforceable,
+    // which is the one that matters to someone reading a patent bar over their target.
+    const I_DATE = (__fieldIndex(/grant|issued/i) >= 0) ? __fieldIndex(/grant|issued/i)
+        : __fieldIndex(/filed|filing|date|priority/i);
+    // An assignee can be 'PRESIDENT AND FELLOWS OF HARVARD COLLEGE'. Labels that collide are
+    // DROPPED rather than overprinted, so an over-long one costs its neighbours their names.
+    const __shortOwner = (v) => {
+        const t = ('' + (v || '')).trim();
+        return (t.length > 30) ? (t.slice(0, 29) + '\u2026') : t;
+    };
+
     if (!BED) {
         graph.setMessage(' No dataset configured. ');
         return;
@@ -201,6 +231,13 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
                 const head = [];
                 if (('' + p.name).indexOf(SEP) >= 0) {
                     const f = ('' + p.name).split(SEP);
+                    // The one line that gets drawn: number · owner · date.
+                    const summary = [
+                        f[0],
+                        (I_OWNER >= 0 ? __shortOwner(f[I_OWNER]) : ''),
+                        (I_DATE >= 0 ? ('' + (f[I_DATE] || '')).trim() : '')
+                    ].filter(Boolean).join('  \u00b7  ');
+                    if (summary) head.push(summary);
                     for (let i = 0; i < f.length; i++) {
                         if (f[i]) head.push((FIELDS[i] || ('Field ' + (i + 1))) + ': ' + f[i]);
                     }

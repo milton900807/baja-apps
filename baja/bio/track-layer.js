@@ -167,6 +167,12 @@ return new Promise(async (resolve, reject) => {
         data_type = 'undefined';
         pts = [];
         intervals = [];
+        // Optional: draw intervals with a fixed pixel depth instead of one proportional to
+        // their y (see the interval loops in draw). null = proportional, as before.
+        barHeightPx = null;
+        // Optional: the world-y gap between stacked lanes, so a fixed-pixel bar can be kept
+        // from overlapping the lane above it on a short band.
+        laneStep = null;
         polygonpts = [];
         polygon_type = 'fill'
         scaley = -3.;
@@ -737,8 +743,48 @@ return new Promise(async (resolve, reject) => {
             // and its thickness, interpolated between these [weak, strong] pairs. Plain fields
             // on the layer so a saved layer keeps its look and a caller can tune them, e.g.
             // layer.arcAlpha = [0.2, 1]; layer.arcWidth = [0.5, 6].
-            let arcAlpha = (Array.isArray(this.arcAlpha) && this.arcAlpha.length === 2) ? this.arcAlpha : [0.30, 0.95];
-            let arcWidth = (Array.isArray(this.arcWidth) && this.arcWidth.length === 2) ? this.arcWidth : [0.75, 4.5];
+            //
+            // PSI MODE NEEDS THE FULL RANGE. In sites mode every junction drawn is one the
+            // model believes in, so a 0.30 alpha floor is a reasonable "weak but real". PSI is
+            // a different quantity: a 0% inclusion arc is a junction the transcript does NOT
+            // use, and at 0.30 alpha and 0.75px it still read as the canonical splice sitting
+            // there -- which is exactly the complaint that a donor-destroying variant sent PSI
+            // to 0 while the picture did not change. In PSI mode the floor goes to a genuine
+            // ghost and the top of the range is heavier, so the arc that dominates the plot is
+            // the pattern that dominates the transcript.
+            const __psiMode = (this.magnitudeMode === 'psi');
+            let arcAlpha = (Array.isArray(this.arcAlpha) && this.arcAlpha.length === 2) ? this.arcAlpha
+                : (__psiMode ? [0.10, 1.00] : [0.30, 0.95]);
+            let arcWidth = (Array.isArray(this.arcWidth) && this.arcWidth.length === 2) ? this.arcWidth
+                : (__psiMode ? [0.50, 6.00] : [0.75, 4.5]);
+            // Below this share of the scale a junction is not a splicing pattern, it is the
+            // absence of one. Drawn as a dotted hairline for context -- so you can still see
+            // that the annotated junction is there and unused -- and given none of the
+            // furniture that says "this happens": no chevrons, no arrow head, no crest label.
+            let arcGhost = (typeof this.arcGhost === 'number') ? this.arcGhost : (__psiMode ? 0.02 : 0);
+            // How visible a ghosted arc is. Its own number, NOT min(0.14, arcAlpha[0]) as it
+            // was: arcAlpha[0] is 0.10 in PSI mode, so that expression quietly pinned ghosts
+            // to 0.10 and they were fainter than intended -- readable only on a clean
+            // background. A ghost still has to lose to every live arc, so this stays well
+            // under arcAlpha[1], but it should be legible as "this junction exists and is
+            // not used" rather than nearly invisible.
+            let arcGhostAlpha = (typeof this.arcGhostAlpha === 'number') ? this.arcGhostAlpha : 0.34;
+            let arcGhostWidth = (typeof this.arcGhostWidth === 'number') ? this.arcGhostWidth : 0.9;
+            // A REAL SKIP IS NEVER A HAIRLINE. An exon skipped in even a few percent of
+            // transcripts is a finding -- it is the difference between an exon that is
+            // constitutive and one that is not -- but 3% of the magnitude scale put it at
+            // two thirds of a pixel and under the ghost threshold, so the plot drew the one
+            // isoform worth noticing as almost nothing. Above skipFloorMag a skip arc keeps
+            // a floor on BOTH width and opacity: 2px at 12% alpha would still be invisible,
+            // so pinning the width alone would not have made it visible.
+            let skipFloorMag = (typeof this.skipFloorMag === 'number') ? this.skipFloorMag : 0.01;
+            let skipFloorPx = (typeof this.skipFloorPx === 'number') ? this.skipFloorPx : 2;
+            let skipFloorAlpha = (typeof this.skipFloorAlpha === 'number') ? this.skipFloorAlpha : 0.55;
+            // The track's sequence has been edited since this was predicted (see
+            // markSplicingLayersStale in baja/bio/track-flexi.js). Every arc becomes a ghost
+            // and the layer says so: the old pattern is still visible, but nothing about it
+            // reads as a current answer.
+            const __stale = !!this.staleSequence;
             let barLabels = (this.barLabels !== false);
             let barWidth = this.barWidth || 3;
 
@@ -756,6 +802,13 @@ return new Promise(async (resolve, reject) => {
             // Each site is drawn once per frame even when several junctions share it; the
             // gauge and its value would otherwise be painted on top of themselves.
             const __drawnBars = new Set();
+            // ARCS THAT SHARE A JUNCTION. PSI belongs to an exon, and two consecutive
+            // cassette exons share the junction between them, so that junction carries one
+            // arc per exon -- each with its own, different, PSI. Drawn on identical
+            // geometry they land on top of each other and read as one arc that cannot make
+            // its mind up. Each repeat on the same endpoints is lifted a little so they are
+            // visibly two, and the label says which exon each one is about.
+            const __seenSpan = new Map();
 
             for (let j of __ordered) {
                 let x1 = graph.X(tgraph.X(j.d));   // donor
@@ -770,8 +823,27 @@ return new Promise(async (resolve, reject) => {
                     : (typeof j.s === 'number') ? j.s : Math.min(dp, ap);
                 let sn = Math.max(0, Math.min(1, s / magMax));   // normalized 0..1 for drawing
                 let isSkip = (j.kind === 'skip');
+                // The model's own 0..1 scale, not the drawing weight (sites mode presents on
+                // 0..2), so the 1% threshold means one percent of transcripts.
+                const __frac = s / magMax;
+                const __skipReal = isSkip && __frac > skipFloorMag;
+                // arcGhost of 0 means "no ghosting" (sites mode), NOT "ghost everything at
+                // magnitude 0" -- sn <= 0 is true for a zero-strength junction, which quietly
+                // turned every one of them into a hairline in sites mode.
+                // A skip above the floor is a finding and is never ghosted, however small its
+                // share -- only a stale layer can ghost it.
+                let isGhost = __stale || (!__skipReal && arcGhost > 0 && sn <= arcGhost);
+                // A topology the model proposed that is NOT the annotated exon structure. It
+                // is drawn solid and named so a cryptic junction cannot be mistaken for the
+                // transcript's own. (Absent on layers saved before junctions carried the flag,
+                // where every junction was annotation-derived, so undefined must read as true.)
+                let isNovel = (j.annotated === false);
 
-                let sagitta = Math.max(12, chord / 5) * (0.6 + 0.8 * sn) * (isSkip ? 1.6 : 1.0);
+                const __spanKey = Math.round(x1) + ':' + Math.round(x2) + ':' + (isSkip ? 's' : 'i');
+                const __rep = __seenSpan.get(__spanKey) || 0;
+                __seenSpan.set(__spanKey, __rep + 1);
+                let sagitta = Math.max(12, chord / 5) * (0.6 + 0.8 * sn) * (isSkip ? 1.6 : 1.0)
+                    * (1 + 0.22 * __rep);
                 let radius = (sagitta / 2) + (chord * chord) / (8 * sagitta);
                 let offset = Math.sqrt(Math.max(0, radius * radius - (chord / 2) * (chord / 2)));
                 let midX = (x1 + x2) / 2;
@@ -791,9 +863,17 @@ return new Promise(async (resolve, reject) => {
                 ctx.save();
                 ctx.beginPath();
                 ctx.strokeStyle = grad;
-                ctx.globalAlpha = arcAlpha[0] + (arcAlpha[1] - arcAlpha[0]) * sn;
-                ctx.lineWidth = arcWidth[0] + (arcWidth[1] - arcWidth[0]) * sn;
-                if (isSkip) ctx.setLineDash([5, 4]); else ctx.setLineDash([]);
+                let __alpha = arcAlpha[0] + (arcAlpha[1] - arcAlpha[0]) * sn;
+                let __width = arcWidth[0] + (arcWidth[1] - arcWidth[0]) * sn;
+                if (__skipReal && !isGhost) {
+                    __alpha = Math.max(__alpha, skipFloorAlpha);
+                    __width = Math.max(__width, skipFloorPx);
+                }
+                ctx.globalAlpha = isGhost ? arcGhostAlpha : __alpha;
+                ctx.lineWidth = isGhost ? arcGhostWidth : __width;
+                // A slightly longer dash than [1,3]: at 1px on 3px the line reads as a smear
+                // rather than as a dotted line once it is bright enough to see properly.
+                if (isGhost) ctx.setLineDash([2, 3]); else if (isSkip) ctx.setLineDash([5, 4]); else ctx.setLineDash([]);
                 ctx.arc(centerX, centerY, radius, aL, aR, false);
                 ctx.stroke();
                 ctx.setLineDash([]);
@@ -819,7 +899,7 @@ return new Promise(async (resolve, reject) => {
                 let near = a2 + (a1 - a2) * 0.10;
                 let nx = centerX + radius * Math.cos(near);
                 let ny = centerY + radius * Math.sin(near);
-                this._sashimiArrowHead(ctx, x2, baselineY, x2 - nx, baselineY - ny, 8, acceptorColor);
+                if (!isGhost) this._sashimiArrowHead(ctx, x2, baselineY, x2 - nx, baselineY - ny, 8, acceptorColor);
                 // Chevrons riding the arc, pointing the way the junction runs (donor -> acceptor).
                 // Both ends sit on the upper half of the circle, so the short arc from a1 to a2 is
                 // the plain interpolation between the two angles and the direction of travel is
@@ -827,7 +907,7 @@ return new Promise(async (resolve, reject) => {
                 // at the crest whenever the arc is wide enough to carry it, two more at the
                 // quarter points on a wide arc, none on a dashed skip arc's short version.
                 let __dir = Math.sign(a2 - a1) || 1;
-                let __fracs = chord > 160 ? [0.25, 0.5, 0.75] : (chord > 28 ? [0.5] : []);
+                let __fracs = isGhost ? [] : (chord > 160 ? [0.25, 0.5, 0.75] : (chord > 28 ? [0.5] : []));
                 let __csize = 4 + 3 * sn;
                 for (let f of __fracs) {
                     let t = a1 + (a2 - a1) * f;
@@ -852,14 +932,29 @@ return new Promise(async (resolve, reject) => {
                 // informative answers PSINet gives, and the old "skip the round numbers" rule
                 // meant a PSI plot of a well-behaved transcript carried no numbers at all.
                 const __isPsi = (this.magnitudeMode === 'psi');
-                const __value = s / magMax;              // back to the model's own 0..1 scale
+                const __value = __frac;                  // the model's own 0..1 scale
                 let label, __show;
                 if (__isPsi) {
                     // Named when the arc is wide enough to carry the word, because inclusion
                     // and skip arcs quote different quantities (PSI and 1-PSI) and sit on top
                     // of each other at the same event.
-                    label = (chord > 60 ? (isSkip ? 'skip ' : 'PSI ') : '') + Math.round(__value * 100) + '%';
-                    __show = chord > 12;
+                    // NAME WHAT THE ARC IS. A skip arc is about ONE exon -- the one being
+                    // skipped -- so it reads "skip e8 4%". An inclusion arc is a JUNCTION
+                    // between two exons and is not about either one's PSI, so it reads
+                    // "e7-e8 96%": the share of transcripts that splice straight from one to
+                    // the other. Labelling those with a single exon's PSI is what put two
+                    // different percentages on one intron leap.
+                    let __ex = '';
+                    const __exs = Array.isArray(j.exons) ? j.exons.filter((n) => n != null) : null;
+                    if (isSkip) { if (j.exon != null) __ex = 'e' + j.exon + ' '; }
+                    else if (__exs && __exs.length >= 2) __ex = 'e' + __exs[0] + '\u2013e' + __exs[__exs.length - 1] + ' ';
+                    else if (__exs && __exs.length === 1) __ex = 'e' + __exs[0] + ' ';
+                    else if (j.exon != null) __ex = 'e' + j.exon + ' ';
+                    label = (isNovel && chord > 100 ? 'new ' : '')
+                        + (chord > 60 ? (isSkip ? 'skip ' : '') : '')
+                        + ((chord > 80 || __rep > 0) ? __ex : '')
+                        + Math.round(__value * 100) + '%';
+                    __show = chord > 12 && !isGhost;
                 } else {
                     label = __value.toFixed(2);
                     __show = chord > 22 && label !== '0.00';
@@ -884,6 +979,22 @@ return new Promise(async (resolve, reject) => {
                     ctx.fillText(label, 0, 0);
                     ctx.restore();
                 }
+            }
+            if (__stale) {
+                ctx.save();
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'alphabetic';
+                const __msg = 'sequence edited since this was predicted — re-run';
+                const __tx = 6, __ty = baselineY - maxBarPx - 20;
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                ctx.lineJoin = 'round';
+                ctx.miterLimit = 2;
+                ctx.strokeText(__msg, __tx, __ty);
+                ctx.fillStyle = '#a8431a';
+                ctx.fillText(__msg, __tx, __ty);
+                ctx.restore();
             }
             ctx.lineWidth = 1;
             ctx.textAlign = 'left';
@@ -1260,7 +1371,29 @@ return new Promise(async (resolve, reject) => {
                     const x = this.tgraph.X(int.x1);
                     const y = this.tgraph.Y(int.y);
                     const width = this.tgraph.screenWidth(int.x2 - int.x1);
-                    const height = this.tgraph.screenHeight(int.y);
+                    // BAR DEPTH. The renderer reads an interval's y as BOTH its top and its
+                    // depth, so a bar at y = 0.5 is half the band tall. That was sized for the
+                    // ~35px band the CDD layer was written against; on a track given a lot of
+                    // vertical room the same bar becomes a slab filling half the screen and
+                    // stops reading as a bar at all.
+                    //
+                    // barHeightPx pins the depth in pixels instead, clamped so it can never
+                    // exceed the band, nor the gap between stacked lanes when the layer says
+                    // what that gap is (laneStep, world units). null -- the default -- keeps
+                    // the old proportional behaviour, so no existing layer changes.
+                    // NOTE: this loop exists TWICE in this file; both copies carry this.
+                    let height = this.tgraph.screenHeight(int.y);
+                    const __bh = +this.barHeightPx || 0;
+                    if (__bh > 0) {
+                        let px = __bh;
+                        const band = Math.abs(this.tgraph.screenHeight(
+                            Math.abs((this.tgraph.ymax - this.tgraph.ymin)) || 1));
+                        if (band > 0) px = Math.min(px, band);
+                        const step = +this.laneStep || 0;
+                        if (step > 0) px = Math.min(px, Math.abs(this.tgraph.screenHeight(step)) * 0.85);
+                        px = Math.max(1, px);
+                        height = (height < 0) ? -px : px;
+                    }
                     if (this.highlight) {
                         ctx.fillStyle = "magenta";
                         ctx.strokeStyle = "magenta";
@@ -1632,7 +1765,29 @@ return new Promise(async (resolve, reject) => {
                     const x = this.tgraph.X(int.x1);
                     const y = this.tgraph.Y(int.y);
                     const width = this.tgraph.screenWidth(int.x2 - int.x1);
-                    const height = this.tgraph.screenHeight(int.y);
+                    // BAR DEPTH. The renderer reads an interval's y as BOTH its top and its
+                    // depth, so a bar at y = 0.5 is half the band tall. That was sized for the
+                    // ~35px band the CDD layer was written against; on a track given a lot of
+                    // vertical room the same bar becomes a slab filling half the screen and
+                    // stops reading as a bar at all.
+                    //
+                    // barHeightPx pins the depth in pixels instead, clamped so it can never
+                    // exceed the band, nor the gap between stacked lanes when the layer says
+                    // what that gap is (laneStep, world units). null -- the default -- keeps
+                    // the old proportional behaviour, so no existing layer changes.
+                    // NOTE: this loop exists TWICE in this file; both copies carry this.
+                    let height = this.tgraph.screenHeight(int.y);
+                    const __bh = +this.barHeightPx || 0;
+                    if (__bh > 0) {
+                        let px = __bh;
+                        const band = Math.abs(this.tgraph.screenHeight(
+                            Math.abs((this.tgraph.ymax - this.tgraph.ymin)) || 1));
+                        if (band > 0) px = Math.min(px, band);
+                        const step = +this.laneStep || 0;
+                        if (step > 0) px = Math.min(px, Math.abs(this.tgraph.screenHeight(step)) * 0.85);
+                        px = Math.max(1, px);
+                        height = (height < 0) ? -px : px;
+                    }
                     if (this.highlight) {
                         ctx.fillStyle = "magenta";
                         ctx.strokeStyle = "magenta";

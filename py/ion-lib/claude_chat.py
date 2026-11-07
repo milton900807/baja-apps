@@ -298,8 +298,11 @@ def _usage(data: Dict[str, Any]) -> _Usage:
     u = data.get("usage") or {}
     pi = int(u.get("input_tokens") or 0)
     po = int(u.get("output_tokens") or 0)
-    return _Usage(prompt_tokens=pi, completion_tokens=po, total_tokens=pi + po,
-                  input_tokens=pi, output_tokens=po)
+    cw = int(u.get("cache_creation_input_tokens") or 0)
+    cr = int(u.get("cache_read_input_tokens") or 0)
+    return _Usage(prompt_tokens=pi, completion_tokens=po, total_tokens=pi + po + cw + cr,
+                  input_tokens=pi, output_tokens=po,
+                  cache_creation_input_tokens=cw, cache_read_input_tokens=cr)
 
 
 # ---------------------------------------------------------------- transport
@@ -350,6 +353,19 @@ def _meter() -> None:
     try:
         import claude_usage as _cu  # type: ignore
         _cu.bump(_feature_name())
+    except Exception:
+        pass
+
+
+def _meter_spend(data: Dict[str, Any], body: Dict[str, Any]) -> None:
+    """What the call COST, recorded from the answer. _meter above counts the action before
+    the request goes out (so a request that fails still shows as something the user did);
+    this runs after it comes back, because tokens are only known then and a call that never
+    answered was never billed. Best-effort, like all metering."""
+    try:
+        import claude_usage as _cu  # type: ignore
+        _cu.record_response(data, model=((data or {}).get("model") or (body or {}).get("model") or ""),
+                            feature=_feature_name())
     except Exception:
         pass
 
@@ -443,6 +459,7 @@ class _Completions:
                            tools=tools, tool_choice=tool_choice, json_schema=schema, stop=stop)
         _meter()
         data = self._t.post(body)
+        _meter_spend(data, body)
         _check_refusal(data)
         text = _text_of(data)
         if json_mode:
@@ -500,6 +517,7 @@ class _Responses:
                            json_schema=schema)
         _meter()
         data = self._t.post(body)
+        _meter_spend(data, body)
         _check_refusal(data)
         out_text = _text_of(data)
         if json_mode:

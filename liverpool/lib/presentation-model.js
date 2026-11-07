@@ -31,7 +31,15 @@ function () {
     const NFEAT = FRAME * 20 + LENGTHS.length + PSEUDO_LEN * 20;   // 864
     const ASSET_DIR = 'liverpool/model';
 
+    // Class II is a separate model with a separate feature layout, because the groove is
+    // open at both ends: only a 9-residue core sits in the cleft and the rest of the
+    // peptide hangs out. The core's position is not recorded anywhere, so every register
+    // is scored and the best one wins.
+    const CORE = 9, FLANK = 3;
+    const NFEAT2 = CORE * 20 + 2 * FLANK * 20 + 3 + PSEUDO_LEN * 20;   // 983
+
     let MODEL = null, ALLELES = null, BG = null, BL = null;
+    let MODEL2 = null, ALLELES2 = null, BG2 = null, BL2 = null;
     let loadingPromise = null, lastError = null;
 
     // ---- assets ---------------------------------------------------------------------
@@ -63,6 +71,21 @@ function () {
                     ' features, this scorer builds ' + NFEAT);
             }
             MODEL = m; ALLELES = a; BG = b; BL = m.blosum62;
+
+            // Class II is optional. If its files are absent or unusable the class I path
+            // still works and class II peptides keep going to the motif screen, which is
+            // what they did before this model existed.
+            try {
+                const [m2, a2, b2] = await Promise.all([
+                    fetchAsset('classii-model.json'),
+                    fetchAsset('classii-alleles.json'),
+                    fetchAsset('classii-bg.json')
+                ]);
+                if (m2 && Array.isArray(m2.trees) && m2.blosum62
+                    && m2.feature_spec && m2.feature_spec.n_features === NFEAT2) {
+                    MODEL2 = m2; ALLELES2 = a2; BG2 = b2; BL2 = m2.blosum62;
+                }
+            } catch (e) { /* class I alone is a complete, useful result */ }
             return true;
         })();
         try {
@@ -156,8 +179,131 @@ function () {
         return 100;
     };
 
+    // ---- class II: one feature row per 9-mer register --------------------------------------
+    // Layout, matching the exporter exactly: the core, then three flanking residues on
+    // each side nearest-first, then how much peptide hangs off each end and its overall
+    // length, then the groove. Flanks matter: class II binding is measurably affected by
+    // what sits outside the cleft, not only by the nine residues inside it.
+    const registerRow = (pep, off, out) => {
+        const L = pep.length;
+        out.fill(0, 0, CORE * 20 + 2 * FLANK * 20 + 3);
+        for (let j = 0; j < CORE && off + j < L; j++) {
+            const row = BL2[pep[off + j]];
+            if (!row) continue;
+            for (let k = 0; k < 20; k++) out[j * 20 + k] = row[k];
+        }
+        const nb = CORE * 20;
+        for (let j = 0; j < FLANK; j++) {
+            const i = off - 1 - j;
+            if (i < 0) break;
+            const row = BL2[pep[i]];
+            if (!row) continue;
+            for (let k = 0; k < 20; k++) out[nb + j * 20 + k] = row[k];
+        }
+        const cb = nb + FLANK * 20;
+        for (let j = 0; j < FLANK; j++) {
+            const i = off + CORE + j;
+            if (i >= L) break;
+            const row = BL2[pep[i]];
+            if (!row) continue;
+            for (let k = 0; k < 20; k++) out[cb + j * 20 + k] = row[k];
+        }
+        const b3 = cb + FLANK * 20;
+        out[b3] = Math.min(off, 9) / 9;
+        out[b3 + 1] = Math.min(L - off - CORE, 9) / 9;
+        out[b3 + 2] = Math.min(L, 30) / 30;
+    };
+
+    const walk2 = (node, x) => {
+        while (node.f !== undefined) node = (x[node.f] <= node.t) ? node.l : node.r;
+        return node.v;
+    };
+
+    const binFor = (L) => {
+        const bins = (BG2 && BG2.bins) || [];
+        for (const b of bins) {
+            const m = /^(\d+)-(\d+)$/.exec(b);
+            if (m && L >= +m[1] && L <= +m[2]) return b;
+        }
+        return bins.length ? (L < 11 ? bins[0] : bins[bins.length - 1]) : null;
+    };
+
+    const rankOf2 = (allele, len, sc) => {
+        const perA = BG2 && BG2.alleles && BG2.alleles[allele];
+        const arr = perA && perA[binFor(len)];
+        const pcts = BG2 && BG2.percentiles;
+        if (!arr || !pcts || !arr.length) return null;
+        if (sc >= arr[0]) return pcts[0];
+        for (let i = 1; i < arr.length; i++) {
+            if (sc >= arr[i]) {
+                const hi = arr[i - 1], lo = arr[i];
+                const f = (hi === lo) ? 0 : (hi - sc) / (hi - lo);
+                const a = Math.log10(pcts[i - 1]), b = Math.log10(pcts[i]);
+                return Math.pow(10, a + f * (b - a));
+            }
+        }
+        return 100;
+    };
+
+    const groove2For = (allele) => {
+        const e = ALLELES2 && ALLELES2[allele];
+        return e ? (typeof e === 'string' ? e : e.g) : null;
+    };
+    const trainedOn2 = (allele) => {
+        const e = ALLELES2 && ALLELES2[allele];
+        return !!(e && typeof e === 'object' && e.t === 1);
+    };
+
+    const scoreII = (allele, peptides) => {
+        if (!MODEL2) return null;
+        const groove = groove2For(allele);
+        if (!groove || groove.length !== PSEUDO_LEN) return null;
+
+        const x = new Float64Array(NFEAT2);
+        const gbase = CORE * 20 + 2 * FLANK * 20 + 3;
+        for (let j = 0; j < PSEUDO_LEN; j++) {          // the groove never changes
+            const row = BL2[groove[j]];
+            if (!row) continue;
+            for (let k = 0; k < 20; k++) x[gbase + j * 20 + k] = row[k];
+        }
+        const trees = MODEL2.trees;
+        const src = 'presentation-model-II';
+        const conf = trainedOn2(allele) ? 'trained' : 'pan-allele';
+        const minL = (MODEL2.feature_spec && MODEL2.feature_spec.min_len) || 9;
+        const maxL = (MODEL2.feature_spec && MODEL2.feature_spec.max_len) || 30;
+
+        const out = [];
+        for (let i = 0; i < peptides.length; i++) {
+            const pep = ('' + peptides[i]).toUpperCase();
+            if (pep.length < minL || pep.length > maxL
+                || /[^ACDEFGHIKLMNPQRSTVWY]/.test(pep)) {
+                out.push({ peptide: pep, score: 0, rank: 100, core: pep, offset: 0,
+                           source: src, confidence: conf });
+                continue;
+            }
+            // Every register, best one wins. The winning core is reported so a user can
+            // see which nine residues the number is actually about.
+            const last = Math.max(0, pep.length - CORE);
+            let bestRaw = -Infinity, bestOff = 0;
+            for (let off = 0; off <= last; off++) {
+                registerRow(pep, off, x);
+                let sRaw = 0;
+                for (let t = 0; t < trees.length; t++) sRaw += walk2(trees[t], x);
+                if (sRaw > bestRaw) { bestRaw = sRaw; bestOff = off; }
+            }
+            const s = 1 / (1 + Math.exp(-bestRaw));
+            const r = rankOf2(allele, pep.length, s);
+            out.push({
+                peptide: pep, score: s, rank: (r == null ? 100 : r),
+                core: pep.substr(bestOff, CORE), offset: bestOff,
+                source: src, confidence: conf
+            });
+        }
+        return out;
+    };
+
     // ---- the public call -------------------------------------------------------------------
-    const supports = (allele) => !!(ALLELES && ALLELES[allele]);
+    const supports = (allele) => !!((ALLELES && ALLELES[allele]) || (ALLELES2 && ALLELES2[allele]));
     const grooveFor = (allele) => {
         const e = ALLELES && ALLELES[allele];
         return e ? (typeof e === 'string' ? e : e.g) : null;
@@ -185,6 +331,8 @@ function () {
     // score(allele, peptides) -> [{peptide, score, rank}] or null when the allele is not
     // covered. Returning null is the signal hla.js uses to fall back to the motif screen.
     const score = (allele, peptides) => {
+        // Class II first: an allele is in one table or the other, never both.
+        if (ALLELES2 && ALLELES2[allele]) return scoreII(allele, peptides);
         if (!MODEL) return null;
         const groove = grooveFor(allele);
         if (!groove || groove.length !== PSEUDO_LEN) return null;
@@ -246,14 +394,19 @@ function () {
             trees: MODEL.n_trees, features: NFEAT,
             alleles: names.length,
             trainedAlleles: names.filter(wasTrainedOn).length,
-            task: MODEL.task
+            task: MODEL.task,
+            classII: MODEL2 ? {
+                trees: MODEL2.n_trees, features: NFEAT2,
+                alleles: Object.keys(ALLELES2 || {}).length,
+                trainedAlleles: Object.keys(ALLELES2 || {}).filter(trainedOn2).length
+            } : null
         };
     };
 
     return {
         load: load, install: install, predictor: predictor, score: score,
         supports: supports, wasTrainedOn: wasTrainedOn, info: info,
-        featuresFor: featuresFor,
+        featuresFor: featuresFor, scoreII: scoreII,
         frame9: frame9, rankOf: rankOf,
         get lastError() { return lastError; }
     };

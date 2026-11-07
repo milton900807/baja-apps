@@ -29,6 +29,18 @@ Optional env overrides:
 
 from __future__ import annotations
 
+# EVERY TOOL IS METERED, WITHOUT EVERY TOOL KNOWING IT. ion.works is imported by every
+# spawned python tool, so installing the Anthropic usage meter here covers the ones that
+# post to the Messages API themselves as well as the ones that go through claude_chat --
+# and covers the next one written without anybody remembering to add a line. Best-effort:
+# if the meter cannot be installed, tools run exactly as before.
+try:
+    import claude_usage as _baja_usage
+    _baja_usage.install_http_meter()
+except Exception:
+    pass
+
+
 import os
 import sys
 import time

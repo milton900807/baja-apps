@@ -4334,6 +4334,33 @@ function (path, config) {
         };
         const sexWord = (res) => !res ? '' : res.call + (res.confidence ? ' (' + res.confidence + ' confidence)' : '')
             + (res.karyotype && res.karyotype !== 'XY' && res.karyotype !== 'XX' ? ', ' + res.karyotype : '');
+        // READ DEPTH, COARSELY, TO TELL A DELETION FROM COPY-NEUTRAL LOH. Both leave one
+        // allele where the germline had two, so the allele fractions cannot separate them; the
+        // depth can: a lost copy takes the tumor's reads over that stretch down against the
+        // normal's, a copy-neutral loss (the other copy duplicated over it) leaves them level.
+        // Kept as a sum and a count per 1 Mb bin per sample and side, not per site.
+        const DEPTH_BIN = 1e6;
+        const depthBins = new Map();
+        let copyRefCache = null;
+        const depthKey = (ci, side, si, bin) => (((ci * 2 + side) * 32 + si) * 4096) + bin;
+        const depthAdd = (ci, side, si, pos, dp) => {
+            const k = depthKey(ci, side, si, Math.min(4095, Math.floor(pos / DEPTH_BIN)));
+            let e = depthBins.get(k);
+            if (!e) { e = [0, 0]; depthBins.set(k, e); }
+            e[0] += dp; e[1]++;
+            copyRefCache = null;
+        };
+        // Mean depth of one sample over one bin: side null sums both sides, si null tries each slot.
+        const depthAt = (ci, bin, side, slots) => {
+            let sum = 0, n = 0;
+            for (const sd of (side == null ? [0, 1] : [side])) {
+                for (const si of slots) {
+                    const e = depthBins.get(depthKey(ci, sd, si, bin));
+                    if (e) { sum += e[0]; n += e[1]; }
+                }
+            }
+            return { sum: sum, n: n };
+        };
         const genotypesOfRow = (f, count, altIdx) => {
             if (f.length < 10) return null;
             if (!count.cols) {
@@ -4353,6 +4380,15 @@ function (path, config) {
                 gtRow[si] = code;
                 cfRow[si] = code ? sampleTierOf(cell, ix, altIdx, rowT) : 0;
                 bfRow[si] = code ? bafCode(cell, ix, altIdx) : 0;
+                if (code && (ix.dp >= 0 || ix.ad >= 0)) {
+                    try {
+                        const pr = cell.split(':');
+                        let dp = ix.dp >= 0 ? +pr[ix.dp] : NaN;
+                        if (!(dp >= 0) && ix.ad >= 0 && pr[ix.ad]) dp = pr[ix.ad].split(',').reduce((a, x) => a + (+x || 0), 0);
+                        let dci = chromIndex[f[0]]; if (dci == null) dci = chromIndex['chr' + f[0]];
+                        if (dp >= 0 && dci != null && +f[1] > 0) depthAdd(dci, loadSide, si, +f[1], dp);
+                    } catch (e) { }
+                }
                 if (code) { const psv = psCode(cell, ix); psRow[si] = psv; if (psv) count.anyPS = true; }
                 if (code) { any = true; known++; }
                 if (code >= GT_HET) carriers++;
@@ -5676,6 +5712,16 @@ function (path, config) {
                     const more = input.files ? Array.prototype.slice.call(input.files, 1) : [];
                     try { document.body.removeChild(input); } catch (e) { }
                     if (!file) return;
+                    await readPicked(file, more, side, false);
+                };
+                input.click();
+            } catch (e) { graph.setMessage(' The file picker could not be opened: ' + e + ' '); }
+        };
+        // A file in hand, from the computer or from My Files: read it onto the genome, and
+        // keep a copy in My Files unless it came from there.
+        const readPicked = async (file, more, side, alreadyInMyFiles) => {
+            {
+                {
                     step('file: ' + file.name + ' ' + file.size + ' bytes ' + (file.type || ''));
                     let outcome = '';
                     loadSide = side ? 1 : 0;
@@ -5700,6 +5746,10 @@ function (path, config) {
                         graph.setMessage(' ' + (outcome || readFailure || file.name + ' was not read.') + ' ');
                         return;
                     }
+                    if (alreadyInMyFiles) {
+                        graph.setMessage(' ' + (outcome || file.name + ' was not read.') + ' ');
+                        return;
+                    }
                     const quietSave = /\.vcf(\.b?gz)?$/i.test(file.name);
                     if (!quietSave) graph.setMessage(' Saving ' + file.name + ' to My Files… ');
                     const up = await uploadToMyFiles(file, (pct) => {
@@ -5715,9 +5765,34 @@ function (path, config) {
                             + file.name + (readFailure ? ' was still saved to My Files. ' : ' saved to My Files. '));
                         step('upload ok: ' + file.name + (readFailure ? ' (read failed: ' + readFailure + ')' : ''));
                     }
-                };
-                input.click();
-            } catch (e) { graph.setMessage(' The file picker could not be opened: ' + e + ' '); }
+                }
+            }
+        };
+        // A VCF ALREADY IN MY FILES: fetched whole from the server (/user-file) and handed to
+        // the same reader a picked file goes to, as a File. Nothing is uploaded again.
+        const VCF_FROM_FILES_MAX = 4e9;
+        const loadVcfFromMyFiles = async (element, side) => {
+            const name = ('' + ((element && element.name) || '')).trim() || baseName('' + ((element && element.path) || ''));
+            const path2 = ('' + ((element && element.path) || '')).trim();
+            if (!path2) { graph.setMessage(' That file has no path. '); return; }
+            if (!/\.vcf(\.b?gz)?$/i.test(name) && !/\.(gz|bgz)$/i.test(name)) {
+                graph.setMessage(' ' + name + ' is not a VCF (.vcf, .vcf.gz or .vcf.bgz). Pick another from My Files. ');
+                return;
+            }
+            try {
+                graph.setMessage(' Fetching ' + name + ' from My Files… ');
+                const r2 = await fetch(window['env']['apiUrl'] + '/user-file?user=' + encodeURIComponent(getUser()) + '&path=' + encodeURIComponent(path2));
+                if (!r2.ok) throw new Error(r2.status === 404 ? 'it is no longer there' : 'the server answered ' + r2.status);
+                const len = +r2.headers.get('Content-Length') || 0;
+                if (len > VCF_FROM_FILES_MAX) throw new Error('it is ' + fmtBytes(len) + ', too large to fetch here; upload it from the computer instead');
+                const blob = await r2.blob();
+                const file = new File([blob], name, { type: 'application/octet-stream' });
+                await readPicked(file, [], side, true);
+            } catch (e) {
+                loadSide = 0;
+                graph.setMessage(' ' + name + ' could not be fetched from My Files: ' + (e && e.message ? e.message : e) + ' ');
+                step('my files fetch failed: ' + e);
+            }
         };
 
         // The canvas has no text field of its own, so a paste is for the view. Anything that
@@ -6329,12 +6404,16 @@ function (path, config) {
             const out = stateDocMeta();
             const __hasGt = !!out.hasGt;
             let n = 0, sides = '', anyLeft = false;
+            // PAST THE CAP, THIN EVENLY. Stopping at the cap cut off whatever chromosome came last,
+            // so a reload showed the end of the genome empty; keeping every Nth variant keeps all of it.
+            let __acc = 0; const __thin = vtotal > SAVE_CAP;
             for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
                 const d = vdata[ci];
                 if (!d.n) continue;
                 const bare = drawn[ci].name.replace(/^chr/, '');
                 const gw = d.gtw || 0;
                 for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
+                    if (__thin) { __acc += SAVE_CAP; if (__acc < vtotal) continue; __acc -= vtotal; }
                     if (d.side && d.side[k]) { sides += '1'; anyLeft = true; } else sides += '0';
                     const ab = allelesAt(ci, k);
                     const cls = d.cls[k] || 0;
@@ -6391,6 +6470,7 @@ function (path, config) {
             parts.push(head.slice(0, head.length - 1));      // drop the closing brace
             parts.push(',"variants":[');
             let buf = '', n = 0, anyLeft = false;
+            let __acc = 0; const __thin = vtotal > SAVE_CAP;   // see stateDoc: thin evenly, never cut the tail
             const sideParts = [];
             let sideBuf = '';
             const flush = () => { if (buf) { parts.push(buf); buf = ''; } };
@@ -6400,6 +6480,7 @@ function (path, config) {
                 const bare = drawn[ci].name.replace(/^chr/, '');
                 const gw = d.gtw || 0;
                 for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
+                    if (__thin) { __acc += SAVE_CAP; if (__acc < vtotal) continue; __acc -= vtotal; }
                     if (d.side && d.side[k]) { sideBuf += '1'; anyLeft = true; } else sideBuf += '0';
                     if (sideBuf.length >= PART_TARGET) { sideParts.push(sideBuf); sideBuf = ''; }
                     const ab = allelesAt(ci, k);
@@ -6605,7 +6686,11 @@ function (path, config) {
                     if (doc.lossHlScope === 'background' || doc.lossHlScope === 'all') lossHlScope = doc.lossHlScope;
                     clearLossFilters();
                     if (doc.lossFilters && typeof doc.lossFilters === 'object') for (const grp of FILTER_GROUPS) for (const o of (doc.lossFilters[grp.key] || [])) lossFilters[grp.key].add(o);
-                    applyLossHighlights(false);
+                    // ONLY IF IT WAS ON. A genome saved with no highlight still carries its loss
+                    // matrix, and re-applying the highlight regardless greyed out every variant but
+                    // the loss-of-function genes, so a reload looked like most of the file was missing.
+                    // A save with no highlight field at all is an older one, which always did this.
+                    if (doc.highlight == null || doc.highlight === HL_LOF) applyLossHighlights(false);
                 } catch (e) { }
             }
             if (doc.diffLoss && doc.diffLoss.A && doc.diffLoss.B) { try { diffResult = doc.diffLoss; } catch (e) { } }
@@ -6979,6 +7064,21 @@ function (path, config) {
             return { sig: CV_SIG[I.sig[i]] || '', short: CV_SHORT[I.sig[i]] || '', low: !!I.lp[i], vid: I.vid[i], stars: I.star[i],
                 gene: I.genes[I.g[i]] || '', mc: ('' + (I.mcs[I.mc[i]] || '')).replace(/_/g, ' '), cond: I.conds[I.cn[i]] || '' };
         };
+        // The LOH tract a ClinVar variant lies in, if a scan has been run, with the same
+        // deletion / copy-neutral reading the tract itself carries: whether the other copy
+        // of a pathogenic allele is gone with the chromosome stretch or still there.
+        const cvLohAt = (ci, pos) => {
+            if (!lohResult) return null;
+            for (const c2 of (lohResult.chroms || [])) {
+                if (c2.ci !== ci) continue;
+                for (const t of (c2.runs || [])) if (pos >= t.lo && pos <= t.hi) {
+                    const c = drawn[ci];
+                    return { band: bandSpan(c, t.lo, t.hi) || c.name, extent: tractExtent(c, t.lo, t.hi).word, cn: t.cn || null, word: copyWord(t.cn || null) };
+                }
+            }
+            return null;
+        };
+        const cvLohText = (L) => !L ? '' : L.band + ' (' + L.extent + '), ' + L.word + (L.cn && L.cn.ratio != null ? ', depth ' + L.cn.ratio.toFixed(2) + 'x' : '');
         const cvLine = (R) => 'ClinVar: ' + R.sig + (R.low ? ' (low penetrance)' : '') + '   ·   ' + cvStars(R.stars)
             + (R.gene ? '   ·   ' + R.gene + (R.mc ? ' ' + R.mc : '') : '') + (R.cond ? '   ·   ' + R.cond : '')
             + (R.vid ? '   ·   VariationID ' + R.vid : '');
@@ -7115,6 +7215,7 @@ function (path, config) {
                     + 'pathogenic/likely pathogenic   ' + tally[2].toLocaleString() + '\n'
                     + 'likely pathogenic              ' + tally[3].toLocaleString() + '\n'
                     + 'genes                          ' + byGene.size.toLocaleString()
+                    + (lohResult ? (() => { let d = 0, nu = 0; for (const m of M) { const L = cvLohAt(m[0], vdata[m[0]].pos[m[1]]); if (!L || !L.cn) continue; if (L.cn.kind === 'deletion' || L.cn.kind === 'probable') d++; else if (L.cn.kind === 'neutral') nu++; } return '\nin a deleted stretch            ' + d.toLocaleString() + '\nin copy-neutral LOH            ' + nu.toLocaleString(); })() : '')
                     + (cvLast && cvLast.differ ? '\nthe file’s own CLNSIG differs  ' + cvLast.differ.toLocaleString() : '') });
                 books.push({ section: 'Act on them', accent: 'run', title: 'Mark them on the genome', badge: M.length.toLocaleString(), icon: 'my_location', ready: true,
                     blurb: 'Every match glows; everything else is greyed out.', open: () => cvMarkAll() });
@@ -7127,6 +7228,7 @@ function (path, config) {
                                 const row = { chrom: drawn[m[0]].name, pos: d.pos[m[1]], ref: ab[0], alt: ab[1], gene: R.gene,
                                     clinvar_significance: R.sig + (R.low ? ' (low penetrance)' : ''), review_stars: R.stars,
                                     consequence: R.mc, condition: R.cond, clinvar_variation_id: R.vid };
+                                { const L = cvLohAt(m[0], d.pos[m[1]]); row.loh_tract = L ? L.band + ' (' + L.extent + ')' : ''; row.loh_kind = L ? L.word : ''; row.tumor_depth_ratio = L && L.cn && L.cn.ratio != null ? L.cn.ratio : ''; }
                                 genotypesOf(d, m[1]).forEach((g) => { row['GT_' + g[0]] = GT_TEXT[g[1]] || ''; });
                                 return row;
                             });
@@ -7142,7 +7244,8 @@ function (path, config) {
                         badge: vs.length === 1 ? top.R.short : vs.length + ' variants',
                         blurb: vs.slice(0, 3).map((v) => (v.R.mc || 'variant') + ' ' + v.R.short
                             + (v.k >= 0 && vdata[v.ci].gtw ? ' ' + genotypesOf(vdata[v.ci], v.k).filter((g) => g[1] >= GT_HET).map((g) => GT_TEXT[g[1]]).join('/') : '')).join('  ·  ')
-                            + (top.R.cond ? '. ' + top.R.cond : ''),
+                            + (top.R.cond ? '. ' + top.R.cond : '')
+                            + (() => { const L = cvLohAt(top.ci, vdata[top.ci].pos[top.k]); return L ? '  ·  ' + L.word : ''; })(),
                         books: () => {
                             const sub = [];
                             vs.forEach((v) => {
@@ -7153,6 +7256,7 @@ function (path, config) {
                                     + '  ClinVar   ' + v.R.sig + (v.R.low ? ' (low penetrance)' : '') + '  ' + cvStars(v.R.stars) + '\n'
                                     + '  effect    ' + (v.R.mc || 'not stated') + '\n'
                                     + '  condition ' + (v.R.cond || 'not stated') + '\n'
+                                    + (cvLohAt(v.ci, pos) ? '  LOH       ' + cvLohText(cvLohAt(v.ci, pos)) + '\n' : '')
                                     + (gts.length ? '  genotype  ' + gts.map((g) => (SAMPLES.length > 1 ? g[0] + ' ' : '') + (GT_TEXT[g[1]] || '')).join(', ') + '\n' : '')
                                     + '  VariationID ' + v.R.vid });
                                 sub.push({ title: 'Open in oligo editor', badge: 'editor', icon: 'open_in_new', ready: true,
@@ -8309,6 +8413,55 @@ function (path, config) {
             }
             return specs;
         };
+        // THE COPY STATE OF ONE TRACT: tumor depth over normal depth across the tract, set
+        // against the same ratio across the whole genome so that a library-size difference
+        // between the two files cancels. Around 0.5 is one copy left (a deletion), around 1 is
+        // two copies with one allele (copy-neutral LOH), above 1.25 is a gain on top of the LOH.
+        // A tumor that is not pure pulls a deletion toward 1, so the middle is called
+        // "probable deletion" rather than guessed either way.
+        const COPY_DEL = 0.78, COPY_NEUTRAL = 0.9, COPY_GAIN = 1.25, COPY_MIN_SITES = 8;
+        const lohDepthSlots = (spec) => {
+            if (spec.kind === 'sample') return { n: { side: null, slots: [spec.normal] }, t: { side: null, slots: [spec.tumor] } };
+            const all = []; for (let i = 0; i < GT_MAX; i++) all.push(i);
+            const sl = (sd) => (sideSlots[sd] && sideSlots[sd].length) ? sideSlots[sd] : all;
+            return { n: { side: spec.normal, slots: sl(spec.normal) }, t: { side: spec.tumor, slots: sl(spec.tumor) } };
+        };
+        const binRatio = (ci, bin, S) => {
+            const a = depthAt(ci, bin, S.t.side, S.t.slots), b = depthAt(ci, bin, S.n.side, S.n.slots);
+            if (a.n < COPY_MIN_SITES || b.n < COPY_MIN_SITES || !(b.sum > 0)) return null;
+            return (a.sum / a.n) / (b.sum / b.n);
+        };
+        const medianOf = (xs) => { if (!xs.length) return null; const v = xs.slice().sort((a, b) => a - b); const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+        const copyRef = (spec, S) => {
+            if (copyRefCache && copyRefCache.spec === spec) return copyRefCache.v;
+            const rs = [];
+            for (let ci = 0; ci < drawn.length; ci++) {
+                if (!vdata[ci] || !vdata[ci].n) continue;
+                const nb = Math.min(4095, Math.floor(drawn[ci].length / DEPTH_BIN));
+                for (let b = 0; b <= nb; b++) { const r = binRatio(ci, b, S); if (r != null) rs.push(r); }
+            }
+            const v = rs.length >= 20 ? medianOf(rs) : null;
+            copyRefCache = { spec: spec, v: v };
+            return v;
+        };
+        const tractCopyState = (spec, ci, lo, hi) => {
+            if (!depthBins.size) return { kind: 'unknown', ratio: null, bins: 0 };
+            const S = lohDepthSlots(spec), ref = copyRef(spec, S);
+            if (!(ref > 0)) return { kind: 'unknown', ratio: null, bins: 0 };
+            const rs = [];
+            for (let b = Math.floor(lo / DEPTH_BIN); b <= Math.min(4095, Math.floor(hi / DEPTH_BIN)); b++) { const r = binRatio(ci, b, S); if (r != null) rs.push(r); }
+            if (rs.length < 1 || (rs.length < 2 && hi - lo > 3 * DEPTH_BIN)) return { kind: 'unknown', ratio: null, bins: rs.length };
+            const ratio = Math.round(medianOf(rs) / ref * 100) / 100;
+            const kind = ratio <= COPY_DEL ? 'deletion' : ratio >= COPY_GAIN ? 'gain' : ratio >= COPY_NEUTRAL ? 'neutral' : 'probable';
+            return { kind: kind, ratio: ratio, bins: rs.length };
+        };
+        const copyColor = (cn) => !cn ? '#94a3b8' : cn.kind === 'deletion' ? '#ef4444' : cn.kind === 'probable' ? '#f59e0b' : cn.kind === 'neutral' ? '#38bdf8' : cn.kind === 'gain' ? '#22c55e' : '#94a3b8';
+        const copyWord = (cn) => !cn ? '' : cn.kind === 'deletion' ? 'deletion' : cn.kind === 'neutral' ? 'copy-neutral LOH'
+            : cn.kind === 'gain' ? 'LOH with copy gain' : cn.kind === 'probable' ? 'probable deletion' : 'copy number not assessed';
+        const copyWhy = (cn) => !cn || cn.kind === 'unknown' ? 'No read depth in the file for this stretch, so a deletion cannot be told from a copy-neutral loss.'
+            : 'Tumor read depth is ' + cn.ratio.toFixed(2) + 'x the normal\'s here against the genome-wide level (' + cn.bins + ' Mb read): '
+            + (cn.kind === 'deletion' ? 'one copy is gone.' : cn.kind === 'neutral' ? 'two copies are still present, one allele duplicated over the other.'
+            : cn.kind === 'gain' ? 'more than two copies, with one allele.' : 'between one and two copies; a tumor that is not pure makes a deletion look like this.');
         const computeLOH = async (spec) => {
             if (lohBusy) { graph.setMessage(' The scan is still running. '); return; }
             lohBusy = true;
@@ -8380,6 +8533,7 @@ function (path, config) {
                             runs[r2 - 1].n += runs[r2].n;
                             runs.splice(r2, 1);
                         }
+                        for (const r3 of runs) { try { r3.cn = tractCopyState(spec, ci, r3.lo, r3.hi); } catch (e) { r3.cn = { kind: 'unknown', ratio: null, bins: 0 }; } }
                     }
                     if (het) {
                         chroms.push({ ci: ci, name: drawn[ci].name, het: het, loh: loh, kept: kept, uncalled: uncalled,
@@ -8935,7 +9089,7 @@ function (path, config) {
             const out = [];
             for (const c2 of ((R && R.chroms) || [])) for (const t of (c2.runs || [])) {
                 const c = drawn[c2.ci];
-                if (c) out.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: tractExtent(c, t.lo, t.hi) });
+                if (c) out.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: tractExtent(c, t.lo, t.hi), cn: t.cn || null });
             }
             return out;
         };
@@ -9204,7 +9358,7 @@ function (path, config) {
                     const ext = tractExtent(c, t.lo, t.hi);
                     const inside = tsgs.filter((g) => g.ci === c2.ci && g.end >= t.lo && g.start <= t.hi);
                     const nGenes = genes.filter((g) => g.ci === c2.ci && g.end >= t.lo && g.start <= t.hi).length;
-                    tracts.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: ext, tsg: inside, nGenes: nGenes });
+                    tracts.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: ext, cn: t.cn || null, tsg: inside, nGenes: nGenes });
                 }
                 tracts.sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
                 const scannedLen = R.chroms.reduce((s, c2) => s + (drawn[c2.ci].length || 0), 0);
@@ -9232,6 +9386,8 @@ function (path, config) {
                     + 'across ' + tracts.length + ' tract' + (tracts.length === 1 ? '' : 's') + ' covering ' + mb(lohLen) + ' (' + pct(scannedLen ? lohLen / scannedLen : 0) + ' of the chromosomes with informative sites).');
                 if (nWhole || nArm) lines.push((nWhole ? nWhole + ' whole-chromosome' : '') + (nWhole && nArm ? ' and ' : '') + (nArm ? nArm + ' arm-level' : '') + ' loss'
                     + ((nWhole + nArm) === 1 ? '' : 'es') + ': ' + tracts.filter((t) => t.ext.rank <= 1).map((t) => chrShort(t.c.name) + t.ext.arms).join(', ') + '.');
+                { const nDel = tracts.filter((t) => t.cn && (t.cn.kind === 'deletion' || t.cn.kind === 'probable')).length, nNeu = tracts.filter((t) => t.cn && t.cn.kind === 'neutral').length;
+                  if (nDel || nNeu) lines.push('By read depth, ' + nDel + ' of the ' + tracts.length + ' tracts ' + (nDel === 1 ? 'is a deletion' : 'are deletions') + ' (a copy is gone) and ' + nNeu + ' ' + (nNeu === 1 ? 'is' : 'are') + ' copy-neutral LOH (two copies, one allele).'); }
                 if (biallelic.length) lines.push('Biallelic inactivation of ' + biallelic.map((g) => g.gene).join(', ') + ': LOH together with a damaging change on the remaining copy.');
                 if (tsgs.length) lines.push(tsgs.length + ' tumor suppressor' + (tsgs.length === 1 ? ' is' : 's are') + ' inside a tract (' + tsgs.map((g) => g.gene).join(', ') + ')'
                     + (tsgs.length - biallelic.length ? '; ' + (tsgs.length - biallelic.length) + ' of them ' + ((tsgs.length - biallelic.length) === 1 ? 'is' : 'are') + ' down to one copy with no second hit seen' : '') + '.');
@@ -9285,6 +9441,7 @@ function (path, config) {
                     'Region': t.c.name + ':' + human(t.lo) + '-' + human(t.hi),
                     'Cytobands': bandSpan(t.c, t.lo, t.hi),
                     'Extent': t.ext.word,
+                    'Kind of loss': copyWord(t.cn) + (t.cn && t.cn.ratio != null ? ' (depth ' + t.cn.ratio.toFixed(2) + 'x)' : ''),
                     'Length': mb(t.len) + ' (' + pct(t.len / Math.max(1, t.c.length)) + ' of ' + t.c.name + ')',
                     'Sites that lost an allele': t.n.toLocaleString(),
                     'Protein-coding genes': t.nGenes ? t.nGenes.toLocaleString() : '',
@@ -9440,7 +9597,7 @@ function (path, config) {
                     'Tracts': 'Runs of at least ' + LOH_RUN_MIN + ' lost sites, tolerating ' + LOH_RUN_GAP + ' retained sites inside a run, joined when closer than ' + (LOH_TRACT_JOIN / 1e6) + ' Mb. A tract spans its first to its last lost site, so its true edges lie a little outside.',
                     'Extent': 'Whole chromosome or arm-level when a tract covers at least ' + Math.round(LOH_ARM_COVER * 100) + '% of every informative arm, or of one arm. Acrocentric short arms carry no called sites and are not counted. Large segment >= 10 Mb; focal below that.',
                     'Second hit': 'Each variant inside a tumor suppressor is read on the MANE transcript (frameshift, stop-gained, splice-site, and hotspot or ClinVar-pathogenic missense count as damaging). On the copy left means the tumor\'s reads carry it on all remaining copies; germline means the normal carries it too.',
-                    'What a VCF cannot show': 'Whether a tract is a deletion (one copy) or copy-neutral LOH (two identical copies): that needs copy number. A second hit by deletion, promoter methylation or a structural variant is also invisible here, so "no second hit" means none in these calls.',
+                    'What a VCF cannot show': 'Whether a tract is a deletion (one copy) or copy-neutral LOH (two identical copies) is estimated from read depth: the tumor-to-normal depth ratio over the tract against the genome-wide ratio (about 0.5 is one copy, about 1 is two; an impure tumor pulls a deletion toward 1, so the middle is called a probable deletion). It is not a copy-number call, and a VCF with no depth says so. A second hit by deletion, promoter methylation or a structural variant is also invisible here, so "no second hit" means none in these calls.',
                     'Germline': 'Origins are read against ' + spec.labelN + ': a change it does not carry is somatic. A germline heterozygote the tumor now carries on every remaining copy is the tumor\'s own too, because the tumor lost the other allele.',
                     'Selective lethality': O.claude ? 'Essential genes are those DepMap (CRISPR, Chronos) calls a dependency (effect below -0.5) in at least 20% of cell lines. Only protein-altering changes the tumor carries and the germline does not (or carries on one allele only, with the other lost in the tumor) are considered. The assessment is written by a language model from those data and general knowledge; it is a list of ideas to test.' : 'Not run for this report.',
                     'Source': 'oligodesigner.com Genome Viewer, ' + new Date().toLocaleString(),
@@ -10011,6 +10168,7 @@ function (path, config) {
                     tr.length ? tr.slice(0, 40).map((t, i) => card('<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
                         + '<div style="flex:1;min-width:0;"><span style="font:700 13.5px Arial;">' + esc(bandSpan(t.c, t.lo, t.hi) || t.c.name) + '</span> '
                         + chip(t.ext.word, t.ext.rank <= 1 ? '#a855f7' : t.ext.rank === 2 ? '#f97316' : '#94a3b8')
+                        + (t.cn ? ' <span title="' + esc(copyWhy(t.cn)) + '">' + chip(copyWord(t.cn), copyColor(t.cn)) + '</span>' : '')
                         + '<div style="font:12px Arial;color:#9fb3c8;margin-top:4px;">' + esc(t.c.name + ':' + human(t.lo) + '-' + human(t.hi)) + ' &middot; ' + mb(t.len)
                         + ' &middot; ' + t.n.toLocaleString() + ' sites lost</div></div>'
                         + '<button class="lu-tract" data-t="' + i + '" data-a="genes" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Genes</button>'
@@ -10177,7 +10335,7 @@ function (path, config) {
                         gofHomozygous: ((GOF && GOF.list) || []).filter((x) => x.inLoh && x.state === 'retained' && x.level !== 'possible').length,
                         essential: ESS ? ESS.candidates.length : null },
                     figure: fig,
-                    tracts: trs.map((t) => ({ chr: t.c.name, lo: t.lo, hi: t.hi, bands: bandSpan(t.c, t.lo, t.hi), extent: t.ext.word, rank: t.ext.rank,
+                    tracts: trs.map((t) => ({ chr: t.c.name, lo: t.lo, hi: t.hi, bands: bandSpan(t.c, t.lo, t.hi), extent: t.ext.word, rank: t.ext.rank, copy: t.cn ? { kind: t.cn.kind, ratio: t.cn.ratio, word: copyWord(t.cn), why: copyWhy(t.cn) } : null,
                         len: t.len, n: t.n, genes: (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi).map((g) => g.gene).slice(0, 400) })),
                     // GTEx TPM of the tract genes, compact: tissue labels once, values per gene.
                     tractTpm: (() => {
@@ -11792,6 +11950,118 @@ function (path, config) {
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Loss of heterozygosity',
                 subtitle: 'Which one is the normal? Choosing starts the scan.', graph: graph, books: lohPickerBooks() });
         };
+        // ---- ANALYSES OF ONE LOH TRACT -------------------------------------------------------
+        // The variants inside a tract that the tumor carries and NO other loaded sample does:
+        // the normal, and any further sample in the file or on the other side. These are the
+        // tumor's own changes in that stretch, the ones a design can aim at without touching a
+        // normal cell. Counted from the genotypes already in memory; only their consequences
+        // (gene, effect) are asked of the server, and only for the first DMM_MAX of them.
+        const HL_TUMOR_ONLY = 54;
+        HL_COLOR[HL_TUMOR_ONLY] = '#f43f5e'; HL_NAME[HL_TUMOR_ONLY] = 'carried by the tumor and no other sample';
+        let tractOnlyLast = null;
+        const tractTumorOnly = (t, spec) => {
+            const d = vdata[t.ci], recs = [];
+            if (!d || !d.n) return { recs: recs, others: [], scanned: 0 };
+            let a = 0, z = d.n;
+            while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < t.lo) a = m + 1; else z = m; }
+            const others = spec.kind === 'sample'
+                ? SAMPLES.map((nm, i) => i).filter((i) => i !== spec.tumor).map((i) => SAMPLES[i])
+                : [spec.labelN];
+            let scanned = 0;
+            if (spec.kind === 'sample') {
+                const w = d.gtw || 0;
+                for (let k = a; k < d.n && d.pos[k] <= t.hi; k++) {
+                    scanned++;
+                    if (gtOf(d, k, spec.tumor) < GT_HET) continue;
+                    let elsewhere = false;
+                    for (let si = 0; si < w; si++) if (si !== spec.tumor && gtOf(d, k, si) >= GT_HET) { elsewhere = true; break; }
+                    if (elsewhere) continue;
+                    const ab = allelesAt(t.ci, k);
+                    recs.push({ key: t.ci + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1], ci: t.ci, k: k, pos: d.pos[k], ref: ab[0], alt: ab[1] });
+                }
+            } else {
+                const other = new Set();
+                for (let k = a; k < d.n && d.pos[k] <= t.hi; k++) {
+                    if ((d.side ? d.side[k] : 0) === spec.normal) { const ab = allelesAt(t.ci, k); other.add(d.pos[k] + ':' + ab[0] + ':' + ab[1]); }
+                }
+                for (let k = a; k < d.n && d.pos[k] <= t.hi; k++) {
+                    scanned++;
+                    if ((d.side ? d.side[k] : 0) !== spec.tumor) continue;
+                    if (d.gtw && gtOfSide(d, k, spec.tumor) === GT_REF) continue;
+                    const ab = allelesAt(t.ci, k);
+                    if (other.has(d.pos[k] + ':' + ab[0] + ':' + ab[1])) continue;
+                    recs.push({ key: t.ci + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1], ci: t.ci, k: k, pos: d.pos[k], ref: ab[0], alt: ab[1] });
+                }
+            }
+            return { recs: recs, others: others, scanned: scanned };
+        };
+        const tractOnlyRun = async (t, backTo) => {
+            const R = lohResult;
+            if (!R) return;
+            const label = bandSpan(t.c, t.lo, t.hi) || t.c.name;
+            const say = (m) => graph.setMessage(' ' + m + ' ');
+            say('Finding what the tumor carries in ' + label + ' that no other sample does…');
+            await new Promise((res) => setTimeout(res, 0));
+            const found = tractTumorOnly(t, R.spec);
+            let capped = false;
+            try { capped = await dmmConsequences(found.recs, new EngineMonitor((m) => { try { log(m); } catch (e) { } }), say); }
+            catch (e) { step('tract consequences: ' + e); }
+            const rows = found.recs.map((v) => {
+                const e = dmmEffCache.get(v.key);
+                return Object.assign({}, v, e ? { gene: e.gene, effect: e.effect, hgvs: e.hgvs_p || e.hgvs_c || '' } : { gene: '', effect: dmmEffCache.has(v.key) ? 'outside a gene' : 'not read', hgvs: '' });
+            });
+            const prot = rows.filter((v) => DMM_PROTEIN.has(v.effect));
+            const lof = rows.filter((v) => DMM_LOF.has(v.effect));
+            const inGene = rows.filter((v) => v.gene);
+            tractOnlyLast = { t: t, rows: rows };
+            const books = [];
+            books.push({ section: 'Tumor-specific', note: true, mono: true, title:
+                  'region          ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + '  (' + label + ', ' + fmtSpan(t.len) + ')\n'
+                + 'carried by      ' + R.spec.labelT + ' (tumor)\n'
+                + 'absent from     ' + (Array.from(found.others).join(', ') || 'no other sample') + '\n'
+                + 'sites read      ' + found.scanned.toLocaleString() + '\n'
+                + 'tumor-specific  ' + rows.length.toLocaleString() + '\n'
+                + 'in a gene       ' + inGene.length.toLocaleString() + '\n'
+                + 'protein-altering ' + prot.length.toLocaleString() + '\n'
+                + 'loss of function ' + lof.length.toLocaleString() });
+            if (capped) books.push({ section: 'Tumor-specific', note: true, title: 'There are more than ' + DMM_MAX.toLocaleString() + ' of them; the gene and effect are read for the first ' + DMM_MAX.toLocaleString() + ' only. The CSV has every one.' });
+            books.push({ section: 'Act on them', accent: 'run', title: 'Mark them on the genome', badge: rows.length.toLocaleString(), icon: 'my_location', ready: rows.length > 0, readyNote: 'none to mark',
+                blurb: 'Light every one of these and grey the rest.',
+                open: () => {
+                    clearWorking();
+                    const byChr = new Map();
+                    for (const v of rows) { if (!byChr.has(v.ci)) byChr.set(v.ci, []); byChr.get(v.ci).push(v.k); }
+                    for (const [ci, ks] of byChr) { markIndices(ci, ks, HL_TUMOR_ONLY); }
+                    qcMarkAndShow(HL_TUMOR_ONLY);
+                    graph.setMessage(' ' + rows.length.toLocaleString() + ' tumor-specific variant' + (rows.length === 1 ? '' : 's') + ' marked in ' + label + '. ');
+                } });
+            books.push({ section: 'Act on them', title: 'Download them as CSV', badge: 'csv', icon: 'file_download', ready: rows.length > 0, readyNote: 'none to download',
+                blurb: 'Position, alleles, gene, effect and the genotype of every sample.',
+                open: () => {
+                    try {
+                        const out = rows.map((v) => { const row = { chrom: t.c.name, pos: v.pos, ref: v.ref, alt: v.alt, gene: v.gene, effect: v.effect, change: v.hgvs };
+                            genotypesOf(vdata[v.ci], v.k).forEach((g) => { row['GT_' + g[0]] = GT_TEXT[g[1]] || ''; }); return row; });
+                        dlSaveText(dlToCSV(out), dlSafe(dlSpecies() + '_' + label + '_tumor_specific') + '.csv', 'text/csv');
+                        dlMsg('Downloaded.');
+                    } catch (e) { dlErr('Could not build the CSV: ' + e); }
+                } });
+            const showRows = prot.concat(rows.filter((v) => !DMM_PROTEIN.has(v.effect) && v.gene)).slice(0, 150);
+            if (showRows.length) books.push({ section: 'In genes, protein-altering first', note: true, title: showRows.length + ' shown' + (inGene.length > showRows.length ? ' of ' + inGene.length.toLocaleString() : '') + '.' });
+            showRows.forEach((v) => {
+                books.push({ section: 'In genes, protein-altering first', title: v.gene + '  ' + (v.hgvs || (v.ref + '>' + v.alt)), ready: true,
+                    badge: dmmWord(v.effect), swatch: DMM_LOF.has(v.effect) ? '#dc2626' : DMM_PROTEIN.has(v.effect) ? '#f97316' : '#94a3b8',
+                    blurb: t.c.name + ':' + human(v.pos) + '  ' + v.ref + ' > ' + v.alt,
+                    books: () => [
+                        { title: 'Zoom into it', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame it on ' + t.c.name + '.',
+                            open: () => { try { const pad = 4000 / MB; goView({ x0: barLeft(v.ci) - 0.5 * SLOT, x1: barRight(v.ci) + 0.5 * SLOT, y0: wy(v.pos) - pad, y1: wy(v.pos) + pad }); } catch (e) { } } },
+                        { title: 'Open in oligo editor', badge: 'editor', icon: 'edit', accent: 'design', ready: true, blurb: 'Load ' + v.gene + ' with its variants and go to this one.',
+                            open: async () => { await openRange(v.ci, Math.max(0, v.pos - 1), Math.min(t.c.length, v.pos + 1), v.pos, { focus: { chr: t.c.name.replace(/^chr/, ''), pos: v.pos } }); } },
+                    ] });
+            });
+            books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The tracts.', open: () => lohMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Tumor-specific in ' + label,
+                subtitle: rows.length.toLocaleString() + ' carried by ' + R.spec.labelT + ' alone', graph: graph, books: books });
+        };
         const lohMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!lohResult) { analysisMenu(); return; }
@@ -11907,6 +12177,45 @@ function (path, config) {
                             { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', accent: 'design', ready: true, blurb: 'Load ' + g.gene + ' into the editor.', open: () => openSymbolInEditor(g.gene) },
                         ] });
                 });
+            }
+            // THE TRACTS, EACH WITH WHAT IT IS: pressing a card asks what to do with that stretch.
+            {
+                const tl = lohTractList(R).sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
+                if (tl.length) {
+                    books.push({ section: 'Tracts', note: true, title: tl.length + ' tract' + (tl.length === 1 ? '' : 's') + ', largest first. '
+                        + 'Press one to zoom to it, open it in the oligo editor, or read what kind of loss it is.' });
+                    tl.slice(0, 200).forEach((t) => {
+                        const label = bandSpan(t.c, t.lo, t.hi) || t.c.name;
+                        const kindWord = t.cn ? copyWord(t.cn) : 'copy number not assessed';
+                        const geneList = (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi);
+                        books.push({ section: 'Tracts', title: label + ' \u00b7 ' + t.ext.word, badge: kindWord, swatch: copyColor(t.cn), ready: true,
+                            blurb: t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + ' \u00b7 ' + fmtSpan(t.len) + ' \u00b7 ' + t.n.toLocaleString() + ' sites lost an allele'
+                                + (t.cn && t.cn.ratio != null ? ' \u00b7 depth ' + t.cn.ratio.toFixed(2) + 'x the normal\'s' : ''),
+                            books: () => [
+                                { title: 'Zoom to this region', badge: 'view', icon: 'zoom_in', ready: true,
+                                    blurb: 'Frame ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + ' on the genome.',
+                                    open: () => { try { const pad = Math.max(0.5, (t.len / MB) * 0.08); goView({ x0: barLeft(t.ci) - 0.5 * SLOT, x1: barRight(t.ci) + 0.5 * SLOT, y0: wy(t.hi) - pad, y1: wy(t.lo) + pad }); } catch (e) { } } },
+                                { title: 'Load in the oligo editor', badge: 'editor', icon: 'edit', accent: 'design', ready: true,
+                                    blurb: 'The transcripts in this region, with the variants inside it' + (t.len > 20e6 ? ' (a long tract: the first genes found are offered)' : '') + '.',
+                                    open: async () => { await openRange(t.ci, t.lo, t.hi); } },
+                                { section: 'Analyse this region', accent: 'run', title: 'Tumor-specific variants here', badge: 'not in any other sample', icon: 'person_search', ready: true,
+                                    blurb: 'Every variant in this stretch that ' + R.spec.labelT + ' carries and no other loaded sample does, with its gene and effect.',
+                                    open: () => { tractOnlyRun(t); } },
+                                { section: 'What kind of loss', note: true, mono: true, title:
+                                      'region        ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + '  (' + fmtSpan(t.len) + ')\n'
+                                    + 'cytobands     ' + label + '\n'
+                                    + 'extent        ' + t.ext.word + '\n'
+                                    + 'kind          ' + kindWord + (t.cn && t.cn.ratio != null ? '  (tumor/normal depth ' + t.cn.ratio.toFixed(2) + 'x)' : '') + '\n'
+                                    + 'sites lost    ' + t.n.toLocaleString() + ' heterozygous sites went to one allele\n'
+                                    + 'genes         ' + (R.genes ? geneList.length.toLocaleString() + ' protein-coding' : 'not read yet') },
+                                { note: true, title: copyWhy(t.cn) + (t.cn && t.cn.kind === 'neutral'
+                                    ? ' Both alleles were once present; the tumor now holds two copies of the same one, so nothing is missing from the dosage.'
+                                    : t.cn && (t.cn.kind === 'deletion' || t.cn.kind === 'probable')
+                                        ? ' The genes here are on a single copy, so a hit on the remaining one finishes them.' : '') },
+                            ] });
+                    });
+                    if (tl.length > 200) books.push({ section: 'Tracts', note: true, title: (tl.length - 200) + ' smaller tracts are in the CSV.' });
+                }
             }
             books.push({ section: 'By chromosome', note: true, title: 'Most affected first. A chromosome near 100% has lost one copy across its whole length; the genome\'s long homozygous stretches are these.' });
             R.chroms.forEach((c2) => books.push({ section: 'By chromosome', title: c2.name, badge: pct(c2.frac) + ' LOH',
@@ -16447,7 +16756,30 @@ function (path, config) {
                 a.href = URL.createObjectURL(new Blob([bytes], { type: mime || 'application/octet-stream' }));
                 a.download = filename; a.style.display = 'none';
                 document.body.appendChild(a); a.click();
-                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
+                setTimeout(() => { try { document.body.removeChild(a); } catch (e) { } }, 500);
+                // A download started with no click of the user's own (this one follows a long
+                // build) can be blocked without a word -- by the browser's "multiple downloads"
+                // setting, or an earlier "block". So the file is also offered as a link, which
+                // is a click and always works. The blob stays alive until it is dismissed.
+                try {
+                    const url = a.href, old = document.getElementById('baja-dl-ready');
+                    if (old && old.parentNode) old.parentNode.removeChild(old);
+                    const bar = document.createElement('div');
+                    bar.id = 'baja-dl-ready';
+                    bar.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:2147483000;background:#0b2545;color:#e8f0fb;'
+                        + 'border:1px solid #1aa3bd;border-radius:10px;padding:10px 14px;font:13px Arial;box-shadow:0 10px 30px rgba(0,0,0,0.4);display:flex;gap:12px;align-items:center;';
+                    const lnk = document.createElement('a');
+                    lnk.href = url; lnk.download = filename; lnk.textContent = 'Download ' + filename;
+                    lnk.style.cssText = 'color:#8ab4ff;font-weight:700;text-decoration:underline;cursor:pointer;';
+                    const x = document.createElement('span');
+                    x.textContent = '\u2715'; x.style.cssText = 'cursor:pointer;opacity:0.7;';
+                    const gone = () => { try { if (bar.parentNode) bar.parentNode.removeChild(bar); URL.revokeObjectURL(url); } catch (e) { } };
+                    x.onclick = gone; lnk.onclick = () => { setTimeout(gone, 1500); };
+                    const lead = document.createElement('span'); lead.textContent = 'Ready. If it did not download:';
+                    bar.appendChild(lead); bar.appendChild(lnk); bar.appendChild(x);
+                    document.body.appendChild(bar);
+                    setTimeout(gone, 180000);
+                } catch (e) { }
             } catch (e) { dlErr('Could not save the file: ' + e); }
         };
         const dlCell = (v) => { let x = (v == null) ? '' : ('' + v); if (/[",\n\r]/.test(x)) x = '"' + x.replace(/"/g, '""') + '"'; return x; };
@@ -17495,7 +17827,7 @@ function (path, config) {
                 d.ref = new Uint8Array(0); d.alt = new Uint8Array(0);
                 d.cplx = new Map(); d.names = []; d.snps = [];
                 d.gts = null; d.gtw = 0; d.baf = null; d.hl = new Uint8Array(0); d.hlIdx = [];
-                d.side = new Uint8Array(0); d.nL = 0; d.histL = null;
+                d.side = new Uint8Array(0); d.nL = 0; d.histL = null; depthBins.clear(); copyRefCache = null;
                 d.hist = new Uint32Array(HIST_BINS); d.histBy = null;
             }
             vtotal = 0; vobjects = 0;
@@ -18238,7 +18570,7 @@ function (path, config) {
             // marks have always gone. Once something is there, a second VCF can go on the
             // right beside it or on the left opposite it -- a tumor against its normal, a
             // second caller against the first -- and the card asks.
-            const sideBooks = () => [
+            const sideBooksFor = (go) => [
                 { section: 'Side', note: true, title: 'The genome already carries ' + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
                     + (nLeft ? ', ' + nLeft.toLocaleString() + ' of them on the left' : ', all on the right') + '. Choose where this file\'s marks go.' },
                 // Left before right, as on the chromosome: the card's place in the row says
@@ -18249,13 +18581,13 @@ function (path, config) {
                     blurb: (sideFile[1] ? 'The left gutter already holds ' + shortFile(sideFile[1]) + '; this file joins it there. '
                         : 'Opposite what is already there: the marks take the left gutter, so the two sets read against each other down the same bar.')
                         + (sideFile[0] ? 'It will read against ' + shortFile(sideFile[0]) + ' on the right.' : ''),
-                    open: () => pickFile(VCF_ACCEPT, 1) },
+                    open: () => go(1) },
                 { section: 'Side', accent: 'choose', title: 'Right side' + (sideFile[0] ? '  \u00b7  ' + shortFile(sideFile[0]) : ''),
                     badge: sideFile[0] ? 'joins ' + shortFile(sideFile[0]) : 'default', icon: 'east', ready: true,
                     blurb: (sideFile[0] ? 'The right gutter already holds ' + shortFile(sideFile[0]) + '; this file joins it there. '
                         : 'Beside what is already there: the marks share the right gutter of every chromosome.')
                         + (sideFile[1] ? 'It will read against ' + shortFile(sideFile[1]) + ' on the left.' : ''),
-                    open: () => pickFile(VCF_ACCEPT, 0) },
+                    open: () => go(0) },
             ];
             // EVERY CARD HERE ASKS FOR A FILE, AND NOW SAYS SO.
             //
@@ -18272,7 +18604,19 @@ function (path, config) {
                     + 'Sample and phase columns are read too, and color the marks.'
                     + (vtotal ? ' With variants already loaded, it asks which side of the chromosomes to draw on.' : ''),
             };
-            if (vtotal) vcfCard.books = sideBooks; else vcfCard.open = () => pickFile(VCF_ACCEPT, 0);
+            // WHERE THE VCF COMES FROM: this computer, or a file already in My Files.
+            const fromComputer = (sd) => pickFile(VCF_ACCEPT, sd);
+            const fromMyFiles = (sd) => openJson(false, (el) => loadVcfFromMyFiles(el, sd));
+            vcfCard.accent = undefined;
+            vcfCard.badge = 'computer \u00b7 My Files';
+            vcfCard.books = () => [
+                Object.assign({ section: 'Where is the VCF', accent: 'choose', icon: 'upload_file', title: 'From this computer', badge: 'upload',
+                    blurb: 'Pick a VCF on this computer. It is read here and a copy is kept in My Files.', ready: true },
+                    vtotal ? { books: () => sideBooksFor(fromComputer) } : { open: () => fromComputer(0) }),
+                Object.assign({ section: 'Where is the VCF', accent: 'choose', icon: 'folder_open', title: 'From My Files', badge: 'already uploaded',
+                    blurb: 'Browse the files already in your space and load a VCF from there. Nothing is uploaded again.', ready: true },
+                    vtotal ? { books: () => sideBooksFor(fromMyFiles) } : { open: () => fromMyFiles(0) }),
+            ];
             try {
                 exec('baja/lib/shelf.js', {
                     id: 'baja-karyo-upload',
@@ -18459,8 +18803,7 @@ function (path, config) {
                 return mb >= 1 ? (' (about ' + (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + ' MB)') : '';
             };
             const note = (vtotal > SAVE_CAP)
-                ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
-                    + SAVE_CAP.toLocaleString() + ' are written. If the file came in through '
+                ? ('Holding ' + vtotal.toLocaleString() + ' variants; ' + SAVE_CAP.toLocaleString() + ' of them, spread evenly across the whole genome, are written. If the file came in through '
                     + 'Upload, all of it is already in My Files.')
                 : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
                     + ' will be written' + sizeHint(vtotal) + '.'
@@ -18709,7 +19052,7 @@ function (path, config) {
         // `deleting`: the same browser, but a click removes the file instead of opening
         // it. One panel rather than two, because a second copy of a hundred lines of file
         // browser is a second copy to keep in step.
-        const openJson = async (deleting) => {
+        const openJson = async (deleting, onPick) => {
             const host_ = window['env']['apiUrl'];
             // Same two things save-obj.js does and this did not: refresh the browser once it
             // exists, and root it at '/' + user. Without the refresh the search box draws over
@@ -18760,6 +19103,7 @@ function (path, config) {
                             return;
                         }
                         try { if (openRestore) openRestore(); } catch (e) { }
+                        if (onPick) { try { await onPick(element); } catch (e) { graph.setMessage(' ' + e + ' '); } return; }
                         // A .baja IS NOT A KARYOTYPE. It is a saved editor screen -- tracks,
                         // compounds, annotations -- and reading it here got as far as
                         // "That file is not a saved karyotype", which is true and useless:
@@ -18857,11 +19201,11 @@ function (path, config) {
                                             // the real buttons in this bar are.
                                             static: true,
                                             label: deleting ? 'Click a file to REMOVE it'
-                                                : 'Click a file to open it',
+                                                : onPick ? 'Click a VCF to load it' : 'Click a file to open it',
                                             icon: deleting ? 'delete' : 'folder_open',
                                             tooltip: deleting
                                                 ? 'Removing is permanent. Leave without removing anything with Done.'
-                                                : 'Open a saved genome',
+                                                : onPick ? 'Load a VCF already in My Files' : 'Open a saved genome',
                                             ionFunction: createIonFunction(() => { })
                                         },
                                     ]
@@ -18939,7 +19283,20 @@ function (path, config) {
         // the entire origin. Over the limit the variants are trimmed rather than the transfer
         // failing, and the editor is told how many were left behind.
         const HANDOFF_MAX_CHARS = 3_500_000;
+        // The LOH tracts, in the form the editor reads them (baja/manchester/menu/loh-label.js).
+        const lohTractsForEditor = () => {
+            if (!lohResult) return null;
+            const out = [];
+            for (const c2 of (lohResult.chroms || [])) for (const t of (c2.runs || [])) {
+                const c = drawn[c2.ci];
+                if (!c) continue;
+                out.push({ chr: c.name, lo: t.lo, hi: t.hi, band: bandSpan(c, t.lo, t.hi), extent: tractExtent(c, t.lo, t.hi).word,
+                    kind: t.cn ? t.cn.kind : 'unknown', ratio: t.cn ? t.cn.ratio : null, word: t.cn ? copyWord(t.cn) : 'LOH, copy number not assessed' });
+            }
+            return out.length ? out : null;
+        };
         const handToEditor = async (ids, inRange, focus) => {
+            try { window.__bajaLohTracts = lohTractsForEditor(); } catch (e) { }
             try { window.__bajaHandoffNewTab = false; } catch (e) { }
             const list = (ids || []).filter(Boolean);
             if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
@@ -18964,6 +19321,7 @@ function (path, config) {
                     v: 1, from: 'karyotype', at: Date.now(),
                     species: (r && r.species) || 'human',
                     list: list, focus: focus || null, variants: (inRange || []),
+                    loh: (() => { try { return lohTractsForEditor(); } catch (e) { return null; } })(),
                 };
                 let text = JSON.stringify(payload);
                 if (text.length > HANDOFF_MAX_CHARS && payload.variants.length) {
