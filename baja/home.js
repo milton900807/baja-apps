@@ -42,6 +42,8 @@ function () {
               note: 'Assumptions, profit-and-loss and capital models, with a formula engine and timelines.' },
             { label: 'Library', tools: true, icon: 'icons/svg/library-shelf', path: 'manchester/library',
               note: 'The RNA therapeutics reference shelf: chemistry and modality references, read in place.' },
+            { label: 'Splice Acceptor Model', tools: true, icon: 'icons/svg/ssam', path: 'baja/ssam.js',
+              note: 'Score every candidate 3′ acceptor around one exon, ranked against the annotated one.' },
         ];
         // An icon store that cannot be reached must not cost anyone the page.
         for (const a of APPS) { try { a.svg = await exec(a.icon); } catch (e) { a.svg = null; } }

@@ -168,6 +168,147 @@ bajasplice scan --gene TARDBP --top 10
 bajasplice scan --gene UNC13A --rank acceptor --top 20
 ```
 
+### SSAM: acceptor candidates around one exon
+
+```bash
+bajasplice ssam --gene MAPK8IP3 --exon 16
+bajasplice ssam --gene UNC13A --exon 21 --flank 500 --png e21.png --json e21.json
+```
+
+Scores every AG dinucleotide in a window around one exon and ranks it against
+that exon's own annotated acceptor. Where `scan --rank` sweeps a whole gene for
+cryptic candidates, this answers the narrower question people actually ask:
+*what else near this exon does the model think looks like an acceptor, and how
+does it compare to the real one.*
+
+`--exon` is in **transcript order** — on the minus strand exon 1 is the
+rightmost. `--flank` is capped at the model's receptive field (1000 nt for
+ctx-2000); beyond it a profile is flat by construction, not by biology.
+
+Each candidate carries `rank`, `score`, `rel_to_annotated`, `delta_logit`,
+`offset` (signed, transcript-oriented) and `region`. The payload is the same
+`track` / `layers` shape the plot command emits, so the existing client
+`FeatureLayer` draws it, and `meta.caveats` travels with the numbers.
+
+It reports **no frame or coding information**. The score is splice-acceptor
+likelihood; putting a frame column beside it invites reading a consequence off
+a number that cannot support one.
+
+The front end is `baja/ssam.js` (Home ▸ Tools ▸ Splice Acceptor Model), backed
+by `py/bio/splice/ssam-exon.py`.
+
+#### Comparing two alleles
+
+```bash
+bajasplice ssam --gene MAPK8IP3 --exon 16 --variant '16:1762843:C>T'
+bajasplice ssam --gene MAPK8IP3 --exon 16 --variant 16:1762843:C-T   # no quoting needed
+```
+
+`--variant` scores the window twice — reference, and the same window with that
+substitution — and reports the difference per candidate as
+`variant_delta_logit`, alongside `score_alt`, `logit_alt` and `rank_alt`.
+Deltas are computed in log-odds, because a site at 0.9998 has nowhere to move
+in probability space.
+
+Coordinates are **plus-strand**, as in VCF, on either strand of gene. The
+reference base is verified against the genome and a mismatch is an error, so a
+spec given in transcript orientation on a minus-strand gene fails loudly
+instead of scoring the wrong allele. Substitutions only: an indel shifts every
+downstream coordinate, which would quietly invalidate the exon bounds and
+offsets, so it is refused rather than approximated.
+
+Candidates are the **union** of the AG positions found on each allele, and
+`ag_ref` / `ag_alt` say which alleles actually have the dinucleotide. A site
+the variant creates or destroys therefore appears in the table rather than
+dropping out of one of the two rankings. A variant outside the model's reach
+for the window is an error, not a table of exact zeros.
+
+A delta is the model's response to one sequence change. It carries no
+information about pathogenicity, and `meta.caveats` says so wherever the
+numbers go.
+
+#### Which regions a score depends on
+
+```bash
+bajasplice ssam --gene MAPK8IP3 --exon 16 --occlude
+bajasplice ssam --gene MAPK8IP3 --exon 16 --occlude \
+  --occlude-span 1762635-1762835 --tile 18 --tile-step 6 --shuffles 16
+```
+
+`--occlude` slides a tile across the window, replaces each tile with a
+dinucleotide-preserving shuffle (`cis.dinuc_shuffle`), and rescores. Holding
+composition and local transition statistics fixed means a change in score is
+attributable to longer-range **arrangement**, not to composition having moved.
+`--occlude-span` restricts the tiling, which is how you sweep an intron up to
+its acceptor rather than the whole window.
+
+**This measures dependence, not occupancy.** It is not an antisense-oligo
+model. An oligo hybridises and occupies sequence that still reads the same
+bases; SpliceNet has no occupancy channel, and shuffling substitutes different
+sequence, which the model scores as different sequence. The sign is not a
+steric block's sign either — covering a silencer and covering an enhancer both
+read as "this region matters". Real oligo behaviour also turns on chemistry,
+length, Tm, accessibility and delivery, none of which is in the model.
+
+Every cell reports a **median** with 10th/90th percentiles, plus
+`frac_below_half` and `min_score`, and never a mean. At the largest-effect
+tiles the shuffle distribution is bimodal, so a mean logit there describes no
+individual draw — exponentiating one produces a number no shuffle showed.
+Median shuffle spread barely moved between 16 and 64 shuffles (0.163 → 0.168),
+so the spread is intrinsic to the null and more draws will not sharpen it; 16
+is the default for that reason.
+
+Tiles covering a tracked site's own `AG` are flagged `covers_own_dinuc` and
+left out of the ranking, since destroying a site's own dinucleotide is
+arithmetic rather than a finding.
+
+#### Comparing against orthologues
+
+```bash
+bajasplice ssam-ortho --gene MAPK8IP3 --exon 16
+bajasplice ssam-ortho --gene UNC13A --exon 21 --species mus_musculus,danio_rerio
+```
+
+Finds the one-to-one orthologue of the gene in each species, locates the
+corresponding exon, and scores its acceptor the same way. The question it
+answers is *is the annotated site still the winner there* — a consistency
+check, not a numeric comparison between species.
+
+**Exon correspondence is established by sequence, not by exon number.** Human
+exon 16 of MAPK8IP3 is exon **14** in mouse and exon **17** in dog; matching by
+rank would have scored the wrong exon in two species out of three, and done it
+silently. Each ortholog exon is chosen by 8-mer containment against the human
+exon, and the result reports the containment with the margin over the
+runner-up. A match below `MIN_CONTAINMENT` or within `MIN_MARGIN` of second
+place is refused rather than guessed.
+
+Two limits worth knowing before reading the output:
+
+**The checkpoint is human-trained.** Another species' sequence is out of
+distribution, so a low ortholog score does not distinguish "the site differs
+there" from "the model is outside its training set".
+
+**AG recurrence inside a coding exon is nearly uninformative.** The recurrence
+table reports whether each human in-exon candidate has a counterpart within
+±3 nt in each ortholog, but in an exon at ~90% identity an `AG` is conserved by
+codon constraint whether or not it is ever used as a splice site. On MAPK8IP3
+exon 16 all nine human candidates have a counterpart in at least one ortholog,
+which discriminates nothing. The offset tolerance is also a stand-in for an
+alignment, not an alignment — an indel upstream inside the exon shifts every
+offset after it.
+
+#### Running without a genome FASTA
+
+`bajasplice.remote.EnsemblReader` implements `GenomeReader`'s `.codes()`
+contract against the Ensembl REST API, with a disk cache under
+`~/.cache/bajasplice/seq`, so a single-locus question does not need the ~3 GB
+download. `open_genome()` prefers a configured FASTA and falls back to it; the
+source and assembly are recorded in `meta.sequence` so a score can be traced to
+the sequence it came from.
+
+It is **not** a substitute for the FASTA in training or any whole-genome
+sweep — a public API is neither fast enough nor a reproducible sequence source.
+
 ### Plotting across a transcript
 
 Emits a JSON payload shaped for a client `TrackLayer` / `AttributionLayer`, or

@@ -6,6 +6,10 @@
     bajasplice evaluate report
     bajasplice scan --gene TARDBP --top 10
     bajasplice plot --gene TARDBP --top-sites 2 --out tardbp.json --png tardbp.png
+    bajasplice ssam --gene MAPK8IP3 --exon 16 --png e16.png
+    bajasplice ssam --gene MAPK8IP3 --exon 16 --variant '16:1762843:C>T'
+    bajasplice ssam --gene MAPK8IP3 --exon 16 --occlude --tile 18
+    bajasplice ssam-ortho --gene MAPK8IP3 --exon 16
 """
 from __future__ import annotations
 
@@ -85,6 +89,10 @@ def main(argv=None):
                    add_help=False)
     sub.add_parser("cis", help="cis-regulatory impact of sequence around a splice site",
                    add_help=False)
+    sub.add_parser("ssam", help="rank candidate 3' acceptor sites around one exon",
+                   add_help=False)
+    sub.add_parser("ssam-ortho", help="score a human exon's acceptor and its orthologue's",
+                   add_help=False)
 
     # options after the step belong to the step's own parser, so collect them
     # here rather than letting the top-level parser reject them
@@ -122,6 +130,14 @@ def main(argv=None):
         from bajasplice import cis
         sys.argv = ["bajasplice cis"] + extra
         return cis.main()
+    if args.cmd == "ssam":
+        from bajasplice import ssam
+        sys.argv = ["bajasplice ssam"] + extra
+        return ssam.main()
+    if args.cmd == "ssam-ortho":
+        from bajasplice import ortho
+        sys.argv = ["bajasplice ssam-ortho"] + extra
+        return ortho.main()
     return 0
 
 
