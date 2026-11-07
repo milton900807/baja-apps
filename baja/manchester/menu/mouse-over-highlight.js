@@ -1606,7 +1606,7 @@ function (graph, genegraph_panel_layout) {
         // AN EXON IS DRAWN ON THE TRACK'S BASELINE, graph.Y(track.tgraph.Y(0)), not at its own y, so
         // it is hit-tested there, and tighter: within EXON_HIT_Y_PX screen pixels of that line. Testing
         // against an.y put the hit band away from the bar that is actually drawn.
-        const EXON_HIT_Y_PX = 5;
+        const EXON_HIT_Y_PX = 12;
         // BOTH SIDES IN SCREEN PIXELS. `y` is the pointer, and the pointer arrives from the
         // mouse listeners already in screen coordinates -- which is why the callers convert it
         // the other way, with Ywc(), when they want world. graph.Y() maps world TO screen, so
@@ -1623,10 +1623,33 @@ function (graph, genegraph_panel_layout) {
         // WORLD ones and convert with graph.Y() -- as they do for every other hit test in
         // them. One function called from both spaces is how this went wrong before: the
         // hover compared world to world while the click compared screen to world.
-        const annHit = (track, an, ySc) => {
+        // THE SAME LOGIC THE PEPTIDE TEST USES, which works: the pointer is converted with
+        // graph.Y() and compared against graph.Y(tgraph.Y(0)), the track's baseline in screen
+        // pixels. The peptide block does exactly this a few hundred lines down
+        //     const basePx = graph.Y(tg.Y(0));  const yPx = graph.Y(y);
+        // and hits its row reliably, so the conversion is not the thing that was wrong.
+        // Callers pass their handler's raw y; the one conversion lives here.
+        // AND NEVER FROM ABOVE THE BAR. Screen y grows downward, so (yi - yPx) is how far the
+        // pointer is ABOVE the exon's line: past this, the press is on the DNA row, the peptide
+        // letters or empty space, and must not open the exon's menu however close the absolute
+        // distance looks. Below the bar stays governed by EXON_HIT_Y_PX alone, so the effective
+        // window is yi-10 .. yi+12.
+        const EXON_ABOVE_MAX_PX = 10;
+        // THIS ONE IS ABSOLUTE. An exon already lit -- by the hover, or still selected from the
+        // last click -- is let past annHit by the `hovered` escape below, which is how the menu
+        // kept opening from above the bar on every click after the first. Being lit is a reason
+        // to forgive a few pixels on release, never a reason to open from the peptide row, so
+        // this is checked before that escape and overrides it.
+        const annTooFarAbove = (track, an, yRaw) => {
+            if (('' + (an && an.type)).toLowerCase() !== 'exon') return false;
+            return (graph.Y(track.tgraph.Y(0)) - graph.Y(yRaw)) > EXON_ABOVE_MAX_PX;
+        };
+        const annHit = (track, an, yRaw) => {
             const isExon = ('' + (an && an.type)).toLowerCase() === 'exon';
+            const yPx = graph.Y(yRaw);
             const yi = isExon ? graph.Y(track.tgraph.Y(0)) : graph.Y(track.tgraph.Y(an.y));
-            return Math.abs(yi - ySc) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
+            if (isExon && (yi - yPx) > EXON_ABOVE_MAX_PX) return false;
+            return Math.abs(yi - yPx) <= (isExon ? EXON_HIT_Y_PX : ANN_HIT_Y_PX);
         };
 
         let current = null;
@@ -1952,7 +1975,8 @@ function (graph, genegraph_panel_layout) {
                         const annHits = [];
                         for (let an of annotations) {
                             if (!an) continue;
-                            if (!annHit(track, an, graph.Y(y)) && !hovered.has(an)) continue;
+                            if (annTooFarAbove(track, an, y)) continue;
+                            if (!annHit(track, an, y) && !hovered.has(an)) continue;
                             an.select();
                             // Build the annotation's type-specific menu (e.g. an exon menu).
                             // It goes to the selection box, as before, AND opens where the click
@@ -6044,7 +6068,10 @@ function (graph, genegraph_panel_layout) {
                                 const isExon = ('' + (a && a.type)).toLowerCase() === 'exon';
                                 const yi = isExon ? graph.Y(selectedTrack.tgraph.Y(0))
                                     : graph.Y(selectedTrack.tgraph.Y(a.y));
-                                return Math.abs(yi - graph.Y(y)) <= (isExon ? 5 : 10);
+                                const yPx = graph.Y(y);
+                                // never from above the bar: see EXON_ABOVE_MAX_PX
+                                if (isExon && (yi - yPx) > 10) return false;
+                                return Math.abs(yi - yPx) <= (isExon ? 12 : 10);
                             } catch (e) { return false; }
                         };
                         if (anns) for (let a of anns) {
