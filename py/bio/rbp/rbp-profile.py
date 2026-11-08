@@ -83,6 +83,8 @@ SITE_THRESHOLD = 0.5
 
 profile = []
 sites = []
+per_rbp = {}
+per_profile = {}
 n = 0
 err = None
 
@@ -100,42 +102,51 @@ else:
             raise RuntimeError("RBP not in model: " + rbp)
 
         works.msg("Scanning RBP binding…")
-        # cols=None scores every head, which is what the specificity measure needs and
-        # costs nothing: it is the same forward pass either way.
+        # cols=None scores every head: the specificity measure needs them all, and it is
+        # the same forward pass either way. ONE scan serves every selected protein.
         centers, allscores = scan_sequence(model, seq, None, step=step)
-        scores = allscores[:, cols]
         n = int(len(seq))
-        # One raw score per position: the chosen RBP, or the max over a set.
-        col_scores = scores.max(axis=1) if scores.shape[1] > 1 else scores[:, 0]
-        # Specificity: the fraction of the other heads this one beats at the same window.
-        # Bounded 0..1, so it draws as a coverage layer unchanged.
         nheads = int(allscores.shape[1])
-        rank = (allscores < col_scores[:, None]).sum(axis=1) / max(1, nheads - 1)
-        # [pos, shown, raw] -- the drawn value plus what the model actually emitted.
-        for c, s, r in zip(centers, col_scores, rank):
-            shown = s if mode == "raw" else r
-            profile.append([int(xi + int(c)), round(float(shown), 4), round(float(s), 4)])
-
-        # Potential binding sites: threshold the windows, span each to its full
-        # width, then merge overlapping windows into contiguous site intervals
-        # (keeping the strongest score). Positions are local (xi + i).
         half = int(model.max_len) // 2
-        raw = []
-        for c, s, r in zip(centers, col_scores, rank):
-            ok = (float(s) >= SITE_THRESHOLD) if mode == "raw" else (
-                float(r) >= SITE_RANK and float(s) >= RAW_FLOOR)
-            if ok:
-                lo = max(0, int(c) - half)
-                hi = min(n, int(c) + half)
-                raw.append((lo, hi, float(s if mode == "raw" else r)))
-        raw.sort()
-        for lo, hi, s in raw:
-            if sites and lo <= sites[-1][1]:            # overlaps the previous site
-                sites[-1][1] = max(sites[-1][1], hi)
-                sites[-1][2] = max(sites[-1][2], s)
-            else:
-                sites.append([lo, hi, s])
-        sites = [[int(xi + lo), int(xi + hi), round(float(s), 4)] for lo, hi, s in sites]
+
+        def call_sites(col):
+            """(profile, sites) for one head, in local coordinates."""
+            s = allscores[:, col]
+            # Specificity: the fraction of the other heads this one beats at the same
+            # window. Bounded 0..1, so it draws as a coverage layer unchanged.
+            r = (allscores < s[:, None]).sum(axis=1) / max(1, nheads - 1)
+            prof = [[int(xi + int(c)), round(float(sv if mode == "raw" else rv), 4),
+                     round(float(sv), 4)] for c, sv, rv in zip(centers, s, r)]
+            hits = []
+            for c, sv, rv in zip(centers, s, r):
+                ok = (float(sv) >= SITE_THRESHOLD) if mode == "raw" else (
+                    float(rv) >= SITE_RANK and float(sv) >= RAW_FLOOR)
+                if ok:
+                    hits.append((max(0, int(c) - half), min(n, int(c) + half),
+                                 float(sv if mode == "raw" else rv)))
+            hits.sort()
+            out = []
+            for lo, hi, sv in hits:
+                if out and lo <= out[-1][1]:            # overlaps the previous site
+                    out[-1][1] = max(out[-1][1], hi)
+                    out[-1][2] = max(out[-1][2], sv)
+                else:
+                    out.append([lo, hi, sv])
+            return prof, [[int(xi + lo), int(xi + hi), round(float(sv), 4)]
+                          for lo, hi, sv in out]
+
+        # Per protein, so several can be picked at once and drawn as separate layers.
+        for nm, col in zip(names, cols):
+            pr, st = call_sites(col)
+            per_rbp[nm] = st
+            per_profile[nm] = pr
+
+        # Back-compatible single answer: the first selected protein, or the strongest
+        # when a set ('reliable' / 'all') was asked for.
+        best = names[0] if len(names) == 1 else max(
+            names, key=lambda k: max([x[2] for x in per_rbp[k]] or [0.0]))
+        profile = per_profile[best]
+        sites = per_rbp[best]
         works.progress(100)
     except Exception as e:
         err = str(e)
@@ -143,6 +154,9 @@ else:
 works.resolve({
     "profile": json.dumps(profile),
     "sites": json.dumps(sites),
+    # {name: [[start, end, score], ...]} for every selected protein, so the UI can draw
+    # one layer each from a single scan.
+    "sitesByRbp": json.dumps(per_rbp),
     "rbp": rbp,
     "n": n,
     "step": step,

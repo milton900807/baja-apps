@@ -120,57 +120,74 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                     graph.setMessage(' RBP error: ' + data.error + ' ');
                     restoreHover(); return;
                 }
-                let sites = [];
-                try { sites = JSON.parse((data && data.sites) || '[]'); } catch (e) { sites = []; }
-                if (!sites.length) {
-                    graph.setMessage(' No ' + rbp + ' binding sites predicted for that track. ');
+                // ONE SCAN, SEVERAL PROTEINS. The model emits all 170 heads per window, so
+                // the backend returns sitesByRbp = {name: [[start,end,score],...]} for every
+                // protein that was selected. Older servers only send `sites`, so fall back to
+                // that under the requested name.
+                let byRbp = {};
+                try { byRbp = JSON.parse((data && data.sitesByRbp) || '{}') || {}; } catch (e) { byRbp = {}; }
+                if (!Object.keys(byRbp).length) {
+                    let one = [];
+                    try { one = JSON.parse((data && data.sites) || '[]'); } catch (e) { one = []; }
+                    byRbp[('' + rbp).split(',')[0].trim() || 'TARDBP'] = one;
+                }
+                const picked = Object.keys(byRbp).filter((k) => (byRbp[k] || []).length);
+                if (!picked.length) {
+                    graph.setMessage(' No binding sites predicted for ' + ('' + rbp).split(',').join(', ')
+                        + ' on that track. ');
                     restoreHover(); return false;
                 }
 
-                // Interval layer — one block per predicted binding site (start,end).
                 const TrackLayer = await exec('baja/bio/track-layer.js');
                 const tg = track.tgraph;
-                const name = 'RBP:' + rbp;
-                const layer = new TrackLayer((track.name || 'track') + '_' + name, tg.xmin, 0, tg.xmax, 1);
-                layer.data_type = name;
+                let totalAdded = 0;
+                const summary = [];
+                for (const who of picked) {
+                    const name = 'RBP:' + who;
+                    const layer = new TrackLayer((track.name || 'track') + '_' + name, tg.xmin, 0, tg.xmax, 1);
+                    layer.data_type = name;
+                    // Colour by how many layers of THIS protein already exist, plus the
+                    // protein's own position in the selection, so two proteins picked
+                    // together never land on the same colour.
+                    const seen = (track.track_layers || []).filter((l) => l && l.data_type === name).length;
+                    const rgb = PALETTE[(seen + picked.indexOf(who)) % PALETTE.length];
+                    const alpha = +(0.2 + 0.5 * (((seen + picked.indexOf(who)) % 6) / 5)).toFixed(2);
+                    layer.color = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
+                    layer.fillstyle = layer.color;
+                    // Name + score written ON the block, turned a quarter turn (see the vertical
+                    // branch in baja/bio/track-layer.js). Flat, 'TARDBP 0.98' is wider than most
+                    // binding sites are on screen, so each label ran past its own block and into
+                    // the next one. On its side a label is one line of text whatever it says.
+                    layer.verticalLabels = true;
 
-                const idx = (track.track_layers || []).filter((l) => l && l.data_type === name).length;
-                const rgb = PALETTE[idx % PALETTE.length];
-                const alpha = +(0.2 + 0.5 * ((idx % 6) / 5)).toFixed(2);
-                layer.color = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
-                layer.fillstyle = layer.color;
-                // Name + score written ON the block, turned a quarter turn (see the vertical
-                // branch in baja/bio/track-layer.js). Flat, 'TARDBP 0.98' is wider than most
-                // binding sites are on screen, so each label ran past its own block and into the
-                // next one; predicted sites cluster, so that was the normal case rather than the
-                // crowded one. On its side a label is one line of text wide whatever it says.
-                layer.verticalLabels = true;
-
-                let added = 0;
-                for (const s of sites) {
-                    if (!s) continue;
-                    const sc = Math.max(0, Math.min(1, +s[2] || 0));
-                    // Only include high-confidence sites — those scoring ABOVE 0.95.
-                    if (!(sc > 0.95)) continue;
-                    // Block height == score (1.0 fills the track height), anchored at
-                    // the baseline. Alpha also scales so stronger sites read darker.
-                    const a = +(0.3 + 0.6 * sc).toFixed(2);
-                    const col = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a + ')';
-                    layer.addInterval(+s[0], +s[1], sc, rbp + ' ' + sc.toFixed(2), col);
-                    added++;
+                    let added = 0;
+                    for (const s of (byRbp[who] || [])) {
+                        if (!s) continue;
+                        const sc = Math.max(0, Math.min(1, +s[2] || 0));
+                        // Only include high-confidence sites.
+                        if (!(sc > 0.95)) continue;
+                        const a2 = +(0.3 + 0.6 * sc).toFixed(2);
+                        const col = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a2 + ')';
+                        layer.addInterval(+s[0], +s[1], sc, who + ' ' + sc.toFixed(2), col);
+                        added++;
+                    }
+                    if (!added) continue;
+                    track.addLayer(layer);
+                    if (layer.setTimedHighlight) layer.setTimedHighlight(10000);
+                    totalAdded += added;
+                    summary.push(who + ' ' + added);
                 }
-                if (!added) {
-                    graph.setMessage(' No ' + rbp + ' binding sites scoring above 0.95 for that track. ');
+                setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 10100);
+                if (!totalAdded) {
+                    graph.setMessage(' No binding sites scoring above 0.95 for '
+                        + ('' + rbp).split(',').join(', ') + ' on that track. ');
                     restoreHover(); return false;
                 }
-                track.addLayer(layer);
-
-                // Highlight the sites for ~10s so they're easy to spot when zoomed out.
-                if (layer.setTimedHighlight) layer.setTimedHighlight(10000);
-                setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 10100);
 
                 if (graph.wake) graph.wake();
-                graph.setMessage(' ' + name + ': ' + added + ' binding site' + (added === 1 ? '' : 's') + ' (score > 0.95) added to ' + (track.name || 'track') + '. ');
+                graph.setMessage(' ' + summary.join(', ') + ' binding site'
+                    + (totalAdded === 1 ? '' : 's') + ' (score > 0.95) added to '
+                    + (track.name || 'track') + '. ');
                 resetModelsToolbar();
                 try { exec('baja/lib/work-status.js', null); } catch (e) { }
                 restoreHover();
@@ -321,14 +338,20 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
             const list = {
                 wid: 'selection-list',
                 data: {
-                    single_selection: true,
-                    show_button: false,
-                    singleSelect: true,
+                    // SEVERAL PROTEINS AT ONCE. One scan scores all 170 heads anyway, so
+                    // picking a set costs no more than picking one, and the button is needed
+                    // because a multi-select has no single moment that means "done".
+                    single_selection: false,
+                    show_button: true,
+                    singleSelect: false,
+                    multiSelect: true,
+                    button_label: 'Run selected',
                     listItems: listItems,
                     contentItems: contentItems,
                     button_function: createIonFunction((items) => {
-                        const chosen = items && items[0];
-                        const rbp = (chosen && byLabel[chosen]) || 'TARDBP';
+                        const names = (items || []).map((i) => byLabel[i]).filter(Boolean);
+                        // The backend takes a comma-separated list and answers per protein.
+                        const rbp = names.length ? names.join(',') : 'TARDBP';
                         // armTrackClick restores the editor itself. Doing it here too remounted
                         // the layout twice and scheduled the hover re-arm twice with it.
                         armTrackClick(rbp);
@@ -346,6 +369,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                                 'component': {
                                     wid: 'html',
                                     data: '<div style="padding:8px 4px;font-weight:700;">RNA binding proteins (held-out AUROC &ge; 0.90)</div>'
+                                        + '<div style="padding:0 4px 8px;opacity:0.75;font-size:12px;">Pick one or several, then Run selected. Each gets its own layer.</div>'
                                 }
                             },
                             { 'width': '100%', 'component': list },
