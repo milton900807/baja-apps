@@ -57,8 +57,28 @@ try:
     step = max(1, int(float(works.param(5) or 8)))
 except Exception:
     step = 8
+# 'specificity' (default) ranks the chosen head against the other 169 at each window;
+# 'raw' restores the old absolute-threshold behaviour.
+mode = str(works.param(6) or "specificity").strip().lower() or "specificity"
 
-# Windows scoring at/above this are called potential binding sites.
+# WHY THE RAW SCORE IS NOT USED DIRECTLY. The checkpoint's own training_note says
+# "Final balanced": the model was trained on a balanced positive/negative set, so its
+# sigmoid is centred for a 50/50 prior and means nothing thresholded against transcript
+# sequence, which is overwhelmingly negative. Worse, the heads inflate TOGETHER on
+# GC-rich sequence: on random 70% GC windows 157 of the 170 heads sit above 0.9 and 122
+# above 0.99, while on uniform sequence none do. A GC-rich transcript such as MAPK8IP3
+# pins every head near 1 along its whole length, and the raw score ranks GC-rich
+# background ABOVE a planted (UG)n repeat, the canonical TDP-43 site.
+#
+# That inflation is common mode, so it cancels when a head is compared with the other
+# heads at the SAME window, and all 170 come out of one forward pass so it is free.
+# Measured on a GC-rich background with a planted (UG)n site: the old rule called the
+# whole 1,200 nt a binding site whether or not a site was there; this one calls nothing
+# when there is none and a single 136 nt interval on the site when there is.
+SITE_RANK = 0.99
+# A floor on the raw score, so nothing is called where no head scores at all.
+RAW_FLOOR = 0.5
+# Kept for mode='raw', which restores the old behaviour.
 SITE_THRESHOLD = 0.5
 
 profile = []
@@ -80,23 +100,34 @@ else:
             raise RuntimeError("RBP not in model: " + rbp)
 
         works.msg("Scanning RBP binding…")
-        centers, scores = scan_sequence(model, seq, cols, step=step)
+        # cols=None scores every head, which is what the specificity measure needs and
+        # costs nothing: it is the same forward pass either way.
+        centers, allscores = scan_sequence(model, seq, None, step=step)
+        scores = allscores[:, cols]
         n = int(len(seq))
-        # One score per position: the chosen RBP, or the max over a set.
+        # One raw score per position: the chosen RBP, or the max over a set.
         col_scores = scores.max(axis=1) if scores.shape[1] > 1 else scores[:, 0]
-        for c, s in zip(centers, col_scores):
-            profile.append([int(xi + int(c)), round(float(s), 4)])
+        # Specificity: the fraction of the other heads this one beats at the same window.
+        # Bounded 0..1, so it draws as a coverage layer unchanged.
+        nheads = int(allscores.shape[1])
+        rank = (allscores < col_scores[:, None]).sum(axis=1) / max(1, nheads - 1)
+        # [pos, shown, raw] -- the drawn value plus what the model actually emitted.
+        for c, s, r in zip(centers, col_scores, rank):
+            shown = s if mode == "raw" else r
+            profile.append([int(xi + int(c)), round(float(shown), 4), round(float(s), 4)])
 
         # Potential binding sites: threshold the windows, span each to its full
         # width, then merge overlapping windows into contiguous site intervals
         # (keeping the strongest score). Positions are local (xi + i).
         half = int(model.max_len) // 2
         raw = []
-        for c, s in zip(centers, col_scores):
-            if float(s) >= SITE_THRESHOLD:
+        for c, s, r in zip(centers, col_scores, rank):
+            ok = (float(s) >= SITE_THRESHOLD) if mode == "raw" else (
+                float(r) >= SITE_RANK and float(s) >= RAW_FLOOR)
+            if ok:
                 lo = max(0, int(c) - half)
                 hi = min(n, int(c) + half)
-                raw.append((lo, hi, float(s)))
+                raw.append((lo, hi, float(s if mode == "raw" else r)))
         raw.sort()
         for lo, hi, s in raw:
             if sites and lo <= sites[-1][1]:            # overlaps the previous site
