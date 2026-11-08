@@ -111,4 +111,31 @@ def delta_score(model, context, chrom, pos, ref, alt, device, strand="+",
     })
     res["logit_delta"] = max(res["logit_acceptor_gain"], res["logit_acceptor_loss"],
                              res["logit_donor_gain"], res["logit_donor_loss"])
+
+    # EXON DEFINITION NEEDS BOTH ENDS. The statistics above take the single
+    # largest move anywhere in the window, so a variant that shifts an exon's
+    # acceptor AND its donor is scored on whichever is bigger and the other is
+    # discarded. That is the wrong summary for a regulatory variant: weakening
+    # both ends of one exon is a different event from weakening one site, and it
+    # is what an exonic enhancer or silencer does, since it acts on the exon
+    # rather than on a splice junction.
+    #
+    # `logit_pair` adds the two when they move the SAME way, and falls back to
+    # the larger alone when they oppose, since opposing moves are not joint
+    # exon definition. Annotation-free: it uses the largest signed acceptor move
+    # and the largest signed donor move in the window.
+    #
+    # This is a hypothesis about the right summary statistic, not a result. It
+    # has its own operating points in bajasplice.calibrate and must be judged on
+    # AUC against the others, not on whether it flatters any one variant.
+    def _signed_peak(arr):
+        if not len(arr):
+            return 0.0
+        j = int(np.argmax(np.abs(arr)))
+        return float(arr[j])
+
+    sa, sd = _signed_peak(la), _signed_peak(ld)
+    res["logit_acceptor_signed"] = sa
+    res["logit_donor_signed"] = sd
+    res["logit_pair"] = (abs(sa) + abs(sd)) if (sa * sd > 0) else max(abs(sa), abs(sd))
     return res
