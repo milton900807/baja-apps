@@ -705,7 +705,16 @@ function (opts) {
                         + '</a>').join('')) : '')
                 + (choice ? ('<div style="font:700 12px Arial;color:#4fd0e6;margin:20px 0 8px;">'
                     + esc(choice.label || 'Choose one') + '</div>'
-                    + '<select id="shelf-choice" style="width:100%;max-width:460px;background:#0b2545;'
+                    // choice.multi: several values at once. A native multiple select keeps
+                    // ctrl/shift and its own scrollbar, and Select all / Clear are there
+                    // because ctrl-clicking 48 rows is not a reasonable way to ask for all.
+                    + (choice.multi ? ('<div style="display:flex;gap:12px;align-items:center;margin-bottom:7px;">'
+                        + '<a href="javascript:void(0)" id="shelf-choice-all" style="font:12px Arial;color:#4fd0e6;">Select all</a>'
+                        + '<a href="javascript:void(0)" id="shelf-choice-none" style="font:12px Arial;color:#4fd0e6;">Clear</a>'
+                        + '<span id="shelf-choice-count" style="font:12px Arial;color:#9fb3c8;"></span>'
+                        + '</div>') : '')
+                    + '<select id="shelf-choice"' + (choice.multi ? ' multiple size="12"' : '')
+                    + ' style="width:100%;max-width:460px;background:#0b2545;'
                     + 'color:#eaf6f9;border:1px solid rgba(255,255,255,0.22);border-radius:9px;'
                     + 'padding:10px 12px;font:13.5px Arial;">'
                     + '<option>Loading\u2026</option></select>'
@@ -765,12 +774,38 @@ function (opts) {
                     const want = ('' + (choice.value == null ? '' : choice.value));
                     const at = opts.findIndex((o) => ('' + o.value) === want);
                     sel.selectedIndex = at >= 0 ? at : 0;
+                    const countEl = pane.querySelector('#shelf-choice-count');
                     const say = () => {
+                        if (choice.multi) {
+                            // A comma-separated list, which is what every consumer of a multi
+                            // choice takes; open() still receives one string.
+                            const picked = opts.filter((o, i) => sel.options[i] && sel.options[i].selected);
+                            chosen = picked.map((o) => o.value).join(',');
+                            if (countEl) countEl.textContent = picked.length
+                                ? (picked.length + ' of ' + opts.length + ' selected') : 'none selected';
+                            if (noteEl) {
+                                noteEl.textContent = (picked.length === 1 && picked[0].note)
+                                    ? picked[0].note : (choice.note || '');
+                            }
+                            if (loadBtn) {
+                                loadBtn.disabled = !picked.length;
+                                loadBtn.style.opacity = picked.length ? '' : '0.55';
+                            }
+                            return;
+                        }
                         const o = opts[sel.selectedIndex] || opts[0];
                         chosen = o ? o.value : null;
                         if (noteEl) { noteEl.textContent = (o && o.note) ? o.note : (choice.note || ''); }
                     };
                     sel.onchange = say;
+                    if (choice.multi) {
+                        const setAll = (on) => {
+                            for (const op of sel.options) op.selected = on;
+                            say();
+                        };
+                        try { pane.querySelector('#shelf-choice-all').onclick = () => setAll(true); } catch (e) { }
+                        try { pane.querySelector('#shelf-choice-none').onclick = () => setAll(false); } catch (e) { }
+                    }
                     say();
                     if (loadBtn) { loadBtn.disabled = false; loadBtn.style.opacity = ''; }
                 })();
