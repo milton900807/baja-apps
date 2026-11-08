@@ -53,8 +53,13 @@ def variant_tracks(model, context, chrom, pos, ref, alt, strand, device,
             comp = np.array([0, 4, 3, 2, 1], dtype=np.int8)
             arr = comp[arr[::-1]]
         x = torch.from_numpy(_encode(arr)[None]).to(device)
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"):
-            p = torch.softmax(model(x).float(), 1)[0].cpu().numpy()
+        # FULL PRECISION HERE, unlike the bulk scan. bfloat16 keeps an 8-bit
+        # mantissa, about 0.4% relative error, which is ~0.004 absolute at the
+        # p ~ 0.99 where real splice sites live. A delta is the DIFFERENCE of two
+        # such numbers, so the error does not cancel, it dominates: SMN2's exon 7
+        # acceptor change is 0.0143, under 4x that floor. Scanning a whole gene in
+        # bf16 is fine because nothing is subtracted; scoring a variant is not.
+        p = torch.softmax(model(x).float(), 1)[0].cpu().numpy()
         if strand == "-":
             p = p[:, ::-1]
         out.append((p[1], p[2]))            # acceptor, donor
@@ -83,4 +88,27 @@ def delta_score(model, context, chrom, pos, ref, alt, device, strand="+",
         "donor_loss": float(-np.min(dd)) if len(dd) else 0.0,
     }
     res["delta"] = max(res.values())
+
+    # THE SAME CHANGE, ON A SCALE THAT DOES NOT SATURATE. A probability near 1
+    # has almost no room left, so a real change at a STRONG site is compressed
+    # into a tiny difference while the identical change at a weak site reads
+    # large. SMN2 c.840C>T is the case in point: both of exon 7's sites move by
+    # ~2.2 and ~2.6 logits, roughly a 10-fold change in odds, and the
+    # probability scale reports 0.0143 and 0.0524, below the 80th percentile of
+    # benign variants. Logit deltas are reported alongside, not instead: the
+    # probability scale is what the published thresholds are on.
+    def _lg(v):
+        v = np.clip(v, 1e-6, 1 - 1e-6)
+        return np.log(v / (1.0 - v))
+
+    la = _lg(a_alt[lo:hi]) - _lg(a_ref[lo:hi])
+    ld = _lg(d_alt[lo:hi]) - _lg(d_ref[lo:hi])
+    res.update({
+        "logit_acceptor_gain": float(np.max(la)) if len(la) else 0.0,
+        "logit_acceptor_loss": float(-np.min(la)) if len(la) else 0.0,
+        "logit_donor_gain": float(np.max(ld)) if len(ld) else 0.0,
+        "logit_donor_loss": float(-np.min(ld)) if len(ld) else 0.0,
+    })
+    res["logit_delta"] = max(res["logit_acceptor_gain"], res["logit_acceptor_loss"],
+                             res["logit_donor_gain"], res["logit_donor_loss"])
     return res

@@ -67,8 +67,31 @@ def main():
     args = ap.parse_args()
 
     from bajasplice.validate.datasets import load_clinvar
-    from bajasplice.validate.suite import _clinvar_deltas
+    from bajasplice.validate.suite import _device_model
+    from bajasplice.variants import delta_score
+    from bajasplice.genome import GenomeReader
     from sklearn.metrics import roc_auc_score
+
+    def both_deltas(df):
+        """(probability delta, logit delta) per variant, best of the two strands.
+
+        The logit scale is carried through because a probability near 1 has no
+        room left: a real change at a strong site is compressed to almost
+        nothing there while the same change at a weak site reads large.
+        """
+        m, ctx, dev = _device_model()
+        g = GenomeReader()
+        P, L = [], []
+        for row in df.itertuples(index=False):
+            best = None
+            for st in ("+", "-"):
+                r = delta_score(m, ctx, row.chrom, int(row.pos), row.ref, row.alt,
+                                dev, strand=st, window=50, genome=g)
+                if best is None or r["delta"] > best["delta"]:
+                    best = r
+            P.append(best["delta"])
+            L.append(best.get("logit_delta", 0.0))
+        return np.asarray(P), np.asarray(L)
 
     df = load_clinvar(max_per_class=args.limit)
     if df is None or df.empty:
@@ -78,20 +101,27 @@ def main():
     if sub.cls.nunique() < 2:
         raise SystemExit("need both pathogenic_splice and benign_missense")
 
-    d = _clinvar_deltas(sub)
+    d, dl = both_deltas(sub)
     y = (sub.cls == "pathogenic_splice").astype(int).values
     pos, neg = d[y == 1], d[y == 0]
+    lpos, lneg = dl[y == 1], dl[y == 0]
 
     auc = float(roc_auc_score(y, d))
+    lauc = float(roc_auc_score(y, dl))
     rows = thresholds_at_fpr(pos, neg)
+    lrows = thresholds_at_fpr(lpos, lneg)
 
     print("n positives (pathogenic splice): %d" % len(pos))
     print("n negatives (benign missense)  : %d" % len(neg))
     print("AUC                            : %.4f" % auc)
     print()
-    print("%-8s %-10s %-12s" % ("FPR", "delta >=", "sensitivity"))
-    for r in rows:
-        print("%-8.2f %-10.4f %-12.4f" % (r["fpr"], r["delta"], r["sensitivity"]))
+    print("AUC (logit scale)              : %.4f" % lauc)
+    print()
+    print("%-8s %-12s %-12s %-14s %-12s"
+          % ("FPR", "delta >=", "sensitivity", "logit delta >=", "sensitivity"))
+    for r, lr in zip(rows, lrows):
+        print("%-8.2f %-12.4f %-12.4f %-14.3f %-12.4f"
+              % (r["fpr"], r["delta"], r["sensitivity"], lr["delta"], lr["sensitivity"]))
     print()
     print("median delta: pathogenic %.4f, benign %.4f"
           % (float(np.median(pos)), float(np.median(neg))))
@@ -106,6 +136,10 @@ def main():
             "n_pos": int(len(pos)), "n_neg": int(len(neg)),
             "auc": round(auc, 4),
             "operating_points": rows,
+            "auc_logit": round(lauc, 4),
+            "operating_points_logit": lrows,
+            "logit_benign_quantiles": {str(q): round(float(np.quantile(lneg, q)), 4)
+                                       for q in (0.5, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995)},
             # the benign distribution itself, so a consumer can place any delta
             "benign_quantiles": {str(q): round(float(np.quantile(neg, q)), 4)
                                  for q in (0.5, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995)},
