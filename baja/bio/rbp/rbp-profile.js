@@ -307,8 +307,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
             return;
         }
 
-        // Show a selection-list of the reliable RBPs (with confidence), then arm
-        // the track click for the chosen one.
+        // Show the reliable RBPs (with confidence) as a checkbox list, then arm the
+        // track click for everything that was ticked.
         (async () => {
             const server = window['env']['apiUrl'];
             let rbps = [];
@@ -324,39 +324,74 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                 return;
             }
 
-            // Label carries name + confidence; map it back to the raw RBP name.
-            // contentItems shows the functional annotation under each entry.
-            const byLabel = {};
-            const contentItems = {};
-            const listItems = rbps.map((r) => {
-                const label = r.name + '   —   AUROC ' + (+r.auroc).toFixed(2);
-                byLabel[label] = r.name;
-                if (r.note) contentItems[label] = r.note;
-                return label;
-            });
+            // OUR OWN CHECKBOX LIST. The selection-list widget is single-choice: it ignores
+            // single_selection:false and every other multi flag, and it lives in the frontend
+            // where it cannot be changed from here. So the list is plain HTML with real
+            // checkboxes, and the selection is read back at Run time.
+            //
+            // showWidget is ASYNC and APPENDS, and the shell may replace these nodes again
+            // after we hand them over, so nothing is bound to them directly: one
+            // document-level listener keeps the picked set, installed once and keyed on
+            // window so a second run of this module does not stack a second copy.
+            window.__bajaRbpPicked = window.__bajaRbpPicked || {};
+            for (const r of rbps) delete window.__bajaRbpPicked[r.name];
+            const __count = () => {
+                const n = Object.keys(window.__bajaRbpPicked || {}).length;
+                const out = document.getElementById('__bajaRbpCount');
+                if (out) out.textContent = n ? (n + ' selected') : 'none selected';
+            };
+            if (!window.__bajaRbpWired) {
+                window.__bajaRbpWired = true;
+                document.addEventListener('change', (e) => {
+                    const el = e && e.target;
+                    if (!el || !el.getAttribute) return;
+                    const who = el.getAttribute('data-rbp');
+                    if (!who) return;
+                    if (el.checked) window.__bajaRbpPicked[who] = true;
+                    else delete window.__bajaRbpPicked[who];
+                    const n = Object.keys(window.__bajaRbpPicked).length;
+                    const out = document.getElementById('__bajaRbpCount');
+                    if (out) out.textContent = n ? (n + ' selected') : 'none selected';
+                }, true);
+                document.addEventListener('click', (e) => {
+                    const el = e && e.target;
+                    if (!el || !el.getAttribute) return;
+                    const act = el.getAttribute('data-rbp-act');
+                    if (!act) return;
+                    const boxes = document.querySelectorAll('input[data-rbp]');
+                    for (const bx of boxes) {
+                        bx.checked = (act === 'all');
+                        if (bx.checked) window.__bajaRbpPicked[bx.getAttribute('data-rbp')] = true;
+                        else delete window.__bajaRbpPicked[bx.getAttribute('data-rbp')];
+                    }
+                    const n = Object.keys(window.__bajaRbpPicked).length;
+                    const out = document.getElementById('__bajaRbpCount');
+                    if (out) out.textContent = n ? (n + ' selected') : 'none selected';
+                }, true);
+            }
+
+            const esc = (s) => ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const rows = rbps.map((r) => ''
+                + '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;'
+                + 'border-bottom:1px solid rgba(128,128,128,0.18);cursor:pointer;">'
+                + '<input type="checkbox" data-rbp="' + esc(r.name) + '" style="margin-top:3px;">'
+                + '<span style="flex:1;min-width:0;">'
+                + '<span style="font-weight:600;">' + esc(r.name) + '</span>'
+                + '<span style="opacity:0.7;"> &nbsp;AUROC ' + (+r.auroc).toFixed(2) + '</span>'
+                + (r.note ? ('<div style="opacity:0.7;font-size:12px;">' + esc(r.note) + '</div>') : '')
+                + '</span></label>').join('');
 
             const list = {
-                wid: 'selection-list',
-                data: {
-                    // SEVERAL PROTEINS AT ONCE. One scan scores all 170 heads anyway, so
-                    // picking a set costs no more than picking one, and the button is needed
-                    // because a multi-select has no single moment that means "done".
-                    single_selection: false,
-                    show_button: true,
-                    singleSelect: false,
-                    multiSelect: true,
-                    button_label: 'Run selected',
-                    listItems: listItems,
-                    contentItems: contentItems,
-                    button_function: createIonFunction((items) => {
-                        const names = (items || []).map((i) => byLabel[i]).filter(Boolean);
-                        // The backend takes a comma-separated list and answers per protein.
-                        const rbp = names.length ? names.join(',') : 'TARDBP';
-                        // armTrackClick restores the editor itself. Doing it here too remounted
-                        // the layout twice and scheduled the hover re-arm twice with it.
-                        armTrackClick(rbp);
-                    })
-                }
+                wid: 'html',
+                data: ''
+                    + '<div style="display:flex;gap:10px;align-items:center;padding:4px 6px 8px;">'
+                    + '<a href="javascript:void(0)" data-rbp-act="all" style="font-size:12px;">Select all</a>'
+                    + '<a href="javascript:void(0)" data-rbp-act="none" style="font-size:12px;">Clear</a>'
+                    + '<span id="__bajaRbpCount" style="font-size:12px;opacity:0.75;">none selected</span>'
+                    + '</div>'
+                    + '<div style="max-height:52vh;overflow:auto;-webkit-overflow-scrolling:touch;'
+                    + 'border:1px solid rgba(128,128,128,0.25);border-radius:6px;">' + rows + '</div>'
             };
 
             const panel = {
@@ -369,7 +404,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                                 'component': {
                                     wid: 'html',
                                     data: '<div style="padding:8px 4px;font-weight:700;">RNA binding proteins (held-out AUROC &ge; 0.90)</div>'
-                                        + '<div style="padding:0 4px 8px;opacity:0.75;font-size:12px;">Pick one or several, then Run selected. Each gets its own layer.</div>'
+                                        + '<div style="padding:0 4px 8px;opacity:0.75;font-size:12px;">Tick one, several or all, then Run selected. Each protein gets its own layer, from a single scan.</div>'
                                 }
                             },
                             { 'width': '100%', 'component': list },
@@ -379,6 +414,19 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                                     wid: 'mt-button',
                                     data: {
                                         buttons: [
+                                            {
+                                                label: 'Run selected', ionFunction: createIonFunction(() => {
+                                                    const names = Object.keys(window.__bajaRbpPicked || {});
+                                                    if (!names.length) {
+                                                        try { graph.setMessage(' Pick at least one RNA binding protein. '); } catch (e) { }
+                                                        return;
+                                                    }
+                                                    // The backend takes a comma-separated list and
+                                                    // answers per protein. armTrackClick restores
+                                                    // the editor itself.
+                                                    armTrackClick(names.join(','));
+                                                })
+                                            },
                                             {
                                                 label: 'Close', ionFunction: createIonFunction(() => {
                                                     restoreEditor();
