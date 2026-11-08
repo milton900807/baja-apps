@@ -263,6 +263,115 @@ else:
                                   "last exon, so NMD is escaped" % NMD_LAST_JUNCTION_NT),
                     }
 
+        # WHAT THE DELTA MEANS. A bare 0.23 is uninterpretable, so it is placed in
+        # the distribution of benign variants measured by bajasplice.calibrate
+        # (ClinVar pathogenic-splice against benign). Without that file the delta
+        # is still reported, just without a false-positive rate beside it.
+        try:
+            import bajasplice, os as _os
+            _cal = _os.path.join(_os.path.dirname(bajasplice.__file__),
+                                 "weights", "delta_calibration.json")
+            if _os.path.isfile(_cal):
+                cal = json.loads(open(_cal).read())
+                mx = delta.get("max", 0.0)
+                hit = None
+                for r in cal.get("operating_points", []):
+                    if mx >= r["delta"]:
+                        hit = r
+                        break
+                delta["calibration"] = {
+                    "fpr_at_or_below": (hit or {}).get("fpr"),
+                    "sensitivity_there": (hit or {}).get("sensitivity"),
+                    "source": cal.get("source"),
+                    "caveat": cal.get("caveat"),
+                }
+        except Exception:
+            pass
+
+        # HOW MUCH OF THE MESSAGE ACTUALLY SWITCHES. SpliceNet says a site got
+        # weaker and another got stronger; it does not say what fraction of
+        # transcripts use each. AltSSNet is trained on exactly that question --
+        # given competing sites sharing one partner, what share of the junction
+        # reads does each take -- and splicing-profile.py already uses it the
+        # same way. Without it this reports a direction; with it, a share.
+        try:
+            if exons and moved.get("site") and moved.get("gained_x") is not None:
+                from bajasplice.models import SpliceNet
+                from bajasplice.scan import resolve_checkpoint
+                import torch.nn as nn
+
+                class AltSSNet(nn.Module):
+                    # mirrors bajasplice/train/altss.py, as splicing-profile.py does
+                    def __init__(self, context=2000, ch=32):
+                        super().__init__()
+                        self.trunk = SpliceNet(context=context, ch=ch)
+                        self.pool = nn.AdaptiveAvgPool1d(8)
+                        self.score = nn.Sequential(nn.Linear(ch * 8 + 2, 128), nn.ReLU(),
+                                                   nn.Dropout(0.1), nn.Linear(128, 1))
+
+                    def forward(self, x, feat):
+                        G = x.shape[0]
+                        h = self.pool(self.trunk.trunk(x)).reshape(G, -1)
+                        return self.score(torch.cat([h, feat], 1)).reshape(G)
+
+                _ck = torch.load(str(resolve_checkpoint(name="altss")), map_location="cpu",
+                                 weights_only=False)
+                _a = _ck.get("args", {}) or {}
+                _net = AltSSNet(context=int(_a.get("context", 2000)))
+                _net.load_state_dict(_ck["model"])
+                _net = _net.to(device).eval()
+                _total = int(_a.get("win", 200)) + int(_a.get("context", 2000))
+
+                # The partner is the OTHER end of the intron this edge belongs to:
+                # for an acceptor, the donor upstream of it; for a donor, the
+                # acceptor downstream.
+                ex = sorted([(min(s, e), max(s, e)) for s, e in exons])
+                kind = moved["site"]
+                lost_tx = x2tx(int(moved["lost_x"]))
+                partner_x = None
+                for k, (s, e) in enumerate(ex):
+                    if s <= int(moved["lost_x"]) <= e or abs(int(moved["lost_x"]) - (s if kind == "acceptor" else e)) <= 3:
+                        if kind == "acceptor" and k > 0:
+                            partner_x = ex[k - 1][1] + 1
+                        elif kind == "donor" and k < len(ex) - 1:
+                            partner_x = ex[k + 1][0] - 1
+                        break
+                if partner_x is not None:
+                    partner = x2tx(int(partner_x))
+                    group = [lost_tx, x2tx(int(moved["gained_x"]))]
+
+                    def shares(codes_tx):
+                        half = _total // 2
+                        lo_off = -half + (1 if minus else 0)
+                        xs, feats = [], []
+                        for j in group:
+                            w = np.zeros(_total, np.int64)
+                            a0 = j + lo_off
+                            b0, c0 = max(0, a0), min(len(codes_tx), a0 + _total)
+                            if c0 > b0:
+                                w[b0 - a0:c0 - a0] = codes_tx[b0:c0]
+                            xs.append(one_hot(w))
+                            ilen = (j - partner + 1) if kind == "acceptor" else (partner - j + 1)
+                            feats.append([np.log10(max(abs(ilen), 1)),
+                                          1.0 if kind == "acceptor" else 0.0])
+                        with torch.no_grad():
+                            sc = _net(torch.from_numpy(np.stack(xs)).float().to(device),
+                                      torch.tensor(feats, dtype=torch.float32).to(device))
+                            return torch.softmax(sc.float(), 0).cpu().numpy().tolist()
+
+                    s_ref = shares(to_tx(codes_x))
+                    s_alt = shares(to_tx(alt_codes_x))
+                    moved["share_ref"] = {"native": round(float(s_ref[0]), 4),
+                                          "cryptic": round(float(s_ref[1]), 4)}
+                    moved["share_alt"] = {"native": round(float(s_alt[0]), 4),
+                                          "cryptic": round(float(s_alt[1]), 4)}
+                    moved["share_switch"] = round(float(s_alt[1] - s_ref[1]), 4)
+                    moved["share_note"] = ("AltSSNet usage share between the native and the "
+                                           "cryptic site; share_switch is how much of the "
+                                           "junction moves to the cryptic site.")
+        except Exception as e:
+            moved["share_error"] = str(e)
+
         # RBP CONTEXT ONLY. See the module docstring: this model cannot resolve a
         # single base, so a change here is a hypothesis about the region, never
         # evidence that the variant altered a protein's binding.
