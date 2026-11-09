@@ -120,57 +120,74 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                     graph.setMessage(' RBP error: ' + data.error + ' ');
                     restoreHover(); return;
                 }
-                let sites = [];
-                try { sites = JSON.parse((data && data.sites) || '[]'); } catch (e) { sites = []; }
-                if (!sites.length) {
-                    graph.setMessage(' No ' + rbp + ' binding sites predicted for that track. ');
+                // ONE SCAN, SEVERAL PROTEINS. The model emits all 170 heads per window, so
+                // the backend returns sitesByRbp = {name: [[start,end,score],...]} for every
+                // protein that was selected. Older servers only send `sites`, so fall back to
+                // that under the requested name.
+                let byRbp = {};
+                try { byRbp = JSON.parse((data && data.sitesByRbp) || '{}') || {}; } catch (e) { byRbp = {}; }
+                if (!Object.keys(byRbp).length) {
+                    let one = [];
+                    try { one = JSON.parse((data && data.sites) || '[]'); } catch (e) { one = []; }
+                    byRbp[('' + rbp).split(',')[0].trim() || 'TARDBP'] = one;
+                }
+                const picked = Object.keys(byRbp).filter((k) => (byRbp[k] || []).length);
+                if (!picked.length) {
+                    graph.setMessage(' No binding sites predicted for ' + ('' + rbp).split(',').join(', ')
+                        + ' on that track. ');
                     restoreHover(); return false;
                 }
 
-                // Interval layer — one block per predicted binding site (start,end).
                 const TrackLayer = await exec('baja/bio/track-layer.js');
                 const tg = track.tgraph;
-                const name = 'RBP:' + rbp;
-                const layer = new TrackLayer((track.name || 'track') + '_' + name, tg.xmin, 0, tg.xmax, 1);
-                layer.data_type = name;
+                let totalAdded = 0;
+                const summary = [];
+                for (const who of picked) {
+                    const name = 'RBP:' + who;
+                    const layer = new TrackLayer((track.name || 'track') + '_' + name, tg.xmin, 0, tg.xmax, 1);
+                    layer.data_type = name;
+                    // Colour by how many layers of THIS protein already exist, plus the
+                    // protein's own position in the selection, so two proteins picked
+                    // together never land on the same colour.
+                    const seen = (track.track_layers || []).filter((l) => l && l.data_type === name).length;
+                    const rgb = PALETTE[(seen + picked.indexOf(who)) % PALETTE.length];
+                    const alpha = +(0.2 + 0.5 * (((seen + picked.indexOf(who)) % 6) / 5)).toFixed(2);
+                    layer.color = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
+                    layer.fillstyle = layer.color;
+                    // Name + score written ON the block, turned a quarter turn (see the vertical
+                    // branch in baja/bio/track-layer.js). Flat, 'TARDBP 0.98' is wider than most
+                    // binding sites are on screen, so each label ran past its own block and into
+                    // the next one. On its side a label is one line of text whatever it says.
+                    layer.verticalLabels = true;
 
-                const idx = (track.track_layers || []).filter((l) => l && l.data_type === name).length;
-                const rgb = PALETTE[idx % PALETTE.length];
-                const alpha = +(0.2 + 0.5 * ((idx % 6) / 5)).toFixed(2);
-                layer.color = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
-                layer.fillstyle = layer.color;
-                // Name + score written ON the block, turned a quarter turn (see the vertical
-                // branch in baja/bio/track-layer.js). Flat, 'TARDBP 0.98' is wider than most
-                // binding sites are on screen, so each label ran past its own block and into the
-                // next one; predicted sites cluster, so that was the normal case rather than the
-                // crowded one. On its side a label is one line of text wide whatever it says.
-                layer.verticalLabels = true;
-
-                let added = 0;
-                for (const s of sites) {
-                    if (!s) continue;
-                    const sc = Math.max(0, Math.min(1, +s[2] || 0));
-                    // Only include high-confidence sites — those scoring ABOVE 0.95.
-                    if (!(sc > 0.95)) continue;
-                    // Block height == score (1.0 fills the track height), anchored at
-                    // the baseline. Alpha also scales so stronger sites read darker.
-                    const a = +(0.3 + 0.6 * sc).toFixed(2);
-                    const col = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a + ')';
-                    layer.addInterval(+s[0], +s[1], sc, rbp + ' ' + sc.toFixed(2), col);
-                    added++;
+                    let added = 0;
+                    for (const s of (byRbp[who] || [])) {
+                        if (!s) continue;
+                        const sc = Math.max(0, Math.min(1, +s[2] || 0));
+                        // Only include high-confidence sites.
+                        if (!(sc > 0.95)) continue;
+                        const a2 = +(0.3 + 0.6 * sc).toFixed(2);
+                        const col = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a2 + ')';
+                        layer.addInterval(+s[0], +s[1], sc, who + ' ' + sc.toFixed(2), col);
+                        added++;
+                    }
+                    if (!added) continue;
+                    track.addLayer(layer);
+                    if (layer.setTimedHighlight) layer.setTimedHighlight(10000);
+                    totalAdded += added;
+                    summary.push(who + ' ' + added);
                 }
-                if (!added) {
-                    graph.setMessage(' No ' + rbp + ' binding sites scoring above 0.95 for that track. ');
+                setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 10100);
+                if (!totalAdded) {
+                    graph.setMessage(' No binding sites scoring above 0.95 for '
+                        + ('' + rbp).split(',').join(', ') + ' on that track. ');
                     restoreHover(); return false;
                 }
-                track.addLayer(layer);
-
-                // Highlight the sites for ~10s so they're easy to spot when zoomed out.
-                if (layer.setTimedHighlight) layer.setTimedHighlight(10000);
-                setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 10100);
 
                 if (graph.wake) graph.wake();
-                graph.setMessage(' ' + name + ': ' + added + ' binding site' + (added === 1 ? '' : 's') + ' (score > 0.95) added to ' + (track.name || 'track') + '. ');
+                graph.setMessage(' ' + summary.join(', ') + ' binding site'
+                    + (totalAdded === 1 ? '' : 's') + ' (score > 0.95) added to '
+                    + (track.name || 'track') + '. ');
                 resetModelsToolbar();
                 try { exec('baja/lib/work-status.js', null); } catch (e) { }
                 restoreHover();
@@ -290,8 +307,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
             return;
         }
 
-        // Show a selection-list of the reliable RBPs (with confidence), then arm
-        // the track click for the chosen one.
+        // Show the reliable RBPs (with confidence) as a checkbox list, then arm the
+        // track click for everything that was ticked.
         (async () => {
             const server = window['env']['apiUrl'];
             let rbps = [];
@@ -307,33 +324,74 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                 return;
             }
 
-            // Label carries name + confidence; map it back to the raw RBP name.
-            // contentItems shows the functional annotation under each entry.
-            const byLabel = {};
-            const contentItems = {};
-            const listItems = rbps.map((r) => {
-                const label = r.name + '   —   AUROC ' + (+r.auroc).toFixed(2);
-                byLabel[label] = r.name;
-                if (r.note) contentItems[label] = r.note;
-                return label;
-            });
+            // OUR OWN CHECKBOX LIST. The selection-list widget is single-choice: it ignores
+            // single_selection:false and every other multi flag, and it lives in the frontend
+            // where it cannot be changed from here. So the list is plain HTML with real
+            // checkboxes, and the selection is read back at Run time.
+            //
+            // showWidget is ASYNC and APPENDS, and the shell may replace these nodes again
+            // after we hand them over, so nothing is bound to them directly: one
+            // document-level listener keeps the picked set, installed once and keyed on
+            // window so a second run of this module does not stack a second copy.
+            window.__bajaRbpPicked = window.__bajaRbpPicked || {};
+            for (const r of rbps) delete window.__bajaRbpPicked[r.name];
+            const __count = () => {
+                const n = Object.keys(window.__bajaRbpPicked || {}).length;
+                const out = document.getElementById('__bajaRbpCount');
+                if (out) out.textContent = n ? (n + ' selected') : 'none selected';
+            };
+            if (!window.__bajaRbpWired) {
+                window.__bajaRbpWired = true;
+                document.addEventListener('change', (e) => {
+                    const el = e && e.target;
+                    if (!el || !el.getAttribute) return;
+                    const who = el.getAttribute('data-rbp');
+                    if (!who) return;
+                    if (el.checked) window.__bajaRbpPicked[who] = true;
+                    else delete window.__bajaRbpPicked[who];
+                    const n = Object.keys(window.__bajaRbpPicked).length;
+                    const out = document.getElementById('__bajaRbpCount');
+                    if (out) out.textContent = n ? (n + ' selected') : 'none selected';
+                }, true);
+                document.addEventListener('click', (e) => {
+                    const el = e && e.target;
+                    if (!el || !el.getAttribute) return;
+                    const act = el.getAttribute('data-rbp-act');
+                    if (!act) return;
+                    const boxes = document.querySelectorAll('input[data-rbp]');
+                    for (const bx of boxes) {
+                        bx.checked = (act === 'all');
+                        if (bx.checked) window.__bajaRbpPicked[bx.getAttribute('data-rbp')] = true;
+                        else delete window.__bajaRbpPicked[bx.getAttribute('data-rbp')];
+                    }
+                    const n = Object.keys(window.__bajaRbpPicked).length;
+                    const out = document.getElementById('__bajaRbpCount');
+                    if (out) out.textContent = n ? (n + ' selected') : 'none selected';
+                }, true);
+            }
+
+            const esc = (s) => ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const rows = rbps.map((r) => ''
+                + '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;'
+                + 'border-bottom:1px solid rgba(128,128,128,0.18);cursor:pointer;">'
+                + '<input type="checkbox" data-rbp="' + esc(r.name) + '" style="margin-top:3px;">'
+                + '<span style="flex:1;min-width:0;">'
+                + '<span style="font-weight:600;">' + esc(r.name) + '</span>'
+                + '<span style="opacity:0.7;"> &nbsp;AUROC ' + (+r.auroc).toFixed(2) + '</span>'
+                + (r.note ? ('<div style="opacity:0.7;font-size:12px;">' + esc(r.note) + '</div>') : '')
+                + '</span></label>').join('');
 
             const list = {
-                wid: 'selection-list',
-                data: {
-                    single_selection: true,
-                    show_button: false,
-                    singleSelect: true,
-                    listItems: listItems,
-                    contentItems: contentItems,
-                    button_function: createIonFunction((items) => {
-                        const chosen = items && items[0];
-                        const rbp = (chosen && byLabel[chosen]) || 'TARDBP';
-                        // armTrackClick restores the editor itself. Doing it here too remounted
-                        // the layout twice and scheduled the hover re-arm twice with it.
-                        armTrackClick(rbp);
-                    })
-                }
+                wid: 'html',
+                data: ''
+                    + '<div style="display:flex;gap:10px;align-items:center;padding:4px 6px 8px;">'
+                    + '<a href="javascript:void(0)" data-rbp-act="all" style="font-size:12px;">Select all</a>'
+                    + '<a href="javascript:void(0)" data-rbp-act="none" style="font-size:12px;">Clear</a>'
+                    + '<span id="__bajaRbpCount" style="font-size:12px;opacity:0.75;">none selected</span>'
+                    + '</div>'
+                    + '<div style="max-height:52vh;overflow:auto;-webkit-overflow-scrolling:touch;'
+                    + 'border:1px solid rgba(128,128,128,0.25);border-radius:6px;">' + rows + '</div>'
             };
 
             const panel = {
@@ -346,6 +404,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                                 'component': {
                                     wid: 'html',
                                     data: '<div style="padding:8px 4px;font-weight:700;">RNA binding proteins (held-out AUROC &ge; 0.90)</div>'
+                                        + '<div style="padding:0 4px 8px;opacity:0.75;font-size:12px;">Tick one, several or all, then Run selected. Each protein gets its own layer, from a single scan.</div>'
                                 }
                             },
                             { 'width': '100%', 'component': list },
@@ -355,6 +414,19 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                                     wid: 'mt-button',
                                     data: {
                                         buttons: [
+                                            {
+                                                label: 'Run selected', ionFunction: createIonFunction(() => {
+                                                    const names = Object.keys(window.__bajaRbpPicked || {});
+                                                    if (!names.length) {
+                                                        try { graph.setMessage(' Pick at least one RNA binding protein. '); } catch (e) { }
+                                                        return;
+                                                    }
+                                                    // The backend takes a comma-separated list and
+                                                    // answers per protein. armTrackClick restores
+                                                    // the editor itself.
+                                                    armTrackClick(names.join(','));
+                                                })
+                                            },
                                             {
                                                 label: 'Close', ionFunction: createIonFunction(() => {
                                                     restoreEditor();

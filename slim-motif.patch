@@ -1,0 +1,968 @@
+From c33169df4f13f6ab14a9e0eb180a9f5a62fefd47 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 15:04:10 -0800
+Subject: [PATCH] Linear motifs as a track layer, with variant gain and loss
+
+Paints ELM short linear motifs onto any track that has a protein, and for a
+given variant paints the motifs it creates and the ones it destroys in two
+further layers.
+
+The sibling of cdd-domain-layer.js and built the same way: layers rather than
+annotations, so they toggle and delete in one go without touching the track's
+own annotations; idempotent, with redo; tracks without a protein skipped
+silently.
+
+What is different, and why it is a separate file rather than a flag:
+
+  A CDD domain hit at E <= 0.01 is usually real. A motif is a regex match, and
+  a protein of any size carries hundreds by chance. So this layer hides most of
+  what it finds behind a score threshold and states in its own callout that the
+  score is an ordering, not a probability.
+
+  Gained, lost and present are three different claims. One layer each, because
+  a reader who cannot tell them apart at a glance has the wrong picture.
+
+  A gained motif's score is an upper bound: conservation belongs to the
+  wild-type residue and is inherited by whatever replaced it. The backend marks
+  every gained record and the layer refuses to draw one without the warning.
+
+Variants are never translated from genomic space. Protein-space strings only,
+either passed in or read from annotations that already carry a protein
+consequence. The backend independently refuses a variant whose wild-type
+residue does not match the sequence, so a UniProt/MANE numbering mismatch
+surfaces as a note instead of a motif painted on the wrong residue.
+
+Degrades rather than fails: with no model on the host the scan still returns
+motifs, reports scoring=regex, and the layer repeats that in its label.
+
+  baja/bio/protein/slim-motif-layer.js  the layer
+  py/bio/protein/slim-scan.py           the scan, ion/works, never raises
+  tools/ops/stage-slimrank-data.sh      ELM tables and model onto the host
+  mouse-over-highlight.js               "Linear motifs (ELM)" track menu
+
+Data is staged, not committed: ELM's tables carry their own licence terms and
+the model is a build artefact.
+---
+ baja/bio/protein/slim-motif-layer.js         | 339 ++++++++++++++++++
+ baja/manchester/menu/mouse-over-highlight.js |  88 +++++
+ py/bio/protein/slim-scan.py                  | 352 +++++++++++++++++++
+ tools/ops/stage-slimrank-data.sh             | 106 ++++++
+ 4 files changed, 885 insertions(+)
+
+diff --git a/baja/bio/protein/slim-motif-layer.js b/baja/bio/protein/slim-motif-layer.js
+new file mode 100644
+index 0000000..0d527fa
+--- /dev/null
++++ b/baja/bio/protein/slim-motif-layer.js
+@@ -0,0 +1,339 @@
++function (graph, genegraph_panel_layout, tracks, options) {
++
++    // SHORT LINEAR MOTIFS AS A LAYER, on every track that has a protein, and what a
++    // variant does to them.
++    //   await exec('baja/bio/protein/slim-motif-layer.js', graph, L, tracks)
++    //   await exec('baja/bio/protein/slim-motif-layer.js', graph, L, tracks,
++    //              { variants: ['R578C'], minScore: 0.6, redo: true })
++    //
++    // The sibling of baja/bio/protein/cdd-domain-layer.js, and built the same way: a
++    // LAYER rather than annotations, so it toggles, reorders and deletes in one go and
++    // the track's own annotations are left alone. Same idempotence rule, same silent
++    // skip for tracks with no protein.
++    //
++    // WHAT IS DIFFERENT, and why it gets its own file rather than a flag on that one:
++    //
++    //   A domain is a claim about structure, found by homology, and a CDD hit with
++    //   E <= 0.01 is usually real. A motif is a REGEX MATCH. A 1300-residue protein
++    //   carries hundreds of them and almost all are noise. So this layer does two
++    //   things the domain layer never has to: it hides most of what it finds behind a
++    //   score threshold, and it says in its own label that the score is an ordering
++    //   rather than a probability.
++    //
++    //   Three layers, not one. Motifs present in the protein; motifs a variant CREATES;
++    //   motifs a variant DESTROYS. They are different claims and a reader who cannot
++    //   tell them apart at a glance has been given the wrong picture. Gained is the
++    //   interesting one and is drawn to be noticed.
++    //
++    // THE GAINED SCORE IS AN UPPER BOUND and the layer says so, out loud, in the
++    // callout and not only in the help. Conservation belongs to the wild-type residue;
++    // a gained motif inherits numbers earned by the residue that was replaced. The
++    // backend marks every gained record with score_is_upper_bound and this file refuses
++    // to draw one without carrying the warning.
++    //
++    // VARIANTS ARE NOT TRANSLATED HERE. options.variants are PROTEIN-space strings
++    // ('R578C'). Annotations on the track are read only where they already carry a
++    // protein consequence. Deriving a protein change from a genomic one is a different
++    // job with its own failure modes, and guessing it silently would paint a motif at a
++    // residue nobody asked about. The backend independently refuses a variant whose
++    // wild-type residue does not match the sequence, so a numbering mismatch between
++    // UniProt and the track's own translation surfaces as a note rather than a picture.
++
++    const o = options || {};
++    const list = (Array.isArray(tracks) ? tracks : (tracks ? [tracks] : [])).filter(Boolean);
++
++    const MOTIF_SUFFIX = '_motifs';
++    const GAIN_SUFFIX = '_motifs_gained';
++    const LOSS_SUFFIX = '_motifs_lost';
++    const DATA_TYPE = 'SLIM';
++
++    return (async () => {
++        const TrackLayer = await exec('baja/bio/track-layer.js');
++        const quiet = !!o.quiet;
++        const say = (m) => {
++            if (quiet) return;
++            try { graph.setResultMessage(' ' + m + ' '); } catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } }
++        };
++        const tick = (m) => { if (quiet) return; try { graph.setMessageCenter(m); } catch (e) { } };
++        const clearTick = () => { if (quiet) return; try { graph.setMessageCenter(''); } catch (e) { } };
++
++        if (!list.length) { say('No tracks to map motifs onto.'); return { done: 0, skipped: 0, empty: 0 }; }
++
++        const minScore = (o.minScore == null) ? 0.5 : +o.minScore;
++
++        // ---- the track's protein, and where each residue sits on the genome --------------
++        // The same three routes as cdd-domain-layer.js, for the same reason: one of them
++        // failing does not make the track non-coding. codonPos[i] is the genomic coordinate
++        // of residue i+1's codon, which is the only reason a protein-space hit can be drawn
++        // in genome space at all.
++        const proteinOf = (t) => {
++            try {
++                if (!(t.orf && t.orf.cdsi && t.orf.cdsi.length)) t.generateORF();
++            } catch (e) { }
++            let cds = null;
++            try { cds = t.getCDS(); } catch (e) { }
++            const ok = (c) => c && c.protein && ('' + c.protein).length >= 3
++                && Array.isArray(c.codonPos) && c.codonPos.length;
++            if (!ok(cds)) {
++                try {
++                    const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
++                    if (cdsi.length) {
++                        const prot = [], pos = [];
++                        for (const e of cdsi) {
++                            if (e && (e.ci === 0 || e.ci === '0')) { prot.push(e.aa || 'X'); pos.push(e.index); }
++                        }
++                        if (prot.length >= 3) cds = { protein: prot.join(''), codonPos: pos };
++                    }
++                } catch (e) { }
++            }
++            if (!ok(cds)) {
++                let p = '';
++                try { p = ('' + (t.getProteinSequence ? t.getProteinSequence() : '')).toString(); } catch (e) { }
++                if (p.length >= 3) cds = { protein: p, codonPos: (cds && cds.codonPos) || [] };
++            }
++            if (!cds || !cds.protein || ('' + cds.protein).length < 3) return null;
++            if (!Array.isArray(cds.codonPos) || !cds.codonPos.length) return null;
++            return cds;
++        };
++
++        // Protein-space variants already recorded on the track. Only ones that ALREADY
++        // carry a protein consequence in the shape R578C; nothing is translated.
++        const HGVS = /\b([A-Z])(\d+)([A-Z])\b/;
++        const THREE = {
++            ALA: 'A', ARG: 'R', ASN: 'N', ASP: 'D', CYS: 'C', GLN: 'Q', GLU: 'E',
++            GLY: 'G', HIS: 'H', ILE: 'I', LEU: 'L', LYS: 'K', MET: 'M', PHE: 'F',
++            PRO: 'P', SER: 'S', THR: 'T', TRP: 'W', TYR: 'Y', VAL: 'V'
++        };
++        const variantsOf = (t) => {
++            const out = [];
++            const push = (v) => { if (v && out.indexOf(v) < 0) out.push(v); };
++            for (const v of (o.variants || [])) push(('' + v).trim().toUpperCase());
++            try {
++                for (const a of (t.annotations || [])) {
++                    const s = '' + ((a && (a.protein || a.hgvsp || a.p || a.aa_change)) || '');
++                    if (!s) continue;
++                    // p.Arg578Cys and p.R578C both appear in the wild
++                    const three = s.toUpperCase().match(/P\.?\s*([A-Z]{3})(\d+)([A-Z]{3})/);
++                    if (three && THREE[three[1]] && THREE[three[3]]) {
++                        push(THREE[three[1]] + three[2] + THREE[three[3]]); continue;
++                    }
++                    const one = s.toUpperCase().replace(/^P\.?/, '').match(HGVS);
++                    if (one) push(one[1] + one[2] + one[3]);
++                }
++            } catch (e) { }
++            return out;
++        };
++
++        const hasLayer = (t, suffix) => {
++            try {
++                return (t.track_layers || []).some((l) => l && ('' + l.name).indexOf(suffix) >= 0
++                    && ('' + l.data_type) === DATA_TYPE);
++            } catch (e) { return false; }
++        };
++        const dropLayer = (t, suffix) => {
++            try {
++                t.track_layers = (t.track_layers || []).filter((l) => !(l && ('' + l.name).indexOf(suffix) >= 0
++                    && ('' + l.data_type) === DATA_TYPE));
++            } catch (e) { }
++        };
++
++        // A colour per motif CLASS, stable everywhere, so the same class reads the same on
++        // every track. Gained and lost do not use it: they are one colour each, because
++        // what matters about them is that they are gained or lost, not which class they are.
++        const hueOf = (name) => {
++            let h = 0; const s = '' + (name || '');
++            for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
++            return h % 360;
++        };
++        const colorOf = (name, alpha) => 'hsla(' + hueOf(name) + ',58%,48%,' + alpha + ')';
++
++        const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
++
++        // Lay spans out into lanes so overlapping motifs stack instead of overprinting.
++        // Packed here rather than through getYByOverlapCount, which searches its own
++        // ladder and cannot find a lane among y values it did not choose.
++        const lanes = (layer, spans, base, step, color, labelOf) => {
++            spans.sort((p, q) => p.x1 - q.x1);
++            const laneEnd = [];
++            for (const sp of spans) {
++                let lane = 0;
++                while (lane < laneEnd.length && laneEnd[lane] > sp.x1) lane++;
++                laneEnd[lane] = sp.x2;
++                const y = base + lane * step;
++                const label = labelOf ? labelOf(sp) : sp.nm;
++                layer.addInterval(sp.x1, sp.x2, y, label);
++                try { layer.setIntervalColor(sp.x1, sp.x2, y, label, color(sp)); } catch (e) { }
++            }
++            return (layer.intervals || []).length;
++        };
++
++        let done = 0, skipped = 0, empty = 0, already = 0, failed = 0;
++        const per = [];
++
++        for (let n = 0; n < list.length; n++) {
++            const t = list[n];
++            const label = (t && t.name) || ('track ' + (n + 1));
++
++            if (!o.redo && hasLayer(t, MOTIF_SUFFIX)) { already++; continue; }
++
++            const cds = proteinOf(t);
++            if (!cds) { skipped++; continue; }
++
++            const protein = '' + cds.protein;
++            const posOf = (aa) => (aa >= 1 && aa <= cds.codonPos.length) ? cds.codonPos[aa - 1] : -1;
++            // A residue is three bases; +2 takes in the rest of the last codon. codonPos
++            // runs 3'->5' on a minus-strand track, so the span is ordered rather than assumed.
++            const spanOf = (a, b) => {
++                const x = posOf(a), y = posOf(b);
++                if (x < 0 || y < 0) return null;
++                return { x1: Math.min(x, y), x2: Math.max(x, y) + 2 };
++            };
++
++            const vars = variantsOf(t);
++            tick('Linear motifs · ' + label + '   ' + (n + 1) + '/' + list.length);
++
++            let res = null;
++            try {
++                const host = (window['env'] && window['env']['apiUrl']) ? window['env']['apiUrl'] : '';
++                res = await exec(host + '/py/bio/protein/slim-scan.py',
++                    protein, vars.join(','), '' + minScore, '' + (o.accession || ''));
++                if (typeof res === 'string') { try { res = JSON.parse(res); } catch (e) { } }
++            } catch (e) { console.warn('[slim-motif-layer]', label, e); }
++
++            if (!res || typeof res !== 'object') { failed++; continue; }
++            if (res.error) {
++                // A host without the ELM tables is a deployment problem, not a quiet nothing.
++                console.warn('[slim-motif-layer]', label, res.error);
++                say('Linear motifs: ' + res.error);
++                failed++; continue;
++            }
++            const J = (k, d) => { try { return JSON.parse(res[k]); } catch (e) { return d; } };
++            const motifs = J('motifs', []), gained = J('gained', []), lost = J('lost', []);
++            const meta = J('meta', {});
++
++            if (o.redo) { dropLayer(t, MOTIF_SUFFIX); dropLayer(t, GAIN_SUFFIX); dropLayer(t, LOSS_SUFFIX); }
++            if (!motifs.length && !gained.length && !lost.length) { empty++; continue; }
++
++            const lo = Math.min(t.xi, t.xf), hi = Math.max(t.xi, t.xf);
++            const mk = (suffix, color, barPx) => {
++                const layer = new TrackLayer(label + suffix, lo, 0, hi, 1);
++                layer.type = 'TrackLayer';
++                layer.data_type = DATA_TYPE;
++                layer.drawStyle = 'interval';
++                layer.color = color; layer.fillstyle = color;
++                try { layer.setLabelFont('10px Arial'); } catch (e) { }
++                // A motif map is worth having with a whole gene in view, which is two orders
++                // of magnitude below the default label threshold. Same reason as the domains:
++                // this layer's whole content IS its labels.
++                layer.labelZoomThreshold = 0;
++                layer.avoidLabelOverlap = true;
++                layer.barHeightPx = barPx;
++                return layer;
++            };
++
++            // ---- motifs present in the protein --------------------------------------------
++            let nM = 0, mlayer = null;
++            if (motifs.length) {
++                mlayer = mk(MOTIF_SUFFIX, 'rgba(120,130,150,0.18)', 9);
++                mlayer.laneStep = 0.18;
++                const spans = [];
++                for (const m of motifs) {
++                    const s = spanOf(m.start, m.end);
++                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, score: m.score, pep: m.peptide, a: m.start, b: m.end });
++                }
++                nM = lanes(mlayer, spans, 0.46, 0.18,
++                    (sp) => colorOf(sp.nm, 0.22), (sp) => sp.nm);
++                if (nM) { try { t.addLayer(mlayer); } catch (e) { } }
++            }
++
++            // ---- motifs the variant CREATES -----------------------------------------------
++            // Drawn loud, on its own row above the rest, because it is the only thing on this
++            // track that is a claim about the variant rather than about the protein.
++            let nG = 0, glayer = null;
++            if (gained.length) {
++                glayer = mk(GAIN_SUFFIX, 'rgba(176,53,43,0.42)', 13);
++                glayer.laneStep = 0.20;
++                const spans = [];
++                for (const m of gained) {
++                    const s = spanOf(m.start, m.end);
++                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, v: m.variant, score: m.score });
++                }
++                nG = lanes(glayer, spans, 1.02, 0.20,
++                    () => 'rgba(176,53,43,0.42)',
++                    (sp) => (sp.v ? (sp.v + ' → ') : '') + sp.nm);
++                if (nG) { try { t.addLayer(glayer); } catch (e) { } }
++            }
++
++            // ---- motifs the variant DESTROYS ----------------------------------------------
++            let nL = 0, llayer = null;
++            if (lost.length) {
++                llayer = mk(LOSS_SUFFIX, 'rgba(60,110,170,0.34)', 13);
++                llayer.laneStep = 0.20;
++                const spans = [];
++                for (const m of lost) {
++                    const s = spanOf(m.start, m.end);
++                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, v: m.variant });
++                }
++                nL = lanes(llayer, spans, 0.80, 0.20,
++                    () => 'rgba(60,110,170,0.34)',
++                    (sp) => (sp.v ? (sp.v + ' ✕ ') : '') + sp.nm);
++                if (nL) { try { t.addLayer(llayer); } catch (e) { } }
++            }
++
++            // ---- the label above the track, and the "?" behind it -------------------------
++            // meta.caveats comes from the backend and is copied in whole. The point of
++            // sending them with the numbers is that no screen can show the numbers without
++            // them; dropping them here would defeat that.
++            const anchor = mlayer || glayer || llayer;
++            if (anchor) {
++                const all = [].concat(
++                    (mlayer && mlayer.intervals) || [], (glayer && glayer.intervals) || [],
++                    (llayer && llayer.intervals) || []);
++                const span = all.length ? [Math.min(...all.map((v) => v.x1)), Math.max(...all.map((v) => v.x2))] : null;
++                const rows = [];
++                if (nG) rows.push(['gained (red)', plural(nG, 'motif') + ' that the variant CREATES. '
++                    + 'Their scores are an upper bound: conservation belongs to the residue that was replaced.']);
++                if (nL) rows.push(['lost (blue)', plural(nL, 'motif') + ' that the variant DESTROYS.']);
++                rows.push(['grey bars', plural(nM, 'motif') + ' in the protein scoring at least ' + minScore
++                    + ', out of ' + (res.n || 0) + ' candidate instances found.']);
++                rows.push(['what a bar is', 'A regex match from the ELM catalogue, placed on the codons that encode it. '
++                    + 'Overlapping matches stack upward, one lane each.']);
++                rows.push(['the score', 'An ordering among candidates, not a probability that a motif is real. '
++                    + (meta.scoring === 'model' ? 'Scored by the trained model.'
++                        : 'NO MODEL ON THIS HOST: ordered by pattern rarity alone, which is much weaker.')]);
++                for (const c of (meta.caveats || [])) rows.push(['', '' + c]);
++                anchor.decor = {
++                    callout: {
++                        text: 'Linear motifs: ' + plural(nM, 'motif')
++                            + (nG ? ('  ·  ' + nG + ' gained (score is an upper bound)') : '')
++                            + (nL ? ('  ·  ' + nL + ' lost') : ''),
++                        x0: span ? span[0] : lo, x1: span ? span[1] : hi,
++                        color: nG ? 'rgba(176,53,43,0.95)' : 'rgba(90,100,120,0.95)'
++                    },
++                    help: {
++                        title: 'Linear motifs: short recognition tags in this protein',
++                        rows: rows,
++                        note: 'Source: the ELM catalogue of experimentally validated motif classes, '
++                            + 'matched against this track\'s own translation and re-ranked by slimrank. '
++                            + 'A match means the sequence fits a known pattern. It does not show the motif '
++                            + 'is used, and most matches in any protein are not.'
++                    }
++                };
++            }
++
++            per.push({ track: label, motifs: nM, gained: nG, lost: nL, variants: vars });
++            done++;
++        }
++
++        clearTick();
++        const totG = per.reduce((a, p) => a + p.gained, 0);
++        const totL = per.reduce((a, p) => a + p.lost, 0);
++        say('Linear motifs: ' + done + ' track' + (done === 1 ? '' : 's')
++            + (totG ? (' · ' + totG + ' gained') : '')
++            + (totL ? (' · ' + totL + ' lost') : '')
++            + (already ? (' · ' + already + ' already mapped') : '')
++            + (skipped ? (' · ' + skipped + ' without a protein') : '')
++            + (failed ? (' · ' + failed + ' failed') : ''));
++        return { done: done, skipped: skipped, empty: empty, already: already, failed: failed, per: per };
++    })();
++}
+diff --git a/baja/manchester/menu/mouse-over-highlight.js b/baja/manchester/menu/mouse-over-highlight.js
+index 88f312a..fedbd5d 100644
+--- a/baja/manchester/menu/mouse-over-highlight.js
++++ b/baja/manchester/menu/mouse-over-highlight.js
+@@ -5388,6 +5388,94 @@ function (graph, genegraph_panel_layout) {
+                     }
+                 } catch (e) { }
+ 
++                // LINEAR MOTIFS (ELM), the sibling of the domains entry above and placed
++                // beside it because the question is the same shape: "what is annotated on this
++                // peptide". What it adds is the variant arm.
++                //
++                // A domain search is one answer. A motif search is a RANKED answer with a
++                // threshold, because a protein of any size matches hundreds of motif patterns
++                // by chance. So the entries say what they will draw: "scoring 0.5 and above"
++                // rather than "motifs", and the layer's own callout repeats the count it hid.
++                //
++                // "With a variant" is the entry that does something the domain layer cannot:
++                // it scans the mutated sequence too and paints what the variant CREATES and
++                // DESTROYS in their own layers. Variants already on the track are picked up
++                // without asking, but only where they carry a protein consequence; this
++                // prompt is for trying one that is not on the track yet.
++                try {
++                    const __hasPep = (t) => {
++                        try {
++                            if (!t) return false;
++                            if (t.orf && t.orf.cdsi && t.orf.cdsi.length) return true;
++                            return ('' + (t.getProteinSequence ? t.getProteinSequence() : '')).length >= 3;
++                        } catch (e) { return false; }
++                    };
++                    if (__hasPep(selectedTrack)) {
++                        const __coding2 = ((graph && graph.track) || []).filter(__hasPep);
++                        track_list.push({
++                            label: 'Linear motifs (ELM) \u25b8',
++                            __sortAs: 'Linear motifs (ELM) \u25b8',
++                            move: () => { },
++                            click: async (scx, scy) => {
++                                try { graph.showSideMenu(null); } catch (e) { }
++                                const st = selectedTrack;
++                                const run = async (list, opts) => {
++                                    try {
++                                        await exec('baja/bio/protein/slim-motif-layer.js', graph,
++                                            genegraph_panel_layout, list, opts || {});
++                                    } catch (e) {
++                                        try { graph.setResultMessage(' Motif scan failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
++                                    }
++                                };
++                                const items = [
++                                    { label: 'On this track (scoring 0.5 and above)', move: () => { },
++                                      click: async () => run([st], { redo: true }) },
++                                    { label: 'On this track, everything found', move: () => { },
++                                      click: async () => run([st], { redo: true, minScore: 0 }) }
++                                ];
++                                if (__coding2.length > 1) {
++                                    items.push({
++                                        label: 'On all coding tracks (' + __coding2.length + ')',
++                                        move: () => { }, click: async () => run(__coding2, {})
++                                    });
++                                }
++                                items.push({ type: 'separator' });
++                                items.push({
++                                    label: 'With a variant\u2026',
++                                    move: () => { },
++                                    click: async () => {
++                                        let v = null;
++                                        try {
++                                            v = await exec('baja/lib/prompt-text.js', {
++                                                title: 'Linear motifs \u00b7 variant',
++                                                message: 'Protein-space substitutions, comma separated, against this '
++                                                    + 'track\'s own translation. The scan paints what each one creates '
++                                                    + 'and destroys. A variant whose wild-type residue does not match '
++                                                    + 'the sequence is reported, not drawn.',
++                                                placeholder: 'R578C, S577A',
++                                                action: 'Scan',
++                                                historyKey: 'slim-motif-variants'
++                                            });
++                                        } catch (e) { v = null; }
++                                        if (v == null) return;
++                                        const vars = ('' + v).split(/[,;\s]+/).filter(Boolean);
++                                        if (!vars.length) return;
++                                        await run([st], { redo: true, variants: vars, minScore: 0.5 });
++                                    }
++                                });
++                                items.push({
++                                    label: 'Scan again on this track',
++                                    move: () => { }, click: async () => run([st], { redo: true })
++                                });
++                                try {
++                                    await exec('baja/manchester/menu/popup-menu.js', graph, items, scx, scy,
++                                        { title: 'Linear motifs \u00b7 ' + ((st && st.name) || 'Track') });
++                                } catch (e) { }
++                            }
++                        });
++                    }
++                } catch (e) { }
++
+                 // MACHINE LEARNING MODELS, listed rather than catalogued. Every model that can
+                 // be run on a track, one click from the track's own menu, with the splicing
+                 // models behind their own submenu and BajaCLIP's RNA-binding proteins behind
+diff --git a/py/bio/protein/slim-scan.py b/py/bio/protein/slim-scan.py
+new file mode 100644
+index 0000000..6e6f5d8
+--- /dev/null
++++ b/py/bio/protein/slim-scan.py
+@@ -0,0 +1,352 @@
++"""SLIM scan -- short linear motifs on a protein, and what a variant does to them.
++
++Backend for baja/bio/protein/slim-motif-layer.js.
++
++    param(1)  protein sequence       one-letter, the track's own translation
++    param(2)  variants               comma separated, PROTEIN space, e.g.
++                                     "R578C,S577A"; "" for none
++    param(3)  min score              drop motifs below this (default 0.5);
++                                     every gained and lost motif is kept
++                                     whatever it scores
++    param(4)  accession              UniProt acc, optional; only used to look
++                                     up cached conservation
++
++Resolves with motifs / gained / lost / meta, JSON-stringified in the house
++style, plus `error`, always present and "" on success. Nothing here raises.
++
++WHAT THIS IS AND IS NOT
++A motif here is a REGEX MATCH from the ELM catalogue, re-ranked by slimrank.
++A short pattern matches by chance: a 1300-residue protein carries roughly 500
++matches and almost all of them are noise. The score orders candidates; it does
++not establish that any one of them is real. That is why min score exists and
++why meta.caveats travels with the numbers rather than living in a help page
++the caller can skip.
++
++THE GAINED-MOTIF SCORE IS AN UPPER BOUND, and the payload says so per motif.
++Conservation and pLDDT are properties of the WILD-TYPE position. There is no
++orthologue or structural evidence for a sequence that does not occur in
++nature, so a gained motif inherits numbers earned by the residue that was
++replaced. Treating a gained motif's rank as comparable to a wild-type one
++flatters it.
++
++DEGRADES RATHER THAN FAILS. With no trained model on the host the scan still
++returns motifs, scored only by the ELM class prior, and meta.scoring says
++"regex" instead of "model". A screen that shows a ranked list without noticing
++the difference would be showing the user a ranking that is not one.
++"""
++import os
++import re
++import sys
++import json
++
++from ion import works
++
++
++# The server spawns the system python3, which has neither sklearn nor joblib.
++# Re-exec under the project virtualenv if this interpreter cannot import them.
++def _reexec_under_venv():
++    try:
++        import numpy       # noqa: F401
++        import pandas      # noqa: F401
++        import sklearn     # noqa: F401
++        import joblib      # noqa: F401
++        return
++    except Exception:
++        pass
++    if os.environ.get("SLIMRANK_REEXEC") == "1":
++        return
++    for py in (os.environ.get("SLIMRANK_PYTHON"),
++               "/opt/baja-apps/venv/bin/python3",
++               "/opt/venv/bin/python3"):
++        if py and os.path.exists(py):
++            env = dict(os.environ)
++            env["SLIMRANK_REEXEC"] = "1"
++            try:
++                os.execve(py, [py] + sys.argv, env)
++            except Exception:
++                pass
++
++
++_reexec_under_venv()
++
++# Where the ELM tables and the trained model live on the host. Both are DATA,
++# deployed beside the app rather than committed: the ELM tables carry their own
++# licence terms, and the model is a build artefact.
++HOME = os.environ.get("SLIMRANK_HOME", "/opt/baja-apps/data/slimrank")
++PAD = 13                      # longest motif span either side of a variant
++
++
++def _read_classes():
++    """ELM classes as {name: (compiled regex, prior)}. Empty dict if absent."""
++    path = os.path.join(HOME, "elm_classes.tsv")
++    out = {}
++    if not os.path.exists(path):
++        return out
++    with open(path) as fh:
++        header = None
++        for line in fh:
++            if line.startswith("#"):
++                continue
++            parts = line.rstrip("\n").split("\t")
++            if header is None:
++                header = parts
++                continue
++            row = dict(zip(header, parts))
++            name = row.get("ELMIdentifier")
++            rx = row.get("Regex")
++            if not name or not rx:
++                continue
++            try:
++                prior = float(row.get("Probability") or 1e-3)
++            except Exception:
++                prior = 1e-3
++            try:
++                # (?=(...)) so overlapping instances are all found, not just the
++                # leftmost non-overlapping ones. A protein's motifs overlap.
++                out[name] = (re.compile("(?=(" + rx + "))"), prior)
++            except re.error:
++                continue
++    return out
++
++
++def _scan(seq, classes, lo=None, hi=None):
++    """Every motif instance in seq, optionally only those touching [lo, hi]."""
++    hits = []
++    for name, (rx, prior) in classes.items():
++        for m in rx.finditer(seq):
++            s = m.start() + 1
++            e = s + len(m.group(1)) - 1
++            if lo is not None and (e < lo or s > hi):
++                continue
++            hits.append({"elm": name, "start": s, "end": e,
++                         "peptide": seq[s - 1:e], "prior": prior})
++    return hits
++
++
++def _load_model():
++    path = os.path.join(HOME, "model.joblib")
++    if not os.path.exists(path):
++        return None, None
++    try:
++        import joblib
++        b = joblib.load(path)
++        return b.get("model"), b.get("features")
++    except Exception:
++        return None, None
++
++
++def _conservation(acc):
++    """Cached per-residue conservation, or None. Never fetched here: a screen
++    redraw must not wait on Ensembl, and a missing file is not an error."""
++    if not acc:
++        return None
++    path = os.path.join(HOME, "cons", acc + ".npy")
++    if not os.path.exists(path):
++        return None
++    try:
++        import numpy as np
++        a = np.load(path)
++        return a if a.size > 1 else None
++    except Exception:
++        return None
++
++
++def _featurize(hits, seq, cons, class_counts):
++    import numpy as np
++    import pandas as pd
++    rows = []
++    L = len(seq)
++    for h in hits:
++        a, b = h["start"], h["end"]
++        idx = np.arange(a, b + 1)
++        if cons is not None:
++            mc = cons[idx[idx < len(cons)]]
++            loq, hiq = max(1, a - 50), min(L, b + 50)
++            bg = cons[np.arange(loq, min(hiq + 1, len(cons)))]
++            with np.errstate(invalid="ignore"):
++                cm = float(np.nanmean(mc)) if mc.size else np.nan
++                cn = float(np.nanmin(mc)) if mc.size else np.nan
++                cb = float(np.nanmean(bg)) if bg.size else np.nan
++            ct = cm - cb if cm == cm and cb == cb else np.nan
++        else:
++            cm = cn = cb = ct = np.nan
++        win = seq[max(0, a - 11):min(L, b + 10)]
++        rows.append({
++            "len": b - a + 1,
++            "elm_prob_log": float(np.log10(max(h["prior"], 1e-12))),
++            "cons_mean": cm, "cons_min": cn, "cons_bg": cb, "cons_contrast": ct,
++            "plddt_mean": np.nan, "plddt_frac_low": np.nan,
++            "idp_motif": np.nan, "idp_window": np.nan,
++            "hyd_motif": np.nan, "entropy_window": np.nan,
++            "rel_pos": a / float(max(L, 1)),
++            "dist_term": min(a, L - b) / float(max(L, 1)),
++            "class_n_annot_log": float(np.log10(1 + class_counts.get(h["elm"], 0))),
++        })
++    return pd.DataFrame(rows)
++
++
++def _score(hits, seq, cons, model, feats):
++    """Attach a score to every hit. Falls back to the class prior."""
++    if not hits:
++        return "none"
++    if model is None or not feats:
++        for h in hits:
++            # Rarer pattern, higher rank. This is an ORDERING, not a probability,
++            # and meta.scoring says so.
++            h["score"] = 1.0 / (1.0 + h["prior"] * 1e5)
++        return "regex"
++    try:
++        import numpy as np
++        counts = {}
++        path = os.path.join(HOME, "class_counts.json")
++        if os.path.exists(path):
++            with open(path) as fh:
++                counts = json.load(fh)
++        X = _featurize(hits, seq, cons, counts)
++        missing = [c for c in feats if c not in X.columns]
++        for c in missing:
++            X[c] = np.nan
++        p = model.predict_proba(X[feats])[:, 1]
++        for h, v in zip(hits, p):
++            h["score"] = float(v)
++        return "model"
++    except Exception:
++        for h in hits:
++            h["score"] = 1.0 / (1.0 + h["prior"] * 1e5)
++        return "regex"
++
++
++MUT = re.compile(r"^([A-Z])(\d+)([A-Z])$")
++
++
++def _apply(seq, spec):
++    """('R578C') -> (mutated sequence, note) or (None, why not)."""
++    m = MUT.match(spec.strip().upper())
++    if not m:
++        return None, "could not read '%s'; expected e.g. R578C" % spec
++    wt, pos, mt = m.group(1), int(m.group(2)), m.group(3)
++    if pos < 1 or pos > len(seq):
++        return None, "%s is outside this protein (%d residues)" % (spec, len(seq))
++    if seq[pos - 1] != wt:
++        # Numbering mismatches between UniProt and a track's own translation are
++        # common and silent. Refusing is the only safe answer: applying it anyway
++        # would paint a motif at a position the user did not mean.
++        return None, ("%s: this protein has %s at %d, not %s"
++                      % (spec, seq[pos - 1], pos, wt))
++    return seq[:pos - 1] + mt + seq[pos:], None
++
++
++protein = (works.param(1) or "").strip().upper()
++variants = [v for v in (works.param(2) or "").replace(";", ",").split(",") if v.strip()]
++try:
++    min_score = float(works.param(3) or 0.5)
++except Exception:
++    min_score = 0.5
++acc = (works.param(4) or "").strip()
++
++err = ""
++payload = None
++try:
++    protein = re.sub(r"[^A-Z]", "", protein)
++    if len(protein) < 10:
++        raise ValueError("no protein sequence (got %d residues)" % len(protein))
++    works.progress(5)
++    classes = _read_classes()
++    if not classes:
++        raise ValueError("no ELM tables at %s; the host needs them deployed" % HOME)
++    works.msg("%d motif classes" % len(classes))
++
++    works.progress(20)
++    model, feats = _load_model()
++    cons = _conservation(acc)
++    wt_hits = _scan(protein, classes)
++    scoring = _score(wt_hits, protein, cons, model, feats)
++    works.progress(55)
++    works.msg("%d candidate motif instances" % len(wt_hits))
++
++    def key(h):
++        return (h["elm"], h["start"], h["end"])
++
++    wt_keys = {key(h) for h in wt_hits}
++    gained, lost, notes = [], [], []
++    for spec in variants:
++        mseq, why = _apply(protein, spec)
++        if mseq is None:
++            notes.append(why)
++            continue
++        m = MUT.match(spec.strip().upper())
++        pos = int(m.group(2))
++        lo, hi = max(1, pos - PAD), min(len(protein), pos + PAD)
++        # Only the window around the variant can change, so only it is rescanned.
++        wt_local = {key(h) for h in _scan(protein, classes, lo, hi)}
++        mu_local = _scan(mseq, classes, lo, hi)
++        mu_keys = {key(h) for h in mu_local}
++        g = [h for h in mu_local if key(h) not in wt_local]
++        _score(g, mseq, cons, model, feats)
++        for h in g:
++            h["variant"] = spec
++            # The one number on this record that is not what it looks like.
++            h["score_is_upper_bound"] = True
++        gained.extend(g)
++        l = [h for h in wt_hits if key(h) in (wt_local - mu_keys)]
++        for h in l:
++            h["variant"] = spec
++        lost.extend(l)
++
++    works.progress(85)
++    shown = [h for h in wt_hits if h.get("score", 0) >= min_score]
++    shown.sort(key=lambda h: -h.get("score", 0))
++    for h in shown:
++        h["rank"] = shown.index(h) + 1
++
++    caveats = [
++        "A motif is a regex match from the ELM catalogue. A protein of this "
++        "length carries hundreds of them and most are not functional.",
++        "The score orders candidates against each other. It is not a "
++        "probability that a motif is real.",
++    ]
++    if scoring == "regex":
++        caveats.insert(0, "NO TRAINED MODEL ON THIS HOST: motifs are ordered by "
++                          "the rarity of their pattern alone, which is a weak "
++                          "ordering, not a ranking.")
++    if cons is None:
++        caveats.append("No cached conservation for this protein, so the "
++                       "conservation features are absent and the ranking rests "
++                       "on sequence and class alone.")
++    if gained:
++        caveats.append("A gained motif's score is an UPPER BOUND: conservation "
++                       "is a property of the wild-type residue and is inherited "
++                       "by the substitution that replaced it.")
++    for n in notes:
++        caveats.append("Variant skipped -- " + n)
++
++    payload = {
++        "n": len(wt_hits), "n_shown": len(shown),
++        "motifs": shown, "gained": gained, "lost": lost,
++        "meta": {"scoring": scoring, "classes": len(classes),
++                 "length": len(protein), "min_score": min_score,
++                 "conservation": bool(cons is not None),
++                 "accession": acc, "variants": variants,
++                 "caveats": caveats},
++    }
++    works.progress(100)
++    works.msg("%d shown, %d gained, %d lost"
++              % (len(shown), len(gained), len(lost)))
++except Exception as e:
++    err = "%s: %s" % (type(e).__name__, e)
++    works.msg("SLIM scan failed: " + err)
++
++if payload is None:
++    works.resolve({"n": 0, "n_shown": 0, "motifs": json.dumps([]),
++                   "gained": json.dumps([]), "lost": json.dumps([]),
++                   "meta": json.dumps({"caveats": []}),
++                   "error": err or "no result"})
++else:
++    works.resolve({
++        "n": payload["n"], "n_shown": payload["n_shown"],
++        "motifs": json.dumps(payload["motifs"]),
++        "gained": json.dumps(payload["gained"]),
++        "lost": json.dumps(payload["lost"]),
++        "meta": json.dumps(payload["meta"]),
++        "error": err,
++    })
+diff --git a/tools/ops/stage-slimrank-data.sh b/tools/ops/stage-slimrank-data.sh
+new file mode 100755
+index 0000000..7346f61
+--- /dev/null
++++ b/tools/ops/stage-slimrank-data.sh
+@@ -0,0 +1,106 @@
++#!/usr/bin/env bash
++# Stage the slimrank DATA onto the gene.clinic host.
++#
++# The code for the motif layer ships through git and deploy-all.sh like
++# everything else. The data does not, and should not:
++#
++#   elm_classes.tsv, elm_instances.tsv   ELM's own tables, under ELM's licence
++#                                        terms. Staging them onto one host is
++#                                        not the same act as committing them
++#                                        into a repository.
++#   model.joblib                         a build artefact, rebuilt whenever the
++#                                        training set changes. A binary that
++#                                        changes often is what git holds worst.
++#   cons/*.npy                           per-protein conservation, derived from
++#                                        Ensembl Compara. Large and re-derivable.
++#
++# py/bio/protein/slim-scan.py reads all of it from $SLIMRANK_HOME, default
++# /opt/baja-apps/data/slimrank. With the tables missing it answers with an error
++# the UI shows. With the model missing it still returns motifs and reports
++# scoring=regex, which the layer repeats in its own label. Neither case is
++# silent, which is the point: a ranking that is not a ranking must not look
++# like one.
++#
++# Run from the WSL box that holds the cache:
++#     bash tools/ops/stage-slimrank-data.sh
++#     bash tools/ops/stage-slimrank-data.sh --send     # also scp and unpack
++set -euo pipefail
++
++CACHE="${SLIMRANK_CACHE:-$HOME/.cache/slimrank}"
++SRC="${SLIMRANK_SRC:-$HOME/ml/slimrank}"
++OUT="${OUT:-/tmp/slimrank-data.tgz}"
++HOST="${BAJA_HOST:-ubuntu@52.87.30.101}"
++KEY="${BAJA_KEY:-$HOME/.ssh/baja.pem}"
++REMOTE="${SLIMRANK_HOME:-/opt/baja-apps/data/slimrank}"
++PARENT="$(dirname "$REMOTE")"
++BASE="$(basename "$OUT")"
++
++say() { printf '  %s\n' "$*"; }
++
++[ -d "$CACHE" ] || { echo "no cache at $CACHE (run slimrank train first)" >&2; exit 1; }
++[ -f "$CACHE/elm_classes.tsv" ] || { echo "no elm_classes.tsv in $CACHE" >&2; exit 1; }
++
++STAGE="$(mktemp -d)"
++trap 'rm -rf "$STAGE"' EXIT
++mkdir -p "$STAGE/slimrank"
++
++cp "$CACHE/elm_classes.tsv" "$STAGE/slimrank/"
++say "elm_classes.tsv    $(wc -l < "$CACHE/elm_classes.tsv") lines"
++if [ -f "$CACHE/elm_instances.tsv" ]; then
++  cp "$CACHE/elm_instances.tsv" "$STAGE/slimrank/"
++  say "elm_instances.tsv  $(wc -l < "$CACHE/elm_instances.tsv") lines"
++  # class_counts.json is what the model's class-prior feature reads. Built here
++  # from the instances rather than shipped, so it cannot drift from them.
++  python3 - "$CACHE/elm_instances.tsv" "$STAGE/slimrank/class_counts.json" <<'PY'
++import csv, json, sys
++counts = {}
++with open(sys.argv[1], newline="") as fh:
++    rows = [r for r in fh if not r.startswith("#")]
++    rd = csv.DictReader(rows, delimiter="\t")
++    for r in rd:
++        k = r.get("ELMIdentifier")
++        if k:
++            counts[k] = counts.get(k, 0) + 1
++json.dump(counts, open(sys.argv[2], "w"))
++print("  class_counts.json  %d classes" % len(counts))
++PY
++fi
++
++if [ -f "$SRC/model.joblib" ]; then
++  cp "$SRC/model.joblib" "$STAGE/slimrank/"
++  say "model.joblib       $(du -h "$SRC/model.joblib" | cut -f1)"
++else
++  say "model.joblib       MISSING: the host will order motifs by pattern rarity"
++  say "                   alone, and every layer will say so in its label."
++fi
++
++if [ -d "$CACHE/cons" ]; then
++  n=$(find "$CACHE/cons" -name '*.npy' -size +1c | wc -l)
++  if [ "$n" -gt 0 ]; then
++    mkdir -p "$STAGE/slimrank/cons"
++    find "$CACHE/cons" -name '*.npy' -size +1c -exec cp {} "$STAGE/slimrank/cons/" \;
++    say "cons/              $n proteins with conservation"
++  fi
++fi
++
++tar czf "$OUT" -C "$STAGE" slimrank
++say ""
++say "wrote $OUT  ($(du -h "$OUT" | cut -f1))"
++say "sha256 $(sha256sum "$OUT" | cut -d' ' -f1)"
++
++if [ "${1:-}" = "--send" ]; then
++  say ""
++  say "sending to $HOST:$REMOTE"
++  scp -i "$KEY" "$OUT" "$HOST:/tmp/$BASE"
++  ssh -i "$KEY" "$HOST" "sudo mkdir -p '$PARENT' && \
++    sudo tar xzf '/tmp/$BASE' -C '$PARENT' && \
++    ls -la '$REMOTE' && rm -f '/tmp/$BASE'"
++  say "staged. The scan reads it per request, so there is nothing to restart."
++else
++  say ""
++  say "to send it:"
++  say "  scp -i $KEY $OUT $HOST:/tmp/"
++  say "  ssh -i $KEY $HOST \"sudo mkdir -p '$PARENT' && sudo tar xzf '/tmp/$BASE' -C '$PARENT' && ls -la '$REMOTE'\""
++  say ""
++  say "or re-run with --send to do both."
++fi
+-- 
+2.43.0
+

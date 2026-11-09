@@ -227,7 +227,10 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                 // the list is the model's own statement about where it can be trusted.
                 choice: {
                     label: 'RNA binding protein',
-                    note: 'Held-out AUROC \u2265 0.90.',
+                    // Several at once: one scan scores all 170 heads anyway, so a set costs
+                    // what a single protein costs, and each one gets its own layer.
+                    multi: true,
+                    note: 'Held-out AUROC \u2265 0.90. Pick several with ctrl/shift, or Select all.',
                     value: 'TARDBP',
                     empty: 'The reliable-RBP table could not be read on this server.',
                     options: async () => {
