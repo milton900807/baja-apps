@@ -242,6 +242,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/protein/slim-motif-layer.js:SHORT LINEAR MOTIFS AS A LAYER" \
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling"
+  # Linear motifs (ELM) on a peptide track, and what a variant does to them.
+  # All four or none: the catalogue entry and the track menu would both open onto a
+  # layer that is not there, and the layer would call a scan that is not there.
+  install_group "linear motifs (ELM)" \
+    "baja/bio/protein/slim-motif-layer.js:SHORT LINEAR MOTIFS AS A LAYER" \
+    "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
+    "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
+    "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
   install_group "Research panel" \
     "py/ion-lib/indication_store.py:def browse(" \
     "py/analytics/indication-browse.py:Reading the indication-market store" \
