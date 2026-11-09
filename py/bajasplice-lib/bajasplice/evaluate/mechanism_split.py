@@ -36,16 +36,35 @@ for name, msk in (("pathogenic synonymous", y == 1), ("benign synonymous", y == 
     v = P[msk]
     print("  %-26s %-8d %-8.3f %-8.3f" % (name, len(v), (v < 0.1).mean(), (v > 0.5).mean()))
 
-site = P > 0.5          # the variant makes or breaks a site
-print("\nsplitting on whether a site is created or destroyed (delta > 0.5):")
-for name, msk in (("site-changing", site), ("no site change", ~site)):
+# SPLIT BY SEQUENCE, NOT BY THE SCORE. A first version split on delta > 0.5 and
+# then measured the AUC of delta inside each half, which attenuates it by
+# construction and is not comparable to the overall figure. Whether the variant
+# creates or destroys a canonical GT or AG is a property of the sequence, so it
+# partitions the set without touching the thing being evaluated.
+def makes_or_breaks(chrom, pos, ref, alt):
+    """Does this substitution create or destroy a GT or an AG dinucleotide?"""
+    w = "".join("NACGT"[int(v)] for v in g.codes(chrom, pos - 1, pos + 1, "+"))
+    if len(w) < 3:
+        return False
+    before = w
+    after = w[0] + alt + w[2]
+    di = lambda s: {s[0:2], s[1:3]}
+    canon = {"GT", "AG"}
+    return bool((di(after) & canon) ^ (di(before) & canon))
+
+
+site = np.array([makes_or_breaks(r.chrom, int(r.pos), r.ref, r.alt)
+                 for r in sub.itertuples(index=False)])
+print("\nsplitting by SEQUENCE: does the substitution make or break a GT/AG?")
+for name, msk in (("makes/breaks GT-AG", site), ("leaves dinucleotides", ~site)):
     if msk.sum() < 20 or len(set(y[msk])) < 2:
         print("  %-16s n=%d  (one class only)" % (name, msk.sum())); continue
     print("  %-16s n=%-5d pathogenic %-5d  AUC %.4f"
           % (name, msk.sum(), int(y[msk].sum()), roc_auc_score(y[msk], P[msk])))
 
-print("\nif the model were a general regulatory detector, the 'no site change'")
-print("subset would still separate. If it is a cryptic-site detector, it will not.")
+print("\nthe second row is the honest one: these variants create no canonical")
+print("dinucleotide, so whatever the model scores there is regulatory signal,")
+print("not site recognition. SMN2 and MAPK8IP3 R578C both live in that row.")
 print("\noverall AUC %.4f  (for reference)" % roc_auc_score(y, P))
-print("fraction of PATHOGENIC synonymous that change a site: %.2f" % site[y == 1].mean())
-print("  -> that fraction is the ceiling on what this model can ever catch here")
+print("fraction of PATHOGENIC synonymous that make/break a GT-AG: %.2f" % site[y == 1].mean())
+print("fraction of BENIGN that do:                                %.2f" % site[y == 0].mean())
