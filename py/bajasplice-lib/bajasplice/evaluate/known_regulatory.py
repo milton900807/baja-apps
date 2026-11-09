@@ -43,15 +43,13 @@ import re
 import numpy as np
 
 # (gene, HGVS fragment to match, what it tests)
-CURATED = [
-    ("GAA", "c.-32-13T>G", "partial exon 2 skipping; ASO target"),
-    ("ELP1", "c.2204+6T>C", "tissue-specific exon 20 skipping"),
-    ("IKBKAP", "c.2204+6T>C", "ELP1 under its older symbol"),
-    ("LMNA", "c.1824C>T", "silent; cryptic 5'SS in exon 11"),
-]
+# ClinVar's CLNHGVS is GENOMIC notation (g.), not cDNA, so matching on a c.
+# string never fires. These genes are listed in full instead and the variant of
+# interest identified by position and consequence.
+CURATED = []
 # MAPT is handled as a series rather than named variants, because exon 10
 # numbering varies by transcript and the point is the correlation, not one case.
-SERIES_GENES = ["MAPT"]
+SERIES_GENES = ["MAPT", "GAA", "ELP1", "IKBKAP", "LMNA"]
 
 _PATH = {"Pathogenic", "Likely_pathogenic", "Pathogenic/Likely_pathogenic"}
 
