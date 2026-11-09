@@ -110,7 +110,17 @@ def main():
 
     gain = lg(don) - lg(ref_d)
     gain_p = don - ref_d
-    order = np.argsort(-gain)[:args.top]
+
+    # FOOTPRINTS ON THE SPLICE SITE ITSELF ARE NOT TARGETS. The donor consensus
+    # runs from about exon -6 to intron +6, and masking its exonic half RAISES
+    # the model's score -- SMN exon 7's donor is weak, so removing its
+    # unfavourable context lets the model fall back on a better prior. In a cell
+    # an ASO sitting there blocks the donor and causes SKIPPING, the opposite.
+    # So these are not merely noisy, they are inverted, and they filled seven of
+    # the top fifteen before this guard existed.
+    GUARD_LO, GUARD_HI = -6 - args.aso_len + 1, 6      # any overlap with -6..+6
+    on_site = (offs >= GUARD_LO) & (offs <= GUARD_HI)
+    order = [i for i in np.argsort(-gain) if not on_site[i]][:args.top]
     print("\nmasking these RAISES the donor most -- the candidate ASO targets:")
     print("  %-9s %-10s %-11s %-10s %s" % ("offset", "donor", "d(logit)", "d(prob)", "where"))
     for i in order:
@@ -118,6 +128,10 @@ def main():
         tag = "  <- ISS-N1 +10..+27" if 10 - args.aso_len < offs[i] <= 27 else ""
         print("  %+-9d %-10.5f %+-11.3f %+-10.5f %s%s"
               % (offs[i], don[i], gain[i], gain_p[i], where, tag))
+    print("  (%d footprints overlapping the donor consensus, %+d..%+d, are excluded:"
+          % (int(on_site.sum()), GUARD_LO, GUARD_HI))
+    print("   masking a weak donor's own context raises the score and would cause"
+          " skipping in a cell)")
 
     worst = np.argsort(gain)[:5]
     print("\nmasking these LOWERS it most -- enhancers, or the donor itself:")
@@ -130,12 +144,14 @@ def main():
           % ((gain > 0).sum(), len(gain), 100 * (gain > 0).mean()))
     print("  median change (logit)        : %+.3f" % float(np.median(gain)))
     print("  90th percentile              : %+.3f" % float(np.percentile(gain, 90)))
-    iss = [j for j, o in enumerate(offs) if 10 - args.aso_len < o <= 27]
+    iss = [j for j, o in enumerate(offs) if 10 - args.aso_len < o <= 27 and not on_site[j]]
     if iss:
         best = max(iss, key=lambda j: gain[j])
-        rank = int((gain > gain[best]).sum()) + 1
-        print("  best ISS-N1 footprint        : offset %+d, rank %d of %d (top %.1f%%)"
-              % (offs[best], rank, len(gain), 100.0 * rank / len(gain)))
+        elig = ~on_site
+        rank = int(((gain > gain[best]) & elig).sum()) + 1
+        print("  best ISS-N1 footprint        : offset %+d, rank %d of %d targetable"
+              " (top %.1f%%)" % (offs[best], rank, int(elig.sum()),
+                                 100.0 * rank / max(1, int(elig.sum()))))
 
     print("\nnote: a footprint overlapping the donor or acceptor destroys the site")
     print("rather than regulating it, so offsets near 0 are not drug targets.")
