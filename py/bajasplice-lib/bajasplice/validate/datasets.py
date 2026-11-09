@@ -87,8 +87,14 @@ def load_clinvar(max_per_class=1500, seed=0):
                 cls = "benign_synonymous"
             else:
                 continue
-            rows.append((c, int(pos), ref, alt, cls))
-    df = pd.DataFrame(rows, columns=["chrom", "pos", "ref", "alt", "cls"])
+            # gene and HGVS are kept so a result can be read per variant:
+            # "the model missed these four genes" is actionable, an AUC is not
+            gene = (info.split("GENEINFO=", 1)[1].split(";", 1)[0].split(":", 1)[0]
+                    if "GENEINFO=" in info else "")
+            hgvs = (info.split("CLNHGVS=", 1)[1].split(";", 1)[0]
+                    if "CLNHGVS=" in info else "")
+            rows.append((c, int(pos), ref, alt, cls, gene, hgvs))
+    df = pd.DataFrame(rows, columns=["chrom", "pos", "ref", "alt", "cls", "gene", "hgvs"])
     if df.empty:
         return df
     rng = np.random.default_rng(seed)
