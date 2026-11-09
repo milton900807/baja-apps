@@ -98,18 +98,44 @@ def main():
     print("%d footprints of %d nt, offsets %+d..%+d relative to the exon's last base"
           % (len(offs), args.aso_len, args.lo, args.hi))
 
-    gain = don - ref_d
+    # RANKED ON THE LOGIT SCALE. A donor already at 0.93 can gain at most 0.07 on
+    # the probability scale, so every effective footprint pins against the
+    # ceiling and the ordering among them is noise: the first run put fifteen
+    # positions between +0.0654 and +0.0698 and called that a ranking. Logits
+    # have no ceiling, so a footprint that takes the donor to 0.99988 is
+    # separated from one that reaches 0.99574 instead of tying with it.
+    def lg(v):
+        v = np.clip(v, 1e-7, 1 - 1e-7)
+        return np.log(v / (1 - v))
+
+    gain = lg(don) - lg(ref_d)
+    gain_p = don - ref_d
     order = np.argsort(-gain)[:args.top]
     print("\nmasking these RAISES the donor most -- the candidate ASO targets:")
-    print("  %-10s %-10s %-10s" % ("offset", "donor", "change"))
+    print("  %-9s %-10s %-11s %-10s %s" % ("offset", "donor", "d(logit)", "d(prob)", "where"))
     for i in order:
-        tag = "  <- ISS-N1 is +10..+27" if 8 <= offs[i] <= 12 else ""
-        print("  %+-10d %-10.5f %+-10.5f%s" % (offs[i], don[i], gain[i], tag))
+        where = "EXON" if offs[i] < 0 else "intron"
+        tag = "  <- ISS-N1 +10..+27" if 10 - args.aso_len < offs[i] <= 27 else ""
+        print("  %+-9d %-10.5f %+-11.3f %+-10.5f %s%s"
+              % (offs[i], don[i], gain[i], gain_p[i], where, tag))
 
     worst = np.argsort(gain)[:5]
     print("\nmasking these LOWERS it most -- enhancers, or the donor itself:")
     for i in worst:
-        print("  %+-10d %-10.5f %+-10.5f" % (offs[i], don[i], gain[i]))
+        print("  %+-9d %-10.5f %+-11.3f" % (offs[i], don[i], gain[i]))
+
+    # Is there a ranking at all, or does most of the window do the same thing?
+    print("\nshape of the walk, so the top of the list can be read honestly:")
+    print("  footprints raising the donor : %d of %d (%.0f%%)"
+          % ((gain > 0).sum(), len(gain), 100 * (gain > 0).mean()))
+    print("  median change (logit)        : %+.3f" % float(np.median(gain)))
+    print("  90th percentile              : %+.3f" % float(np.percentile(gain, 90)))
+    iss = [j for j, o in enumerate(offs) if 10 - args.aso_len < o <= 27]
+    if iss:
+        best = max(iss, key=lambda j: gain[j])
+        rank = int((gain > gain[best]).sum()) + 1
+        print("  best ISS-N1 footprint        : offset %+d, rank %d of %d (top %.1f%%)"
+              % (offs[best], rank, len(gain), 100.0 * rank / len(gain)))
 
     print("\nnote: a footprint overlapping the donor or acceptor destroys the site")
     print("rather than regulating it, so offsets near 0 are not drug targets.")
