@@ -41,14 +41,26 @@ def probes():
     m, ctx, dev = load_splicenet()
     out = {}
 
-    def best(chrom, pos, ref, alt, key):
+    def best(chrom, pos, ref, alt, key, strand=None):
+        """Score a variant. SELECT ON THE SCALE BEING REPORTED, and prefer an
+        explicit strand.
+
+        The first version picked the strand with the largest PROBABILITY delta
+        and then reported the LOGIT, which for MAPK8IP3 R578C chose the minus
+        strand (delta 0.0294, logit 0.980) over the plus (0.0198, logit 1.850)
+        and recorded the antisense number for a plus-strand gene. Scanning both
+        strands is the right default when the strand is unknown; for a named
+        variant in a known gene it is a way to record the wrong answer.
+        """
+        sts = (strand,) if strand else ("+", "-")
         b = None
-        for st in ("+", "-"):
+        for st in sts:
             d = delta_score(m, ctx, chrom, pos, ref, alt, dev, strand=st,
                             window=50, genome=g)
-            if b is None or d["delta"] > b["delta"]:
-                b = d
-        return b[key] if key in b else b.get("logit_delta", 0.0)
+            v = d.get(key, d.get("logit_delta", 0.0))
+            if b is None or v > b[0]:
+                b = (v, d)
+        return b[0]
 
     def clinvar(classes, limit=400):
         from bajasplice.validate.datasets import load_clinvar
@@ -91,9 +103,11 @@ def probes():
     out["clinvar_regulatory_auc"] = lambda: clinvar(["pathogenic_synonymous", "benign_synonymous"])[0]
     out["clinvar_regulatory_auc_logit"] = lambda: clinvar(["pathogenic_synonymous", "benign_synonymous"])[1]
     # single variants: noisy, reported but not gated
-    out["smn2_c840_logit"] = lambda: best("chr5", 70076526, "T", "C", "logit_delta")
-    out["lmna_g608g_logit"] = lambda: best("chr1", 156136110, "C", "T", "logit_delta")
-    out["mapk8ip3_r578c_logit"] = lambda: best("chr16", 1762843, "C", "T", "logit_delta")
+    # strands stated, not inferred: SMN2 and MAPK8IP3 are plus-strand, LMNA is
+    # plus-strand. Letting the scan choose recorded the antisense value above.
+    out["smn2_c840_logit"] = lambda: best("chr5", 70076526, "T", "C", "logit_delta", "+")
+    out["lmna_g608g_logit"] = lambda: best("chr1", 156136110, "C", "T", "logit_delta", "+")
+    out["mapk8ip3_r578c_logit"] = lambda: best("chr16", 1762843, "C", "T", "logit_delta", "+")
     out["issn1_donor_reference"] = lambda: issn1()[0]
     out["issn1_donor_gain_logit"] = lambda: issn1()[1]
     return out
