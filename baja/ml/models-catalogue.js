@@ -208,6 +208,41 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'ASO Target Walk', badge: 'BajaASOWalk', ready: true,
+            blurb: 'Where blocking the RNA with an oligo would strengthen an exon.',
+            open: () => __onParentTrack('BajaASOWalk',
+                (list) => exec('baja/bio/splicing/aso-walk.js', graph, L, list, null, 18)),
+            docs: {
+                summary: 'Tiles an 18-nt oligo footprint along an exon and its flanks and '
+                    + 'reports the positions where blocking the RNA raises the exon\u2019s donor. '
+                    + 'The wet experiment it imitates is the standard ASO walk: tile oligos, '
+                    + 'measure inclusion, and the positions that raise it are the silencers '
+                    + 'worth drugging. ISS-N1 and nusinersen came out of exactly that.',
+                provenance: 'BajaSplice (py/bajasplice-lib), running locally with bundled '
+                    + 'weights \u2014 no external service is called. The footprint is MASKED '
+                    + 'rather than mutated, because an oligo occludes its site rather than '
+                    + 'rewriting it; substituting scrambled sequence invents cryptic GTs and '
+                    + 'creates elements instead of removing one.',
+                usage: 'Select a track with exon annotations. The selected exon is used, or '
+                    + 'the one nearest the centre of the view. Candidate positions are drawn '
+                    + 'as a layer, labelled with the gain in donor strength in logits; only '
+                    + 'footprints above the 90th percentile of the walk are shown.',
+                caveats: 'Validated on the one case with a drug attached: masking ISS-N1 takes '
+                    + 'SMN2 exon 7\u2019s donor from 0.930 to 0.998, the same mask 34 nt further '
+                    + 'in takes it DOWN to 0.812, and ISS-N1 ranks 4th of 311 targetable '
+                    + 'footprints. Two limits. Footprints overlapping the splice-site consensus '
+                    + 'are excluded, because masking a weak donor\u2019s own context raises the '
+                    + 'score while an oligo there would block the donor and cause skipping. And '
+                    + 'EXONIC hits are not yet trustworthy: in the validation walk they scored '
+                    + 'as high as ISS-N1 with no clean reading, so treat the intronic positions '
+                    + 'as candidates and the exonic ones as questions.',
+                links: [
+                    { title: 'Singh et al., ISS-N1', url: 'https://pubmed.ncbi.nlm.nih.gov/16449646/',
+                      note: 'The intronic silencer this method rediscovers blind.' }
+                ]
+            }
+        },
+        {
             title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
             blurb: 'Per-position RBP binding profile across the track.',
             // The chosen protein comes from the page's picker and is passed straight
