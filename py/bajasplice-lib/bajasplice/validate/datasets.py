@@ -33,6 +33,17 @@ def load_clinvar(max_per_class=1500, seed=0):
         pathogenic_splice   pathogenic, annotated as a splice donor/acceptor variant
         benign_splice       benign, same consequence annotation
         benign_missense     benign, missense, away from splice sites
+        pathogenic_synonymous  pathogenic, SYNONYMOUS
+        benign_synonymous      benign, synonymous
+
+    The last pair is the regulatory benchmark, and it needs no curation. A
+    synonymous variant cannot change the protein, so a pathogenic one is
+    almost always acting through splicing, and usually through an enhancer or
+    silencer rather than a core site -- the class every site-strength model is
+    weakest on. LMNA c.1824C>T, which causes progeria by activating a cryptic
+    donor, is exactly this shape. Comparing pathogenic against benign
+    synonymous asks whether the model sees regulatory variants at all, with
+    hundreds of examples instead of one hand-picked case.
 
     The three exist because two different questions get conflated. Comparing
     pathogenic splice variants against benign MISSENSE ones asks whether the
@@ -70,6 +81,10 @@ def load_clinvar(max_per_class=1500, seed=0):
                 cls = "benign_splice"
             elif sig in _BENIGN and not spl and "missense" in mc:
                 cls = "benign_missense"
+            elif sig in _PATH and not spl and "synonymous" in mc:
+                cls = "pathogenic_synonymous"
+            elif sig in _BENIGN and not spl and "synonymous" in mc:
+                cls = "benign_synonymous"
             else:
                 continue
             rows.append((c, int(pos), ref, alt, cls))

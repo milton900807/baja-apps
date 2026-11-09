@@ -346,6 +346,61 @@ def t_known_cryptic():
 # --------------------------------------------------------------------------
 # 6. ENCODE eCLIP: is the binding model RBP-specific at all?
 # --------------------------------------------------------------------------
+def t_clinvar_regulatory(limit=400):
+    """Does the model see REGULATORY splicing variants, or only broken GT/AGs?
+
+    A synonymous variant cannot change the protein, so a pathogenic one is
+    almost always acting through splicing, and usually through an enhancer or
+    silencer rather than a core site. That is the class every site-strength
+    model is weakest on, and the class ClinVar's splice-annotated variants do
+    NOT cover, since those are dominated by variants at the canonical GT/AG.
+
+    So this is the honest test of the thing SMN2 was meant to probe, with
+    hundreds of examples rather than one, and without SMN2's blended-label
+    problem. Expect it to be much harder than t_clinvar_disruption: that one
+    reaches AUC 0.9955 on the logit scale against benign missense.
+    """
+    from bajasplice.validate.datasets import load_clinvar
+    from sklearn.metrics import roc_auc_score
+
+    r = Result("clinvar_regulatory", "ClinVar pathogenic vs benign SYNONYMOUS",
+               "regulatory splicing variants outscore benign synonymous ones; "
+               "AUC >= 0.70", threshold=0.70)
+    df = load_clinvar(max_per_class=limit)
+    if df is None:
+        r.note = "ClinVar VCF not found"
+        return r
+    sub = df[df.cls.isin(["pathogenic_synonymous", "benign_synonymous"])].reset_index(drop=True)
+    if sub.cls.nunique() < 2 or len(sub) < 40:
+        r.note = "too few synonymous variants (%d)" % len(sub)
+        return r
+
+    m, ctx, dev = _device_model()
+    from bajasplice.variants import delta_score
+    from bajasplice.genome import GenomeReader
+    g = GenomeReader()
+    P, L = [], []
+    for row in sub.itertuples(index=False):
+        best = None
+        for st in ("+", "-"):
+            d = delta_score(m, ctx, row.chrom, int(row.pos), row.ref, row.alt,
+                            dev, strand=st, window=50, genome=g)
+            if best is None or d["delta"] > best["delta"]:
+                best = d
+        P.append(best["delta"])
+        L.append(best.get("logit_delta", 0.0))
+    y = (sub.cls == "pathogenic_synonymous").astype(int).values
+    auc_p = float(roc_auc_score(y, np.asarray(P)))
+    auc_l = float(roc_auc_score(y, np.asarray(L)))
+    r.value = max(auc_p, auc_l)
+    r.status = "pass" if r.value >= r.threshold else "fail"
+    r.detail = {"n_pathogenic": int(y.sum()), "n_benign": int((1 - y).sum()),
+                "auc_probability": round(auc_p, 4), "auc_logit": round(auc_l, 4),
+                "note": "compare with clinvar_disruption, which reaches 0.9955 "
+                        "on canonical splice-site variants"}
+    return r
+
+
 def t_paralog_labels():
     """Are PSI labels at duplicated loci being caught before they are believed?
 
@@ -431,6 +486,7 @@ TESTS: dict[str, Callable[[], Result]] = {
     "eclip": t_eclip,
     "annotated": t_annotated,
     "paralog-labels": t_paralog_labels,
+    "clinvar-regulatory": t_clinvar_regulatory,
 }
 
 _MARK = {"pass": "PASS", "fail": "FAIL", "skipped": "skip", "error": "ERR ", "info": "INFO"}
