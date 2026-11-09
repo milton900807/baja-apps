@@ -1,4 +1,4 @@
-async function (graph, L, tracks, range, asoLen) {
+async function (graph, L, tracks, range0, asoLen) {
     // BajaASOWalk: tile an oligo footprint along an exon's flanks and draw where
     // blocking the RNA would strengthen the exon's donor.
     //
@@ -10,16 +10,49 @@ async function (graph, L, tracks, range, asoLen) {
     const track = (tracks && tracks.length) ? tracks[0] : null;
     if (!track) { graph.setMessage(' Select a track first. '); return false; }
 
-    const seq = track.sequence || '';
+    // A SELECTED RANGE WINS, THE WHOLE TRACK IS THE FALLBACK -- the same rule
+    // every other model here follows. selectedRange() resolves world-coordinate
+    // marks and offset marks to one absolute span; reading markstart raw is
+    // right for one convention and silently wrong for the other.
+    let range = null;
+    try { range = (range0 || (track.selectedRange && track.selectedRange())) || null; } catch (e) { range = null; }
+    const hasRange = !!(range && Number.isFinite(+range.start) && Number.isFinite(+range.end)
+        && +range.end > +range.start);
+
+    let seq = track.sequence || '';
+    let seqXi = (track.tgraph && track.tgraph.xmin != null) ? track.tgraph.xmin : 0;
+    if (hasRange) {
+        try {
+            const sub = track.getSequenceRange
+                ? track.getSequenceRange(range.start, range.end) : null;
+            // The sequence sent IS the range and xi becomes its start, so the
+            // walk's coordinates land where the user is looking.
+            if (sub && sub.length) { seq = sub; seqXi = Math.floor(+range.start); }
+        } catch (e) { }
+    }
     if (!seq) { graph.setMessage(' That track has no sequence. '); return false; }
 
-    const exons = (track.annotations || []).filter(
+    let exons = (track.annotations || []).filter(
         (a) => a && ('' + a.type).toLowerCase() === 'exon');
     if (!exons.length) { graph.setMessage(' That track has no exon annotations. '); return false; }
 
+    // With a range selected, only exons inside it are candidates: the user has
+    // said which part of the track they mean.
+    if (hasRange) {
+        const lo = Math.min(+range.start, +range.end), hi = Math.max(+range.start, +range.end);
+        const within = exons.filter((a) => Math.max(+a.xi, +a.xf) >= lo
+            && Math.min(+a.xi, +a.xf) <= hi);
+        if (!within.length) {
+            graph.setMessage(' No exon falls inside the selected range. ');
+            return false;
+        }
+        exons = within;
+    }
+
     let exon = exons.find((a) => a.isSelected && a.isSelected());
     if (!exon) {
-        const mid = (track.tgraph.xmin + track.tgraph.xmax) / 2;
+        const mid = hasRange ? ((+range.start + +range.end) / 2)
+            : ((track.tgraph.xmin + track.tgraph.xmax) / 2);
         let best = null;
         for (const a of exons) {
             const d = Math.abs(((+a.xi) + (+a.xf)) / 2 - mid);
@@ -38,7 +71,7 @@ async function (graph, L, tracks, range, asoLen) {
     em.addProgressListener(async (v) => { graph.setMessage(' ' + v + '% '); });
 
     const res = await exec(window['env']['apiUrl'] + '/py/bio/splice/aso-walk.py',
-        em, seq, track.tgraph.xmin, strand, donorX, LEN, -40, 300, 'plus');
+        em, seq, seqXi, strand, donorX, LEN, -40, 300, 'plus');
     if (res && res.error) { graph.setMessage(' ' + res.error + ' '); return false; }
 
     let walk = [];
@@ -82,6 +115,7 @@ async function (graph, L, tracks, range, asoLen) {
     if (graph.wake) graph.wake();
     graph.setMessage(' ' + added + ' candidate oligo position'
         + (added === 1 ? '' : 's') + ' on exon ' + ex0 + '-' + ex1
+        + (hasRange ? ' within the selection' : '')
         + '. Labels are the gain in donor strength, in logits. ');
     return true;
 }
