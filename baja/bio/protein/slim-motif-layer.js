@@ -61,39 +61,39 @@ function (graph, genegraph_panel_layout, tracks, options) {
 
         const minScore = (o.minScore == null) ? 0.5 : +o.minScore;
 
-        // ---- the track's protein, and where each residue sits on the genome --------------
-        // The same three routes as cdd-domain-layer.js, for the same reason: one of them
-        // failing does not make the track non-coding. codonPos[i] is the genomic coordinate
-        // of residue i+1's codon, which is the only reason a protein-space hit can be drawn
-        // in genome space at all.
-        const proteinOf = (t) => {
-            try {
-                if (!(t.orf && t.orf.cdsi && t.orf.cdsi.length)) t.generateORF();
-            } catch (e) { }
-            let cds = null;
-            try { cds = t.getCDS(); } catch (e) { }
-            const ok = (c) => c && c.protein && ('' + c.protein).length >= 3
-                && Array.isArray(c.codonPos) && c.codonPos.length;
-            if (!ok(cds)) {
-                try {
-                    const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
-                    if (cdsi.length) {
-                        const prot = [], pos = [];
-                        for (const e of cdsi) {
-                            if (e && (e.ci === 0 || e.ci === '0')) { prot.push(e.aa || 'X'); pos.push(e.index); }
-                        }
-                        if (prot.length >= 3) cds = { protein: prot.join(''), codonPos: pos };
-                    }
-                } catch (e) { }
+        // ---- the track's peptide, and where each residue sits on the genome -------------
+        //
+        // Lifted from baja/bio/protein/secretion-profile.js, the other model in this tree
+        // that sends a peptide to a Python backend, because the first version of this file
+        // got it wrong in a way that produced no error: it read `aa` off the ci === 0 entry
+        // of each codon. The amino acid is on the ci === 2 entry, as getPeptideFromORF
+        // reads it. Taking it from ci === 0 yields `aa || 'X'` for most residues, so the
+        // scan received a string of X's, matched nothing, and reported an empty result
+        // rather than a failure. A wrong peptide is worse than no peptide.
+        //
+        // The position of residue i is the FIRST base of its codon, from the ci === 0 entry
+        // with the same codon_index, so a hit lands on the codon it was found in even
+        // across an exon boundary.
+        const codonsOf = (track) => {
+            let cdsi = null;
+            try { cdsi = track && track.orf && track.orf.cdsi; } catch (e) { cdsi = null; }
+            if (!cdsi || !cdsi.length) {
+                try { if (track && track.generateORF) track.generateORF(); } catch (e) { }
+                try { cdsi = track && track.orf && track.orf.cdsi; } catch (e) { cdsi = null; }
             }
-            if (!ok(cds)) {
-                let p = '';
-                try { p = ('' + (t.getProteinSequence ? t.getProteinSequence() : '')).toString(); } catch (e) { }
-                if (p.length >= 3) cds = { protein: p, codonPos: (cds && cds.codonPos) || [] };
+            if (!cdsi || !cdsi.length) return null;
+            const first = {}, out = [];
+            for (const c of cdsi) {
+                if (!c) continue;
+                if (c.ci === 0 && first[c.codon_index] == null) first[c.codon_index] = +c.index;
             }
-            if (!cds || !cds.protein || ('' + cds.protein).length < 3) return null;
-            if (!Array.isArray(cds.codonPos) || !cds.codonPos.length) return null;
-            return cds;
+            for (const c of cdsi) {
+                if (!c || c.ci !== 2) continue;
+                if (!c.aa || ('' + c.aa).length !== 1) continue;      // skips START / STOP
+                const x = (first[c.codon_index] != null) ? first[c.codon_index] : +c.index;
+                out.push({ aa: '' + c.aa, x: x });
+            }
+            return out.length ? out : null;
         };
 
         // Protein-space variants already recorded on the track. Only ones that ALREADY
@@ -176,11 +176,14 @@ function (graph, genegraph_panel_layout, tracks, options) {
 
             if (!o.redo && hasLayer(t, MOTIF_SUFFIX)) { already++; continue; }
 
-            const cds = proteinOf(t);
-            if (!cds) { skipped++; continue; }
+            const codons = codonsOf(t);
+            if (!codons) { skipped++; continue; }
 
-            const protein = '' + cds.protein;
-            const posOf = (aa) => (aa >= 1 && aa <= cds.codonPos.length) ? cds.codonPos[aa - 1] : -1;
+            const protein = codons.map((c) => c.aa).join('');
+            const posOf = (aa) => (aa >= 1 && aa <= codons.length) ? codons[aa - 1].x : -1;
+            // A peptide of X's is what the old extraction produced. Refuse it loudly rather
+            // than scanning it: every motif class would miss and the track would look clean.
+            if (/^X+$/.test(protein) || protein.length < 10) { skipped++; continue; }
             // A residue is three bases; +2 takes in the rest of the last codon. codonPos
             // runs 3'->5' on a minus-strand track, so the span is ordered rather than assumed.
             const spanOf = (a, b) => {
