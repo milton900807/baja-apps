@@ -5410,6 +5410,94 @@ function (graph, genegraph_panel_layout) {
                     }
                 } catch (e) { }
 
+                // LINEAR MOTIFS (ELM), the sibling of the domains entry above and placed
+                // beside it because the question is the same shape: "what is annotated on this
+                // peptide". What it adds is the variant arm.
+                //
+                // A domain search is one answer. A motif search is a RANKED answer with a
+                // threshold, because a protein of any size matches hundreds of motif patterns
+                // by chance. So the entries say what they will draw: "scoring 0.5 and above"
+                // rather than "motifs", and the layer's own callout repeats the count it hid.
+                //
+                // "With a variant" is the entry that does something the domain layer cannot:
+                // it scans the mutated sequence too and paints what the variant CREATES and
+                // DESTROYS in their own layers. Variants already on the track are picked up
+                // without asking, but only where they carry a protein consequence; this
+                // prompt is for trying one that is not on the track yet.
+                try {
+                    const __hasPep = (t) => {
+                        try {
+                            if (!t) return false;
+                            if (t.orf && t.orf.cdsi && t.orf.cdsi.length) return true;
+                            return ('' + (t.getProteinSequence ? t.getProteinSequence() : '')).length >= 3;
+                        } catch (e) { return false; }
+                    };
+                    if (__hasPep(selectedTrack)) {
+                        const __coding2 = ((graph && graph.track) || []).filter(__hasPep);
+                        track_list.push({
+                            label: 'Linear motifs (ELM) \u25b8',
+                            __sortAs: 'Linear motifs (ELM) \u25b8',
+                            move: () => { },
+                            click: async (scx, scy) => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                const st = selectedTrack;
+                                const run = async (list, opts) => {
+                                    try {
+                                        await exec('baja/bio/protein/slim-motif-layer.js', graph,
+                                            genegraph_panel_layout, list, opts || {});
+                                    } catch (e) {
+                                        try { graph.setResultMessage(' Motif scan failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                    }
+                                };
+                                const items = [
+                                    { label: 'On this track (scoring 0.5 and above)', move: () => { },
+                                      click: async () => run([st], { redo: true }) },
+                                    { label: 'On this track, everything found', move: () => { },
+                                      click: async () => run([st], { redo: true, minScore: 0 }) }
+                                ];
+                                if (__coding2.length > 1) {
+                                    items.push({
+                                        label: 'On all coding tracks (' + __coding2.length + ')',
+                                        move: () => { }, click: async () => run(__coding2, {})
+                                    });
+                                }
+                                items.push({ type: 'separator' });
+                                items.push({
+                                    label: 'With a variant\u2026',
+                                    move: () => { },
+                                    click: async () => {
+                                        let v = null;
+                                        try {
+                                            v = await exec('baja/lib/prompt-text.js', {
+                                                title: 'Linear motifs \u00b7 variant',
+                                                message: 'Protein-space substitutions, comma separated, against this '
+                                                    + 'track\'s own translation. The scan paints what each one creates '
+                                                    + 'and destroys. A variant whose wild-type residue does not match '
+                                                    + 'the sequence is reported, not drawn.',
+                                                placeholder: 'R578C, S577A',
+                                                action: 'Scan',
+                                                historyKey: 'slim-motif-variants'
+                                            });
+                                        } catch (e) { v = null; }
+                                        if (v == null) return;
+                                        const vars = ('' + v).split(/[,;\s]+/).filter(Boolean);
+                                        if (!vars.length) return;
+                                        await run([st], { redo: true, variants: vars, minScore: 0.5 });
+                                    }
+                                });
+                                items.push({
+                                    label: 'Scan again on this track',
+                                    move: () => { }, click: async () => run([st], { redo: true })
+                                });
+                                try {
+                                    await exec('baja/manchester/menu/popup-menu.js', graph, items, scx, scy,
+                                        { title: 'Linear motifs \u00b7 ' + ((st && st.name) || 'Track') });
+                                } catch (e) { }
+                            }
+                        });
+                    }
+                } catch (e) { }
+
                 // MACHINE LEARNING MODELS, listed rather than catalogued. Every model that can
                 // be run on a track, one click from the track's own menu, with the splicing
                 // models behind their own submenu and BajaCLIP's RNA-binding proteins behind
