@@ -164,6 +164,20 @@ else:
             j = int(np.argmax(arr * sign))
             return float(arr[j] * sign), tx2x(lo + j)
 
+        # THE SAME CHANGE ON A SCALE THAT DOES NOT SATURATE. A probability near 1
+        # has no room left, so a real change at a strong site is compressed. The
+        # logit scale separates ClinVar's classes better (AUC 0.9955 against
+        # 0.9913) and is what the class thresholds below are read on.
+        def _peak_abs(arr):
+            return float(max(abs(float(np.max(arr))), abs(float(np.min(arr))))) if len(arr) else 0.0
+
+        def _lg(v):
+            v = np.clip(v, 1e-6, 1 - 1e-6)
+            return np.log(v / (1.0 - v))
+
+        la = _lg(a_alt[lo:hi]) - _lg(a_ref[lo:hi])
+        ld = _lg(d_alt[lo:hi]) - _lg(d_ref[lo:hi])
+
         ag, ag_x = peak(da, 1.0)
         al, al_x = peak(da, -1.0)
         dg, dg_x = peak(dd, 1.0)
@@ -174,6 +188,10 @@ else:
             "donor_gain": round(dg, 4), "donor_gain_x": dg_x,
             "donor_loss": round(dl, 4), "donor_loss_x": dl_x,
             "max": round(max(ag, al, dg, dl), 4),
+
+            "logit_acceptor_max": round(_peak_abs(la), 4),
+            "logit_donor_max": round(_peak_abs(ld), 4),
+            "logit_max": round(max(_peak_abs(la), _peak_abs(ld)), 4),
             "ref_matches_sequence": bool(ref_ok),
             "window_nt": WIN,
         }
@@ -285,6 +303,24 @@ else:
                     "source": cal.get("source"),
                     "caveat": cal.get("caveat"),
                 }
+                # AND AGAINST THE RIGHT CLASS. Thresholds fitted on canonical
+                # GT/AG variants call almost every regulatory variant benign:
+                # measured on the same ClinVar file, the model separates
+                # canonical variants at AUC 0.9955 and regulatory ones at
+                # 0.7905, so they do not share a scale. Both readings are
+                # reported; which one applies depends on where the variant sits.
+                lmx = delta.get("logit_max", delta.get("max", 0.0))
+                for key, blk in (cal.get("by_class") or {}).items():
+                    hp = next((r for r in blk.get("operating_points", [])
+                               if mx >= r["delta"]), None)
+                    hl = next((r for r in blk.get("operating_points_logit", [])
+                               if lmx >= r["delta"]), None)
+                    delta.setdefault("calibration_by_class", {})[key] = {
+                        "label": blk.get("label"),
+                        "auc": blk.get("auc_logit"),
+                        "fpr_at_or_below": (hp or {}).get("fpr"),
+                        "fpr_at_or_below_logit": (hl or {}).get("fpr"),
+                    }
         except Exception:
             pass
 

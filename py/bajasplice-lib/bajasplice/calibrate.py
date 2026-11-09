@@ -97,6 +97,19 @@ def main():
     if df is None or df.empty:
         raise SystemExit("ClinVar VCF not found; set BAJASPLICE_CLINVAR")
 
+    # TWO CLASSES OF VARIANT, TWO SETS OF THRESHOLDS. Fitting one set on
+    # canonical splice-site variants and applying it to everything is why
+    # regulatory variants never clear a threshold: measured on this same file,
+    # the model separates canonical variants at AUC 0.9955 and regulatory ones
+    # (pathogenic vs benign SYNONYMOUS, which cannot change the protein so act
+    # through splicing) at 0.7905. Both are real; they live on different scales.
+    PAIRS = [
+        ("disruption", "pathogenic_splice", "benign_missense",
+         "canonical splice-site disruption"),
+        ("regulatory", "pathogenic_synonymous", "benign_synonymous",
+         "regulatory variants: enhancers, silencers, cryptic activation"),
+    ]
+    out_blocks = {}
     sub = df[df.cls.isin(["pathogenic_splice", "benign_missense"])].reset_index(drop=True)
     if sub.cls.nunique() < 2:
         raise SystemExit("need both pathogenic_splice and benign_missense")
@@ -128,6 +141,36 @@ def main():
     print("the 0.5 that the code currently assumes has FPR %.4f and sensitivity %.4f"
           % (float((neg >= 0.5).mean()), float((pos >= 0.5).mean())))
 
+    # the regulatory set, fitted the same way
+    for key, pcls, ncls, label in PAIRS[1:]:
+        s2 = df[df.cls.isin([pcls, ncls])].reset_index(drop=True)
+        if s2.cls.nunique() < 2 or len(s2) < 40:
+            print("\nskipping %s: only %d variants" % (key, len(s2)))
+            continue
+        d2, dl2 = both_deltas(s2)
+        y2 = (s2.cls == pcls).astype(int).values
+        p2, n2 = d2[y2 == 1], d2[y2 == 0]
+        lp2, ln2 = dl2[y2 == 1], dl2[y2 == 0]
+        a2, al2 = float(roc_auc_score(y2, d2)), float(roc_auc_score(y2, dl2))
+        r2, lr2 = thresholds_at_fpr(p2, n2), thresholds_at_fpr(lp2, ln2)
+        print("\n%s (%s, n=%d/%d)" % (key.upper(), label, len(p2), len(n2)))
+        print("  AUC  probability %.4f   logit %.4f" % (a2, al2))
+        print("  %-6s | %-10s %-9s | %-11s %-9s"
+              % ("FPR", "delta>=", "sens", "logit>=", "sens"))
+        for rr, ll in zip(r2, lr2):
+            print("  %-6.2f | %-10.4f %-9.4f | %-11.3f %-9.4f"
+                  % (rr["fpr"], rr["delta"], rr["sensitivity"],
+                     ll["delta"], ll["sensitivity"]))
+        out_blocks[key] = {
+            "label": label, "n_pos": int(len(p2)), "n_neg": int(len(n2)),
+            "auc": round(a2, 4), "auc_logit": round(al2, 4),
+            "operating_points": r2, "operating_points_logit": lr2,
+            "benign_quantiles": {str(q): round(float(np.quantile(n2, q)), 4)
+                                 for q in (0.5, 0.8, 0.9, 0.95, 0.98, 0.99)},
+            "logit_benign_quantiles": {str(q): round(float(np.quantile(ln2, q)), 4)
+                                       for q in (0.5, 0.8, 0.9, 0.95, 0.98, 0.99)},
+        }
+
     if args.save:
         import bajasplice
         out = Path(bajasplice.__file__).parent / "weights" / "delta_calibration.json"
@@ -145,6 +188,10 @@ def main():
                                  for q in (0.5, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995)},
             "caveat": ("losses only: ClinVar splice annotations are dominated by "
                        "variants at the canonical GT/AG, so gains are not calibrated"),
+            # Apply the block that matches the variant. A synonymous or deep
+            # exonic variant judged against 'disruption' thresholds will be
+            # called benign almost regardless of what it does.
+            "by_class": out_blocks,
         }, indent=1))
         print("\nwrote %s" % out)
 
