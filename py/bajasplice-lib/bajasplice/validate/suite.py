@@ -227,10 +227,21 @@ def t_vastdb():
         r.note = "run `bajasplice evaluate vastdb` first"
         return r
     alt = d[d.skip_total >= 10] if "skip_total" in d.columns else d
+    # EXONS WITH A NEAR-IDENTICAL TWIN ARE LEFT OUT. Their PSI is a blend of two
+    # genes' reads, so disagreement with VastDB there says nothing about either
+    # pipeline. SMN2 exon 7 is the worked case: labelled 0.84, truly ~0.10.
+    n_before = len(alt)
+    try:
+        from bajasplice.mappability import cached_flags
+        fl = cached_flags(alt.reset_index(drop=True), verbose=False)
+        alt = alt[~fl]
+    except Exception:
+        pass
     ok = np.isfinite(alt.psi_mean) & np.isfinite(alt.vast_psi)
     r.value = float(pearsonr(alt.psi_mean[ok], alt.vast_psi[ok])[0])
     r.status = "pass" if r.value >= r.threshold else "fail"
     r.detail = {"n_alternative_exons": int(ok.sum()), "n_all_matched": int(len(d)),
+                "n_dropped_paralogous": int(n_before - len(alt)),
                 "mae": round(float(np.abs(alt.psi_mean[ok] - alt.vast_psi[ok]).mean()), 4)}
     return r
 
@@ -335,6 +346,45 @@ def t_known_cryptic():
 # --------------------------------------------------------------------------
 # 6. ENCODE eCLIP: is the binding model RBP-specific at all?
 # --------------------------------------------------------------------------
+def t_paralog_labels():
+    """Are PSI labels at duplicated loci being caught before they are believed?
+
+    This exists because SMN2 exon 7 sits in cassette.tsv with a median PSI of
+    0.84 across 54 tissues on 256,818 reads, when the true figure is about 0.10:
+    skipping that exon is the whole reason SMA is a disease. SMN1 is 99.9%
+    identical, its exon 7 is included in every tissue (PSI exactly 1.0000, zero
+    variance), and the reads are not separable, so the label is a blend. A model
+    trained on it predicted 0.9652 and looked broken when it was obedient.
+
+    The test is not a statistic, it is a regression guard: the known-bad event
+    must be flagged. Across the genome the effect is NOT a systematic bias --
+    flagged exons average PSI 0.9088 against 0.9236 for the rest -- so these
+    events are excluded from VALIDATION, not from training.
+    """
+    import pandas as pd, os
+    from bajasplice.config import paths
+    from bajasplice.mappability import cached_flags
+
+    r = Result("paralog_label_guard", "cassette.tsv against itself",
+               "exons with a near-identical twin in another gene are flagged, "
+               "so benchmarks are not scored against blended labels")
+    f = os.path.join(str(paths().interim), "cassette.tsv")
+    if not os.path.isfile(f):
+        r.note = "cassette.tsv not found"
+        return r
+    ev = pd.read_csv(f, sep="\t")
+    flag = cached_flags(ev, verbose=False)
+
+    sel = ev.index[(ev.gene_name.astype(str) == "SMN2") & (ev.a_start == 70076521)]
+    caught = bool(flag[int(sel[0])]) if len(sel) else None
+    r.value = float(flag.mean())
+    r.status = "pass" if caught else ("fail" if caught is False else "skip")
+    r.detail = {"n_flagged": int(flag.sum()), "n_events": int(len(ev)),
+                "smn2_exon7_flagged": caught,
+                "note": "excluded from validation, not from training"}
+    return r
+
+
 def t_eclip():
     r = Result("eclip_rbp_specificity", "ENCODE eCLIP, held-out windows",
                "on bound-vs-bound windows the matched RBP channel beats a "
@@ -380,6 +430,7 @@ TESTS: dict[str, Callable[[], Result]] = {
     "known-cryptic": t_known_cryptic,
     "eclip": t_eclip,
     "annotated": t_annotated,
+    "paralog-labels": t_paralog_labels,
 }
 
 _MARK = {"pass": "PASS", "fail": "FAIL", "skipped": "skip", "error": "ERR ", "info": "INFO"}

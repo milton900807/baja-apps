@@ -110,3 +110,32 @@ def overlapping(ev, bed_path):
                 flag[i] = True
                 break
     return flag
+
+
+def cached_flags(ev, path=None, genome=None, verbose=True):
+    """paralog_pairs over a whole event table, computed once and cached.
+
+    663k exons is a slow pass, so the result is written beside the table and
+    reused. The cache is keyed on the number of events: if the table is
+    regenerated with a different size the flags are recomputed rather than
+    silently reused against the wrong rows.
+    """
+    import os
+    import numpy as np
+    from .config import paths
+
+    path = path or os.path.join(str(paths().interim), "paralog_flag.npz")
+    if os.path.isfile(path):
+        z = np.load(path)
+        if int(z["n"]) == len(ev):
+            return z["flag"]
+        if verbose:
+            print("paralog cache is for %d events, table has %d; recomputing"
+                  % (int(z["n"]), len(ev)))
+
+    cb = (lambda i, n: print("  paralog scan %d/%d" % (i, n), flush=True)) if verbose else None
+    flag = paralog_pairs(ev, genome=genome, progress=cb)
+    np.savez_compressed(path, flag=flag, n=len(ev))
+    if verbose:
+        print("wrote %s (%d flagged, %.2f%%)" % (path, flag.sum(), 100 * flag.mean()))
+    return flag
