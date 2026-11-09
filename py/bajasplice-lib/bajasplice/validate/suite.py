@@ -379,7 +379,8 @@ def t_clinvar_regulatory(limit=400):
     from bajasplice.variants import delta_score
     from bajasplice.genome import GenomeReader
     g = GenomeReader()
-    P, L = [], []
+    from bajasplice.variants import variant_tracks
+    P, L, S_ref = [], [], []
     for row in sub.itertuples(index=False):
         best = None
         for st in ("+", "-"):
@@ -389,15 +390,47 @@ def t_clinvar_regulatory(limit=400):
                 best = d
         P.append(best["delta"])
         L.append(best.get("logit_delta", 0.0))
+        # strongest REFERENCE site within the window: how splice-proximal the
+        # locus is, independent of what the variant does to it
+        try:
+            (a_r, d_r), _ = variant_tracks(m, ctx, row.chrom, int(row.pos), row.ref,
+                                           row.alt, "+", dev, window=50, genome=g)
+            S_ref.append(float(max(a_r.max(), d_r.max())))
+        except Exception:
+            S_ref.append(0.0)
     y = (sub.cls == "pathogenic_synonymous").astype(int).values
     auc_p = float(roc_auc_score(y, np.asarray(P)))
     auc_l = float(roc_auc_score(y, np.asarray(L)))
+
+    # IS THE MODEL WEAK, OR IS THE BENCHMARK UNFAIR? benign_missense is defined
+    # as "away from splice sites"; benign_synonymous is not, so many negatives
+    # here sit beside a boundary and carry real deltas. That is a harder and
+    # more honest negative set, but it means this AUC is not comparable to the
+    # canonical one. Splitting by how strong the nearest REFERENCE site is --
+    # which is a property of the locus, not of the variant, so it is not
+    # circular -- says where the model works and where it does not.
+    S = np.asarray(S_ref)
+    strata = [("near a strong site (ref >= 0.5)", S >= 0.5),
+              ("weak neighbourhood (ref < 0.5)", S < 0.5)]
+    by_site = {}
+    for name, m in strata:
+        if m.sum() >= 20 and len(set(y[m])) == 2:
+            by_site[name] = {
+                "n": int(m.sum()), "n_pathogenic": int(y[m].sum()),
+                "auc_logit": round(float(roc_auc_score(y[m], np.asarray(L)[m])), 4),
+            }
+        else:
+            by_site[name] = {"n": int(m.sum()), "note": "too few, or one class only"}
     r.value = max(auc_p, auc_l)
     r.status = "pass" if r.value >= r.threshold else "fail"
     r.detail = {"n_pathogenic": int(y.sum()), "n_benign": int((1 - y).sum()),
                 "auc_probability": round(auc_p, 4), "auc_logit": round(auc_l, 4),
-                "note": "compare with clinvar_disruption, which reaches 0.9955 "
-                        "on canonical splice-site variants"}
+                "by_reference_site_strength": by_site,
+                "note": "compare with clinvar_disruption, which reaches 0.9967 "
+                        "on canonical splice-site variants; note that "
+                        "benign_synonymous is NOT filtered away from splice "
+                        "sites the way benign_missense is, so these negatives "
+                        "are harder and the two AUCs are not comparable"}
     return r
 
 
