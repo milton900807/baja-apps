@@ -81,7 +81,7 @@ def main():
         """
         m, ctx, dev = _device_model()
         g = GenomeReader()
-        P, L, Q = [], [], []
+        P, L = [], []
         for row in df.itertuples(index=False):
             best = None
             for st in ("+", "-"):
@@ -91,8 +91,7 @@ def main():
                     best = r
             P.append(best["delta"])
             L.append(best.get("logit_delta", 0.0))
-            Q.append(best.get("logit_pair", 0.0))
-        return np.asarray(P), np.asarray(L), np.asarray(Q)
+        return np.asarray(P), np.asarray(L)
 
     df = load_clinvar(max_per_class=args.limit)
     if df is None or df.empty:
@@ -102,32 +101,27 @@ def main():
     if sub.cls.nunique() < 2:
         raise SystemExit("need both pathogenic_splice and benign_missense")
 
-    d, dl, dq = both_deltas(sub)
+    d, dl = both_deltas(sub)
     y = (sub.cls == "pathogenic_splice").astype(int).values
     pos, neg = d[y == 1], d[y == 0]
     lpos, lneg = dl[y == 1], dl[y == 0]
-    qpos, qneg = dq[y == 1], dq[y == 0]
 
     auc = float(roc_auc_score(y, d))
     lauc = float(roc_auc_score(y, dl))
     rows = thresholds_at_fpr(pos, neg)
     lrows = thresholds_at_fpr(lpos, lneg)
-    qauc = float(roc_auc_score(y, dq))
-    qrows = thresholds_at_fpr(qpos, qneg)
 
     print("n positives (pathogenic splice): %d" % len(pos))
     print("n negatives (benign missense)  : %d" % len(neg))
     print("AUC                            : %.4f" % auc)
     print()
     print("AUC (logit scale)              : %.4f" % lauc)
-    print("AUC (logit pair, both ends)    : %.4f" % qauc)
     print()
-    print("%-6s | %-10s %-9s | %-11s %-9s | %-11s %-9s"
-          % ("FPR", "delta>=", "sens", "logit>=", "sens", "pair>=", "sens"))
-    for r, lr, qr in zip(rows, lrows, qrows):
-        print("%-6.2f | %-10.4f %-9.4f | %-11.3f %-9.4f | %-11.3f %-9.4f"
-              % (r["fpr"], r["delta"], r["sensitivity"],
-                 lr["delta"], lr["sensitivity"], qr["delta"], qr["sensitivity"]))
+    print("%-6s | %-10s %-9s | %-11s %-9s"
+          % ("FPR", "delta>=", "sens", "logit>=", "sens"))
+    for r, lr in zip(rows, lrows):
+        print("%-6.2f | %-10.4f %-9.4f | %-11.3f %-9.4f"
+              % (r["fpr"], r["delta"], r["sensitivity"], lr["delta"], lr["sensitivity"]))
     print()
     print("median delta: pathogenic %.4f, benign %.4f"
           % (float(np.median(pos)), float(np.median(neg))))
@@ -144,8 +138,6 @@ def main():
             "operating_points": rows,
             "auc_logit": round(lauc, 4),
             "operating_points_logit": lrows,
-            "auc_logit_pair": round(qauc, 4),
-            "operating_points_logit_pair": qrows,
             "logit_benign_quantiles": {str(q): round(float(np.quantile(lneg, q)), 4)
                                        for q in (0.5, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995)},
             # the benign distribution itself, so a consumer can place any delta

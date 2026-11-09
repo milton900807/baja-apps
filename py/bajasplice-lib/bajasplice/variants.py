@@ -112,30 +112,24 @@ def delta_score(model, context, chrom, pos, ref, alt, device, strand="+",
     res["logit_delta"] = max(res["logit_acceptor_gain"], res["logit_acceptor_loss"],
                              res["logit_donor_gain"], res["logit_donor_loss"])
 
-    # EXON DEFINITION NEEDS BOTH ENDS. The statistics above take the single
-    # largest move anywhere in the window, so a variant that shifts an exon's
-    # acceptor AND its donor is scored on whichever is bigger and the other is
-    # discarded. That is the wrong summary for a regulatory variant: weakening
-    # both ends of one exon is a different event from weakening one site, and it
-    # is what an exonic enhancer or silencer does, since it acts on the exon
-    # rather than on a splice junction.
+    # WHICH END MOVED, reported because it is diagnostic, not as a score. An
+    # exonic enhancer or silencer acts on the EXON, so it tends to move both of
+    # its sites, and seeing that is useful when reading one variant.
     #
-    # `logit_pair` adds the two when they move the SAME way, and falls back to
-    # the larger alone when they oppose, since opposing moves are not joint
-    # exon definition. Annotation-free: it uses the largest signed acceptor move
-    # and the largest signed donor move in the window.
-    #
-    # This is a hypothesis about the right summary statistic, not a result. It
-    # has its own operating points in bajasplice.calibrate and must be judged on
-    # AUC against the others, not on whether it flatters any one variant.
+    # Summing them is NOT useful as a statistic, which was measured rather than
+    # assumed: on ClinVar (600 pathogenic splice vs 600 benign) the sum scored
+    # AUC 0.9919 against 0.9955 for the plain logit max, and sensitivity at 1%
+    # FPR fell from 0.9467 to 0.8233. Adding across the window pulls in
+    # unrelated sites, and benign variants gain more from that than pathogenic
+    # ones do. The hypothesis was that SMN2-like regulatory variants would be
+    # rescued by it; SMN2 did clear the sum's own 20% threshold while missing
+    # the logit one, but one variant does not buy 12 points of sensitivity.
     def _signed_peak(arr):
         if not len(arr):
             return 0.0
         j = int(np.argmax(np.abs(arr)))
         return float(arr[j])
 
-    sa, sd = _signed_peak(la), _signed_peak(ld)
-    res["logit_acceptor_signed"] = sa
-    res["logit_donor_signed"] = sd
-    res["logit_pair"] = (abs(sa) + abs(sd)) if (sa * sd > 0) else max(abs(sa), abs(sd))
+    res["logit_acceptor_signed"] = _signed_peak(la)
+    res["logit_donor_signed"] = _signed_peak(ld)
     return res
