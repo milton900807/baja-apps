@@ -168,6 +168,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
         };
 
         let done = 0, skipped = 0, empty = 0, already = 0, failed = 0;
+        const reasons = [];
         const per = [];
 
         for (let n = 0; n < list.length; n++) {
@@ -195,19 +196,29 @@ function (graph, genegraph_panel_layout, tracks, options) {
             const vars = variantsOf(t);
             tick('Linear motifs · ' + label + '   ' + (n + 1) + '/' + list.length);
 
-            let res = null;
+            let res = null, why = null;
             try {
-                const host = (window['env'] && window['env']['apiUrl']) ? window['env']['apiUrl'] : '';
-                res = await exec(host + '/py/bio/protein/slim-scan.py',
+                // A LAYER, SO THE BARE RELATIVE PATH, as cdd-domain-layer.js uses. The
+                // host-prefixed form with an EngineMonitor belongs to full-screen apps
+                // like baja/ssam.js; used from a layer it does not resolve.
+                res = await exec('py/bio/protein/slim-scan.py',
                     protein, vars.join(','), '' + minScore, '' + (o.accession || ''));
                 if (typeof res === 'string') { try { res = JSON.parse(res); } catch (e) { } }
-            } catch (e) { console.warn('[slim-motif-layer]', label, e); }
+            } catch (e) {
+                why = (e && e.message) ? e.message : ('' + e);
+                console.warn('[slim-motif-layer]', label, e);
+            }
 
-            if (!res || typeof res !== 'object') { failed++; continue; }
+            if (!res || typeof res !== 'object') {
+                why = why || 'the scan did not answer';
+                reasons.push(label + ': ' + why);
+                failed++; continue;
+            }
             if (res.error) {
-                // A host without the ELM tables is a deployment problem, not a quiet nothing.
+                // A host without the ELM tables is a deployment problem, not a quiet nothing,
+                // and the reason has to survive to the summary line or nobody ever sees it.
                 console.warn('[slim-motif-layer]', label, res.error);
-                say('Linear motifs: ' + res.error);
+                reasons.push(label + ': ' + res.error);
                 failed++; continue;
             }
             const J = (k, d) => { try { return JSON.parse(res[k]); } catch (e) { return d; } };
@@ -337,6 +348,11 @@ function (graph, genegraph_panel_layout, tracks, options) {
             + (already ? (' · ' + already + ' already mapped') : '')
             + (skipped ? (' · ' + skipped + ' without a protein') : '')
             + (failed ? (' · ' + failed + ' failed') : ''));
+        // The count is useless without the cause. One line, the first real reason.
+        if (failed && reasons.length) {
+            try { graph.setResultMessage(' Linear motifs: ' + reasons[0] + ' '); } catch (e) { }
+            console.warn('[slim-motif-layer] failures:', reasons);
+        }
         return { done: done, skipped: skipped, empty: empty, already: already, failed: failed, per: per };
     })();
 }
