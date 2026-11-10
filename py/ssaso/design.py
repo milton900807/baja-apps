@@ -882,23 +882,30 @@ def select_allele_tiled(
     shared out. A span is the feature itself: the changed base of a substitution, every
     inserted base of an insertion, the two bases either side of a deletion's join.
 
-    They are taken ROUND-ROBIN across the mutations: one tile from the first, one from the
-    second, and so on, then round again. With a maximum below what the walk would produce,
-    every mutation is covered before any of them is covered twice -- which is the opposite of
-    what ranking does, since the registers over one strong site would otherwise fill the
-    answer and the other mutations would come back with nothing.
+    They are taken ONE MUTATION AT A TIME, IN FULL. The caller hands the mutations over
+    already ranked -- furthest from the reference first -- and this walks the first one
+    across every register that covers it, a base at a time, before starting the second. A
+    mutation is therefore finished or not started.
+
+    That is a deliberate change from the round-robin this used to do, which took one tile
+    from each mutation in turn so that every mutation was covered before any was covered
+    twice. Round-robin answers "give me a little about all of them"; this answers "give me
+    everything about the ones that matter most", which is the question being asked when the
+    mutations are ranked and the run is capped. The cost is explicit and belongs in the UI:
+    under a cap, the mutations past the cut get nothing at all rather than one register each.
 
     Within one mutation the walk is the same as select_tiled: the best layout at each start,
-    `step` bases apart (0 = every register, since a step wider than the oligo would leave the
-    mutation behind).
+    `step` bases apart (0 or 1 = every register, which is the default here, since a walk
+    across the length of the oligo is the point). A step wider than the oligo would leave
+    the mutation behind.
     """
     if not candidates:
         return []
     # THE CALLER'S ORDER IS THE PRIORITY ORDER, so it is preserved rather than sorted away.
-    # The walk below takes one candidate per mutation per pass, so when the cap cuts the run
-    # short the mutations early in this list are the ones that got covered. Sorting by
-    # position here meant the priority was "whichever is nearest the 5' end", which is not a
-    # property of the mutation at all. De-duplicated in place, first occurrence wins.
+    # The walk below finishes one mutation before starting the next, so this list IS the
+    # answer to which mutations get designed against when the cap bites. Sorting by position
+    # here meant the priority was "whichever is nearest the 5' end", which is not a property
+    # of the mutation at all. De-duplicated in place, first occurrence wins.
     spans: List[Tuple[int, int]] = []
     _seen_spans = set()
     for x in (cover_spans or []):
@@ -940,27 +947,45 @@ def select_allele_tiled(
             want = (st + 1) if step <= 0 else (st + step)
         walks[p] = picked
 
+    # ONE MUTATION AT A TIME, IN FULL, in the order the caller ranked them.
     selected: List[GapmerCandidate] = []
     seen = set()
-    depth = 0
-    while True:
-        added = 0
-        for p in spans:
-            w = walks.get(p) or []
-            if depth >= len(w):
-                continue
-            cand = w[depth]
+    covered = 0          # mutations that got at least one register
+    partial: Tuple[int, int] | None = None   # the one the cap cut off, if any
+    for p in spans:
+        w = walks.get(p) or []
+        if not w:
+            continue
+        took = 0
+        for cand in w:
             if id(cand) in seen:
                 continue
+            if top_n and len(selected) >= top_n:
+                # Stopped inside this mutation's walk rather than between two of them:
+                # worth saying out loud, because a half-walked mutation is the one case
+                # where the cap leaves a mutation covered but not fully tiled.
+                if took:
+                    partial = p
+                break
             seen.add(id(cand))
             selected.append(cand)
-            added += 1
-            if top_n and len(selected) >= top_n:
-                break
-        if (top_n and len(selected) >= top_n) or added == 0:
+            took += 1
+        if took:
+            covered += 1
+        if top_n and len(selected) >= top_n:
             break
-        depth += 1
 
+    # Reported so the caller can say what the cap actually did instead of only how many
+    # ASOs came back. These ride on the function's own return in design(), below.
+    select_allele_tiled.last_run = {
+        "mutations_given": len(spans),
+        "mutations_covered": covered,
+        "mutations_untouched": max(0, len(spans) - covered),
+        "partial": bool(partial),
+    }
+
+    # Drawn left to right whatever order they were chosen in; the ranking above decided
+    # WHICH ones exist, not where they sit.
     selected.sort(key=lambda c: c.start)
     for idx, candidate in enumerate(selected, start=1):
         candidate.rank = idx
@@ -1346,6 +1371,10 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     exclude_regions = request.get("exclude_regions") or []
     cover_positions = request.get("cover_positions") or []
     cover_spans = request.get("cover_spans") or []
+    # Defined for every mode, not just the allele walk: the response reports it
+    # unconditionally, and a stale value from a previous run in the same process would be
+    # worse than an empty one.
+    allele_walk_stats: Dict[str, Any] = {}
     # One list from here on: a bare position is the one-base span over it.
     all_spans = [(int(x[0]), int(x[1])) for x in cover_spans]
     all_spans += [(int(p), int(p) + 1) for p in cover_positions]
@@ -1470,6 +1499,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
             % (len(all_spans), "" if len(all_spans) == 1 else "s")
         )
         top_candidates = select_allele_tiled(all_candidates, all_spans, step=tile_step, top_n=want)
+        allele_walk_stats = dict(getattr(select_allele_tiled, "last_run", {}) or {})
         works.msg(
             "%d allele-selective tile%s over %d mutation%s"
             % (len(top_candidates), "" if len(top_candidates) == 1 else "s",
@@ -1768,6 +1798,10 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         "helm_note": "The structure field is returned as HELM using the configured monomer symbols.",
         "hits": hits,
         "top_candidates": hits,
+        # What the cap actually did to the walk. A count of ASOs cannot distinguish
+        # "every mutation got a few" from "the first two got everything", and after the
+        # walk became one-mutation-at-a-time that distinction is the whole behaviour.
+        "allele_walk": allele_walk_stats,
     }
 
 

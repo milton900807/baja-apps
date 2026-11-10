@@ -1033,7 +1033,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             const __far = __muts2.filter((m) => (+m.edits || 0) > 1).length;
                             graph.setResultMessage(' Allele-selective: designing around ' + __muts2.length
                                 + ' mutation' + (__muts2.length === 1 ? '' : 's') + ' (' + __what + ') on '
-                                + (selectedTrack.name || 'this track') + ', furthest from the reference first'
+                                + (selectedTrack.name || 'this track') + ', furthest from the reference first, '
+                                + 'each walked in full before the next is started'
                                 + (__far ? (' \u2014 ' + __far + ' of them change more than one base') : '')
                                 + '. ');
                         } catch (e) { }
@@ -1047,6 +1048,27 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
+
+                    // WHAT THE CAP ACTUALLY DID. A count of ASOs cannot tell "every mutation
+                    // got a few" from "the first two got everything", and now that the walk
+                    // finishes one mutation before starting the next, that is the whole
+                    // behaviour. The designer reports it; saying nothing would leave the
+                    // user to infer from a number which mutations were never designed
+                    // against at all.
+                    if (__p.design_mode === 'allele') {
+                        try {
+                            const aw = (r && (r.allele_walk || (r.result && r.result.allele_walk))) || null;
+                            if (aw && +aw.mutations_given > 0 && +aw.mutations_untouched > 0) {
+                                graph.setError(' Allele-selective: the maximum was reached after '
+                                    + aw.mutations_covered + ' of ' + aw.mutations_given + ' mutations'
+                                    + (aw.partial ? ' (the last one only partly walked)' : '')
+                                    + '. ' + aw.mutations_untouched + ' mutation'
+                                    + (+aw.mutations_untouched === 1 ? ' was' : 's were')
+                                    + ' not designed against at all \u2014 raise Maximum ASOs, or widen the '
+                                    + 'register step, to reach them. ');
+                            }
+                        } catch (e) { }
+                    }
 
                     // Clear the menus before tiling. No camera move.
                     __clearMenusForDesign();
