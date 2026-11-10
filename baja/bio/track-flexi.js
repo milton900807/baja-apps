@@ -3503,6 +3503,10 @@ return new Promise(async (resolve, reject) => {
             // No duplicate variants on a track: the same snp shows only once.
             if (this.hasSnpindel(snpindel)) return;
             this.snpindels.push(snpindel);
+            // THE ONE PLACE EVERY ARRIVAL PASSES THROUGH. Not awaited: this is a synchronous
+            // method on the hot path of a load, and the arrival module only needs to be told.
+            // It debounces, so a loop of two hundred adds is one pulse over the two hundred.
+            try { exec('baja/data/variant-arrival.js', snpindel); } catch (e) { }
         }
 
         removesnp(snpindel) {

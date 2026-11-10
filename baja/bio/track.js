@@ -4643,6 +4643,9 @@ return new Promise(async (resolve, reject) => {
     }
     addsnpindel(snpindel) {
       this.snpindels.push(snpindel);
+      // THE ONE PLACE EVERY ARRIVAL PASSES THROUGH. See baja/data/variant-arrival.js; not
+      // awaited, and it debounces so a loop of adds becomes one pulse over all of them.
+      try { exec('baja/data/variant-arrival.js', snpindel); } catch (e) { }
     }
 
     removesnp(snpindel) {
