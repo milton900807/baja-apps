@@ -51,6 +51,12 @@ from ion import works
 from claude_chat import Claude as OpenAI
 
 MAX_VARIANTS = 200
+# Variants per request. Thirty in one call overran the reply and came back as JSON cut off
+# mid-object, which surfaced as a parse error with a character offset -- a truncation
+# wearing a syntax error's clothes. Eight leaves room for eight verdicts and their reasons
+# well inside the cap, and a chunk that still fails costs only its own eight.
+CHUNK = 8
+MAX_TOKENS = 8192
 
 SYS = ("You answer questions about human genetic variants. You are careful to say when "
        "something is not known. Only output valid JSON.")
@@ -74,10 +80,10 @@ evidence_level "gene" and make the "why" a statement about the gene.
 position or the look of the identifier is not an answer. If you do not recognise a
 variant, verdict "unsure", evidence_level "none", confidence "low".
 
-Return ONLY this JSON:
+Return ONLY this JSON. Keep every "why" to ONE short sentence: the reply is capped and a
+long one costs another variant its answer.
 {
-  "answer": "<two to four sentences answering the question across the whole set, naming
-             how many have variant-level evidence and how many only gene-level>",
+  "note": "<at most one sentence about this set, or an empty string>",
   "hits": [
     { "i": <the variant's i, exactly as given>,
       "verdict": "yes" or "no" or "unsure",
@@ -92,19 +98,104 @@ Include an entry for EVERY variant given, in the order given.
 """
 
 
-def ask(model: str, variants: List[Dict[str, Any]], question: str) -> Dict[str, Any]:
+def _salvage(text: str) -> List[Dict[str, Any]]:
+    """Every complete {...} object in a truncated reply, in order.
+
+    A reply cut off mid-object is still mostly good answers followed by half of one. The
+    half is discarded and the whole ones are kept, because the alternative -- throwing the
+    chunk away over its last object -- loses seven answers to save one.
+    """
+    out: List[Dict[str, Any]] = []
+    # A STACK, NOT A DEPTH COUNTER. The verdicts are nested inside the reply's own object,
+    # so a scanner that only emits what closes at depth zero emits nothing at all when the
+    # outer object is the thing that got cut off -- which is exactly the case this exists
+    # for. Every balanced object is read, at whatever depth, and the ones carrying an "i"
+    # are the verdicts.
+    starts: List[int] = []
+    in_str = False
+    esc = False
+    for n, ch in enumerate(text or ""):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            starts.append(n)
+        elif ch == "}":
+            if starts:
+                start = starts.pop()
+                try:
+                    obj = json.loads(text[start:n + 1])
+                    if isinstance(obj, dict) and "i" in obj:
+                        out.append(obj)
+                except Exception:
+                    pass
+    return out
+
+
+def ask_chunk(model: str, variants: List[Dict[str, Any]], question: str) -> Dict[str, Any]:
+    """One request. Never raises on a bad reply: returns what could be read."""
     client = OpenAI()
     payload = {"question": question, "variants": variants}
     r = client.chat.completions.create(
         model=model,
         temperature=0,
+        max_tokens=MAX_TOKENS,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": SYS},
             {"role": "user", "content": INSTRUCTIONS + "\n\n" + json.dumps(payload, ensure_ascii=False)},
         ],
     )
-    return json.loads(r.choices[0].message.content)
+    choice = r.choices[0]
+    text = choice.message.content or ""
+    truncated = (getattr(choice, "finish_reason", "") == "length")
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return {"hits": obj.get("hits") or [], "note": obj.get("note") or "",
+                    "caveats": obj.get("caveats") or [], "truncated": truncated}
+    except Exception:
+        pass
+    # Unparseable as a whole: keep the complete objects it did manage to finish.
+    return {"hits": _salvage(text), "note": "", "caveats": [], "truncated": True}
+
+
+def ask(model: str, variants: List[Dict[str, Any]], question: str) -> Dict[str, Any]:
+    hits: List[Dict[str, Any]] = []
+    notes: List[str] = []
+    caveats: List[str] = []
+    cut = 0
+    for n in range(0, len(variants), CHUNK):
+        part = variants[n:n + CHUNK]
+        try:
+            works.msg("Asking about variants " + str(n + 1) + "-" + str(n + len(part))
+                      + " of " + str(len(variants)) + "…")
+        except Exception:
+            pass
+        try:
+            got = ask_chunk(model, part, question)
+        except Exception as e:
+            # One chunk failing is not the run failing: its variants fall through to the
+            # cleaner, which reports them as not known rather than losing them.
+            caveats.append("One group of variants could not be asked about: " + str(e))
+            continue
+        hits.extend(got.get("hits") or [])
+        if got.get("note"):
+            notes.append(str(got["note"]))
+        caveats.extend(str(c) for c in (got.get("caveats") or []))
+        if got.get("truncated"):
+            cut += 1
+    if cut:
+        caveats.append(str(cut) + " group(s) of variants returned a cut-off reply; "
+                       "what survived it was kept and the rest are reported as not known.")
+    return {"hits": hits, "notes": notes, "caveats": caveats}
 
 
 def _clean(out: Dict[str, Any], variants: List[Dict[str, Any]], question: str) -> Dict[str, Any]:
@@ -149,8 +240,35 @@ def _clean(out: Dict[str, Any], variants: List[Dict[str, Any]], question: str) -
     caveats = out.get("caveats") or []
     if not isinstance(caveats, list):
         caveats = [str(caveats)]
+
+    # THE HEADLINE IS COUNTED, NOT WRITTEN. It used to be a paragraph the model produced
+    # across the whole set, which is the part of the reply that grew with the number of
+    # variants and the part that cannot be checked. Counting it here cannot hallucinate,
+    # cannot be cut off, and cannot disagree with the cards below it, which are built from
+    # the same verdicts. What the model still gets to say is kept as its own note.
+    label_of = {}
+    for n, v in enumerate(variants):
+        label_of[int(v.get("i", n))] = str(v.get("label") or ("variant " + str(n + 1)))
+    at_variant = [h for h in hits if h["verdict"] == "yes" and h["evidence_level"] == "variant"]
+    at_gene = [h for h in hits if h["verdict"] == "yes" and h["evidence_level"] == "gene"]
+    named = ", ".join(label_of.get(h["i"], "?") for h in at_variant[:8])
+    if len(at_variant) > 8:
+        named += ", and " + str(len(at_variant) - 8) + " more"
+    parts = []
+    if at_variant:
+        parts.append("%d of the %d selected have evidence for the variant itself: %s."
+                     % (len(at_variant), len(variants), named))
+    else:
+        parts.append("None of the %d selected have evidence for the variant itself."
+                     % len(variants))
+    if at_gene:
+        parts.append("%d more are known at the GENE level only, which is not a finding "
+                     "about the change selected here." % len(at_gene))
+    notes = [str(n) for n in (out.get("notes") or []) if str(n).strip()]
+    answer = " ".join(parts + notes)
+
     return {"status": "OK", "question": question,
-            "answer": str(out.get("answer") or "").strip(),
+            "answer": answer,
             "hits": hits, "counts": counts,
             "caveats": [str(c) for c in caveats]}
 
