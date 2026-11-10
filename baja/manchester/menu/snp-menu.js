@@ -288,6 +288,21 @@ function (graph, track, snp) {
                 move: () => {
                 },
             },
+            {
+                label: 'Motif impact',
+                sub: 'What short linear motifs this substitution creates and destroys',
+                click: async () => {
+                    graph.showSideMenu(null);
+                    try {
+                        await exec('baja/bio/protein/motif-impact.js', graph, track, snp);
+                    } catch (e) {
+                        graph.setMessage(' Motif impact: '
+                            + (e && e.message ? e.message : e) + ' ');
+                    }
+                },
+                move: () => {
+                },
+            },
         );
 
         // HOW THIS VARIANT LOOKS. Shape and colour are properties of the variant, saved with
