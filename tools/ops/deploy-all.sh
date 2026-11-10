@@ -249,6 +249,13 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # A batch of newly loaded variants, told apart from the ones already on the track.
+  # All three or none: load-variants.js makes the batch, variant-batch.js is what a batch
+  # IS, and the layers menu is the only way to turn one off again.
+  install_group "variant batches: shape by kind, colour by LOF" \
+    "baja/data/variant-batch.js:TOLD APART FROM THE ONES ALREADY THERE" \
+    "baja/data/load-variants.js:tell the new ones from the ones already there" \
+    "baja/manchester/menu/track-layers-side-menu.js:— variants added —"
   # ALLELE-SELECTIVE ASO DESIGN, the whole chain. These five files were reaching the
   # server only through two one-off installers (install-allele-selective-tiling.py and
   # install-allele-indels.py), so whether the strategy works at all depended on whether

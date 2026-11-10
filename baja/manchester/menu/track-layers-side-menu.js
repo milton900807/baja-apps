@@ -135,7 +135,7 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
         const showRoot = () => {
             const layers = track.track_layers || [];
             const items = [];
-            if (!layers.length) {
+            if (!layers.length && !(track.variantBatches || []).length) {
                 items.push({ label: '(no layers on this track)', move: () => { }, click: () => { } });
             }
             for (const layer of layers.slice().reverse()) {   // front layer first, like the rows under the track name
@@ -153,6 +153,32 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
                 items.push({ label: 'Interaction on (all)', move: () => { }, click: () => { layers.forEach((l) => { l.interactive = true; }); refreshDraw(); showRoot(); } });
                 items.push({ label: 'Interaction off (all)', move: () => { }, click: () => { layers.forEach((l) => { l.interactive = false; }); refreshDraw(); showRoot(); } });
                 items.push({ label: 'Remove all layers', move: () => { }, click: () => { track.track_layers = []; refreshDraw(); showRoot(); } });
+            }
+            // ---- batches of variants ----
+            // Not track_layers: a batch of variants lives in track.snpindels, because that is
+            // where every menu, hover, design step and exporter already looks for a variant.
+            // It is listed here anyway, because from where the user sits it is the same kind
+            // of thing as a layer -- a set that arrived together and can be turned off -- and
+            // looking for it in a second place would be the surprise.
+            const batches = track.variantBatches || [];
+            if (batches.length) {
+                items.push({ label: '— variants added —', move: () => { }, click: () => { } });
+                for (const b of batches.slice().reverse()) {
+                    items.push({
+                        label: (b.hidden ? '○ ' : '● ') + b.summary(),
+                        move: () => { },
+                        click: () => { if (b.hidden) b.show(); else b.hide(); refreshDraw(); showRoot(); }
+                    });
+                }
+                items.push({
+                    label: 'Remove the newest batch',
+                    move: () => { },
+                    click: () => {
+                        const b = batches[batches.length - 1];
+                        if (b) b.remove();
+                        refreshDraw(); showRoot();
+                    }
+                });
             }
             items.push({ label: 'Close', move: () => { }, click: () => restoreHover() });
             graph.setMessage(' Track layers — ' + (track.name || 'track') + ' ');
