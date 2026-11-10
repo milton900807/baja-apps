@@ -256,9 +256,10 @@ if [[ $DO_API -eq 1 ]]; then
   # pill, and the label stops sitting over the residues it describes -- which looks like a
   # drawing bug in the compound and is really a version skew. They were in two different
   # groups until this was noticed.
-  install_group "compound sequence label (spans oligo.js and gene.js)" \
+  install_group "compound sequence label (spans oligo.js, sirna.js and gene.js)" \
     "flexigraph/oligo.js:THE SAME GEOMETRY THE BEADS USE" \
-    "flexigraph/gene.js:drawAlignedSeqLabel(ctx, o)"
+    "flexigraph/sirna.js:Same geometry the duplex is drawn with" \
+    "flexigraph/gene.js:CLEARANCE IS THIS FUNCTION'S ALONE"
   # Ask a question about the selected variants. All four or none: the menu entry is the
   # only way in, the panel needs the search module's record builder, and the python is
   # where the gene-versus-variant guard actually lives.

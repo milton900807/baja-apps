@@ -817,7 +817,10 @@ function () {
                             const __per = Math.abs(__sxf - __sxi) / __nLet;
                             __drew = graph.drawAlignedSeqLabel(__ctx, {
                                 x0: __x0, perBase: __per,
-                                y: graph.Y(tgraph.Y(y)) + ((this.labelOffsetY || 0) - 16),
+                                // The compound's own baseline. The gap above it belongs to
+                                // drawAlignedSeqLabel; subtracting one here too is what put
+                                // the label beside the wrong oligo.
+                                y: graph.Y(tgraph.Y(y)) + (this.labelOffsetY || 0),
                                 top: this.__seqDisp, bottom: this.__seqDisp2 || '', pair: this.__seqDisp2Pair || 'complement',
                                 colorTop: this.__seqDispColor || '#0b7285',
                                 colorBottom: this.__seqDisp2Color || '#7c2d12',

@@ -11047,7 +11047,17 @@ pattern, GGGG | Required`
                 if (!isFinite(per) || per <= 0) return false;
                 const rows = bottom ? 2 : 1;
                 const rowH = 12;
-                const yTop = Math.round(o.y - (rows === 2 ? 30 : 26));
+                // CLEARANCE IS THIS FUNCTION'S ALONE, and it is small on purpose. Callers
+                // were subtracting their own gap before calling, so two clearances stacked
+                // and the label floated about forty pixels above the residues it describes
+                // -- which on a tiling walk, where rows sit seventy pixels apart, puts it
+                // nearer the compound ABOVE than the one it belongs to. It reads as a label
+                // attached to the wrong oligo, because that is what it looks like.
+                //
+                // Enough to clear a bead (radius up to 10) and no more: a single row sits
+                // 16px above the backbone, and a stacked pair puts its lower row there and
+                // the upper row above that.
+                const yTop = Math.round(o.y - (rows === 2 ? 28 : 16));
                 const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
                 // WHAT COUNTS AS PAIRED DEPENDS ON WHICH STRAND THE BOTTOM ROW IS.
                 //
