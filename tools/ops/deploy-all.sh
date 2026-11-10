@@ -303,7 +303,7 @@ if [[ $DO_API -eq 1 ]]; then
   # indexed against, and a mismatched pair is worse than an old pair that agrees.
   install_group "allele-selective ASO design" \
     "py/ssaso/design.py:THE CALLER'S ORDER IS THE PRIORITY ORDER" \
-    "baja/manchester/menu/track-design-menu.js:FURTHEST FROM THE REFERENCE FIRST" \
+    "baja/manchester/menu/track-design-menu.js:BACK FROM THE DESIGNED SEQUENCE TO THE TRACK" \
     "baja/manchester/menu/design-scope-from-workbench.js:HOW FAR THIS ALLELE IS FROM THE REFERENCE" \
     "baja/manchester/menu/aso-design-dialog.js:use_track_alleles" \
     "flexigraph/oligo.js:__seqDisp2"

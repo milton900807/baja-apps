@@ -716,13 +716,17 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         const sirnas = [];
 
+                        // This path does not rebuild the target, so designed coordinates are the track's.
+                        const __back = (q) => q;
                         resultJson.top_candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
                                 // selection when there is one, so without this every result lands at the start
                                 // of the track instead of on the selection.
-                                const xi = c.start + __designOffset();
-                                const xf = c.end + __designOffset();
+                                // Through __back first: when that sequence was rebuilt with
+                                // indels applied, its coordinates are not the track's.
+                                const xi = __back(c.start) + __designOffset();
+                                const xf = __back(c.end) + __designOffset();
 
                                 const sequence = c.target_site_input_alphabet || c.sense_strand || "";
                                 const sense = c.sense_strand || "";
@@ -1086,13 +1090,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         const oligos = [];
 
+                        const __back = __backMapper(__scope);
                         candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
                                 // selection when there is one, so without this every result lands at the start
                                 // of the track instead of on the selection.
-                                const xi = c.start + __designOffset();
-                                const xf = c.end + __designOffset();
+                                // Through __back first: when that sequence was rebuilt with
+                                // indels applied, its coordinates are not the track's.
+                                const xi = __back(c.start) + __designOffset();
+                                const xf = __back(c.end) + __designOffset();
 
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
@@ -1658,13 +1665,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         const __maxAso = Math.max(1, parseInt(json_input.top_n) || 100);
                         const __candidates = resultJson.top_candidates.slice(0, __maxAso);
 
+                        const __back = __backMapper(__scope);
                         __candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
                                 // selection when there is one, so without this every result lands at the start
                                 // of the track instead of on the selection.
-                                const xi = c.start + __designOffset();
-                                const xf = c.end + __designOffset();
+                                // Through __back first: when that sequence was rebuilt with
+                                // indels applied, its coordinates are not the track's.
+                                const xi = __back(c.start) + __designOffset();
+                                const xf = __back(c.end) + __designOffset();
 
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
@@ -2116,6 +2126,52 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         // The progress bar belongs to the caller; each designer makes its own before running.
         let __activeProgress = null;
         const progressOf = () => __activeProgress;
+
+        // BACK FROM THE DESIGNED SEQUENCE TO THE TRACK.
+        //
+        // When the workbench rebuilds the target -- which the Allele-selective strategy
+        // always does, because an ASO that discriminates a deletion has to span a join that
+        // only exists once the deletion is made -- the sequence handed to the designer is
+        // NOT the track's sequence. Every applied insertion or deletion moves every base
+        // after it, so a candidate's start indexes a string whose coordinates stopped
+        // agreeing with the track's the moment the first indel was applied.
+        //
+        // Adding the design offset alone places those candidates as if nothing had moved.
+        // On a track carrying a hundred and thirty variants the drift accumulates until the
+        // oligos sit visibly off the mutations they were built to cover, which is the one
+        // thing an allele-selective design cannot get wrong.
+        //
+        // design-scope-from-workbench.js already reports what moved, as `shifts`: every
+        // reference index at or after `from` moved by `by`. This walks that list to invert
+        // it. With no shifts -- no indels applied, or no rebuild at all -- it is the
+        // identity, so every other design path is untouched.
+        const __backMapper = (scope) => {
+            const sh = ((scope && scope.shifts) || []).slice()
+                .filter((x) => x && isFinite(+x.from) && isFinite(+x.by) && +x.by !== 0)
+                .sort((a, b) => a.from - b.from);
+            if (!sh.length) return (q) => q;
+            return (q) => {
+                let cum = 0;
+                for (const x of sh) {
+                    // Where this edit sits in the REBUILT string: its reference position
+                    // plus everything that moved before it.
+                    const at = x.from + cum;
+                    if (q < at) break;
+                    // INSERTED BASES HAVE NO REFERENCE POSITION OF THEIR OWN. They occupy
+                    // [at, at + by) in the rebuilt string and came from nowhere in the
+                    // track, so a candidate starting inside one starts at the point the
+                    // insertion was made. Walking past them instead -- which is what
+                    // subtracting the whole shift does -- puts the oligo `by` bases to the
+                    // LEFT of where it belongs, in the one direction nothing else drifts.
+                    if (x.by > 0 && q < at + x.by) return x.from;
+                    cum += x.by;
+                }
+                // A deleted reference base has no rebuilt position either, so the rebuilt
+                // index at a deletion is the first base that SURVIVED it, which is what
+                // falls out here without a special case.
+                return q - cum;
+            };
+        };
 
         const __designOffset = () => {
             const t = selectedTrack;
