@@ -250,6 +250,12 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # Linear motifs: every lane stays on the track, and every bar answers a click.
+  # Both files or neither: the layer asks the TrackLayer to stack intervals that share a
+  # span, and without that half the bars are dropped before they are ever drawn.
+  install_group "linear motifs: lanes on the track, bars clickable" \
+    "baja/bio/track-layer.js:allowStackedIntervals" \
+    "baja/bio/protein/slim-motif-layer.js:EVERY LANE STAYS ON THE TRACK"
   install_group "Research panel" \
     "py/ion-lib/indication_store.py:def browse(" \
     "py/analytics/indication-browse.py:Reading the indication-market store" \

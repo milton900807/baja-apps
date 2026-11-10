@@ -47,6 +47,16 @@ function (graph, genegraph_panel_layout, tracks, options) {
     const LOSS_SUFFIX = '_motifs_lost';
     const DATA_TYPE = 'SLIM';
 
+    // WHERE EACH OF THE THREE STACKS LIVES, in the track's own world-y, which runs 0..1.
+    // The three layers share that space, so each gets a slice of it and stays inside:
+    // the motif stack at the bottom with most of the room, then lost, then gained on top.
+    // Gained used to start at 1.02, which is off the top of the space it was drawn in.
+    const BAND = {
+        motif: { base: 0.14, band: 0.46, step: 0.18 },
+        lost: { base: 0.70, band: 0.10, step: 0.20 },
+        gained: { base: 0.86, band: 0.10, step: 0.20 }
+    };
+
     return (async () => {
         const TrackLayer = await exec('baja/bio/track-layer.js');
         const quiet = !!o.quiet;
@@ -152,19 +162,48 @@ function (graph, genegraph_panel_layout, tracks, options) {
         // Lay spans out into lanes so overlapping motifs stack instead of overprinting.
         // Packed here rather than through getYByOverlapCount, which searches its own
         // ladder and cannot find a lane among y values it did not choose.
-        const lanes = (layer, spans, base, step, color, labelOf) => {
+        //
+        // EVERY LANE STAYS ON THE TRACK. The lane step used to be a fixed world-y gap, so
+        // the height of the stack was decided by how many motifs happened to overlap. A
+        // protein with 449 of them packs into dozens of lanes, and at 0.18 each the top of
+        // the stack sits several track-heights above the track, off on its own in empty
+        // screen. The pack is therefore done FIRST, counted, and only then given a step:
+        // the band is fixed and the gap divides it. A crowded track draws thin lanes
+        // instead of a tall tower, and nothing leaves the band it was given.
+        //
+        // The placements come back out. They used to be recovered afterwards by matching
+        // layer.intervals against the spans by x, which was wrong in two ways at once:
+        // spans are sorted in place here, so the i-th span is no longer the i-th record,
+        // and two motifs on the same residues share an x key, so one of them answered for
+        // both. The record travels on the span instead, and cannot come adrift of it.
+        const lanes = (layer, spans, base, band, maxStep, color, labelOf) => {
             spans.sort((p, q) => p.x1 - q.x1);
             const laneEnd = [];
+            const packed = [];
             for (const sp of spans) {
                 let lane = 0;
                 while (lane < laneEnd.length && laneEnd[lane] > sp.x1) lane++;
                 laneEnd[lane] = sp.x2;
-                const y = base + lane * step;
-                const label = labelOf ? labelOf(sp) : sp.nm;
-                layer.addInterval(sp.x1, sp.x2, y, label);
-                try { layer.setIntervalColor(sp.x1, sp.x2, y, label, color(sp)); } catch (e) { }
+                packed.push({ sp: sp, lane: lane });
             }
-            return (layer.intervals || []).length;
+            const nLanes = laneEnd.length || 1;
+            const step = (nLanes > 1) ? Math.min(maxStep, band / (nLanes - 1)) : maxStep;
+            // The renderer clamps a fixed-pixel bar to this gap, so a compressed stack
+            // draws thinner bars rather than overprinting ones.
+            try { layer.laneStep = step; } catch (e) { }
+            // Two motifs can cover the same residues on different lanes; both are real bars.
+            try { layer.allowStackedIntervals = true; } catch (e) { }
+            const placed = [];
+            for (const p of packed) {
+                const sp = p.sp;
+                const y = base + p.lane * step;
+                const label = labelOf ? labelOf(sp) : sp.nm;
+                // Colour goes in with the bar. setIntervalColor finds a bar by span alone,
+                // so with lanes sharing a span it painted the first one twice.
+                layer.addInterval(sp.x1, sp.x2, y, label, color(sp));
+                placed.push({ x1: sp.x1, x2: sp.x2, y: y, rec: sp.rec });
+            }
+            return placed;
         };
 
         let done = 0, skipped = 0, empty = 0, already = 0, failed = 0;
@@ -233,20 +272,17 @@ function (graph, genegraph_panel_layout, tracks, options) {
             // lanes() assigns each span a lane y internally, so the y is read back off
             // layer.intervals and matched by x. Entries for this track and suffix are
             // replaced, never appended, so a rescan does not stack duplicates.
-            const regSlim = (tr, layer, spans, recs, kind) => {
+            const regSlim = (tr, layer, placed, kind) => {
                 try {
-                    if (!layer || !recs || !recs.length) return;
+                    if (!layer || !placed || !placed.length) return;
                     graph.__slimIntervals = (graph.__slimIntervals || [])
                         .filter((e) => !(e.track === tr && e.kind === kind));
-                    const byX = {};
-                    for (let i = 0; i < spans.length; i++) byX[Math.round(spans[i].x1) + ':' + Math.round(spans[i].x2)] = recs[i];
-                    for (const iv of (layer.intervals || [])) {
-                        const rec = byX[iv.x1 + ':' + iv.x2];
-                        if (!rec) continue;
+                    for (const p of placed) {
+                        if (!p || !p.rec) continue;
                         graph.__slimIntervals.push({
-                            track: tr, kind: kind, x1: iv.x1, x2: iv.x2, y: iv.y,
+                            track: tr, kind: kind, x1: p.x1, x2: p.x2, y: p.y,
                             barPx: +layer.barHeightPx || 9,
-                            rec: Object.assign({}, rec, { caveats: (meta && meta.caveats) || [], n_total: meta && meta.n })
+                            rec: Object.assign({}, p.rec, { caveats: (meta && meta.caveats) || [], n_total: meta && meta.n })
                         });
                     }
                 } catch (e) { }
@@ -272,16 +308,16 @@ function (graph, genegraph_panel_layout, tracks, options) {
             let nM = 0, mlayer = null;
             if (motifs.length) {
                 mlayer = mk(MOTIF_SUFFIX, 'rgba(120,130,150,0.18)', 9);
-                mlayer.laneStep = 0.18;
                 const spans = [];
                 for (const m of motifs) {
                     const s = spanOf(m.start, m.end);
-                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, score: m.score, pep: m.peptide, a: m.start, b: m.end });
+                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, score: m.score, pep: m.peptide, a: m.start, b: m.end, rec: m });
                 }
-                nM = lanes(mlayer, spans, 0.46, 0.18,
+                const placed = lanes(mlayer, spans, BAND.motif.base, BAND.motif.band, BAND.motif.step,
                     (sp) => colorOf(sp.nm, 0.22), (sp) => sp.nm);
+                nM = placed.length;
                 if (nM) { try { t.addLayer(mlayer); } catch (e) { } }
-                regSlim(t, mlayer, spans, motifs, 'motif');
+                regSlim(t, mlayer, placed, 'motif');
             }
 
             // ---- motifs the variant CREATES -----------------------------------------------
@@ -290,34 +326,34 @@ function (graph, genegraph_panel_layout, tracks, options) {
             let nG = 0, glayer = null;
             if (gained.length) {
                 glayer = mk(GAIN_SUFFIX, 'rgba(176,53,43,0.42)', 13);
-                glayer.laneStep = 0.20;
                 const spans = [];
                 for (const m of gained) {
                     const s = spanOf(m.start, m.end);
-                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, v: m.variant, score: m.score });
+                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, v: m.variant, score: m.score, rec: m });
                 }
-                nG = lanes(glayer, spans, 1.02, 0.20,
+                const placed = lanes(glayer, spans, BAND.gained.base, BAND.gained.band, BAND.gained.step,
                     () => 'rgba(176,53,43,0.42)',
                     (sp) => (sp.v ? (sp.v + ' → ') : '') + sp.nm);
+                nG = placed.length;
                 if (nG) { try { t.addLayer(glayer); } catch (e) { } }
-                regSlim(t, glayer, spans, gained, 'gained');
+                regSlim(t, glayer, placed, 'gained');
             }
 
             // ---- motifs the variant DESTROYS ----------------------------------------------
             let nL = 0, llayer = null;
             if (lost.length) {
                 llayer = mk(LOSS_SUFFIX, 'rgba(60,110,170,0.34)', 13);
-                llayer.laneStep = 0.20;
                 const spans = [];
                 for (const m of lost) {
                     const s = spanOf(m.start, m.end);
-                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, v: m.variant });
+                    if (s) spans.push({ x1: s.x1, x2: s.x2, nm: m.elm, v: m.variant, rec: m });
                 }
-                nL = lanes(llayer, spans, 0.80, 0.20,
+                const placed = lanes(llayer, spans, BAND.lost.base, BAND.lost.band, BAND.lost.step,
                     () => 'rgba(60,110,170,0.34)',
                     (sp) => (sp.v ? (sp.v + ' ✕ ') : '') + sp.nm);
+                nL = placed.length;
                 if (nL) { try { t.addLayer(llayer); } catch (e) { } }
-                regSlim(t, llayer, spans, lost, 'lost');
+                regSlim(t, llayer, placed, 'lost');
             }
 
             // ---- the label above the track, and the "?" behind it -------------------------
