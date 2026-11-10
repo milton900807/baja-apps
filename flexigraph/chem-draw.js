@@ -312,6 +312,57 @@ function () {
         //    drawn as a furanose ring showing its 2'-chemistry; otherwise a 3D bead.
         const sugarMode = per >= SUGAR_PER && !opts.thin && !lowDetail;
         const showBase = per >= 11 && !opts.thin && !lowDetail;
+
+        // ---- THE TARGET STRAND, UNDER THE COMPOUND ----------------------------------------
+        //
+        // The letters above the beads are the compound's OWN monomers. What a reader of an
+        // allele-selective design needs beside them is the strand being bound, in register,
+        // so the discriminating base is a column rather than two strings to compare.
+        // Drawn here rather than as a label because here the register is not a calculation:
+        // it is the same cx the bead was drawn at.
+        //
+        // ORIENTATION IS MEASURED, NOT ASSUMED. The two strands run antiparallel, so the
+        // target that pairs with monomer i is the target string read backwards -- unless
+        // whoever filled the field already stored it in the compound's own direction, which
+        // different callers do differently. Both readings are scored against the monomers
+        // and the better-pairing one is used, so a field stored either way reads correctly
+        // and only a genuine mismatch shows as one.
+        const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
+        let tgtRow = null;
+        if (showBase) {
+            const host0 = opts.oligo || null;
+            const raw = ('' + ((host0 && (host0.targetSequence || host0.targetSite)) || '')).toUpperCase()
+                .replace(/[^ACGTUN]/g, '');
+            if (raw.length === n) {
+                const fwd = raw.split('');
+                const rev = fwd.slice().reverse();
+                const score = (arr) => {
+                    let k = 0;
+                    for (let i = 0; i < n; i++) {
+                        const b = (monos[i] && monos[i].base) ? monos[i].base[0] : '';
+                        if (b && arr[i] && COMP[b] === arr[i]) k++;
+                    }
+                    return k;
+                };
+                const sR = score(rev), sF = score(fwd);
+                const best = Math.max(sR, sF);
+                // A FIELD THAT PAIRS BADLY BOTH WAYS IS NOT THIS COMPOUND'S TARGET, and
+                // drawing it underneath asserts a pairing that does not exist -- a row of
+                // mismatch columns that look like findings. An allele-selective oligo
+                // mismatches its target in one or two places, not in eight, so anything
+                // below three quarters is a wrong field rather than a discriminating one.
+                if (best >= Math.ceil(n * 0.75)) {
+                    tgtRow = (sR >= sF) ? rev : fwd;
+                } else if (host0 && !host0.__tgtRowWarned) {
+                    host0.__tgtRowWarned = true;
+                    try {
+                        console.warn('[chem-draw] ' + (host0.name || host0.id)
+                            + ': the target sequence pairs with only ' + best + ' of ' + n
+                            + ' monomers in either direction, so it is not drawn under the compound.');
+                    } catch (e) { }
+                }
+            }
+        }
         for (let i = 0; i < n; i++) {
             const cx = x0 + (i + 0.5) * per;
             if (cx < visMin || cx > visMax) continue;   // off-screen residue — skip
@@ -345,6 +396,24 @@ function () {
                 ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
                 ctx.fillStyle = BASE_COL[mo.base[0]] || GX.ink;
                 ctx.fillText(mo.base[0], cx, sy - R - 2);
+            }
+            // The target base that pairs with this monomer, directly beneath it. A column
+            // that does NOT pair is the whole point of an allele-selective design, so it is
+            // marked as a column rather than left for the reader to spot.
+            if (tgtRow) {
+                const tb = tgtRow[i] || '';
+                const mb = (mo.base && mo.base[0]) || '';
+                const bad = !!(tb && mb && COMP[mb] !== tb);
+                if (bad) {
+                    ctx.fillStyle = 'rgba(224,138,0,0.20)';
+                    ctx.fillRect(Math.round(cx - per / 2), sy + R + 1, Math.max(1, Math.round(per)), 14);
+                }
+                if (tb) {
+                    ctx.font = 'bold ' + Math.max(8, Math.min(13, Math.round(R * 1.35))) + 'px "Segoe UI", Arial, sans-serif';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                    ctx.fillStyle = bad ? '#b45309' : 'rgba(15,23,42,0.55)';
+                    ctx.fillText(tb, cx, sy + R + 3);
+                }
             }
         }
 

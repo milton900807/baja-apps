@@ -256,7 +256,8 @@ if [[ $DO_API -eq 1 ]]; then
   # pill, and the label stops sitting over the residues it describes -- which looks like a
   # drawing bug in the compound and is really a version skew. They were in two different
   # groups until this was noticed.
-  install_group "compound sequence label (spans oligo.js, sirna.js and gene.js)" \
+  install_group "compound sequence label (spans oligo.js, sirna.js, chem-draw.js and gene.js)" \
+    "flexigraph/chem-draw.js:THE TARGET STRAND, UNDER THE COMPOUND" \
     "flexigraph/oligo.js:THE TARGET GOES UNDER THE COMPOUND" \
     "flexigraph/sirna.js:Same geometry the duplex is drawn with" \
     "flexigraph/gene.js:CLEARANCE IS THIS FUNCTION'S ALONE"
