@@ -104,6 +104,60 @@ function () {
             }
             monos = rebuilt;
         }
+        // ---- GENOMIC ORIENTATION ------------------------------------------------------
+        //
+        // The beads were always laid out in SYNTHESIS order, 5' to 3' left to right,
+        // whatever direction the compound runs on the genome. For an antisense oligo that
+        // is backwards: its 5' end pairs with the HIGHER coordinate, so the leftmost bead
+        // was the last residue, and the strand it binds -- drawn underneath, and the track's
+        // own sequence drawn under that -- read in the opposite direction to everything
+        // else on the canvas. In a genome browser, left is the lower coordinate; a compound
+        // is the only thing that was exempt.
+        //
+        // MEASURED, NOT ASSUMED. The compound's strand field says which strand the DESIGN
+        // was run against, not which way these beads were drawn, and the two are not the
+        // same question. The target sequence is stored in genomic orientation, so whether
+        // the monomers run with it or against it is answered by pairing them both ways and
+        // seeing which wins. No target to measure against means no flip, which leaves the
+        // old behaviour exactly where it was.
+        const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
+        const __host = opts.oligo || null;
+        const __tgtRaw = ('' + ((__host && (__host.targetSequence || __host.targetSite)) || '')).toUpperCase()
+            .replace(/[^ACGTUN]/g, '');
+        let __flip = false, __tgtPairs = -1;
+        if (__tgtRaw.length === n && n > 1) {
+            const pairScore = (atSlot) => {
+                let k = 0;
+                for (let i = 0; i < n; i++) {
+                    const b = (monos[atSlot(i)] && monos[atSlot(i)].base) ? monos[atSlot(i)].base[0] : '';
+                    if (b && __tgtRaw[i] && COMP[b] === __tgtRaw[i]) k++;
+                }
+                return k;
+            };
+            const asIs = pairScore((i) => i);
+            const mirrored = pairScore((i) => n - 1 - i);
+            __tgtPairs = Math.max(asIs, mirrored);
+            // Below three quarters in BOTH directions the field is not this compound's
+            // target at all, and neither answer means anything; nothing is flipped and
+            // nothing is drawn underneath.
+            if (__tgtPairs >= Math.ceil(n * 0.75)) __flip = mirrored > asIs;
+            else if (__host && !__host.__tgtRowWarned) {
+                __host.__tgtRowWarned = true;
+                try {
+                    console.warn('[chem-draw] ' + (__host.name || __host.id)
+                        + ': the target sequence pairs with only ' + __tgtPairs + ' of ' + n
+                        + ' monomers in either direction, so the compound is not reoriented '
+                        + 'and no target is drawn under it.');
+                } catch (e) { }
+            }
+        }
+        // Slot -> monomer. Everything that draws walks SLOTS, left to right in genomic
+        // order; everything that records or resolves an index speaks MONOMERS, because
+        // __chemGeom.monos is the compound's own chemistry and the editor writes back
+        // through it. Mixing the two is how a mirrored compound would get its wings
+        // swapped the first time somebody edited a sugar.
+        const __mono = (slot) => monos[__flip ? (n - 1 - slot) : slot] || {};
+
         const x0 = Math.min(sxs, sxf);
         const per = span / n;
         // Bead radius from per-base width, clamped. When beads would be too tight to read,
@@ -146,6 +200,11 @@ function () {
             host.__chemGeom = {
                 x0: x0, per: per, n: n, sy: sy, R: R,
                 thin: !!opts.thin,
+                // Drawn in genomic order, so slot k holds monomer n-1-k. `monos` stays in
+                // the compound's own order -- the chemistry editor writes back through it
+                // and a reversed array there would swap a gapmer's wings the first time
+                // anyone edited a sugar. Whoever turns a pixel into an index applies this.
+                flipped: __flip,
                 // Selectable only once the sugars are drawn as rings -- the zoom at which
                 // there is a visible "part" to aim at. Below this the polymer is beads and a
                 // click has nothing specific to mean.
@@ -222,7 +281,11 @@ function () {
         for (let i = 0; i < n - 1; i++) {
             const cx = x0 + (i + 0.5) * per, nx = x0 + (i + 1.5) * per;
             if (nx < visMin || cx > visMax) continue;   // off-screen linkage — skip
-            const lk = (monos[i] && monos[i].linkage) || '';
+            // The bond drawn between slot i and slot i+1. Mirrored, those slots hold
+            // monomers n-1-i and n-2-i, and the bond is recorded on the 5' partner of the
+            // pair -- which is the SECOND of them in genomic order, not the first.
+            const __lkMono = __flip ? (monos[n - 2 - i] || {}) : (monos[i] || {});
+            const lk = __lkMono.linkage || '';
             const isPS = (lk === 'sp' || lk === 'ps' || lk === 'rsp' || lk === 'ssp');
             const isPO = (lk === 'po' || lk === 'p');
             if (chemMode && (isPS || isPO)) {
@@ -321,52 +384,16 @@ function () {
         // Drawn here rather than as a label because here the register is not a calculation:
         // it is the same cx the bead was drawn at.
         //
-        // ORIENTATION IS MEASURED, NOT ASSUMED. The two strands run antiparallel, so the
-        // target that pairs with monomer i is the target string read backwards -- unless
-        // whoever filled the field already stored it in the compound's own direction, which
-        // different callers do differently. Both readings are scored against the monomers
-        // and the better-pairing one is used, so a field stored either way reads correctly
-        // and only a genuine mismatch shows as one.
-        const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
-        let tgtRow = null;
-        if (showBase) {
-            const host0 = opts.oligo || null;
-            const raw = ('' + ((host0 && (host0.targetSequence || host0.targetSite)) || '')).toUpperCase()
-                .replace(/[^ACGTUN]/g, '');
-            if (raw.length === n) {
-                const fwd = raw.split('');
-                const rev = fwd.slice().reverse();
-                const score = (arr) => {
-                    let k = 0;
-                    for (let i = 0; i < n; i++) {
-                        const b = (monos[i] && monos[i].base) ? monos[i].base[0] : '';
-                        if (b && arr[i] && COMP[b] === arr[i]) k++;
-                    }
-                    return k;
-                };
-                const sR = score(rev), sF = score(fwd);
-                const best = Math.max(sR, sF);
-                // A FIELD THAT PAIRS BADLY BOTH WAYS IS NOT THIS COMPOUND'S TARGET, and
-                // drawing it underneath asserts a pairing that does not exist -- a row of
-                // mismatch columns that look like findings. An allele-selective oligo
-                // mismatches its target in one or two places, not in eight, so anything
-                // below three quarters is a wrong field rather than a discriminating one.
-                if (best >= Math.ceil(n * 0.75)) {
-                    tgtRow = (sR >= sF) ? rev : fwd;
-                } else if (host0 && !host0.__tgtRowWarned) {
-                    host0.__tgtRowWarned = true;
-                    try {
-                        console.warn('[chem-draw] ' + (host0.name || host0.id)
-                            + ': the target sequence pairs with only ' + best + ' of ' + n
-                            + ' monomers in either direction, so it is not drawn under the compound.');
-                    } catch (e) { }
-                }
-            }
-        }
+        // The orientation question was settled above, where it had to be: the compound
+        // itself is drawn in genomic order now, so the target is written exactly as it is
+        // stored -- genomic order too -- and reads in the same direction as the track's own
+        // sequence underneath it. Slot i pairs with target base i, by construction.
+        const tgtRow = (showBase && __tgtRaw.length === n && __tgtPairs >= Math.ceil(n * 0.75))
+            ? __tgtRaw.split('') : null;
         for (let i = 0; i < n; i++) {
             const cx = x0 + (i + 0.5) * per;
             if (cx < visMin || cx > visMax) continue;   // off-screen residue — skip
-            const mo = monos[i] || {};
+            const mo = __mono(i);
             const sugarCol = SUGAR_COL[mo.sugar] || baseCol;
             if (sugarMode) {
                 drawSugar(cx, sy, R, mo);
@@ -445,7 +472,9 @@ function () {
             const three = /3$/.test('' + (conj.units || '')) || (+conj.units === 3)
                 || /GN3|GalNAc3/i.test('' + (conj.symbol || ''));
             const nUnits = three ? 3 : 1;
-            const atFive = ('' + conj.site) === '5';
+            // Which SIDE the 5' end is on now depends on the mirror, so the conjugate
+            // follows its own end rather than a fixed edge.
+            const atFive = (('' + conj.site) === '5') !== __flip;
             // 5' is the LEFT end of the drawn span only when the compound is drawn 5'->3'
             // left to right, which is how this renderer lays it out.
             const endX = atFive ? x0 : x0 + per * n;
