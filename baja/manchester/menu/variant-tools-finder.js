@@ -406,6 +406,16 @@ function (graph) {
             },
 
             {
+                // SEARCH WHAT THE RECORDS SAY, rather than where they sit. 'Find SNPs' above
+                // walks positions; this one walks text -- name, gene, clinical call,
+                // condition, consequence, source, alleles, annotations -- with wildcards, and
+                // leaves every hit selected, which is the same highlight a click gives.
+                x: 4, y: 0, label: 'Search variants (text, wildcards)', ionFunction: createIonFunction(async () => {
+                    await exec('baja/data/variant-search.js', graph);
+                })
+            },
+
+            {
                 x: 2, y: 0, label: 'Clear all SNP/Indels', ionFunction: createIonFunction(async () => {
 
                     let confirm = await exec('baja/lib/confirm.js', 'Remove all snps?', async () => {

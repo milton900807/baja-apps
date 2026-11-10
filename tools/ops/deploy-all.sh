@@ -249,6 +249,11 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # Text search over the variants on the open tracks, with wildcards.
+  # Both or neither: the menu entry is the only way in, and the module is the search.
+  install_group "variant search (text, wildcards)" \
+    "baja/data/variant-search.js:SEARCH THE VARIANTS ON THE OPEN TRACKS" \
+    "baja/manchester/menu/variant-tools-finder.js:Search variants (text, wildcards)"
   # A batch of newly loaded variants, told apart from the ones already on the track.
   # All three or none: load-variants.js makes the batch, variant-batch.js is what a batch
   # IS, and the layers menu is the only way to turn one off again.
