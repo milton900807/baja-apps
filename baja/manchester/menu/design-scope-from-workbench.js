@@ -117,6 +117,34 @@ function (graph, track, sequence, opts) {
         // actually made. Only the SEQUENCE handed to the designer is rebuilt -- the track is not
         // touched -- and every position that moves is reported in `out.mutations`, in the
         // coordinates of that rebuilt sequence, so the caller never has to redo this arithmetic.
+        // HOW FAR THIS ALLELE IS FROM THE REFERENCE, as an edit distance between the two
+        // written forms. One substituted base is 1; a two-base MNV is 2; a five-base
+        // deletion is 5. It is reported on every mutation so a caller can order by it --
+        // the furthest-from-reference mutation is the one an allele-selective oligo can
+        // discriminate most confidently, since it has the most changed sequence to sit on.
+        //
+        // Levenshtein rather than a length difference, because ref CAG -> alt CTG is one
+        // edit and ref CAG -> alt C is two, and a length difference calls the first zero.
+        // The strings here are a handful of bases, so the full table is free.
+        const editDistance = (a, b) => {
+            a = ('' + (a || '')).toUpperCase(); b = ('' + (b || '')).toUpperCase();
+            if (a === b) return 0;
+            if (!a.length) return b.length;
+            if (!b.length) return a.length;
+            let prev = new Array(b.length + 1);
+            for (let j = 0; j <= b.length; j++) prev[j] = j;
+            for (let i = 1; i <= a.length; i++) {
+                const cur = new Array(b.length + 1);
+                cur[0] = i;
+                for (let j = 1; j <= b.length; j++) {
+                    cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1,
+                        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+                }
+                prev = cur;
+            }
+            return prev[b.length];
+        };
+
         const applyIndels = ('' + (o.indels || '')).toLowerCase() === 'apply';
         const rna = /U/i.test(seq0);
         const asSeq = (b) => (rna && b === 'T') ? 'U' : b;
@@ -217,7 +245,7 @@ function (graph, track, sequence, opts) {
                 span[1] = Math.max(span[0] + 1, Math.min(seq.length, span[1]));
                 out.mutations.push({
                     pos: at, span: span, type: (a.sub ? 'snp' : (a.alt.length > a.ref.length ? 'ins' : 'del')),
-                    ref: a.ref, alt: a.alt,
+                    ref: a.ref, alt: a.alt, edits: editDistance(a.ref, a.alt),
                     label: ('' + (a.v.name || a.v.id || (a.ref + '>' + a.alt))),
                     selected: !!(a.v.highlight || (a.v.isSelected && a.v.isSelected())),
                 });
@@ -238,7 +266,8 @@ function (graph, track, sequence, opts) {
                 span[1] = Math.max(span[0] + 1, Math.min(seq0.length, span[1]));
                 out.mutations.push({
                     pos: i, span: span, type: (sub ? 'snp' : (f.alt.length > f.ref.length ? 'ins' : 'del')),
-                    ref: f.ref, alt: f.alt, label: ('' + (v.name || v.id || (f.ref + '>' + f.alt))),
+                    ref: f.ref, alt: f.alt, edits: editDistance(f.ref, f.alt),
+                    label: ('' + (v.name || v.id || (f.ref + '>' + f.alt))),
                     selected: !!(v.highlight || (v.isSelected && v.isSelected())),
                 });
             }

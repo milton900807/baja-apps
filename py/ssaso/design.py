@@ -894,7 +894,19 @@ def select_allele_tiled(
     """
     if not candidates:
         return []
-    spans = sorted({(int(x[0]), int(x[1])) for x in (cover_spans or [])})
+    # THE CALLER'S ORDER IS THE PRIORITY ORDER, so it is preserved rather than sorted away.
+    # The walk below takes one candidate per mutation per pass, so when the cap cuts the run
+    # short the mutations early in this list are the ones that got covered. Sorting by
+    # position here meant the priority was "whichever is nearest the 5' end", which is not a
+    # property of the mutation at all. De-duplicated in place, first occurrence wins.
+    spans: List[Tuple[int, int]] = []
+    _seen_spans = set()
+    for x in (cover_spans or []):
+        sp = (int(x[0]), int(x[1]))
+        if sp in _seen_spans:
+            continue
+        _seen_spans.add(sp)
+        spans.append(sp)
     best_at: Dict[int, GapmerCandidate] = {}
     for cand in candidates:
         cur = best_at.get(cand.start)

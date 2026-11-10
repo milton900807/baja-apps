@@ -1009,13 +1009,29 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             try { if (progress && progress.stop) progress.stop(); } catch (e) { }
                             return;
                         }
+                        // FURTHEST FROM THE REFERENCE FIRST. The designer walks the
+                        // mutations one candidate at a time in turn, so when the cap cuts
+                        // the run short it is this order that decides which mutations got
+                        // covered. Position is not a property of the mutation; edit
+                        // distance is, and the mutation with the most changed sequence is
+                        // the one an allele-selective oligo can discriminate most
+                        // confidently -- an ASO over a five-base deletion mismatches the
+                        // other allele five times, one over a single substitution once.
+                        //
+                        // Ties keep positional order, so the list stays readable and two
+                        // runs over the same track order their oligos the same way.
+                        __muts2 = __muts2.slice().sort((a, b) =>
+                            ((+b.edits || 0) - (+a.edits || 0)) || ((+a.pos || 0) - (+b.pos || 0)));
                         json_input.cover_spans = __muts2.map((m) => m.span);
                         const __byType = __muts2.reduce((a, m) => { a[m.type] = (a[m.type] || 0) + 1; return a; }, {});
                         const __what = Object.keys(__byType).map((k) => __byType[k] + ' ' + k).join(', ');
                         try {
+                            const __far = __muts2.filter((m) => (+m.edits || 0) > 1).length;
                             graph.setResultMessage(' Allele-selective: designing around ' + __muts2.length
                                 + ' mutation' + (__muts2.length === 1 ? '' : 's') + ' (' + __what + ') on '
-                                + (selectedTrack.name || 'this track') + '. ');
+                                + (selectedTrack.name || 'this track') + ', furthest from the reference first'
+                                + (__far ? (' \u2014 ' + __far + ' of them change more than one base') : '')
+                                + '. ');
                         } catch (e) { }
                     }
 

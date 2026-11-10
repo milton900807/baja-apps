@@ -389,7 +389,9 @@ function (kind, targetLength, context) {
                     + ': up to ' + c.perMut + ' register' + (c.perMut === 1 ? '' : 's')
                     + ' over each of ' + c.muts + ' mutation' + (c.muts === 1 ? '' : 's') + '.'
                     + (cut ? (' The maximum below stops it at ' + cap.toLocaleString()
-                        + ', taken one mutation at a time in turn, so every mutation is covered before any is covered twice.') : '');
+                        + ', taken one mutation at a time in turn, so every mutation is covered before any is '
+                        + 'covered twice \u2014 furthest from the reference first, so if the cap cuts the run short '
+                        + 'it is the most discriminating mutations that got designed against.') : '');
             };
             const setStrategy = (v) => {
                 strategy = v;

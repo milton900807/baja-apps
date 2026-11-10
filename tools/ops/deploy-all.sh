@@ -302,9 +302,9 @@ if [[ $DO_API -eq 1 ]]; then
   # them, design-scope-from-workbench.js is what rebuilds the mutant sequence they are
   # indexed against, and a mismatched pair is worse than an old pair that agrees.
   install_group "allele-selective ASO design" \
-    "py/ssaso/design.py:cover_spans" \
-    "baja/manchester/menu/track-design-menu.js:json_input.cover_spans = __muts2.map" \
-    "baja/manchester/menu/design-scope-from-workbench.js:RIGHT TO LEFT, so an indel cannot move the ground" \
+    "py/ssaso/design.py:THE CALLER'S ORDER IS THE PRIORITY ORDER" \
+    "baja/manchester/menu/track-design-menu.js:FURTHEST FROM THE REFERENCE FIRST" \
+    "baja/manchester/menu/design-scope-from-workbench.js:HOW FAR THIS ALLELE IS FROM THE REFERENCE" \
     "baja/manchester/menu/aso-design-dialog.js:use_track_alleles" \
     "flexigraph/oligo.js:__seqDisp2"
   # Conserved domains and functional sites answer a click, like the motifs do.
