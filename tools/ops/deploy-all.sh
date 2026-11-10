@@ -307,6 +307,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/design-scope-from-workbench.js:RIGHT TO LEFT, so an indel cannot move the ground" \
     "baja/manchester/menu/aso-design-dialog.js:use_track_alleles" \
     "flexigraph/oligo.js:__seqDisp2"
+  # Conserved domains and functional sites answer a click, like the motifs do.
+  # All four or none: the layer registers the bars, mouse-over-highlight finds one from a
+  # pixel, the panel is what opens, and the lookup is the only thing with prose in it.
+  install_group "CDD domains: clickable, with a description" \
+    "baja/bio/protein/cdd-domain-layer.js:CLICK TARGETS" \
+    "baja/bio/protein/cdd-domain-panel.js:The description window for one CDD domain" \
+    "py/bio/protein/domain-lookup.py:Describe one CDD domain or functional site" \
+    "baja/manchester/menu/mouse-over-highlight.js:A CLICK ON A CONSERVED DOMAIN"
   # Linear motifs: every lane stays on the track, and every bar answers a click.
   # Both files or neither: the layer asks the TrackLayer to stack intervals that share a
   # span, and without that half the bars are dropped before they are ever drawn.

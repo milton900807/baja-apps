@@ -2028,6 +2028,38 @@ function (graph, genegraph_panel_layout) {
                             try { exec('baja/bio/protein/slim-motif-panel.js', __slimHit); } catch (e) { }
                         }
 
+                        // A CLICK ON A CONSERVED DOMAIN OR A FUNCTIONAL SITE. Same shape as the
+                        // motif test above and same registry idea: cdd-domain-layer.js records
+                        // every bar it draws on graph.__cddIntervals with the CDD row behind it.
+                        // Both sides in SCREEN pixels, graph.Y(tg.Y(iv.y)) against graph.Y(y).
+                        //
+                        // A SITE WINS A TIE WITH THE DOMAIN IT SITS INSIDE. Sites are drawn in
+                        // their own row below the domains and are three bases wide, so a press
+                        // that is within range of both is a press aimed at the small thing: the
+                        // domain is reachable anywhere along its hundred residues, the site only
+                        // here. Without this the domain answers every click on its own sites.
+                        let __cddHit = null;
+                        try {
+                            const reg = graph.__cddIntervals;
+                            if (reg && reg.length) {
+                                const tg = track.tgraph;
+                                const yPx = graph.Y(y);
+                                let best = Infinity, bestKind = '';
+                                for (const e of reg) {
+                                    if (e.track !== track) continue;
+                                    if (xw < Math.min(e.x1, e.x2) || xw > Math.max(e.x1, e.x2)) continue;
+                                    const d = Math.abs(graph.Y(tg.Y(e.y)) - yPx);
+                                    if (d > ((e.barPx / 2) + 3)) continue;
+                                    const beatsIt = (d < best)
+                                        || (e.kind === 'site' && bestKind !== 'site' && d <= best + 6);
+                                    if (beatsIt) { best = d; bestKind = e.kind; __cddHit = e.rec; }
+                                }
+                            }
+                        } catch (e) { __cddHit = null; }
+                        if (__cddHit) {
+                            try { exec('baja/bio/protein/cdd-domain-panel.js', __cddHit); } catch (e) { }
+                        }
+
                         let __pepHit = null;
                         try {
                             const tg = track.tgraph;

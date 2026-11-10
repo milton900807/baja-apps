@@ -174,6 +174,28 @@ function (graph, genegraph_panel_layout, tracks, options) {
             } catch (e) { }
         };
 
+        // CLICK TARGETS. The layer draws bars; a bar the user can press has to be findable
+        // from a pixel, so each drawn interval is registered with the record behind it, the
+        // way slim-motif-layer.js does for motifs. Entries for this track and kind are
+        // replaced rather than appended, so a rescan does not stack duplicates.
+        //
+        // THE RECORD TRAVELS ON THE SPAN. The spans are sorted before they are placed, so
+        // anything that pairs the i-th placed bar with the i-th record afterwards is
+        // pairing the wrong two. Carrying it makes that impossible rather than careful.
+        const regCdd = (tr, kind, placed) => {
+            try {
+                graph.__cddIntervals = (graph.__cddIntervals || [])
+                    .filter((e) => !(e.track === tr && e.kind === kind));
+                for (const p of placed) {
+                    if (!p || !p.rec) continue;
+                    graph.__cddIntervals.push({
+                        track: tr, kind: kind, x1: p.x1, x2: p.x2, y: p.y,
+                        barPx: p.barPx || 12, rec: p.rec
+                    });
+                }
+            } catch (e) { }
+        };
+
         let done = 0, skipped = 0, empty = 0, already = 0;
         const per = [];
 
@@ -257,13 +279,15 @@ function (graph, genegraph_panel_layout, tracks, options) {
                     // rather than assumed; +2 takes in the last codon's remaining two bases.
                     spans.push({
                         x1: Math.min(a, b), x2: Math.max(a, b) + 2,
-                        nm: ('' + (d.name || d.id || 'domain')).trim() || 'domain'
+                        nm: ('' + (d.name || d.id || 'domain')).trim() || 'domain',
+                        rec: d
                     });
                     dinfo.push({ nm: ('' + (d.name || d.id || 'domain')).trim() || 'domain', a: d.start, b: d.end,
                                  evalue: d.evalue, type: d.type, faint: /transcript/i.test('' + d.name) });
                 }
                 spans.sort((p, q) => p.x1 - q.x1);
                 const laneEnd = [];   // rightmost x2 placed in each lane so far
+                const placedD = [];
                 for (const sp of spans) {
                     let lane = 0;
                     while (lane < laneEnd.length && laneEnd[lane] > sp.x1) lane++;
@@ -279,7 +303,12 @@ function (graph, genegraph_panel_layout, tracks, options) {
                         const iv = (layer.intervals || []).find((v) => v.x1 === sp.x1 && v.x2 === sp.x2);
                         if (iv) iv.noLabel = true;
                     }
+                    placedD.push({
+                        x1: sp.x1, x2: sp.x2, y: y, barPx: 12,
+                        rec: Object.assign({ __kind: 'domain', name: sp.nm, faint: faint }, sp.rec || {})
+                    });
                 }
+                regCdd(t, 'domain', placedD);
                 // COUNT WHAT IS IN THE LAYER, not how many times addInterval was called: it
                 // drops a span it already holds, so counting calls overstated the result --
                 // EGFR reported 88 sites while carrying 67. The number said out loud has to be
@@ -335,6 +364,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 slayer.drawZoomThreshold = 0.05;
                 slayer.minIntervalPx = 3;
 
+                const placedS = [];
                 for (const s of sites) {
                     const raw = '' + (s.sites || '');
                     if (!raw) continue;
@@ -353,8 +383,13 @@ function (graph, genegraph_panel_layout, tracks, options) {
                         const y = SITE_BASE + lane * SITE_STEP;
                         slayer.addInterval(g, g + 2, y, nm);
                         try { slayer.setIntervalColor(g, g + 2, y, nm, colorOf(nm, 0.6)); } catch (e) { }
+                        placedS.push({
+                            x1: g, x2: g + 2, y: y, barPx: 10,
+                            rec: Object.assign({ __kind: 'site', name: nm, residue: ('' + p).trim() }, s || {})
+                        });
                     }
                 }
+                regCdd(t, 'site', placedS);
                 nS = (slayer.intervals || []).length;   // stored, not attempted (see above)
                 if (nS) { try { t.addLayer(slayer); } catch (e) { } }
             }
