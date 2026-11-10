@@ -255,6 +255,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "variant batches: shape by kind, colour by LOF" \
     "baja/data/variant-batch.js:TOLD APART FROM THE ONES ALREADY THERE" \
     "baja/data/load-variants.js:tell the new ones from the ones already there" \
+    "baja/data/variant-from-prompt.js:tell what was just described from what was already there" \
     "baja/manchester/menu/track-layers-side-menu.js:— variants added —"
   # ALLELE-SELECTIVE ASO DESIGN, the whole chain. These five files were reaching the
   # server only through two one-off installers (install-allele-selective-tiling.py and

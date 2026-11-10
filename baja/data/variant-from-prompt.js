@@ -404,6 +404,12 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             // summary below needs names to work that out.
             let placed = 0, first = null;
             const placedLabels = [], refusedLabels = [];
+            // The SnpIndels this call puts on THIS track, and how many were already on it.
+            // A description dropped onto a track that already carries variants is the case
+            // where the one you just described disappears into the crowd; see the batch step
+            // after the loop.
+            const __placedSnps = [];
+            const __had = ((track.snpindels || []).length) | 0;
             const labelOf = (e) => ('' + ((e && (e.label || e.hgvs_p || e.hgvs_c)) || '')).trim();
             // THE EDIT AS A VCF WOULD WRITE IT: a plus-strand anchor position with plus-strand
             // alleles, which is what SnpIndel takes -- it complements for display itself.
@@ -510,6 +516,7 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                 track.addsnpindel(snp);
                 track.showSnpIndels = true;
                 placed++; placedLabels.push(labelOf(ed)); if (!first) first = snp;
+                __placedSnps.push(snp);
             }
             // What this transcript would not take: the ones the python could not verify against
             // its protein, plus the ones the track itself refused above. Worked out BEFORE the
@@ -528,6 +535,20 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                     placedLabels: [], refused: refused,
                 };
             }
+            // ---- tell what was just described from what was already there ---------------
+            // Only when the track already had variants. Shape becomes the kind of change and
+            // colour the predicted loss of function from the record's own consequence; the
+            // batch can be hidden or dropped from the layers menu without disturbing what
+            // the track carried before. The red these were constructed with said "this is the
+            // one you asked for", which is true of every one of them and so distinguishes
+            // none of them from each other.
+            let __batch = null;
+            if (__had > 0 && __placedSnps.length) {
+                try {
+                    __batch = await exec('baja/data/variant-batch.js', track, __placedSnps,
+                        { label: 'Described: ' + ('' + text).slice(0, 48) });
+                } catch (e) { console.warn('[variant batch]', e); }
+            }
             try { if (graph.wake) graph.wake(); } catch (e) { }
             // Show it: select the mutation and zoom to it, as the tours do.
             try { await exec('baja/manchester/menu/focus-mutation.js', graph, first, 10000); } catch (e) { }
@@ -539,6 +560,7 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             return {
                 ok: true, track: track.name || 'the track', snp: first, placed: placed,
                 dropped: refused.length, placedLabels: placedLabels, refused: refused,
+                batch: __batch, batchNote: __batch ? __batch.summary() : '',
                 cohort: !!r.cohort,
                 label: r.cohort
                     ? (placed + ' variant' + (placed === 1 ? '' : 's') + ' of ' + (gene || track.name))
@@ -649,7 +671,19 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             + (failed.length ? ' (' + failed.length + ' track' + (failed.length === 1 ? '' : 's') + ' skipped: ' + failed.map((x) => x.why).filter(Boolean).join('; ') + ')' : '')
             + (dropped.length ? '. ' + dropped.join(', ') + ' ' + (dropped.length === 1 ? 'was' : 'were')
                 + ' removed: nothing was placed on ' + (dropped.length === 1 ? 'it' : 'them') : '')
-            + '. ';
+            + '. '
+            // Where a track already carried variants, say that these are drawn differently
+            // and what the difference means. Without the key the two new axes are just two
+            // more things on a crowded track.
+            + ((() => {
+                const notes = results.map((g) => g && g.batchNote).filter(Boolean);
+                if (!notes.length) return '';
+                return 'Added as a batch, drawn apart from what was already there: shape is the '
+                    + 'kind of change (circle a substitution, triangle an insertion, inverted '
+                    + 'triangle a deletion) and colour is the predicted loss of function from '
+                    + 'the record\u2019s own consequence. ' + notes.join('; ') + '. '
+                    + 'Hide or drop it from the track\u2019s layers menu. ';
+            })());
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();
         return true;
