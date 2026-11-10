@@ -257,7 +257,7 @@ if [[ $DO_API -eq 1 ]]; then
   # drawing bug in the compound and is really a version skew. They were in two different
   # groups until this was noticed.
   install_group "compound sequence label (spans oligo.js, sirna.js and gene.js)" \
-    "flexigraph/oligo.js:THE SAME GEOMETRY THE BEADS USE" \
+    "flexigraph/oligo.js:THE TARGET GOES UNDER THE COMPOUND" \
     "flexigraph/sirna.js:Same geometry the duplex is drawn with" \
     "flexigraph/gene.js:CLEARANCE IS THIS FUNCTION'S ALONE"
   # Ask a question about the selected variants. All four or none: the menu entry is the

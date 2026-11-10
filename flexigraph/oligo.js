@@ -777,12 +777,32 @@ function () {
                     let __per0 = 0;
                     try { __per0 = graph.X(tgraph.X(this.xi + 1)) - graph.X(tgraph.X(this.xi)); } catch (e) { __per0 = 0; }
                     const __chemLetters = (__per0 >= 11) && !(graph && graph.__lowDetail);
+                    // THE TARGET GOES UNDER THE COMPOUND, so the drawing reads as a duplex:
+                    // the oligo along the top, the strand it binds beneath it, columns
+                    // lining up. A mismatch is then a column you can see rather than two
+                    // strings to compare in a menu -- which is the whole question an
+                    // allele-selective design is asking, and the one the old layout, with
+                    // the target stacked above everything, made hardest to answer.
+                    //
+                    // When the beads are already spelling the compound out, the target goes
+                    // underneath ALONE: a row of letters repeating the beads directly below
+                    // them is noise, and it pushes the target further from the thing it is
+                    // supposed to be aligned with.
+                    this.__seqBelow = true;
                     if (__chemLetters) {
-                        if (__syn) { this.__seqDisp = __syn; this.__seqDisp2 = ''; this.__seqDispColor = '#7c2d12'; }
+                        if (__tgt) { this.__seqDisp = __tgt; this.__seqDisp2 = ''; this.__seqDispColor = '#0b7285'; }
+                        else if (__syn) { this.__seqDisp = __syn; this.__seqDisp2 = ''; this.__seqDispColor = '#7c2d12'; }
                     } else if (__tgt) {
-                        this.__seqDisp = __tgt; this.__seqDispColor = '#0b7285';
-                        // The target is about the pairing, so what will be made goes underneath it.
-                        if (__syn) this.__seqDisp2 = __syn;
+                        // Oligo first, target under it. The pairing test below is told which
+                        // way round they are, so an identical base is the mismatch under an
+                        // antisense compound and the other way round under a sense one.
+                        if (__syn) {
+                            this.__seqDisp = __syn; this.__seqDispColor = '#7c2d12';
+                            this.__seqDisp2 = __tgt; this.__seqDisp2Color = '#0b7285';
+                        } else {
+                            this.__seqDisp = __tgt; this.__seqDispColor = '#0b7285';
+                            this.__seqDisp2 = '';
+                        }
                     }
                 }
                 if (this.__seqDisp) {
@@ -842,20 +862,24 @@ function () {
                                 // the label beside the wrong oligo.
                                 y: graph.Y(tgraph.Y(y)) + (this.labelOffsetY || 0),
                                 top: this.__seqDisp, bottom: this.__seqDisp2 || '', pair: this.__seqDisp2Pair || 'complement',
+                                below: this.__seqBelow !== false,
                                 colorTop: this.__seqDispColor || '#0b7285',
                                 colorBottom: this.__seqDisp2Color || '#7c2d12',
                             });
                         }
                     } catch (e) { __drew = false; }
                     if (!__drew) {
-                        drawCenteredOvalLabel('' + this.__seqDisp, (this.labelOffsetY || 0) - 16, {
+                        // Same side as the aligned version, so a zoom change does not move
+                        // the sequence from under the compound to over it.
+                        const __pillY = (this.labelOffsetY || 0) + (this.__seqBelow !== false ? 16 : -16);
+                        drawCenteredOvalLabel('' + this.__seqDisp, __pillY, {
                             font: '10px Arial',
                             textColor: this.__seqDispColor || '#7c2d12',
                             fillColor: '#ffffff',
                             strokeColor: '#000000',
                         });
                         if (this.__seqDisp2) {
-                            drawCenteredOvalLabel('' + this.__seqDisp2, (this.labelOffsetY || 0) - 4, {
+                            drawCenteredOvalLabel('' + this.__seqDisp2, __pillY + 12, {
                                 font: '10px Arial',
                                 textColor: this.__seqDisp2Color || '#7c2d12',
                                 fillColor: '#ffffff',

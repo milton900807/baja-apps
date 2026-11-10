@@ -11057,7 +11057,14 @@ pattern, GGGG | Required`
                 // Enough to clear a bead (radius up to 10) and no more: a single row sits
                 // 16px above the backbone, and a stacked pair puts its lower row there and
                 // the upper row above that.
-                const yTop = Math.round(o.y - (rows === 2 ? 28 : 16));
+                // ABOVE BY DEFAULT, BELOW ON REQUEST. A compound's own strand belongs next
+                // to the compound; the strand it BINDS reads better underneath, because
+                // then the drawing is a duplex -- oligo over target, columns lining up --
+                // and a mismatch is a column you can see rather than two strings to compare.
+                // The clearance is the same either way, measured from the backbone.
+                const yTop = o.below
+                    ? Math.round(o.y + 20)
+                    : Math.round(o.y - (rows === 2 ? 28 : 16));
                 const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
                 // WHAT COUNTS AS PAIRED DEPENDS ON WHICH STRAND THE BOTTOM ROW IS.
                 //
