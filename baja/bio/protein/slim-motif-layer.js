@@ -229,6 +229,29 @@ function (graph, genegraph_panel_layout, tracks, options) {
             if (!motifs.length && !gained.length && !lost.length) { empty++; continue; }
 
             const lo = Math.min(t.xi, t.xf), hi = Math.max(t.xi, t.xf);
+            // Hit-testing needs to get from a pixel back to the record the backend sent.
+            // lanes() assigns each span a lane y internally, so the y is read back off
+            // layer.intervals and matched by x. Entries for this track and suffix are
+            // replaced, never appended, so a rescan does not stack duplicates.
+            const regSlim = (tr, layer, spans, recs, kind) => {
+                try {
+                    if (!layer || !recs || !recs.length) return;
+                    graph.__slimIntervals = (graph.__slimIntervals || [])
+                        .filter((e) => !(e.track === tr && e.kind === kind));
+                    const byX = {};
+                    for (let i = 0; i < spans.length; i++) byX[Math.round(spans[i].x1) + ':' + Math.round(spans[i].x2)] = recs[i];
+                    for (const iv of (layer.intervals || [])) {
+                        const rec = byX[iv.x1 + ':' + iv.x2];
+                        if (!rec) continue;
+                        graph.__slimIntervals.push({
+                            track: tr, kind: kind, x1: iv.x1, x2: iv.x2, y: iv.y,
+                            barPx: +layer.barHeightPx || 9,
+                            rec: Object.assign({}, rec, { caveats: (meta && meta.caveats) || [], n_total: meta && meta.n })
+                        });
+                    }
+                } catch (e) { }
+            };
+
             const mk = (suffix, color, barPx) => {
                 const layer = new TrackLayer(label + suffix, lo, 0, hi, 1);
                 layer.type = 'TrackLayer';
@@ -258,6 +281,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 nM = lanes(mlayer, spans, 0.46, 0.18,
                     (sp) => colorOf(sp.nm, 0.22), (sp) => sp.nm);
                 if (nM) { try { t.addLayer(mlayer); } catch (e) { } }
+                regSlim(t, mlayer, spans, motifs, 'motif');
             }
 
             // ---- motifs the variant CREATES -----------------------------------------------
@@ -276,6 +300,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
                     () => 'rgba(176,53,43,0.42)',
                     (sp) => (sp.v ? (sp.v + ' → ') : '') + sp.nm);
                 if (nG) { try { t.addLayer(glayer); } catch (e) { } }
+                regSlim(t, glayer, spans, gained, 'gained');
             }
 
             // ---- motifs the variant DESTROYS ----------------------------------------------
@@ -292,6 +317,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
                     () => 'rgba(60,110,170,0.34)',
                     (sp) => (sp.v ? (sp.v + ' ✕ ') : '') + sp.nm);
                 if (nL) { try { t.addLayer(llayer); } catch (e) { } }
+                regSlim(t, llayer, spans, lost, 'lost');
             }
 
             // ---- the label above the track, and the "?" behind it -------------------------

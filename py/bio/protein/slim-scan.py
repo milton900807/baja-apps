@@ -87,6 +87,9 @@ def _unq(s):
     return s
 
 
+INFO = {}                     # ELM name -> {site, blurb}, filled by _read_classes
+
+
 def _read_classes():
     """ELM classes as {name: (compiled regex, prior)}. Empty dict if absent."""
     path = os.path.join(HOME, "elm_classes.tsv")
@@ -111,6 +114,8 @@ def _read_classes():
                 prior = float(row.get("Probability") or 1e-3)
             except Exception:
                 prior = 1e-3
+            INFO[name] = {"site": row.get("FunctionalSiteName") or "",
+                          "blurb": row.get("Description") or ""}
             try:
                 # (?=(...)) so overlapping instances are all found, not just the
                 # leftmost non-overlapping ones. A protein's motifs overlap.
@@ -129,8 +134,10 @@ def _scan(seq, classes, lo=None, hi=None):
             e = s + len(m.group(1)) - 1
             if lo is not None and (e < lo or s > hi):
                 continue
+            _i = INFO.get(name, {})
             hits.append({"elm": name, "start": s, "end": e,
-                         "peptide": seq[s - 1:e], "prior": prior})
+                         "peptide": seq[s - 1:e], "prior": prior,
+                         "site": _i.get("site", ""), "blurb": _i.get("blurb", "")})
     return hits
 
 

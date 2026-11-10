@@ -2003,6 +2003,31 @@ function (graph, genegraph_panel_layout) {
                         // which re-translates the track from its current sequence. The row's height
                         // above the baseline is recorded by track.js each frame it draws the letters
                         // (tgraph.__pepMidUpPx); when the letters are not drawn there is nothing to hit.
+                        // A CLICK ON A LINEAR MOTIF. slim-motif-layer registers every
+                        // interval it draws on graph.__slimIntervals with the record behind
+                        // it. Vertical test is annHit's idiom: both sides in SCREEN pixels,
+                        // graph.Y(tg.Y(iv.y)) against graph.Y(y). Guarded entirely on that
+                        // registry, so nothing here can reach exon, SNP, lasso or zoom.
+                        let __slimHit = null;
+                        try {
+                            const reg = graph.__slimIntervals;
+                            if (reg && reg.length) {
+                                const tg = track.tgraph;
+                                const yPx = graph.Y(y);
+                                let best = Infinity;
+                                for (const e of reg) {
+                                    if (e.track !== track) continue;
+                                    if (xw < Math.min(e.x1, e.x2) || xw > Math.max(e.x1, e.x2)) continue;
+                                    const d = Math.abs(graph.Y(tg.Y(e.y)) - yPx);
+                                    if (d > ((e.barPx / 2) + 3)) continue;
+                                    if (d < best) { best = d; __slimHit = e.rec; }
+                                }
+                            }
+                        } catch (e) { __slimHit = null; }
+                        if (__slimHit) {
+                            try { exec('baja/bio/protein/slim-motif-panel.js', __slimHit); } catch (e) { }
+                        }
+
                         let __pepHit = null;
                         try {
                             const tg = track.tgraph;
