@@ -163,6 +163,12 @@ if [[ $DO_API -eq 1 ]]; then
     local pair f mk src dst owner i=0
     for pair in "$@"; do
       f="${pair%%:*}"; mk="${pair#*:}"; src="$TMP/fl.$i"; i=$((i+1))
+      # ONE FILE PER ENTRY. Several paths were once packed into a single entry separated
+      # by spaces; everything before the first colon is the path, so that became one
+      # filename with spaces in it, the fetch missed, and the group returned 0 -- a whole
+      # feature skipped on every run, saying only that it was not at the ref. A malformed
+      # entry is a mistake in this script and has to read like one.
+      case "$f" in *" "*) say "  $label: MALFORMED entry '$f' -- one file per entry; skipped."; return 0 ;; esac
       curl -fsSL "$RAW/$REF/$f" -o "$src" 2>/dev/null || { say "  $label: $f is not at ${REF:0:12}; skipped."; return 0; }
       grep -q -- "$mk" "$src" || { say "  $label: $f at ${REF:0:12} predates the change; skipped."; return 0; }
     done
@@ -229,24 +235,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/annotation/tile-variant.js:AND WHICH STRAND THE RECORD IS WRITTEN ON" \
     "py/bio/allele-selective-targets.py:def context_for("
   # Linear motifs (ELM) on a peptide track, and what a variant does to them.
-  # All three or none: the menu entry would open a submenu onto a layer that is not
-  # there, and the layer would call a scan that is not there.
-  install_group "linear motifs (ELM)" \
-    "baja/bio/protein/slim-motif-layer.js baja/bio/protein/slim-motif-panel.js baja/bio/protein/motif-impact.js baja/bio/protein/motif-impact.js:SHORT LINEAR MOTIFS AS A LAYER" \
-    "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
-    "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling"
-  # Linear motifs (ELM) on a peptide track, and what a variant does to them.
-  # All three or none: the menu entry would open a submenu onto a layer that is not
-  # there, and the layer would call a scan that is not there.
-  install_group "linear motifs (ELM)" \
-    "baja/bio/protein/slim-motif-layer.js baja/bio/protein/slim-motif-panel.js baja/bio/protein/motif-impact.js baja/bio/protein/motif-impact.js:SHORT LINEAR MOTIFS AS A LAYER" \
-    "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
-    "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling"
-  # Linear motifs (ELM) on a peptide track, and what a variant does to them.
   # All four or none: the catalogue entry and the track menu would both open onto a
   # layer that is not there, and the layer would call a scan that is not there.
   install_group "linear motifs (ELM)" \
-    "baja/bio/protein/slim-motif-layer.js baja/bio/protein/slim-motif-panel.js baja/bio/protein/motif-impact.js baja/bio/protein/motif-impact.js:SHORT LINEAR MOTIFS AS A LAYER" \
+    "baja/bio/protein/slim-motif-layer.js:SHORT LINEAR MOTIFS AS A LAYER" \
+    "baja/bio/protein/slim-motif-panel.js:The description window for one linear motif" \
+    "baja/bio/protein/motif-impact.js:MOTIF IMPACT OF ONE MISSENSE VARIANT" \
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
