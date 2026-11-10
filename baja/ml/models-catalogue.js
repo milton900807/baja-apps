@@ -500,15 +500,11 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                 let v = null;
                 try {
                     v = await exec('baja/lib/prompt-text.js', {
-                        title: 'Linear motifs \u00b7 variant',
-                        message: 'Protein-space substitutions, comma separated, against this '
-                            + 'track\'s own translation. The scan paints what each one creates '
-                            + 'and destroys. A variant whose wild-type residue does not match '
-                            + 'the sequence is reported, not drawn. Leave this empty to scan '
-                            + 'the wild-type sequence only.',
-                        placeholder: 'R578C, S577A',
+                        title: 'Linear motifs \u00b7 how many to show',
+                        message: 'How many motifs to paint, highest ranked first. The scan uses the track\'s own translation exactly as it stands. The score is a RANK, not a probability, so this is a count: 30 is a readable track, 500 shows everything the catalogue matches and most of it is noise.',
+                        placeholder: '30',
                         action: 'Scan',
-                        historyKey: 'slim-motif-variants'
+                        historyKey: 'slim-motif-count'
                     });
                 } catch (e) {
                     // Never swallow this. A prompt that fails silently degrades to a
@@ -522,12 +518,12 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                 if (v != null && v !== false) {
                     txt = '' + (v.text != null ? v.text : (v.value != null ? v.value : v));
                 }
-                const variants = txt.replace(/;/g, ',').split(',')
-                    .map((x) => x.trim()).filter(Boolean);
-                console.log('[models-catalogue] linear motifs: variants', variants);
+                const n = parseInt(txt, 10);
+                const minScore = (isFinite(n) && n > 0) ? n : 30;
+                console.log('[models-catalogue] linear motifs: show', minScore);
                 return __onParentTrack('Linear motifs',
                     (list) => exec('baja/bio/protein/slim-motif-layer.js', graph, L, list,
-                        { redo: true, variants: variants }));
+                        { redo: true, minScore: minScore }));
             },
             docs: {
                 summary: 'Scans the track\'s own translation against the ELM catalogue of short '
