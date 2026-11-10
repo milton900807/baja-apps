@@ -491,8 +491,36 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             // motif layer rather than by a peptide-level scorer, because that is what
             // exists: a scan of the translated sequence against the ELM catalogue,
             // re-ranked, drawn on the codons that encode each hit.
-            open: () => __onParentTrack('Linear motifs',
-                (list) => exec('baja/bio/protein/slim-motif-layer.js', graph, L, list, { redo: true })),
+            open: async () => {
+                // The same prompt the track menu uses. A model reachable from the
+                // catalogue should not expose half the feature: without this, running
+                // it here always scanned the wild type, so a gained motif could never
+                // appear and the variant half was unreachable from where people look.
+                // Empty or cancelled means wild type only, which is the old behaviour.
+                let v = null;
+                try {
+                    v = await exec('baja/lib/prompt-text.js', {
+                        title: 'Linear motifs \u00b7 variant',
+                        message: 'Protein-space substitutions, comma separated, against this '
+                            + 'track\'s own translation. The scan paints what each one creates '
+                            + 'and destroys. A variant whose wild-type residue does not match '
+                            + 'the sequence is reported, not drawn. Leave this empty to scan '
+                            + 'the wild-type sequence only.',
+                        placeholder: 'R578C, S577A',
+                        action: 'Scan',
+                        historyKey: 'slim-motif-variants'
+                    });
+                } catch (e) { v = null; }
+                let txt = '';
+                if (v != null && v !== false) {
+                    txt = '' + (v.text != null ? v.text : (v.value != null ? v.value : v));
+                }
+                const variants = txt.replace(/;/g, ',').split(',')
+                    .map((x) => x.trim()).filter(Boolean);
+                return __onParentTrack('Linear motifs',
+                    (list) => exec('baja/bio/protein/slim-motif-layer.js', graph, L, list,
+                        { redo: true, variants: variants }));
+            },
             docs: {
                 summary: 'Scans the track\'s own translation against the ELM catalogue of short '
                     + 'linear motifs and draws the hits on the codons that encode them. With a '
