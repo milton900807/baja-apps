@@ -245,6 +245,24 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # ALLELE-SELECTIVE ASO DESIGN, the whole chain. These five files were reaching the
+  # server only through two one-off installers (install-allele-selective-tiling.py and
+  # install-allele-indels.py), so whether the strategy works at all depended on whether
+  # someone remembered to run them, and nothing said so when they had not. The symptom is
+  # quiet and looks like a design problem rather than a deploy one: the dialog still
+  # offers the strategy and still counts the mutations, because that count is worked out
+  # in the browser, but the designer never receives cover_spans and returns ASOs that do
+  # not sit over a mutation -- reference oligos, in other words.
+  #
+  # All five or none: track-design-menu.js sends cover_spans, design.py is what honours
+  # them, design-scope-from-workbench.js is what rebuilds the mutant sequence they are
+  # indexed against, and a mismatched pair is worse than an old pair that agrees.
+  install_group "allele-selective ASO design" \
+    "py/ssaso/design.py:cover_spans" \
+    "baja/manchester/menu/track-design-menu.js:json_input.cover_spans = __muts2.map" \
+    "baja/manchester/menu/design-scope-from-workbench.js:RIGHT TO LEFT, so an indel cannot move the ground" \
+    "baja/manchester/menu/aso-design-dialog.js:use_track_alleles" \
+    "flexigraph/oligo.js:__seqDisp2"
   # Linear motifs: every lane stays on the track, and every bar answers a click.
   # Both files or neither: the layer asks the TrackLayer to stack intervals that share a
   # span, and without that half the bars are dropped before they are ever drawn.
