@@ -76,6 +76,17 @@ HOME = os.environ.get("SLIMRANK_HOME", "/opt/baja-apps/data/slimrank")
 PAD = 13                      # longest motif span either side of a variant
 
 
+def _unq(s):
+    """ELM ships quoted TSV: every field, the header row included, is wrapped in
+    double quotes. A plain tab split leaves the quotes attached to the header
+    keys, so every row lookup misses and the table parses to nothing. Strip one
+    surrounding pair and unescape doubled quotes."""
+    s = s.strip()
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1].replace('""', '"')
+    return s
+
+
 def _read_classes():
     """ELM classes as {name: (compiled regex, prior)}. Empty dict if absent."""
     path = os.path.join(HOME, "elm_classes.tsv")
@@ -87,7 +98,7 @@ def _read_classes():
         for line in fh:
             if line.startswith("#"):
                 continue
-            parts = line.rstrip("\n").split("\t")
+            parts = [_unq(x) for x in line.rstrip("\n").split("\t")]
             if header is None:
                 header = parts
                 continue
@@ -253,7 +264,7 @@ try:
     works.progress(5)
     classes = _read_classes()
     if not classes:
-        raise ValueError("no ELM tables at %s; the host needs them deployed" % HOME)
+        raise ValueError("ELM tables at %s parsed to zero classes" % HOME)
     works.msg("%d motif classes" % len(classes))
 
     works.progress(20)
