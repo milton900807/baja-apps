@@ -510,13 +510,21 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                         action: 'Scan',
                         historyKey: 'slim-motif-variants'
                     });
-                } catch (e) { v = null; }
+                } catch (e) {
+                    // Never swallow this. A prompt that fails silently degrades to a
+                    // wild-type scan, which looks exactly like success and hides the
+                    // whole variant half of the feature.
+                    console.error('[models-catalogue] linear motifs: prompt failed', e);
+                    v = null;
+                }
+                console.log('[models-catalogue] linear motifs: prompt returned', v);
                 let txt = '';
                 if (v != null && v !== false) {
                     txt = '' + (v.text != null ? v.text : (v.value != null ? v.value : v));
                 }
                 const variants = txt.replace(/;/g, ',').split(',')
                     .map((x) => x.trim()).filter(Boolean);
+                console.log('[models-catalogue] linear motifs: variants', variants);
                 return __onParentTrack('Linear motifs',
                     (list) => exec('baja/bio/protein/slim-motif-layer.js', graph, L, list,
                         { redo: true, variants: variants }));
