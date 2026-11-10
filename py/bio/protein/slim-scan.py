@@ -227,6 +227,31 @@ def _score(hits, seq, cons, model, feats):
         return "regex"
 
 
+def _select(hits, cutoff):
+    """Which motifs the track paints.
+
+    The score is a RANK, not a probability: it orders candidates against each
+    other and nothing more. A fixed magnitude therefore means nothing, and what
+    it selects drifts with protein length, which is why 0.5 painted an empty
+    track on a 1336 residue protein whose best candidate scores 0.05. A cutoff
+    of 1 or more is read as a COUNT, the top N by score. Below 1 it is still
+    honoured as a score threshold so an explicit magnitude still works.
+    """
+    if not hits:
+        return [], "none", 0.0
+    ranked = sorted(hits, key=lambda h: -h.get("score", 0.0))
+    if cutoff >= 1:
+        n = int(cutoff)
+        keep = ranked[:n]
+        rule = "top %d by score" % n
+    else:
+        keep = [h for h in ranked if h.get("score", 0.0) >= cutoff]
+        rule = "score >= %g" % cutoff
+    eff = keep[-1].get("score", 0.0) if keep else 0.0
+    keep.sort(key=lambda h: (h["start"], h["end"], h["elm"]))
+    return keep, rule, eff
+
+
 MUT = re.compile(r"^([A-Z])(\d+)([A-Z])$")
 
 
@@ -250,9 +275,9 @@ def _apply(seq, spec):
 protein = (works.param(1) or "").strip().upper()
 variants = [v for v in (works.param(2) or "").replace(";", ",").split(",") if v.strip()]
 try:
-    min_score = float(works.param(3) or 0.5)
+    min_score = float(works.param(3) or 30)
 except Exception:
-    min_score = 0.5
+    min_score = 30
 acc = (works.param(4) or "").strip()
 
 err = ""
@@ -305,10 +330,13 @@ try:
         lost.extend(l)
 
     works.progress(85)
-    shown = [h for h in wt_hits if h.get("score", 0) >= min_score]
-    shown.sort(key=lambda h: -h.get("score", 0))
-    for h in shown:
-        h["rank"] = shown.index(h) + 1
+    shown, cutoff_rule, cutoff_eff = _select(wt_hits, min_score)
+    # Rank by score, then hand them back in positional order so the layer
+    # draws left to right. list.index() is O(n^2) and mis-ranks two hits
+    # that compare equal.
+    for i, h in enumerate(sorted(shown, key=lambda h: -h.get("score", 0))):
+        h["rank"] = i + 1
+    shown.sort(key=lambda h: (h["start"], h["end"], h["elm"]))
 
     caveats = [
         "A motif is a regex match from the ELM catalogue. A protein of this "
@@ -335,7 +363,7 @@ try:
         "n": len(wt_hits), "n_shown": len(shown),
         "motifs": shown, "gained": gained, "lost": lost,
         "meta": {"scoring": scoring, "classes": len(classes),
-                 "length": len(protein), "min_score": min_score,
+                 "length": len(protein), "min_score": min_score, "cutoff_rule": cutoff_rule, "cutoff_score": cutoff_eff,
                  "conservation": bool(cons is not None),
                  "accession": acc, "variants": variants,
                  "caveats": caveats},

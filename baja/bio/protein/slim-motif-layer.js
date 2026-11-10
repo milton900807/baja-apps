@@ -59,7 +59,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
 
         if (!list.length) { say('No tracks to map motifs onto.'); return { done: 0, skipped: 0, empty: 0 }; }
 
-        const minScore = (o.minScore == null) ? 0.5 : +o.minScore;
+        const minScore = (o.minScore == null) ? 30 : +o.minScore;
 
         // ---- the track's peptide, and where each residue sits on the genome -------------
         //
