@@ -130,9 +130,45 @@ function (graph, snps, options) {
         } catch (e) { }
 
         const nameOf = (h) => (descriptors[h.i] && descriptors[h.i].label) || ('variant ' + (h.i + 1));
-        const rows = (arr) => arr.map((h) => ({
+
+        // COLOURING FROM THE ANSWER PAGE. An answer about thirty variants is read once and
+        // acted on later, and the acting-on happens on the track rather than here: the
+        // reader wants the cancer-associated ones to stay a different colour after this
+        // panel is closed. Each row carries a swatch, and each card one that paints its
+        // whole group.
+        //
+        // markerColor, which clinsigStyle() checks before anything automatic, so a colour
+        // set here outranks the clinical call and the batch's loss-of-function reading --
+        // which is the point: the reader is marking something the colour scheme does not
+        // know about. It is also the one field this app treats as the user's own, so
+        // nothing else will quietly overwrite it.
+        // What each variant's markerColor was BEFORE this panel touched it, recorded the
+        // first time it is touched. Clearing puts that back rather than setting null: a
+        // reader who had already coloured one of these by hand should not lose it because
+        // they tried a colour here and changed their mind.
+        const painted = new Map();
+        const paint = (v, hex) => {
+            if (!v) return;
+            try {
+                if (!painted.has(v)) painted.set(v, v.markerColor);
+                v.markerColor = hex;
+            } catch (e) { }
+        };
+        const repaint = () => { try { if (graph.wake) graph.wake(); } catch (e) { } };
+        const swatchFor = (h, fallback) => {
+            const v = list[h.i];
+            const cur = (v && /^#[0-9a-fA-F]{6}$/.test('' + (v.markerColor || ''))) ? v.markerColor : fallback;
+            return { value: cur, onChange: (hex) => { paint(v, hex); repaint(); } };
+        };
+        const swatchAllFor = (arr, fallback) => ({
+            value: fallback,
+            onChange: (hex) => { for (const h of arr) paint(list[h.i], hex); repaint(); }
+        });
+
+        const rows = (arr, fallback) => arr.map((h) => ({
             heading: nameOf(h) + '  ·  ' + h.confidence + ' confidence',
-            text: h.why || '(no reason given)'
+            text: h.why || '(no reason given)',
+            swatch: swatchFor(h, fallback)
         }));
 
         const cards = [];
@@ -143,8 +179,9 @@ function (graph, snps, options) {
         if (atVariant.length) {
             cards.push({
                 title: 'Documented for these variants (' + atVariant.length + ')',
-                meta: 'selected on the track',
-                sections: rows(atVariant)
+                meta: 'selected on the track · the swatch beside the title paints the whole group',
+                swatchAll: swatchAllFor(atVariant, '#c2410c'),
+                sections: rows(atVariant, '#c2410c')
             });
         }
         if (atGene.length) {
@@ -157,11 +194,18 @@ function (graph, snps, options) {
                         + 'particular change selected here, and an intronic or synonymous change in a '
                         + 'disease gene is not thereby associated with that disease. They are NOT '
                         + 'selected on the track.'
-                }].concat(rows(atGene))
+                }].concat(rows(atGene, '#d97706')),
+                swatchAll: swatchAllFor(atGene, '#d97706')
             });
         }
-        if (no.length) cards.push({ title: 'No association found (' + no.length + ')', sections: rows(no) });
-        if (unsure.length) cards.push({ title: 'Not known (' + unsure.length + ')', sections: rows(unsure) });
+        if (no.length) cards.push({
+            title: 'No association found (' + no.length + ')',
+            swatchAll: swatchAllFor(no, '#64748b'), sections: rows(no, '#64748b')
+        });
+        if (unsure.length) cards.push({
+            title: 'Not known (' + unsure.length + ')',
+            swatchAll: swatchAllFor(unsure, '#9aa0a6'), sections: rows(unsure, '#9aa0a6')
+        });
         const cav = (res.caveats || []).slice();
         cav.unshift('This is a language model’s recollection, not a database lookup, a literature '
             + 'search or a clinical interpretation. It carries no citation and nobody has checked it.');
@@ -176,7 +220,20 @@ function (graph, snps, options) {
                 id: 'baja-variant-association',
                 title: 'Selected variants',
                 subtitle: question,
-                cards: cards
+                cards: cards,
+                // Only the colours set FROM THIS PANEL are cleared, and only back to
+                // nothing: a variant the reader had already coloured by hand before this
+                // was ever opened is not this panel's to undo.
+                buttons: [{
+                    label: 'Undo the colours set here',
+                    onClick: () => {
+                        for (const [v, before] of painted) {
+                            try { v.markerColor = (before == null ? null : before); } catch (e) { }
+                        }
+                        painted.clear();
+                        repaint();
+                    }
+                }]
             });
         } catch (e) { }
         return res;

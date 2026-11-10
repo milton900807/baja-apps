@@ -255,6 +255,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "ask about selected variants (AI)" \
     "py/bio/variants/variant-association.py:gene-level contamination" \
     "baja/data/variant-association.js:ASK A QUESTION ABOUT THE SELECTED VARIANTS" \
+    "baja/lib/model-panel.js:OPTIONAL COLOUR CONTROLS" \
     "baja/data/variant-search.js:SEARCH THE VARIANTS ON THE OPEN TRACKS" \
     "flexigraph/gene.js:ASK ABOUT THE SELECTED VARIANTS"
   # Text search over the variants on the open tracks, with wildcards.
