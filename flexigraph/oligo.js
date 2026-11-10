@@ -795,26 +795,46 @@ function () {
                     try {
                         const __ctx = graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
                         if (__ctx && graph.drawAlignedSeqLabel) {
-                            // THE SAME GEOMETRY THE BEADS USE, which is the whole point of
-                            // calling this an aligned label.
+                            // THE BEADS' OWN LAYOUT, READ BACK, not a second layout computed
+                            // to match. chem-draw records where it actually put the residues
+                            // on the compound as __chemGeom { x0, per, n }, earlier in this
+                            // same draw, so the letters can be placed from the very numbers
+                            // the beads were placed from. Two calculations that are supposed
+                            // to agree are two chances to disagree: the first version here
+                            // stepped one genomic base from xi, which drifts a whole letter
+                            // across a 20mer the moment the drawn span is not exactly n
+                            // bases, and recomputing span / n instead only moves the
+                            // assumption from the step to the count.
                             //
-                            // It used to step one GENOMIC base at a time from xi, while
-                            // chem-draw lays its residues out as span / n across the
-                            // compound's drawn width. Those agree only when the drawn width
-                            // is exactly n bases, and one base of disagreement -- an
-                            // inclusive end, a clamped edge, a compound whose span is not
-                            // its length -- spreads a letter per residue across the oligo
-                            // until the letters no longer sit over the beads they describe.
-                            // Deriving both from the compound's own span and the number of
-                            // letters makes them agree by construction, whatever the span
-                            // turns out to be.
-                            const __sxi = graph.X(tgraph.X(this.xi));
-                            const __sxf = graph.X(tgraph.X(this.xf));
-                            const __nLet = Math.max(1, Math.max(
-                                ('' + (this.__seqDisp || '')).length,
-                                ('' + (this.__seqDisp2 || '')).length));
-                            const __x0 = Math.min(__sxi, __sxf);
-                            const __per = Math.abs(__sxf - __sxi) / __nLet;
+                            // The fallback is that recomputation, for a compound drawn
+                            // without the polymer renderer, where there are no beads to be
+                            // out of register with anyway.
+                            const __g = this.__chemGeom;
+                            let __x0, __per;
+                            if (__g && isFinite(+__g.x0) && +__g.per > 0) {
+                                __x0 = +__g.x0; __per = +__g.per;
+                            } else {
+                                const __sxi = graph.X(tgraph.X(this.xi));
+                                const __sxf = graph.X(tgraph.X(this.xf));
+                                const __nLet = Math.max(1, Math.max(
+                                    ('' + (this.__seqDisp || '')).length,
+                                    ('' + (this.__seqDisp2 || '')).length));
+                                __x0 = Math.min(__sxi, __sxf);
+                                __per = Math.abs(__sxf - __sxi) / __nLet;
+                            }
+                            // A label longer or shorter than the chemistry is a real
+                            // disagreement about what this compound IS, not a drawing
+                            // question, and silently rescaling the letters to fit would hide
+                            // it. Say it once per compound and draw at the residue pitch.
+                            try {
+                                const __nL = ('' + (this.__seqDisp || '')).length;
+                                if (__g && __g.n && __nL && __nL !== __g.n && !this.__seqLenWarned) {
+                                    this.__seqLenWarned = true;
+                                    console.warn('[oligo] ' + (this.name || this.id)
+                                        + ': sequence label is ' + __nL + ' long but the chemistry has '
+                                        + __g.n + ' residues; the label is drawn at the residue pitch.');
+                                }
+                            } catch (e) { }
                             __drew = graph.drawAlignedSeqLabel(__ctx, {
                                 x0: __x0, perBase: __per,
                                 // The compound's own baseline. The gap above it belongs to
