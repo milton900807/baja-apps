@@ -12811,6 +12811,21 @@ pattern, GGGG | Required`
                         if (kc.n > 1) menu.push({ label: 'All ' + (kindLabels[kc.k] || kc.k) + ' (' + kc.n + ') ▸', click: () => { openTypeMenu(kc.k); }, move: () => { } });
                     }
 
+                    // ASK ABOUT THE SELECTED VARIANTS. Offered only when some are selected,
+                    // because the question it asks is about variants and an empty set has
+                    // nothing to ask about. See baja/data/variant-association.js: what is
+                    // known about a GENE comes back separately from what is known about
+                    // these particular changes, and only the latter is marked on the track.
+                    const __selSnps = sel.filter((e) => e && e.kind === 'snp' && e.ref).map((e) => e.ref);
+                    if (__selSnps.length) {
+                        menu.push({
+                            label: 'Ask about these ' + __selSnps.length + ' variant'
+                                + (__selSnps.length === 1 ? '' : 's') + '… (AI)',
+                            click: () => { close(); exec('baja/data/variant-association.js', this, __selSnps); },
+                            move: () => { }
+                        });
+                    }
+
                     // Whole-selection actions below the per-object roots.
                     menu.push({ label: 'Download all as CSV', click: () => { close(); this.exportSelection('csv'); }, move: () => { } });
                     menu.push({ label: 'Download all as XLSX', click: () => { close(); this.exportSelection('xlsx'); }, move: () => { } });

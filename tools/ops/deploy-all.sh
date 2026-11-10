@@ -249,6 +249,14 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # Ask a question about the selected variants. All four or none: the menu entry is the
+  # only way in, the panel needs the search module's record builder, and the python is
+  # where the gene-versus-variant guard actually lives.
+  install_group "ask about selected variants (AI)" \
+    "py/bio/variants/variant-association.py:gene-level contamination" \
+    "baja/data/variant-association.js:ASK A QUESTION ABOUT THE SELECTED VARIANTS" \
+    "baja/data/variant-search.js:SEARCH THE VARIANTS ON THE OPEN TRACKS" \
+    "flexigraph/gene.js:ASK ABOUT THE SELECTED VARIANTS"
   # Text search over the variants on the open tracks, with wildcards.
   # Both or neither: the menu entry is the only way in, and the module is the search.
   install_group "variant search (text, wildcards)" \
