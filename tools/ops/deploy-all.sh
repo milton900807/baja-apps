@@ -254,6 +254,12 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "variant search (text, wildcards)" \
     "baja/data/variant-search.js:SEARCH THE VARIANTS ON THE OPEN TRACKS" \
     "baja/manchester/menu/variant-tools-finder.js:Search variants (text, wildcards)"
+  # Newly added variants blink for a minute so they can be found before the view settles.
+  # All three or none: the two loaders are the only callers and the module is the pulse.
+  install_group "new variants pulse" \
+    "baja/data/variant-pulse.js:PULSE THE VARIANTS THAT JUST ARRIVED" \
+    "baja/data/load-variants.js:AND BLINK THEM" \
+    "baja/data/variant-from-prompt.js:BLINK WHAT JUST ARRIVED"
   # A batch of newly loaded variants, told apart from the ones already on the track.
   # All three or none: load-variants.js makes the batch, variant-batch.js is what a batch
   # IS, and the layers menu is the only way to turn one off again.

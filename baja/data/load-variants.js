@@ -461,6 +461,10 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                         { label: label + filterNote });
                 } catch (e) { console.warn('[variant batch]', e); }
             }
+            // AND BLINK THEM. Unlike the batch this runs whatever the track held before: a
+            // hundred variants landing on an empty track still need to be findable, and the
+            // view is rarely sitting where they arrived.
+            try { await exec('baja/data/variant-pulse.js', graph, __placed); } catch (e) { }
 
             if (!added) {
                 // Two different nothings, and they need different answers: the class filter

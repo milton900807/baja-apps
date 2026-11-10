@@ -557,6 +557,12 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                 const cy = (tg.yi + (tg.yi + (tg.height || 0))) / 2, span = Math.abs(tg.height || 0) || 0.1;
                 if (graph.zoomRect) graph.zoomRect(tg.X(first.xi - w), tg.X(first.xi + w), cy + span * 3.6, cy - span * 2.2, 400);
             } catch (e) { }
+            // BLINK WHAT JUST ARRIVED, and only now. focus-mutation above deselects every
+            // mutation on its way to lighting the one it tours, so a pulse started before it
+            // would both be undone by it and snapshot the wrong state to restore at the end.
+            // Started here, the two agree: the toured variant stays focused and the whole
+            // arrival blinks around it.
+            try { await exec('baja/data/variant-pulse.js', graph, __placedSnps); } catch (e) { }
             return {
                 ok: true, track: track.name || 'the track', snp: first, placed: placed,
                 dropped: refused.length, placedLabels: placedLabels, refused: refused,
