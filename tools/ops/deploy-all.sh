@@ -158,6 +158,7 @@ fi
 if [[ $DO_API -eq 1 ]]; then
   step "Lionscript files"
   FL_STAMP="$(date +%Y%m%d%H%M%S)"
+  SERVED_CHECK=()
   install_group() {   # install_group "label" file:marker ...  (all or none)
     local label="$1"; shift
     local pair f mk src dst owner i=0
@@ -174,7 +175,7 @@ if [[ $DO_API -eq 1 ]]; then
     done
     i=0
     for pair in "$@"; do
-      f="${pair%%:*}"; src="$TMP/fl.$i"; dst="$APPS_DIR/$f"; i=$((i+1))
+      f="${pair%%:*}"; mk="${pair#*:}"; src="$TMP/fl.$i"; dst="$APPS_DIR/$f"; i=$((i+1))
       if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then say "  $f: already current"; continue; fi
       mkdir -p "$(dirname "$dst")"
       if [[ -f "$dst" ]]; then
@@ -184,6 +185,9 @@ if [[ $DO_API -eq 1 ]]; then
       fi
       cp "$src" "$dst"; chmod 644 "$dst"; chown "$owner" "$dst" 2>/dev/null || true
       say "  $f: installed"
+      # Remember it, so the end of this run can ask the SERVER for it and find out whether
+      # what it serves is what we just wrote. See "Proving the server serves it".
+      SERVED_CHECK+=("$f|$mk")
     done
   }
   install_group "timeline side panel" \
@@ -434,6 +438,47 @@ print("  donation endpoint: stripeConfigured=%s  separate account=%s"
 ' 2>/dev/null || true
   else
     say "  the endpoint did not answer on port $PORT (re-run with PORT=<port> if the API listens elsewhere)."
+  fi
+fi
+
+# ---- proving the server serves it --------------------------------------------
+#
+# A file on disk is not the same claim as a file being served. baja-server hands modules
+# out through /script, and between the restart above and that endpoint there is room for
+# an in-memory cache, a stale worker, or a path that resolves somewhere other than where
+# this script just wrote. Each of those looks identical from the outside: the deploy says
+# installed, the browser runs the old code, and the next hour is spent debugging the
+# wrong thing.
+#
+# So every module this run installed is asked for BACK, through the running server, and
+# checked for the marker that identifies the new version. A miss here is not fatal -- the
+# bytes are on disk and a second bounce usually settles it -- but it is said plainly.
+if [[ $DO_API -eq 1 && ${#SERVED_CHECK[@]} -gt 0 && $DO_RESTART -eq 1 ]]; then
+  step "Checking the server serves what was installed"
+  SERVED_BAD=0
+  for entry in "${SERVED_CHECK[@]}"; do
+    f="${entry%%|*}"; mk="${entry#*|}"
+    # Only lionscript modules go through /script; python is loaded from disk per call.
+    case "$f" in *.js) ;; *) continue ;; esac
+    dir="${f%/*}"; base="${f##*/}"
+    enc="${dir//\//%2F}"
+    body="$(curl -fsS "localhost:$PORT/script?spath=$enc&rule_name=$base&v=$(date +%s)" 2>/dev/null || true)"
+    if [[ -z "$body" ]]; then
+      say "  $f: the server did not answer for it on port $PORT"; SERVED_BAD=$((SERVED_BAD+1)); continue
+    fi
+    if printf '%s' "$body" | grep -q -- "$mk"; then
+      say "  $f: served, current"
+    else
+      say "  $f: SERVED STALE -- on disk but the server is still handing out the old one"
+      SERVED_BAD=$((SERVED_BAD+1))
+    fi
+  done
+  if [[ $SERVED_BAD -gt 0 ]]; then
+    say ""
+    say "  $SERVED_BAD file(s) are on disk but not being served. Bounce it again:"
+    say "      sudo systemctl restart baja-server"
+    say "  and if they are still stale, the server is loading them from somewhere other"
+    say "  than $APPS_DIR -- check APPS_DIR against the service's own working directory."
   fi
 fi
 
