@@ -227,7 +227,10 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                 // the list is the model's own statement about where it can be trusted.
                 choice: {
                     label: 'RNA binding protein',
-                    note: 'Held-out AUROC \u2265 0.90.',
+                    // Several at once: one scan scores all 170 heads anyway, so a set costs
+                    // what a single protein costs, and each one gets its own layer.
+                    multi: true,
+                    note: 'Held-out AUROC \u2265 0.90. Pick several with ctrl/shift, or Select all.',
                     value: 'TARDBP',
                     empty: 'The reliable-RBP table could not be read on this server.',
                     options: async () => {
@@ -482,14 +485,73 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
-            title: 'Peptide', badge: 'Model', ready: false,
-            blurb: 'Peptide-level prediction over the translated sequence.',
-            open: () => { try { graph.setMessage(' Peptide model — coming soon. '); } catch (e) { } },
+            title: 'Linear motifs', badge: 'ELM', ready: true,
+            blurb: 'Short recognition motifs on the peptide, and what a variant does to them.',
+            // The catalogue slot that said "Peptide -- coming soon". It is filled by the
+            // motif layer rather than by a peptide-level scorer, because that is what
+            // exists: a scan of the translated sequence against the ELM catalogue,
+            // re-ranked, drawn on the codons that encode each hit.
+            open: async () => {
+                // The same prompt the track menu uses. A model reachable from the
+                // catalogue should not expose half the feature: without this, running
+                // it here always scanned the wild type, so a gained motif could never
+                // appear and the variant half was unreachable from where people look.
+                // Empty or cancelled means wild type only, which is the old behaviour.
+                let v = null;
+                try {
+                    v = await exec('baja/lib/prompt-text.js', {
+                        title: 'Linear motifs \u00b7 how many to show',
+                        message: 'How many motifs to paint, highest ranked first. The scan uses the track\'s own translation exactly as it stands. The score is a RANK, not a probability, so this is a count: 30 is a readable track, 500 shows everything the catalogue matches and most of it is noise.',
+                        placeholder: '30',
+                        action: 'Scan',
+                        historyKey: 'slim-motif-count'
+                    });
+                } catch (e) {
+                    // Never swallow this. A prompt that fails silently degrades to a
+                    // wild-type scan, which looks exactly like success and hides the
+                    // whole variant half of the feature.
+                    console.error('[models-catalogue] linear motifs: prompt failed', e);
+                    v = null;
+                }
+                console.log('[models-catalogue] linear motifs: prompt returned', v);
+                let txt = '';
+                if (v != null && v !== false) {
+                    txt = '' + (v.text != null ? v.text : (v.value != null ? v.value : v));
+                }
+                const n = parseInt(txt, 10);
+                const minScore = (isFinite(n) && n > 0) ? n : 30;
+                console.log('[models-catalogue] linear motifs: show', minScore);
+                return __onParentTrack('Linear motifs',
+                    (list) => exec('baja/bio/protein/slim-motif-layer.js', graph, L, list,
+                        { redo: true, minScore: minScore }));
+            },
             docs: {
-                summary: 'Reserved for a peptide-level model over the translated sequence. Not '
-                    + 'implemented yet — listed so the catalogue reflects what is planned as well '
-                    + 'as what is available.',
-                links: []
+                summary: 'Scans the track\'s own translation against the ELM catalogue of short '
+                    + 'linear motifs and draws the hits on the codons that encode them. With a '
+                    + 'variant supplied it scans the mutated sequence too and draws, in their own '
+                    + 'layers, the motifs the variant CREATES and the ones it DESTROYS.',
+                provenance: 'ELM regex classes, re-ranked by a gradient-boosted model trained here '
+                    + 'on 110,148 candidate instances from 296 human proteins carrying 616 '
+                    + 'annotated positives, using conservation across orthologues, local '
+                    + 'conservation contrast, disorder and sequence features. Five-fold '
+                    + 'cross-validation grouped by protein: ROC AUC 0.94, average precision 0.30 '
+                    + 'against a 0.56% base rate. Runs on the server from staged tables and '
+                    + 'weights; with no model present it falls back to ordering by pattern rarity '
+                    + 'and says so in the layer\'s own label.',
+                usage: 'Run it on a coding track. Most of what it finds is hidden behind a score '
+                    + 'threshold on purpose: a protein of any size matches hundreds of motif '
+                    + 'patterns by chance, so READ THE SCORE AS AN ORDERING AMONG CANDIDATES, '
+                    + 'NEVER as a probability that a motif is real. Use the track menu\'s '
+                    + '"With a variant..." entry for gain and loss; variants are protein-space '
+                    + 'only (R578C), are never translated from genomic coordinates, and one whose '
+                    + 'wild-type residue disagrees with the track is reported rather than drawn. '
+                    + 'A GAINED MOTIF\'S SCORE IS AN UPPER BOUND: conservation belongs to the '
+                    + 'residue that was replaced and is inherited by the substitution.',
+                links: [
+                    { title: 'ELM: the Eukaryotic Linear Motif resource',
+                      url: 'http://elm.eu.org/',
+                      note: 'The motif classes and their annotated instances. The source of both the patterns and the training labels.' }
+                ]
             }
         }
     ];

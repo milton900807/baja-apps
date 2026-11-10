@@ -227,10 +227,21 @@ def t_vastdb():
         r.note = "run `bajasplice evaluate vastdb` first"
         return r
     alt = d[d.skip_total >= 10] if "skip_total" in d.columns else d
+    # EXONS WITH A NEAR-IDENTICAL TWIN ARE LEFT OUT. Their PSI is a blend of two
+    # genes' reads, so disagreement with VastDB there says nothing about either
+    # pipeline. SMN2 exon 7 is the worked case: labelled 0.84, truly ~0.10.
+    n_before = len(alt)
+    try:
+        from bajasplice.mappability import cached_flags
+        fl = cached_flags(alt.reset_index(drop=True), verbose=False)
+        alt = alt[~fl]
+    except Exception:
+        pass
     ok = np.isfinite(alt.psi_mean) & np.isfinite(alt.vast_psi)
     r.value = float(pearsonr(alt.psi_mean[ok], alt.vast_psi[ok])[0])
     r.status = "pass" if r.value >= r.threshold else "fail"
     r.detail = {"n_alternative_exons": int(ok.sum()), "n_all_matched": int(len(d)),
+                "n_dropped_paralogous": int(n_before - len(alt)),
                 "mae": round(float(np.abs(alt.psi_mean[ok] - alt.vast_psi[ok]).mean()), 4)}
     return r
 
@@ -335,6 +346,133 @@ def t_known_cryptic():
 # --------------------------------------------------------------------------
 # 6. ENCODE eCLIP: is the binding model RBP-specific at all?
 # --------------------------------------------------------------------------
+def t_clinvar_regulatory(limit=400):
+    """Does the model see REGULATORY splicing variants, or only broken GT/AGs?
+
+    A synonymous variant cannot change the protein, so a pathogenic one is
+    almost always acting through splicing, and usually through an enhancer or
+    silencer rather than a core site. That is the class every site-strength
+    model is weakest on, and the class ClinVar's splice-annotated variants do
+    NOT cover, since those are dominated by variants at the canonical GT/AG.
+
+    So this is the honest test of the thing SMN2 was meant to probe, with
+    hundreds of examples rather than one, and without SMN2's blended-label
+    problem. Expect it to be much harder than t_clinvar_disruption: that one
+    reaches AUC 0.9955 on the logit scale against benign missense.
+    """
+    from bajasplice.validate.datasets import load_clinvar
+    from sklearn.metrics import roc_auc_score
+
+    r = Result("clinvar_regulatory", "ClinVar pathogenic vs benign SYNONYMOUS",
+               "regulatory splicing variants outscore benign synonymous ones; "
+               "AUC >= 0.70", threshold=0.70)
+    df = load_clinvar(max_per_class=limit)
+    if df is None:
+        r.note = "ClinVar VCF not found"
+        return r
+    sub = df[df.cls.isin(["pathogenic_synonymous", "benign_synonymous"])].reset_index(drop=True)
+    if sub.cls.nunique() < 2 or len(sub) < 40:
+        r.note = "too few synonymous variants (%d)" % len(sub)
+        return r
+
+    m, ctx, dev = _device_model()
+    from bajasplice.variants import delta_score
+    from bajasplice.genome import GenomeReader
+    g = GenomeReader()
+    from bajasplice.variants import variant_tracks
+    P, L, S_ref = [], [], []
+    for row in sub.itertuples(index=False):
+        best = None
+        for st in ("+", "-"):
+            d = delta_score(m, ctx, row.chrom, int(row.pos), row.ref, row.alt,
+                            dev, strand=st, window=50, genome=g)
+            if best is None or d["delta"] > best["delta"]:
+                best = d
+        P.append(best["delta"])
+        L.append(best.get("logit_delta", 0.0))
+        # strongest REFERENCE site within the window: how splice-proximal the
+        # locus is, independent of what the variant does to it
+        try:
+            (a_r, d_r), _ = variant_tracks(m, ctx, row.chrom, int(row.pos), row.ref,
+                                           row.alt, "+", dev, window=50, genome=g)
+            S_ref.append(float(max(a_r.max(), d_r.max())))
+        except Exception:
+            S_ref.append(0.0)
+    y = (sub.cls == "pathogenic_synonymous").astype(int).values
+    auc_p = float(roc_auc_score(y, np.asarray(P)))
+    auc_l = float(roc_auc_score(y, np.asarray(L)))
+
+    # IS THE MODEL WEAK, OR IS THE BENCHMARK UNFAIR? benign_missense is defined
+    # as "away from splice sites"; benign_synonymous is not, so many negatives
+    # here sit beside a boundary and carry real deltas. That is a harder and
+    # more honest negative set, but it means this AUC is not comparable to the
+    # canonical one. Splitting by how strong the nearest REFERENCE site is --
+    # which is a property of the locus, not of the variant, so it is not
+    # circular -- says where the model works and where it does not.
+    S = np.asarray(S_ref)
+    strata = [("near a strong site (ref >= 0.5)", S >= 0.5),
+              ("weak neighbourhood (ref < 0.5)", S < 0.5)]
+    by_site = {}
+    for name, m in strata:
+        if m.sum() >= 20 and len(set(y[m])) == 2:
+            by_site[name] = {
+                "n": int(m.sum()), "n_pathogenic": int(y[m].sum()),
+                "auc_logit": round(float(roc_auc_score(y[m], np.asarray(L)[m])), 4),
+            }
+        else:
+            by_site[name] = {"n": int(m.sum()), "note": "too few, or one class only"}
+    r.value = max(auc_p, auc_l)
+    r.status = "pass" if r.value >= r.threshold else "fail"
+    r.detail = {"n_pathogenic": int(y.sum()), "n_benign": int((1 - y).sum()),
+                "auc_probability": round(auc_p, 4), "auc_logit": round(auc_l, 4),
+                "by_reference_site_strength": by_site,
+                "note": "compare with clinvar_disruption, which reaches 0.9967 "
+                        "on canonical splice-site variants; note that "
+                        "benign_synonymous is NOT filtered away from splice "
+                        "sites the way benign_missense is, so these negatives "
+                        "are harder and the two AUCs are not comparable"}
+    return r
+
+
+def t_paralog_labels():
+    """Are PSI labels at duplicated loci being caught before they are believed?
+
+    This exists because SMN2 exon 7 sits in cassette.tsv with a median PSI of
+    0.84 across 54 tissues on 256,818 reads, when the true figure is about 0.10:
+    skipping that exon is the whole reason SMA is a disease. SMN1 is 99.9%
+    identical, its exon 7 is included in every tissue (PSI exactly 1.0000, zero
+    variance), and the reads are not separable, so the label is a blend. A model
+    trained on it predicted 0.9652 and looked broken when it was obedient.
+
+    The test is not a statistic, it is a regression guard: the known-bad event
+    must be flagged. Across the genome the effect is NOT a systematic bias --
+    flagged exons average PSI 0.9088 against 0.9236 for the rest -- so these
+    events are excluded from VALIDATION, not from training.
+    """
+    import pandas as pd, os
+    from bajasplice.config import paths
+    from bajasplice.mappability import cached_flags
+
+    r = Result("paralog_label_guard", "cassette.tsv against itself",
+               "exons with a near-identical twin in another gene are flagged, "
+               "so benchmarks are not scored against blended labels")
+    f = os.path.join(str(paths().interim), "cassette.tsv")
+    if not os.path.isfile(f):
+        r.note = "cassette.tsv not found"
+        return r
+    ev = pd.read_csv(f, sep="\t")
+    flag = cached_flags(ev, verbose=False)
+
+    sel = ev.index[(ev.gene_name.astype(str) == "SMN2") & (ev.a_start == 70076521)]
+    caught = bool(flag[int(sel[0])]) if len(sel) else None
+    r.value = float(flag.mean())
+    r.status = "pass" if caught else ("fail" if caught is False else "skip")
+    r.detail = {"n_flagged": int(flag.sum()), "n_events": int(len(ev)),
+                "smn2_exon7_flagged": caught,
+                "note": "excluded from validation, not from training"}
+    return r
+
+
 def t_eclip():
     r = Result("eclip_rbp_specificity", "ENCODE eCLIP, held-out windows",
                "on bound-vs-bound windows the matched RBP channel beats a "
@@ -380,6 +518,8 @@ TESTS: dict[str, Callable[[], Result]] = {
     "known-cryptic": t_known_cryptic,
     "eclip": t_eclip,
     "annotated": t_annotated,
+    "paralog-labels": t_paralog_labels,
+    "clinvar-regulatory": t_clinvar_regulatory,
 }
 
 _MARK = {"pass": "PASS", "fail": "FAIL", "skipped": "skip", "error": "ERR ", "info": "INFO"}
