@@ -336,6 +336,23 @@ try:
     # that compare equal.
     for i, h in enumerate(sorted(shown, key=lambda h: -h.get("score", 0))):
         h["rank"] = i + 1
+    # A motif the variant DESTROYS has to appear in the wild-type lane whatever
+    # its rank. Without this the track showed a loss against a list that never
+    # held it: the two motifs R578C destroys score 0.0465 and 0.0148, both below
+    # a top-30 cutoff, so the before/after read as pure addition. These are not
+    # selected candidates and carry no rank; they are the "before" of a claim
+    # the variant layers are already making.
+    _shown_keys = {key(h) for h in shown}
+    n_below_cutoff = 0
+    for _h in lost:
+        if key(_h) in _shown_keys:
+            continue
+        _c = dict(_h)
+        _c.pop("variant", None)
+        _c["below_cutoff"] = True
+        shown.append(_c)
+        _shown_keys.add(key(_h))
+        n_below_cutoff += 1
     shown.sort(key=lambda h: (h["start"], h["end"], h["elm"]))
 
     caveats = [
@@ -344,6 +361,12 @@ try:
         "The score orders candidates against each other. It is not a "
         "probability that a motif is real.",
     ]
+    if n_below_cutoff:
+        caveats.append(
+            "%d motif(s) shown in the wild type rank BELOW the display cutoff and "
+            "are included only because the variant destroys them. The cutoff keeps "
+            "the top candidates; it is not a claim that what falls below it is absent."
+            % n_below_cutoff)
     if scoring == "regex":
         caveats.insert(0, "NO TRAINED MODEL ON THIS HOST: motifs are ordered by "
                           "the rarity of their pattern alone, which is a weak "
@@ -363,7 +386,7 @@ try:
         "n": len(wt_hits), "n_shown": len(shown),
         "motifs": shown, "gained": gained, "lost": lost,
         "meta": {"scoring": scoring, "classes": len(classes),
-                 "length": len(protein), "min_score": min_score, "cutoff_rule": cutoff_rule, "cutoff_score": cutoff_eff,
+                 "length": len(protein), "min_score": min_score, "cutoff_rule": cutoff_rule, "cutoff_score": cutoff_eff, "n_below_cutoff": n_below_cutoff,
                  "conservation": bool(cons is not None),
                  "accession": acc, "variants": variants,
                  "caveats": caveats},
