@@ -240,6 +240,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "linear motifs (ELM)" \
     "baja/bio/protein/slim-motif-layer.js:SHORT LINEAR MOTIFS AS A LAYER" \
     "baja/bio/protein/slim-motif-panel.js:The description window for one linear motif" \
+    "py/bio/protein/motif-lookup.py:Describe one ELM motif class when the catalogue has no description" \
     "baja/bio/protein/motif-impact.js:MOTIF IMPACT OF ONE MISSENSE VARIANT" \
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
