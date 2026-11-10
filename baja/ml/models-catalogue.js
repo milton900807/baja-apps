@@ -491,40 +491,12 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             // motif layer rather than by a peptide-level scorer, because that is what
             // exists: a scan of the translated sequence against the ELM catalogue,
             // re-ranked, drawn on the codons that encode each hit.
-            open: async () => {
-                // The same prompt the track menu uses. A model reachable from the
-                // catalogue should not expose half the feature: without this, running
-                // it here always scanned the wild type, so a gained motif could never
-                // appear and the variant half was unreachable from where people look.
-                // Empty or cancelled means wild type only, which is the old behaviour.
-                let v = null;
-                try {
-                    v = await exec('baja/lib/prompt-text.js', {
-                        title: 'Linear motifs \u00b7 how many to show',
-                        message: 'How many motifs to paint, highest ranked first. The scan uses the track\'s own translation exactly as it stands. The score is a RANK, not a probability, so this is a count: 30 is a readable track, 500 shows everything the catalogue matches and most of it is noise.',
-                        placeholder: '30',
-                        action: 'Scan',
-                        historyKey: 'slim-motif-count'
-                    });
-                } catch (e) {
-                    // Never swallow this. A prompt that fails silently degrades to a
-                    // wild-type scan, which looks exactly like success and hides the
-                    // whole variant half of the feature.
-                    console.error('[models-catalogue] linear motifs: prompt failed', e);
-                    v = null;
-                }
-                console.log('[models-catalogue] linear motifs: prompt returned', v);
-                let txt = '';
-                if (v != null && v !== false) {
-                    txt = '' + (v.text != null ? v.text : (v.value != null ? v.value : v));
-                }
-                const n = parseInt(txt, 10);
-                const minScore = (isFinite(n) && n > 0) ? n : 30;
-                console.log('[models-catalogue] linear motifs: show', minScore);
-                return __onParentTrack('Linear motifs',
-                    (list) => exec('baja/bio/protein/slim-motif-layer.js', graph, L, list,
-                        { redo: true, minScore: minScore }));
-            },
+            open: () => __onParentTrack('Linear motifs',
+                // No prompt: paint everything the catalogue matches. A cutoff of 0 is
+                // read as a score threshold rather than a count, and every candidate
+                // scores above 0, so nothing is withheld.
+                (list) => exec('baja/bio/protein/slim-motif-layer.js', graph, L, list,
+                    { redo: true, minScore: 0 })),
             docs: {
                 summary: 'Scans the track\'s own translation against the ELM catalogue of short '
                     + 'linear motifs and draws the hits on the codons that encode them. With a '
