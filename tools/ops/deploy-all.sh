@@ -249,6 +249,16 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # THE COMPOUND SEQUENCE LABEL SPANS TWO FILES, so they ship together or not at all.
+  # oligo.js decides what a compound spells out and where; the renderer that draws it in
+  # register with the beads, drawAlignedSeqLabel, lives on the graph in gene.js. Shipped
+  # apart, a new oligo.js on an older gene.js finds no renderer, falls back to a CENTRED
+  # pill, and the label stops sitting over the residues it describes -- which looks like a
+  # drawing bug in the compound and is really a version skew. They were in two different
+  # groups until this was noticed.
+  install_group "compound sequence label (spans oligo.js and gene.js)" \
+    "flexigraph/oligo.js:THE SAME GEOMETRY THE BEADS USE" \
+    "flexigraph/gene.js:drawAlignedSeqLabel(ctx, o)"
   # Ask a question about the selected variants. All four or none: the menu entry is the
   # only way in, the panel needs the search module's record builder, and the python is
   # where the gene-versus-variant guard actually lives.

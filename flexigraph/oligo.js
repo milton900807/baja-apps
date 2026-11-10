@@ -795,8 +795,26 @@ function () {
                     try {
                         const __ctx = graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
                         if (__ctx && graph.drawAlignedSeqLabel) {
-                            const __x0 = graph.X(tgraph.X(this.xi));
-                            const __per = graph.X(tgraph.X(this.xi + 1)) - __x0;
+                            // THE SAME GEOMETRY THE BEADS USE, which is the whole point of
+                            // calling this an aligned label.
+                            //
+                            // It used to step one GENOMIC base at a time from xi, while
+                            // chem-draw lays its residues out as span / n across the
+                            // compound's drawn width. Those agree only when the drawn width
+                            // is exactly n bases, and one base of disagreement -- an
+                            // inclusive end, a clamped edge, a compound whose span is not
+                            // its length -- spreads a letter per residue across the oligo
+                            // until the letters no longer sit over the beads they describe.
+                            // Deriving both from the compound's own span and the number of
+                            // letters makes them agree by construction, whatever the span
+                            // turns out to be.
+                            const __sxi = graph.X(tgraph.X(this.xi));
+                            const __sxf = graph.X(tgraph.X(this.xf));
+                            const __nLet = Math.max(1, Math.max(
+                                ('' + (this.__seqDisp || '')).length,
+                                ('' + (this.__seqDisp2 || '')).length));
+                            const __x0 = Math.min(__sxi, __sxf);
+                            const __per = Math.abs(__sxf - __sxi) / __nLet;
                             __drew = graph.drawAlignedSeqLabel(__ctx, {
                                 x0: __x0, perBase: __per,
                                 y: graph.Y(tgraph.Y(y)) + ((this.labelOffsetY || 0) - 16),
