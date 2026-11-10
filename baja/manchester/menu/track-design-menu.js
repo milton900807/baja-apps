@@ -912,11 +912,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         }
                     }
 
+                    // The mRNA, on a minus-strand track; the identity on a plus-strand one.
+                    const __mv = __mRnaView(_sequence);
                     let json_input = {
-                        "sequence": _sequence,
+                        "sequence": __mv.seq,
                         // Index ranges of that sequence no candidate may overlap (empty unless
                         // the workbench options above asked for some).
-                        "exclude_regions": (__scope && __scope.exclude_regions) || [],
+                        "exclude_regions": (((__scope && __scope.exclude_regions) || [])
+                            .map((sp) => __mv.span(sp))),
                         // Sense mRNA — the ASO is the reverse-complement of the target regardless of
                         // the gene's genomic strand (same fix as siRNA; minus-strand genes otherwise
                         // got complement(target), which is wrong and finds no off-targets).
@@ -1026,7 +1029,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // runs over the same track order their oligos the same way.
                         __muts2 = __muts2.slice().sort((a, b) =>
                             ((+b.edits || 0) - (+a.edits || 0)) || ((+a.pos || 0) - (+b.pos || 0)));
-                        json_input.cover_spans = __muts2.map((m) => m.span);
+                        json_input.cover_spans = __muts2.map((m) => __mv.span(m.span));
                         const __byType = __muts2.reduce((a, m) => { a[m.type] = (a[m.type] || 0) + 1; return a; }, {});
                         const __what = Object.keys(__byType).map((k) => __byType[k] + ' ' + k).join(', ');
                         try {
@@ -1113,6 +1116,9 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         const oligos = [];
 
                         const __back = __backMapper(__scope);
+                        // Two mappings, in order: out of the mRNA view, then out of the rebuilt
+                        // sequence. Both are the identity on a plus-strand track with no indels.
+                        const __place = (cs, ce) => { const q = __mv.back(cs, ce); return [__back(q[0]), __back(q[1])]; };
                         candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
@@ -1120,8 +1126,9 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 // of the track instead of on the selection.
                                 // Through __back first: when that sequence was rebuilt with
                                 // indels applied, its coordinates are not the track's.
-                                const xi = __back(c.start) + __designOffset();
-                                const xf = __back(c.end) + __designOffset();
+                                const __xy = __place(c.start, c.end);
+                                const xi = __xy[0] + __designOffset();
+                                const xf = __xy[1] + __designOffset();
 
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
@@ -2192,6 +2199,45 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 // index at a deletion is the first base that SURVIVED it, which is what
                 // falls out here without a special case.
                 return q - cum;
+            };
+        };
+
+        // THE DESIGNER IS HANDED THE mRNA, NOT WHICHEVER STRAND THE TRACK STORES.
+        //
+        // design.py builds every oligo as reverse_complement(target_site) and the request
+        // hardcodes strand 1, which says "what I am sending you is the sense mRNA". For a
+        // track whose sequence is the genomic plus strand that is true only of a plus-strand
+        // gene. On a minus-strand gene the mRNA is the reverse complement of what the track
+        // holds, so reverse-complementing it again hands back the mRNA itself -- a SENSE
+        // oligo, which will not recruit RNase H to anything. Antisense is the entire point
+        // of an allele-selective design, so this is not a detail.
+        //
+        // Passing strand -1 instead does NOT fix it: that branch takes the plain complement,
+        // which is a third wrong answer, and is why someone hardcoded 1 in the first place.
+        // The sequence itself has to be the mRNA.
+        //
+        // Reversing the sequence reverses its coordinates, so the spans going in and the
+        // candidate positions coming back are mapped with it. On a plus-strand track every
+        // one of these is the identity and nothing changes.
+        const __rcSeq = (q) => ('' + q).toUpperCase().split('').reverse()
+            .map((c) => ({ A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' }[c] || c)).join('');
+        const __mRnaView = (seq) => {
+            const L = ('' + (seq || '')).length;
+            const minus = (+(selectedTrack && selectedTrack.strand) || 0) < 0;
+            if (!minus || !L) {
+                return { seq: seq, minus: false, L: L, span: (sp) => sp, back: (a, b) => [a, b] };
+            }
+            return {
+                seq: __rcSeq(seq), minus: true, L: L,
+                // [a, b) in track order becomes [L-b, L-a) once the sequence is reversed.
+                span: (sp) => {
+                    const a = Math.max(0, Math.min(L, +sp[0] || 0));
+                    const b = Math.max(0, Math.min(L, +sp[1] || 0));
+                    return [L - Math.max(a, b), L - Math.min(a, b)];
+                },
+                // A candidate occupying [s, e] in the reversed sequence occupies
+                // [L-1-e, L-1-s] in the track's own order; the ends swap with it.
+                back: (s, e) => [L - 1 - e, L - 1 - s]
             };
         };
 
