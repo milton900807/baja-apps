@@ -20,3 +20,6 @@
 *.bak_*
 *.orig
 *.rej
+*.before-*
+*.pt
+py/bajasplice-lib/bajasplice/weights/snapshots/
