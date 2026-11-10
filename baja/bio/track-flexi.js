@@ -4925,6 +4925,23 @@ return new Promise(async (resolve, reject) => {
                         o.showOfftargets = this.showOfftargets;
                         // Unguarded here, deliberately: one compound that throws would take
                         // the whole track's draw with it. Guarded AND reported, like track.js.
+                        // THE REFERENCE SEQUENCE UNDER THIS COMPOUND, so the polymer renderer
+                        // can draw the genome beneath the beads and work out which way round
+                        // to lay them. It has to come from the track: the compound's own
+                        // targetSequence is whatever the designer was handed, and after the
+                        // strand fix that is the mRNA on a minus-strand gene -- a different
+                        // convention from one track to the next, which is no basis for a
+                        // drawing decision. The genome is not a convention.
+                        //
+                        // Cached on the span, so a track carrying two thousand compounds
+                        // does not slice its sequence two thousand times a frame.
+                        try {
+                            const __k = o.xi + ':' + o.xf;
+                            if (o.__genomicSiteKey !== __k) {
+                                o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf) || '')).toUpperCase();
+                                o.__genomicSiteKey = __k;
+                            }
+                        } catch (e) { o.__genomicSite = ''; }
                         try {
                             o.draw(graph, this.grid, y);
                         } catch (e) {

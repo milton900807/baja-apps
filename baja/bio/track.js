@@ -7371,6 +7371,15 @@ return new Promise(async (resolve, reject) => {
               try {
                 o.showOfftargets = this.showOfftargets;
 
+                try {
+                  const __k = o.xi + ':' + o.xf;
+                  if (o.__genomicSiteKey !== __k) {
+                    // See track-flexi.js: the renderer needs the GENOME under the compound,
+                    // not whichever strand the designer was handed. Cached on the span.
+                    o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf) || '')).toUpperCase();
+                    o.__genomicSiteKey = __k;
+                  }
+                } catch (e) { o.__genomicSite = ''; }
                 o.draw(graph, this.tgraph, y);
               } catch (e) {
                 // NOT silent. This is the call that draws every compound on the board, and

@@ -104,50 +104,64 @@ function () {
             }
             monos = rebuilt;
         }
-        // ---- GENOMIC ORIENTATION ------------------------------------------------------
+        // ---- GENOMIC ORIENTATION, AND THE REFERENCE UNDERNEATH ---------------------------
         //
         // The beads were always laid out in SYNTHESIS order, 5' to 3' left to right,
         // whatever direction the compound runs on the genome. For an antisense oligo that
         // is backwards: its 5' end pairs with the HIGHER coordinate, so the leftmost bead
-        // was the last residue, and the strand it binds -- drawn underneath, and the track's
-        // own sequence drawn under that -- read in the opposite direction to everything
-        // else on the canvas. In a genome browser, left is the lower coordinate; a compound
-        // is the only thing that was exempt.
+        // was the last residue, and everything drawn under it read against the grain of a
+        // canvas where left is the lower coordinate.
         //
-        // MEASURED, NOT ASSUMED. The compound's strand field says which strand the DESIGN
-        // was run against, not which way these beads were drawn, and the two are not the
-        // same question. The target sequence is stored in genomic orientation, so whether
-        // the monomers run with it or against it is answered by pairing them both ways and
-        // seeing which wins. No target to measure against means no flip, which leaves the
-        // old behaviour exactly where it was.
+        // DECIDED AGAINST THE GENOME, NOT AGAINST THE TARGET FIELD. An earlier version of
+        // this measured the monomers against the compound's own targetSequence and assumed
+        // that field was in genomic orientation. It is not a fixed convention: it is
+        // whatever the designer was handed, and on a minus-strand gene that is now the
+        // mRNA, which is the reverse complement of the genome. Keying a drawing decision on
+        // it meant the fix to one made the other wrong. The track stashes the REFERENCE
+        // sequence under this compound (__genomicSite) and that is what this measures
+        // against, because the genome is not a convention.
+        //
+        // Four readings, because both unknowns are settled by the same measurement: the
+        // residues run with the genome or against it, and an oligo sitting on a plus-strand
+        // gene is the COMPLEMENT of the reference while one on a minus-strand gene IS the
+        // reference. Whichever of the four fits best wins, and a compound that fits none of
+        // them is left alone.
         const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
         const __host = opts.oligo || null;
-        const __tgtRaw = ('' + ((__host && (__host.targetSequence || __host.targetSite)) || '')).toUpperCase()
-            .replace(/[^ACGTUN]/g, '');
-        let __flip = false, __tgtPairs = -1;
-        if (__tgtRaw.length === n && n > 1) {
-            const pairScore = (atSlot) => {
+        const __ref = ('' + ((__host && __host.__genomicSite) || '')).toUpperCase().replace(/[^ACGTUN]/g, '');
+        let __flip = false, __same = false, __refFit = -1;
+        if (__ref.length === n && n > 1) {
+            const fit = (mirror, same) => {
                 let k = 0;
                 for (let i = 0; i < n; i++) {
-                    const b = (monos[atSlot(i)] && monos[atSlot(i)].base) ? monos[atSlot(i)].base[0] : '';
-                    if (b && __tgtRaw[i] && COMP[b] === __tgtRaw[i]) k++;
+                    const m = monos[mirror ? (n - 1 - i) : i];
+                    const b = (m && m.base) ? m.base[0] : '';
+                    if (!b || !__ref[i]) continue;
+                    if (same ? (b === __ref[i]) : (COMP[b] === __ref[i])) k++;
                 }
                 return k;
             };
-            const asIs = pairScore((i) => i);
-            const mirrored = pairScore((i) => n - 1 - i);
-            __tgtPairs = Math.max(asIs, mirrored);
-            // Below three quarters in BOTH directions the field is not this compound's
-            // target at all, and neither answer means anything; nothing is flipped and
-            // nothing is drawn underneath.
-            if (__tgtPairs >= Math.ceil(n * 0.75)) __flip = mirrored > asIs;
-            else if (__host && !__host.__tgtRowWarned) {
-                __host.__tgtRowWarned = true;
+            let best = null;
+            for (const mirror of [false, true]) {
+                for (const same of [false, true]) {
+                    const k = fit(mirror, same);
+                    if (!best || k > best.k) best = { k: k, mirror: mirror, same: same };
+                }
+            }
+            __refFit = best.k;
+            // An allele-selective oligo differs from the reference in one or two places, not
+            // in eight. Below three quarters none of the four readings is the right one, so
+            // nothing is reoriented and nothing is drawn underneath.
+            if (best.k >= Math.ceil(n * 0.75)) {
+                __flip = best.mirror;
+                __same = best.same;
+            } else if (__host && !__host.__refFitWarned) {
+                __host.__refFitWarned = true;
                 try {
                     console.warn('[chem-draw] ' + (__host.name || __host.id)
-                        + ': the target sequence pairs with only ' + __tgtPairs + ' of ' + n
-                        + ' monomers in either direction, so the compound is not reoriented '
-                        + 'and no target is drawn under it.');
+                        + ': best fit to the reference under it is ' + best.k + ' of ' + n
+                        + ' in any reading, so the compound is not reoriented and no reference '
+                        + 'is drawn under it.');
                 } catch (e) { }
             }
         }
@@ -388,8 +402,7 @@ function () {
         // itself is drawn in genomic order now, so the target is written exactly as it is
         // stored -- genomic order too -- and reads in the same direction as the track's own
         // sequence underneath it. Slot i pairs with target base i, by construction.
-        const tgtRow = (showBase && __tgtRaw.length === n && __tgtPairs >= Math.ceil(n * 0.75))
-            ? __tgtRaw.split('') : null;
+        const tgtRow = (showBase && __refFit >= Math.ceil(n * 0.75)) ? __ref.split('') : null;
         for (let i = 0; i < n; i++) {
             const cx = x0 + (i + 0.5) * per;
             if (cx < visMin || cx > visMax) continue;   // off-screen residue — skip
@@ -430,7 +443,10 @@ function () {
             if (tgtRow) {
                 const tb = tgtRow[i] || '';
                 const mb = (mo.base && mo.base[0]) || '';
-                const bad = !!(tb && mb && COMP[mb] !== tb);
+                // A column that disagrees with the REFERENCE is the allele-selective base:
+                // the one place the oligo was built to differ. Judged by the relation the
+                // measurement found, so it means the same thing on either strand.
+                const bad = !!(tb && mb && (__same ? (mb !== tb) : (COMP[mb] !== tb)));
                 if (bad) {
                     ctx.fillStyle = 'rgba(224,138,0,0.20)';
                     ctx.fillRect(Math.round(cx - per / 2), sy + R + 1, Math.max(1, Math.round(per)), 14);
