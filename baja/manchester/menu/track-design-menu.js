@@ -1020,10 +1020,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             try { if (progress && progress.stop) progress.stop(); } catch (e) { }
                             return;
                         }
-                        // FURTHEST FROM THE REFERENCE FIRST. The designer walks the
-                        // mutations one candidate at a time in turn, so when the cap cuts
-                        // the run short it is this order that decides which mutations got
-                        // covered. Position is not a property of the mutation; edit
+                        // FURTHEST FROM THE REFERENCE FIRST. The designer finishes one
+                        // mutation before starting the next, so when the cap cuts the run
+                        // short it is this order that decides which mutations got designed
+                        // against at all. Position is not a property of the mutation; edit
                         // distance is, and the mutation with the most changed sequence is
                         // the one an allele-selective oligo can discriminate most
                         // confidently -- an ASO over a five-base deletion mismatches the
