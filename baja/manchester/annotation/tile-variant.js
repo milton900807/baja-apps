@@ -184,12 +184,36 @@ function (variant, selectedTrack, graph, opposite, all) {
                 // oligo against the allele that has to survive.
                 if (!selectiveAgainstWildType(sequence)) { notSelective++; continue; }
 
+                // ---- WHERE THIS REGISTER SITS ON THE TRACK -----------------------------
+                //
+                // Read off the index map at BOTH ends rather than derived from one end and
+                // the residue count. A register that spans a deletion covers more track
+                // bases than it has residues: the deleted ones are still there on the copy
+                // that has to survive, directly under the oligo. `start + base_count`
+                // asserts the opposite, so the last residue was placed one base short of
+                // where it binds, and the renderer then compared the compound against a
+                // reference slice with no room for the join -- which is why the registers
+                // that span the deletion drew a stray mismatched column instead of a join,
+                // while the ones clear of it drew correctly.
+                //
+                // This also subsumes the past-the-variant special case below it: derived
+                // from both ends, a register clear of the deletion gives exactly what that
+                // branch gave, and a register spanning it gives the right answer instead of
+                // a different wrong one. The old arithmetic is kept only for the case the
+                // index map cannot answer, which is an INSERTED base: it has no position on
+                // the reference copy, so there is no track coordinate to read.
                 let start = splicedindices[i]
-                let end = start + base_count
-
-                if (splicedindices[i + Math.floor(base_count / 2)] > variant.xf) {
-                    end = splicedindices[i + base_count]
-                    start = end - base_count
+                let end
+                const __lastX = splicedindices[i + base_count - 1]
+                if (isFinite(+start) && isFinite(+__lastX) && +__lastX >= +start) {
+                    start = +start
+                    end = +__lastX + 1
+                } else {
+                    end = start + base_count
+                    if (splicedindices[i + Math.floor(base_count / 2)] > variant.xf) {
+                        end = splicedindices[i + base_count]
+                        start = end - base_count
+                    }
                 }
 
                 if (!(existingOligos.includes(sequence))) {

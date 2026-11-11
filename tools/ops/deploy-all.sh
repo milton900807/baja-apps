@@ -239,6 +239,8 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/chem-draw.js:WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND" \
     "flexigraph/oligo.js:__lettersOnBeads" \
     "flexigraph/sirna.js:__lettersOnBeads"
+  install_group "a register that spans a deletion covers one more track base" \
+    "baja/manchester/annotation/tile-variant.js:WHERE THIS REGISTER SITS ON THE TRACK"
   install_group "a compound that spans an applied deletion" \
     "flexigraph/chem-draw.js:A COMPOUND THAT SPANS AN APPLIED DELETION" \
     "baja/bio/track.js:HOW MANY TRACK BASES THIS COMPOUND COVERS" \
