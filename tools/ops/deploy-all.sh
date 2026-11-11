@@ -309,6 +309,9 @@ if [[ $DO_API -eq 1 ]]; then
   # The allele-selective annotation: which residue does the discriminating, recorded at
   # design time and drawn on the compound. All three or none -- the menu reads the field
   # track-design-menu writes and chem-draw draws it.
+  install_group "allele row: the site this oligo binds, not the reference" \
+    "flexigraph/chem-draw.js:THE ROW IS THE SITE THIS OLIGO BINDS" \
+    "baja/manchester/menu/menu-for-single-aso.js:__alleleColsDrawn"
   install_group "allele-selective: mark the discriminating residue" \
     "baja/manchester/menu/track-design-menu.js:WHICH RESIDUES DO THE DISCRIMINATING" \
     "flexigraph/chem-draw.js:THE RESIDUE THAT DOES THE DISCRIMINATING" \
