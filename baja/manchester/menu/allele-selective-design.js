@@ -572,35 +572,15 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         const viEnd = Math.max(xs.indexOf(vX), xs.indexOf(vEnd));
         const viStart = Math.min(xs.indexOf(vX), xs.indexOf(vEnd));
         // ---- THE SEQUENCE CONTEXT THAT DECIDES HOW MANY REGISTERS CAN EXIST ---------------
-        //
-        // A variant inside a tandem repeat is not discriminated by a base, it is discriminated
-        // by the LENGTH of the repeat. Every register that falls entirely inside the run reads
-        // the same on both copies, so the only oligos that can tell them apart are the ones
-        // that span the whole run and reach both flanks. Against a long run that is a handful
-        // of registers out of twenty, all of them necessarily pinned to the same flank.
-        //
-        // That is a correct and quite subtle result which looks exactly like a truncated walk,
-        // so it is reported rather than left to be inferred from the picture.
-        const repeatAround = (s2, i0, i1) => {
-            let best = null;
-            for (let u = 1; u <= 6; u++) {
-                let a = i0, b = i1;
-                while (a - 1 >= 0 && a - 1 + u < s2.length && s2[a - 1] === s2[a - 1 + u]) a--;
-                while (b + 1 < s2.length && b + 1 - u >= 0 && s2[b + 1] === s2[b + 1 - u]) b++;
-                const len = b - a + 1;
-                if (len >= Math.max(6, u * 3) && (!best || len > best.len)) {
-                    best = { unit: s2.slice(a, a + u), len: len, copies: Math.floor(len / u) };
-                }
-            }
-            return best;
-        };
-        let __repeat = null;
-        try { __repeat = repeatAround(wt, viStart, viEnd); } catch (e) { __repeat = null; }
-        const __repeatSaid = () => (!__repeat ? '' : (' ' + (snp.name || 'The variant') + ' sits in a run of '
-            + __repeat.len + ' ' + (__repeat.unit.length === 1 ? __repeat.unit : (__repeat.unit + ' x ' + __repeat.copies))
-            + ', so the two copies differ in the LENGTH of that run and not in any one base: '
-            + 'only an oligo spanning the whole run and reaching both flanks reads differently on '
-            + 'them, and every register that falls inside the run is identical on both.'));
+        // See baja/bio/repeat-context.js: a variant in a tandem repeat is discriminated by the
+        // LENGTH of the run, so most registers cannot tell the copies apart however the walk
+        // is built. Shared with the register walk so the two paths say it the same way.
+        let __repeat = null, __RC = null;
+        try {
+            __RC = await exec('baja/bio/repeat-context.js');
+            __repeat = __RC.repeatAround(wt, viStart, viEnd);
+        } catch (e) { __repeat = null; }
+        const __repeatSaid = () => { try { return __RC ? __RC.sentence(snp.name, __repeat) : ''; } catch (e) { return ''; } };
 
         const refTx = wt.slice(viStart, viEnd + 1);
         const altTx = mut.slice(viStart, viEnd + 1);

@@ -265,15 +265,26 @@ function (variant, selectedTrack, graph, opposite, all) {
             try {
                 if (notSelective) {
                     const made = Math.max(0, (splicedtrack.length - base_count - 1) - notSelective);
+                    // WHY they read the same on both copies, when the sequence can say so. A
+                    // count answers what happened; inside a repeat the run length answers
+                    // whether anything better was ever available. Shared with the
+                    // click-through designer so both paths describe it identically.
+                    let __why = '';
+                    try {
+                        const RC = await exec('baja/bio/repeat-context.js');
+                        const i0 = Math.round(variant.xi) - tiles, i1 = Math.round(variant.xf) - tiles;
+                        __why = RC.sentence(variant.name, RC.repeatAround(wildType, i0, i1));
+                    } catch (e) { __why = ''; }
                     const msg = made
                         ? (notSelective + ' register' + (notSelective === 1 ? ' was' : 's were')
                             + ' not made: their target reads the same on both copies, so they cannot tell the alleles apart.')
                         : ('No register in this window can tell the alleles apart \u2014 every one of the '
                             + notSelective + ' reads the same on both copies. A change this small may need a '
                             + 'shorter oligo, or discrimination from a neighbouring variant on the same copy.');
+                    const msg2 = msg + __why;
                     if (made ? graph.setResultMessage : graph.setError) {
-                        (made ? graph.setResultMessage : graph.setError).call(graph, ' ' + msg + ' ');
-                    } else if (graph.setMessage) graph.setMessage(' ' + msg + ' ');
+                        (made ? graph.setResultMessage : graph.setError).call(graph, ' ' + msg2 + ' ');
+                    } else if (graph.setMessage) graph.setMessage(' ' + msg2 + ' ');
                 }
             } catch (e) { }
         }
