@@ -931,9 +931,21 @@ function () {
                 // It sits above the body, clearing the beads' own letters (drawn just above each
                 // bead) when the chemistry is spelling them out -- chem-draw's threshold is
                 // per >= 11 screen px per base, and `per` is the same unit as screencell here.
+                // SUPERSEDED FOR THE POLYMER TYPES. chem-draw now draws the target row
+                // itself, directly under the beads and at the beads' own pitch, with the
+                // discriminating column marked. This overlay draws one letter per GENOMIC
+                // base from the track's grid, which is not the same pitch, so the two rows
+                // disagree by a fraction of a letter that accumulates across a 20mer: the
+                // green string slides out from under the compound it belongs to and reads
+                // as a second oligo. It is the same sequence either way, so the one drawn
+                // in register is the one to keep.
+                //
+                // showTargetSequence no longer gates this for these types -- the row is
+                // always there now -- but it still works for amplicons, primer-probes and
+                // anything else that has no bead layout to be out of register with.
+                if (this.type === 'aso' || this.type === 'gapmer'
+                    || this.type === 'siRNA' || this.type === 'sirna') return;
                 const wantsTarget = !!this.showTargetSequence;
-                if (!wantsTarget && (this.type === 'aso' || this.type === 'gapmer'
-                    || this.type === 'siRNA' || this.type === 'sirna')) return;
                 if (wantsTarget) {
                     let __cell = 0;
                     try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }

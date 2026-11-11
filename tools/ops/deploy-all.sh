@@ -233,6 +233,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-flexi.js:0-BASED, like every other builder of cdsi"
   install_group "protein residue indexing" \
     "py/bio/genetic-file.py:return {\"ref\": ref, \"index\": n - 1"
+  install_group "no green per-base overlay on a compound with beads" \
+    "flexigraph/oligo.js:SUPERSEDED FOR THE POLYMER TYPES"
   install_group "no duplicate sequence label beside a lettered compound" \
     "flexigraph/chem-draw.js:WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND" \
     "flexigraph/oligo.js:__lettersOnBeads" \
