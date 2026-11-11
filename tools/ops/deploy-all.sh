@@ -152,6 +152,9 @@ fi
 #       page's "Opening..." card it can go; Build > Add to a fundraising campaign
 #   baja/manchester/menu/run-off-targets.js, run-off-target-tool.js, run-off-target-tool-seed-seq.js
 #       an off-target run asks whether to rerun all compounds or only those with no result yet
+#   baja/io/pdf-writer.js, baja/io/aso-report-pdf.js, manchester/io/download-hub.js
+#       the detailed ASO report is drawn in the browser: a page per compound, and a map of
+#       the track broken into rows with the 5' and 3' ends marked
 #
 # Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
 # so a REF that predates the change is said and skipped rather than installing an older
@@ -201,6 +204,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/run-off-target-tool.js:onlyMissing"
   install_group "off-targets: rerun all or only compounds without (seed tool panel)" \
     "baja/manchester/menu/run-off-target-tool-seed-seq.js:onlyMissing"
+  # The detailed ASO report. All three together: the hub calls the report module, which
+  # needs the page builder the writer only gained for this.
+  install_group "detailed ASO report with a track map" \
+    "baja/io/pdf-writer.js:the low-level page builder" \
+    "baja/io/aso-report-pdf.js:THE DETAILED ASO REPORT, drawn rather than tabulated" \
+    "manchester/io/download-hub.js:aso-report-pdf.js"
   # The Research panel: Home > Tools > Research reads the indication-market store rather
   # than running any research. All four or none, so Home never gets a live tile with
   # nothing behind it.

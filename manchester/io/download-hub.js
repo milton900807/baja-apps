@@ -298,16 +298,38 @@ function (graph, layout) {
             mismatches: (Array.isArray(o.mismatch) && o.mismatch.length) ? o.mismatch.join(', ') : '',
             annotations: oligoAnnots(o)
         });
+        // The report is drawn in the browser (baja/io/aso-report-pdf.js): a section per
+        // compound, and a map of the track it sits on, broken into rows to fit the page and
+        // labelled with the transcript's 5' and 3' ends. The server's /export-table can only
+        // lay out a table, so it is kept as the fallback -- a flat one-row-per-ASO PDF is
+        // worth more than an error if the drawing ever fails.
         const downloadAsoReport = async () => {
-            const rows = distinctOligos().map((e) => asoReportRow(e.t, e.o));
+            const entries = distinctOligos();
+            const rows = entries.map((e) => asoReportRow(e.t, e.o));
             if (!rows.length) { try { graph.setError('There are no compounds to report.', 6); } catch (e) { } return; }
             try { graph.setMessage(' Building the ASO report… '); } catch (e) { }
             const base = designBase() + '_ASO_report';
-            const payload = { format: 'pdf', filename: base, title: 'ASO report — ' + designBase() + ' (' + rows.length + ' compound' + (rows.length === 1 ? '' : 's') + ')', sheets: [{ name: 'ASOs', rows: rows }] };
+            const title = 'ASO report — ' + designBase() + ' (' + rows.length + ' compound' + (rows.length === 1 ? '' : 's') + ')';
+            try {
+                const R = await exec('baja/io/aso-report-pdf.js');
+                await R.download({
+                    graph: graph,
+                    title: title,
+                    subtitle: new Date().toLocaleString() + '  ·  ' + rows.length + ' compound' + (rows.length === 1 ? '' : 's')
+                        + ' across ' + tracks().length + ' track' + (tracks().length === 1 ? '' : 's'),
+                    filename: base + '.pdf',
+                    entries: entries.map((e, i) => ({ track: e.t, oligo: e.o, row: rows[i] }))
+                });
+                try { graph.setMessage(' ASO report downloaded. '); } catch (e) { }
+                return;
+            } catch (e) {
+                console.warn('ASO report: drawing failed, falling back to the table export', e);
+            }
+            const payload = { format: 'pdf', filename: base, title: title, sheets: [{ name: 'ASOs', rows: rows }] };
             try {
                 const r = await POSTJSON(payload, host + '/export-table');
                 const body = (r && r.error && typeof r.error === 'object') ? r.error : r;
-                if (body && body.b64) { saveB64(body.b64, body.filename || (base + '.pdf'), body.mime); try { graph.setMessage(' ASO report downloaded. '); } catch (e) { } }
+                if (body && body.b64) { saveB64(body.b64, body.filename || (base + '.pdf'), body.mime); try { graph.setMessage(' ASO report downloaded (table only). '); } catch (e) { } }
                 else { try { graph.setError('Could not build the report: ' + ((body && (body.error || body.message)) || 'server error'), 8); } catch (e) { } }
             } catch (e) { try { graph.setError('Report failed: ' + e, 8); } catch (e2) { } }
         };
@@ -352,7 +374,7 @@ function (graph, layout) {
             const __nOl = distinctOligos().length;
             topBooks.push({ section: 'Download design', note: true, title: 'Every oligo in this design (' + __nOl + ' compound' + (__nOl === 1 ? '' : 's') + '), in one file — pick a format:' });
             formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(Object.assign({}, b, { section: 'Download design' })));
-            topBooks.push({ section: 'Download design', title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates.', open: () => downloadAsoReport() });
+            topBooks.push({ section: 'Download design', title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates, with a map of the track showing where every compound sits.', open: () => downloadAsoReport() });
             // Primer-probes get their own download with primer/probe columns, before the
             // whole-canvas option, whenever the design carries any.
             if (hasAmplicons()) {

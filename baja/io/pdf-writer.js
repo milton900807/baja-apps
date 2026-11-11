@@ -12,10 +12,22 @@ return (async () => {
     // page tree, a font resource, content streams and a real xref -- rather than something
     // PDF-shaped.
     //
-    // Deliberately narrow: Helvetica, black text, one column of key/values and one table,
-    // paginated. No images, no embedded fonts, no compression. That covers a run report,
-    // and every one of those omissions is a thing that could be wrong in a file someone
-    // else has to open.
+    // Deliberately narrow: Helvetica, one column of key/values and one table, paginated.
+    // No images, no embedded fonts, no compression. That covers a run report, and every one
+    // of those omissions is a thing that could be wrong in a file someone else has to open.
+    //
+    // There is also a LOW-LEVEL page builder, for a report that has to draw rather than
+    // tabulate -- a map of a track with the oligos on it, say:
+    //
+    //   const d = P.doc();            // d.W, d.H, d.M are the page box and margin
+    //   d.text(x, y, 'label', { size: 9, bold: true, align: 'center', rgb: [0,0,0] });
+    //   d.rect(x, y, w, h, { fill: [0.2,0.5,0.8], stroke: [0,0,0], lw: 0.5 });
+    //   d.line(x1, y1, x2, y2, { lw: 0.6, rgb: [0.4,0.4,0.4] });
+    //   d.page();                     // start another one
+    //   d.download('map.pdf');
+    //
+    // PDF coordinates: x rightward, y UPWARD from the bottom-left corner of the page.
+    // Colours are [r, g, b] in 0..1. Both APIs write the same kind of file.
 
     const PAGE_W = 612, PAGE_H = 792;          // US Letter at 72 dpi
     const M = 48;                              // margin
@@ -137,8 +149,8 @@ return (async () => {
         return pages;
     };
 
-    const bytes = (spec) => {
-        const pages = build(spec);
+    // Pages (each an array of content-stream operators) -> the bytes of a PDF file.
+    const serialize = (pages) => {
         const objs = [];                                  // 1-based; objs[i] is object i+1
         const push = (s) => { objs.push(s); return objs.length; };
 
@@ -172,6 +184,75 @@ return (async () => {
         return enc.encode(out);
     };
 
+    const bytes = (spec) => serialize(build(spec));
+
+    // Hand a byte array to the browser as a download.
+    const saveBytes = (data, filename) => {
+        const blob = new Blob([data], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'report.pdf';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            try { URL.revokeObjectURL(url); } catch (e) { }
+            try { if (a.parentNode) a.parentNode.removeChild(a); } catch (e) { }
+        }, 250);
+    };
+
+    // ---- the low-level page builder ------------------------------------------------
+    //
+    // Text, lines and rectangles at page coordinates, and nothing else. A caller that
+    // needs a drawing -- a track map with oligos along it -- gets the page box and the
+    // text metrics and places things itself; a caller that wants a table keeps using
+    // build()/download() above.
+    const doc = () => {
+        const pages = [];
+        let ops = [];
+        const col = (c) => (Array.isArray(c) ? c : [0, 0, 0]).map((v) => (+v || 0).toFixed(3)).join(' ');
+        const api = {
+            W: PAGE_W, H: PAGE_H, M: M,
+            // Width of a string when set at this size, and the same string cut to fit.
+            width: (str, size, bold) => widthOf(pdfText(str), size || 9),
+            clip: (str, size, max) => clip(pdfText(str), size || 9, max),
+            // Finish this page and start the next one. A page with nothing on it is dropped.
+            page: () => { if (ops.length) pages.push(ops); ops = []; return api; },
+            text: (x, y, str, o) => {
+                const s = o || {};
+                const size = s.size || 9;
+                let t = pdfText(str);
+                if (s.max != null) t = clip(t, size, s.max);
+                let px = x;
+                if (s.align === 'center') px = x - widthOf(t, size) / 2;
+                else if (s.align === 'right') px = x - widthOf(t, size);
+                ops.push(col(s.rgb) + ' rg BT /' + (s.bold ? 'F2' : 'F1') + ' ' + size + ' Tf '
+                    + px.toFixed(2) + ' ' + y.toFixed(2) + ' Td (' + t + ') Tj ET 0 0 0 rg');
+                return api;
+            },
+            line: (x1, y1, x2, y2, o) => {
+                const s = o || {};
+                ops.push(col(s.rgb) + ' RG ' + (s.lw || 0.5) + ' w '
+                    + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' m '
+                    + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' l S 0 0 0 RG');
+                return api;
+            },
+            // A rectangle with its lower-left corner at (x, y). Filled, stroked or both.
+            rect: (x, y, w, h, o) => {
+                const s = o || {};
+                const box = x.toFixed(2) + ' ' + y.toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re';
+                if (s.fill && s.stroke) ops.push(col(s.fill) + ' rg ' + col(s.stroke) + ' RG ' + (s.lw || 0.5) + ' w ' + box + ' B 0 0 0 rg 0 0 0 RG');
+                else if (s.fill) ops.push(col(s.fill) + ' rg ' + box + ' f 0 0 0 rg');
+                else ops.push(col(s.stroke) + ' RG ' + (s.lw || 0.5) + ' w ' + box + ' S 0 0 0 RG');
+                return api;
+            },
+            pageCount: () => pages.length + (ops.length ? 1 : 0),
+            bytes: () => serialize(ops.length ? pages.concat([ops]) : pages),
+            download: (filename) => { saveBytes(api.bytes(), filename); return api; }
+        };
+        return api;
+    };
+
     const download = (spec) => {
         const blob = new Blob([bytes(spec)], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
@@ -186,5 +267,5 @@ return (async () => {
         }, 250);
     };
 
-    return { bytes, download };
+    return { bytes, download, doc, saveBytes };
 })();
