@@ -90,7 +90,20 @@ function (graph, track, sequence, opts) {
             // the other strand (a minus-strand transcript, or a stored reference0 that differs
             // from the loaded reference). Offering them always would let a plus-strand
             // substitution match its own complement at a position it does not belong to.
-            const flipped = (+sv.transcriptStrand < 0) || (!!r0 && !!r1 && r0 !== r1);
+            // THE TRACK'S OWN STRAND COUNTS TOO, and it is the signal that is always
+            // there. transcriptStrand is set by some loaders and not others, and a variant
+            // that arrived without it on a minus-strand track got only the as-written
+            // readings -- so a deletion recorded in transcript orientation was compared
+            // against the plus strand, disagreed with every base under it, and was dropped.
+            // The run then returned oligos over that site that match the reference exactly:
+            // a tiling walk wearing an allele-selective label.
+            //
+            // Measured on ACVR1: the deletion TTATGGTATGG>T appears in this track only as
+            // its per-base COMPLEMENT, AATACCATACC. That reading was already in the list
+            // below; nothing offered it, because the variant did not say which strand it
+            // came from and the track was never asked.
+            const trackMinus = (+((track && track.strand) || 0) < 0);
+            const flipped = (+sv.transcriptStrand < 0) || trackMinus || (!!r0 && !!r1 && r0 !== r1);
             const forms = flipped ? [[r0, a0], [r1, a1], [cmp(r1), cmp(a1)], [rc(r1), rc(a1)]]
                 : [[r0, a0], [r1, a1]];
             const seen = {}, out2 = [];

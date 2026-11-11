@@ -458,8 +458,22 @@ function () {
         // itself is drawn in genomic order now, so the target is written exactly as it is
         // stored -- genomic order too -- and reads in the same direction as the track's own
         // sequence underneath it. Slot i pairs with target base i, by construction.
+        // ---- THE ROW IS THE TRANSCRIPT, NOT THE STRAND THE TRACK STORES --------------------
+        //
+        // The track stores the genomic plus strand. On a minus-strand gene the transcript is
+        // its complement, and the ASO -- being antisense to the transcript -- then has the
+        // plus strand's own sequence. So drawing the plus strand under it reproduced the
+        // oligo's letters exactly: two identical rows, a duplex with no pairing in it, and
+        // nothing to read.
+        //
+        // The measurement above already answers which case this is. __same means the
+        // residues match the reference rather than complementing it, which is a minus-strand
+        // compound, and there the transcript is the complement of what the track holds. The
+        // row is then the strand the oligo actually binds, every column is a true base pair,
+        // and a column that is NOT one is the allele-selective base.
+        const __transcriptRow = (row) => (__same ? row.map((b) => COMP[b] || b) : row);
         const tgtRow = !showBase ? null
-            : (__refFit >= Math.ceil(n * 0.75) ? __ref.split('') : __targetRow);
+            : (__refFit >= Math.ceil(n * 0.75) ? __transcriptRow(__ref.split('')) : __targetRow);
         for (let i = 0; i < n; i++) {
             const cx = x0 + (i + 0.5) * per;
             if (cx < visMin || cx > visMax) continue;   // off-screen residue — skip
@@ -503,7 +517,9 @@ function () {
                 // A column that disagrees with the REFERENCE is the allele-selective base:
                 // the one place the oligo was built to differ. Judged by the relation the
                 // measurement found, so it means the same thing on either strand.
-                const bad = !__fromTarget && !!(tb && mb && (__same ? (mb !== tb) : (COMP[mb] !== tb)));
+                // One test now, on either strand: the row is the transcript, so a residue
+                // that does not complement it is the base this oligo was built to differ at.
+                const bad = !__fromTarget && !!(tb && mb && COMP[mb] !== tb);
                 if (bad) {
                     ctx.fillStyle = 'rgba(224,138,0,0.20)';
                     ctx.fillRect(Math.round(cx - per / 2), sy + R + 1, Math.max(1, Math.round(per)), 14);
