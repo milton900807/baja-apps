@@ -128,7 +128,20 @@ function () {
         // them is left alone.
         const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
         const __host = opts.oligo || null;
-        const __ref = ('' + ((__host && __host.__genomicSite) || '')).toUpperCase().replace(/[^ACGTUN]/g, '');
+        // Take the n bases this compound actually covers. The track hands over a slice
+        // that is deliberately a little long, because its range accessor is end-exclusive
+        // and the compound's own end is stored inclusively by some callers; requiring an
+        // exact length made the row disappear on an off-by-one instead of drawing.
+        const __refRaw = ('' + ((__host && __host.__genomicSite) || '')).toUpperCase().replace(/[^ACGTUN]/g, '');
+        const __ref = (__refRaw.length >= n) ? __refRaw.slice(0, n) : '';
+        if (__refRaw && !__ref && __host && !__host.__refShortWarned) {
+            __host.__refShortWarned = true;
+            try {
+                console.warn('[chem-draw] ' + (__host.name || __host.id) + ': the track gave '
+                    + __refRaw.length + ' reference bases for a ' + n + '-residue compound, so no '
+                    + 'reference is drawn under it.');
+            } catch (e) { }
+        }
         let __flip = false, __same = false, __refFit = -1;
         if (__ref.length === n && n > 1) {
             const fit = (mirror, same) => {

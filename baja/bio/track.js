@@ -7376,7 +7376,8 @@ return new Promise(async (resolve, reject) => {
                   if (o.__genomicSiteKey !== __k) {
                     // See track-flexi.js: the renderer needs the GENOME under the compound,
                     // not whichever strand the designer was handed. Cached on the span.
-                    o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf) || '')).toUpperCase();
+                    // End-EXCLUSIVE; ask wide and let the renderer take the n it has.
+                    o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
                     o.__genomicSiteKey = __k;
                   }
                 } catch (e) { o.__genomicSite = ''; }

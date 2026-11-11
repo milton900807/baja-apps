@@ -4938,7 +4938,15 @@ return new Promise(async (resolve, reject) => {
                         try {
                             const __k = o.xi + ':' + o.xf;
                             if (o.__genomicSiteKey !== __k) {
-                                o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf) || '')).toUpperCase();
+                                // END-EXCLUSIVE, and the compound's own end is stored
+                                // inclusively by some callers and exclusively by others, so
+                                // ask for two bases more than either needs and let the
+                                // renderer take the n it actually has. Asking for exactly
+                                // (xi, xf) returned one base short, the renderer's length
+                                // check failed, and the reference row silently vanished --
+                                // which looks like the feature not working rather than like
+                                // an off-by-one.
+                                o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
                                 o.__genomicSiteKey = __k;
                             }
                         } catch (e) { o.__genomicSite = ''; }
