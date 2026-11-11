@@ -447,6 +447,10 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             tell('The track reads ' + (alleleFrame.track_reads || '?') + ' where ' + (snp.name || 'the variant')
                 + ' says ' + (storedRef || '?') + ', on either strand. Designing against the track; '
                 + 'check the variant is on this assembly before ordering anything.');
+        } else if (alleleFrame.carries === 'alt') {
+            tell('This track already carries ' + (snp.name || 'the variant') + ': it reads '
+                + storedAlt + ' where the reference reads ' + storedRef + '. Designing against the '
+                + 'track as the mutant copy, and scoring discrimination against the reference allele.');
         } else if (/complemented/.test(alleleFrame.source)) {
             tell('That variant is recorded on the opposite strand to this track, so its alleles were '
                 + 'complemented to match: ' + storedRef + '>' + storedAlt + ' as the track reads them.');
@@ -547,10 +551,55 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // The change as it reads in transcript orientation, for the labels and the scoring: the
         // span the allele covers in the transcript window, which on a minus-strand track is the
         // reverse complement of the track-frame allele.
+        // ---- WHEN THE TRACK IS THE MUTANT, THE WILD TYPE IS THE THING TO BUILD -------------
+        //
+        // Everything above assumes the track holds the reference and the alternate allele is
+        // written in to make the mutant. A track built from a sample is the other way round:
+        // it already reads the alt, so writing the alt in changes nothing, the two copies
+        // come out identical, and every register scores as discriminating nothing. The fix
+        // is the same arithmetic run the other way -- the track IS the target, and the copy
+        // that must survive is the track with the reference allele put back.
+        if (alleleFrame.carries === 'alt') {
+            const arr = wt.split('');
+            for (let k = 0; k < storedRef.length; k++) {
+                const j = xs.indexOf(vX + k);
+                if (j < 0) continue;
+                const b = storedRef[k];
+                arr[j] = (minus && orient === 'plus') ? (COMPL[b] || 'N') : b;
+            }
+            wt = arr.join('');
+        }
         const viEnd = Math.max(xs.indexOf(vX), xs.indexOf(vEnd));
         const viStart = Math.min(xs.indexOf(vX), xs.indexOf(vEnd));
         const refTx = wt.slice(viStart, viEnd + 1);
         const altTx = mut.slice(viStart, viEnd + 1);
+
+        // ---- NOTHING WAS CHANGED, SO NOTHING CAN DISCRIMINATE ------------------------------
+        //
+        // Writing the alternate allele into the window is the whole basis of this design: the
+        // oligo is built against the mutant copy and scored against the copy that must
+        // survive. If the window comes out the same either way, the alternate allele is
+        // already what the track reads there, and every candidate below is a verbatim slice
+        // of the reference. They still tile, they still rank, and they still arrive labelled
+        // allele-selective -- twenty registers that discriminate nothing, and nothing on the
+        // screen says so. That is worse than a failure, because it is a failure that looks
+        // like a result.
+        //
+        // The usual cause is that the variant's recorded position and its alleles disagree
+        // with the sequence: the track already carries the variant, the record is on another
+        // assembly, or the position is off by a base or two. All three are things to go and
+        // check, so they are named rather than guessed at.
+        if (refTx === altTx) {
+            warn((snp.name || 'That variant') + ': the track already reads ' + refTx
+                + ' at this position, which is the alternate allele as this track stores it ('
+                + storedRef + '>' + storedAlt
+                + (/complemented/.test('' + (alleleFrame.source || '')) ? ', complemented to match the track' : '')
+                + '). Writing it in changes nothing, so every candidate would be a verbatim slice of '
+                + 'the reference and none of them would discriminate. Nothing was designed. '
+                + 'Check whether this track already carries the variant, and whether its position '
+                + 'and assembly match the record.');
+            restoreHover(); return false;
+        }
 
         // Every variant on the track that falls inside the window, so an oligo can mark all of
         // them and not only the one it was designed against.

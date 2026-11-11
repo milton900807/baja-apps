@@ -233,6 +233,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-flexi.js:0-BASED, like every other builder of cdsi"
   install_group "protein residue indexing" \
     "py/bio/genetic-file.py:return {\"ref\": ref, \"index\": n - 1"
+  install_group "allele-selective design: a track that already carries the variant" \
+    "baja/bio/track-strand.js:THE TRACK MAY HOLD THE VARIANT RATHER THAN THE REFERENCE" \
+    "baja/manchester/menu/allele-selective-design.js:WHEN THE TRACK IS THE MUTANT"
   install_group "allele-selective design: the variant's strand" \
     "baja/bio/track-strand.js:allelesInFrame" \
     "baja/manchester/menu/allele-selective-design.js:allelesInFrame" \
