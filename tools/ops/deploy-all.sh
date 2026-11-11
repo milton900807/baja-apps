@@ -239,6 +239,8 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/chem-draw.js:WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND" \
     "flexigraph/oligo.js:__lettersOnBeads" \
     "flexigraph/sirna.js:__lettersOnBeads"
+  install_group "allele-selective design: say how many registers were possible" \
+    "baja/manchester/menu/allele-selective-design.js:THE SEQUENCE CONTEXT THAT DECIDES HOW MANY REGISTERS CAN EXIST"
   install_group "allele-selective design: a track that already carries the variant" \
     "baja/bio/track-strand.js:THE TRACK MAY HOLD THE VARIANT RATHER THAN THE REFERENCE" \
     "baja/manchester/menu/allele-selective-design.js:WHEN THE TRACK IS THE MUTANT"

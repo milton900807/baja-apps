@@ -571,6 +571,37 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         }
         const viEnd = Math.max(xs.indexOf(vX), xs.indexOf(vEnd));
         const viStart = Math.min(xs.indexOf(vX), xs.indexOf(vEnd));
+        // ---- THE SEQUENCE CONTEXT THAT DECIDES HOW MANY REGISTERS CAN EXIST ---------------
+        //
+        // A variant inside a tandem repeat is not discriminated by a base, it is discriminated
+        // by the LENGTH of the repeat. Every register that falls entirely inside the run reads
+        // the same on both copies, so the only oligos that can tell them apart are the ones
+        // that span the whole run and reach both flanks. Against a long run that is a handful
+        // of registers out of twenty, all of them necessarily pinned to the same flank.
+        //
+        // That is a correct and quite subtle result which looks exactly like a truncated walk,
+        // so it is reported rather than left to be inferred from the picture.
+        const repeatAround = (s2, i0, i1) => {
+            let best = null;
+            for (let u = 1; u <= 6; u++) {
+                let a = i0, b = i1;
+                while (a - 1 >= 0 && a - 1 + u < s2.length && s2[a - 1] === s2[a - 1 + u]) a--;
+                while (b + 1 < s2.length && b + 1 - u >= 0 && s2[b + 1] === s2[b + 1 - u]) b++;
+                const len = b - a + 1;
+                if (len >= Math.max(6, u * 3) && (!best || len > best.len)) {
+                    best = { unit: s2.slice(a, a + u), len: len, copies: Math.floor(len / u) };
+                }
+            }
+            return best;
+        };
+        let __repeat = null;
+        try { __repeat = repeatAround(wt, viStart, viEnd); } catch (e) { __repeat = null; }
+        const __repeatSaid = () => (!__repeat ? '' : (' ' + (snp.name || 'The variant') + ' sits in a run of '
+            + __repeat.len + ' ' + (__repeat.unit.length === 1 ? __repeat.unit : (__repeat.unit + ' x ' + __repeat.copies))
+            + ', so the two copies differ in the LENGTH of that run and not in any one base: '
+            + 'only an oligo spanning the whole run and reaching both flanks reads differently on '
+            + 'them, and every register that falls inside the run is identical on both.'));
+
         const refTx = wt.slice(viStart, viEnd + 1);
         const altTx = mut.slice(viStart, viEnd + 1);
 
@@ -636,10 +667,29 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         if (!r || r.error) { warn('Design failed: ' + ((r && r.error) || 'no answer from the server') + '.'); restoreHover(); return false; }
         let cands = [];
         try { cands = JSON.parse(r.candidates || '[]'); } catch (e) { cands = []; }
+        // HOW MANY REGISTERS WERE POSSIBLE, AND WHY THESE. A short answer to a design is
+        // either the shape of the variant or a bug, and from the drawing alone the two are
+        // indistinguishable. The designer already counts both; it was simply never asked.
+        const __why = () => {
+            const bits = [];
+            const considered = +(r.considered || 0);
+            if (considered && cands.length) bits.push(cands.length + ' of ' + considered + ' registers');
+            let rej = {}; try { rej = JSON.parse(r.rejected || '{}'); } catch (e) { rej = {}; }
+            const names = { no_overlap: 'did not cover the variant', edge: 'ran off the window',
+                geometry: 'could not hold the named gapmer geometry',
+                position: 'do not discriminate the wild-type allele',
+                variant_out_of_window: 'variants fell outside the window' };
+            for (const k of Object.keys(names)) {
+                const n = +(rej[k] || 0);
+                if (n > 0) bits.push(n + ' ' + names[k]);
+            }
+            return bits.length ? (' ' + bits.join('; ') + '.') : '';
+        };
         if (!cands.length) {
             let rej = {}; try { rej = JSON.parse(r.rejected || '{}'); } catch (e) { }
             tell('No allele-selective ' + mode.label + ' candidate covers ' + (snp.name || 'that variant') + ' with the mismatch in a discriminating position'
-                + (rej.position ? ' (' + rej.position + ' covered it but in a position that does not discriminate)' : '') + '.');
+                + (rej.position ? ' (' + rej.position + ' covered it but in a position that does not discriminate)' : '') + '.'
+                + __why() + __repeatSaid());
             restoreHover(); return false;
         }
 
@@ -904,10 +954,14 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // produced, so the two are named separately.
         const nSel = made.filter((c) => c && c.alleleSelective && c.alleleSelective.discriminates !== false).length;
         const msg = ' Placed ' + placed + ' ' + mode.label + ' candidate' + (placed === 1 ? '' : 's')
-            + ' across ' + (snp.name || 'the variant') + ' (' + refTx + '>' + altTx + ') — one per register — '
+            + ' across ' + (snp.name || 'the variant') + ' (' + refTx + '>' + altTx + '), one per register, '
             + nSel + ' of them allele-selective'
             + ((placed - nSel) > 0 ? (', ' + (placed - nSel) + ' shown in red because the mismatch lands where it cannot discriminate') : '')
-            + '. ' + (best.chemistry_label || chem.label) + '. Best: ' + best.discrimination + ', score ' + best.score + '. ';
+            + '. ' + (best.chemistry_label || chem.label) + '. Best: ' + best.discrimination + ', score ' + best.score + '.'
+            // WHY THIS MANY. A run that comes back short is either the shape of the variant or
+            // a fault, and the picture cannot tell them apart. The counts and the repeat
+            // context can, so they go in the same sentence as the result.
+            + __why() + __repeatSaid() + ' ';
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();
         return true;
