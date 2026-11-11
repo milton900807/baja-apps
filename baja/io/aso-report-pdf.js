@@ -36,6 +36,7 @@ return (async () => {
     const OLIGO = [0.11, 0.42, 0.62];    // every compound on the overview map
     const THIS_ONE = [0.80, 0.35, 0.05];  // the compound a detail page is about
     const OTHER = [0.62, 0.66, 0.71];     // its neighbours, there for context only
+    const VAR = [0.72, 0.13, 0.13];       // a variant, and the base of a compound over it
 
     const str = (v) => ('' + (v == null ? '' : v));
     const nOf = (v) => { const n = +v; return isFinite(n) ? n : null; };
@@ -127,6 +128,153 @@ return (async () => {
     };
     const labelOf = (o) => str((o && (o.name != null && o.name !== '' ? o.name : o.id)) || '');
 
+    // Break a string into lines that fit a width: on spaces, and on width alone for a run
+    // with no spaces in it (a sequence). Shared so a wrapped field, a paragraph and a note
+    // under a panel all break the same way.
+    const wrapLines = (d, text, size, width, maxLines) => {
+        const lines = [];
+        let rest = str(text);
+        const cap = maxLines || 16;
+        while (rest.length) {
+            if (d.width(rest, size) <= width) { lines.push(rest); break; }
+            let cut = rest.length;
+            while (cut > 1 && d.width(rest.slice(0, cut), size) > width) cut--;
+            let brk = rest.lastIndexOf(' ', cut);
+            if (brk < cut * 0.6) brk = cut;          // no sensible space: break on width
+            lines.push(rest.slice(0, brk));
+            rest = rest.slice(brk).replace(/^ /, '');
+            if (lines.length >= cap) { lines.push('\u2026'); break; }
+        }
+        return lines;
+    };
+
+    // WHICH WAY THE TRACK RUNS, in one place: the genomic mapper, whether the genomic
+    // coordinate ascends left to right, and therefore which end of a drawing is the
+    // transcript's 5'. Everything that labels an end or counts a position within a compound
+    // asks this, so a map, a zoom panel and a position in a field can never disagree.
+    const orientOf = (t) => {
+        const gOf = mapperFor(t);
+        const sp = spanOf(t) || { lo: 0, hi: 1 };
+        const gLo = gOf(sp.lo), gHi = gOf(sp.hi);
+        const known = (gLo != null && gHi != null);
+        const ascending = !(known && gHi < gLo);
+        const strand = geneStrandOf(t);
+        return {
+            gOf: gOf, sp: sp, gLo: gLo, gHi: gHi, known: known, ascending: ascending,
+            strand: strand, leftIs5: (strand > 0) === ascending, chrom: chromOf(t)
+        };
+    };
+
+    // ---- variants, and where compounds pile up on them --------------------------------
+    //
+    // A track carries its variants in `snpindels` (flexigraph/snpindel.js), in the same
+    // coordinate space as the oligos. Some tracks instead carry them as annotations typed
+    // SNP, so both are read. Spans are half-open, as oligoSpan's are: a SNP is one base.
+    const variantsOf = (t) => {
+        const out = [];
+        for (const v of ((t && t.snpindels) || [])) {
+            const lo = nOf(v && v.xi); if (lo == null) continue;
+            const hi = nOf(v && v.xf);
+            out.push({ lo: lo, hi: (hi != null && hi > lo) ? hi : lo + 1, v: v });
+        }
+        for (const a of ((t && t.annotations) || [])) {
+            const ty = str(a && a.type).toLowerCase();
+            if (!/^(snp|snv|variant|mutation)s?$/.test(ty)) continue;
+            const lo = nOf(a && a.xi); if (lo == null) continue;
+            const hi = nOf(a && a.xf);
+            out.push({ lo: lo, hi: (hi != null && hi > lo) ? hi : lo + 1, v: a });
+        }
+        out.sort((p, q) => p.lo - q.lo);
+        return out;
+    };
+    const alleleOf = (v) => {
+        const r = str(v && (v.reference != null ? v.reference : v.reference0));
+        const a = str(v && (v.alternate != null ? v.alternate : v.alternate0));
+        return (r || a) ? ((r || '?') + '>' + (a || '?')) : '';
+    };
+    // SnpIndel invents an id from a timestamp when it has none; that is not a name to print.
+    const variantName = (v) => {
+        const n = str(v && v.name);
+        if (n) return n;
+        const id = str(v && v.id);
+        return /^\d{9,}_/.test(id) ? '' : id;
+    };
+    const variantLabel = (v) => [variantName(v), alleleOf(v), str(v && v.clinsig)].filter(Boolean).join('  ');
+
+    // WHERE A VARIANT FALLS INSIDE A COMPOUND.
+    //
+    // Counted 5'->3' along the TRANSCRIPT for the target site, which is right to left on the
+    // page for a minus-strand gene -- the same orientation the maps are labelled with.
+    //
+    // An antisense compound runs the other way again, so position 7 of 20 in the target site
+    // is position 14 of 20 in the ASO, and that is the number that says whether a mismatch
+    // sits in the gap or a wing. The ASO position is only reported when the synthesis
+    // sequence really is the reverse complement of the target site, rather than assumed from
+    // the compound's type: a sense strand, a duplex entered the other way round, or a
+    // sequence that does not match would otherwise be reported backwards.
+    const BASES = (x) => str(x).toUpperCase().replace(/[^ACGTU]/g, '').replace(/U/g, 'T');
+    const COMP = { A: 'T', T: 'A', G: 'C', C: 'G' };
+    const revComp = (x) => BASES(x).split('').reverse().map((c) => COMP[c] || 'N').join('');
+    const isAntisenseTo = (target, synth) => {
+        const a = BASES(target), b = BASES(synth);
+        return (a.length >= 8 && a.length === b.length && revComp(a) === b);
+    };
+    // '5-10-5' and friends, but only when the three parts add up to the compound's length.
+    const gapmerRegion = (structure, len, asoPos) => {
+        const m = /(\d+)\s*[^\d]+\s*(\d+)\s*[^\d]+\s*(\d+)/.exec(str(structure));
+        if (!m) return '';
+        const a = +m[1], b = +m[2], c = +m[3];
+        if (!(a > 0 && b > 0 && c > 0) || (a + b + c) !== len) return '';
+        if (asoPos <= a) return "5' wing";
+        if (asoPos <= a + b) return 'gap';
+        return "3' wing";
+    };
+    const siteFacts = (o, row, vr, or) => {
+        const sp = oligoSpan(o);
+        if (!sp) return null;
+        const len = sp.hi - sp.lo;
+        let pos = or.leftIs5 ? (vr.lo - sp.lo + 1) : (sp.hi - vr.hi + 1);
+        pos = Math.max(1, Math.min(len, Math.round(pos)));
+        const anti = isAntisenseTo((row && row.target_sequence) || o.sequence, (row && row.synthesis_sequence) || o.synthesisSequence);
+        const asoPos = anti ? (len - pos + 1) : null;
+        const region = (asoPos != null) ? gapmerRegion((row && row.chemistry) || o.structure, len, asoPos) : '';
+        return { len: len, pos: pos, asoPos: asoPos, region: region };
+    };
+    const siteText = (f) => {
+        if (!f) return '';
+        let out = 'target position ' + f.pos + ' of ' + f.len;
+        if (f.asoPos != null) out += ', ASO position ' + f.asoPos + (f.region ? (' (' + f.region + ')') : '');
+        return out;
+    };
+    const siteShort = (f) => {
+        if (!f) return '';
+        return 't' + f.pos + '/' + f.len + (f.asoPos != null ? (' \u00b7 ASO ' + f.asoPos + (f.region ? (' ' + f.region) : '')) : '');
+    };
+
+    // Variants that two or more compounds sit over, gathered into windows: neighbouring
+    // variants whose covering compounds overlap belong in one picture, not three nearly
+    // identical ones.
+    const pileupsOf = (t, entries, minCount) => {
+        const want = minCount || 2;
+        const vars = variantsOf(t);
+        const singles = [];
+        if (!vars.length) return { groups: [], singles: singles, variants: 0 };
+        const spans = entries.map((e) => ({ e: e, s: oligoSpan(e.oligo) })).filter((x) => x.s);
+        const groups = [];
+        for (const vr of vars) {
+            const cover = spans.filter((x) => vr.lo < x.s.hi && vr.hi > x.s.lo);
+            if (cover.length < want) { if (cover.length) singles.push(vr); continue; }
+            let lo = vr.lo, hi = vr.hi;
+            for (const c of cover) { lo = Math.min(lo, c.s.lo); hi = Math.max(hi, c.s.hi); }
+            const last = groups[groups.length - 1];
+            if (last && lo <= last.hi) {
+                last.lo = Math.min(last.lo, lo); last.hi = Math.max(last.hi, hi);
+                last.hits.push({ vr: vr, cover: cover });
+            } else groups.push({ lo: lo, hi: hi, hits: [{ vr: vr, cover: cover }] });
+        }
+        return { groups: groups, singles: singles, variants: vars.length };
+    };
+
     // ---- the map ---------------------------------------------------------------------
     //
     // The track span broken into equal rows, each row a bar across the text width with the
@@ -153,12 +301,9 @@ return (async () => {
         const LANES = o.compact ? 1 : 3;         // how many levels compounds may stack into
 
         // Which end of the picture is the transcript's 5' end.
-        const gOf = mapperFor(t);
+        const or = orientOf(t);
+        const gOf = or.gOf, known = or.known, ascending = or.ascending, leftIs5 = or.leftIs5, chrom = or.chrom;
         const gLo = gOf(sp.lo), gHi = gOf(sp.hi);
-        const known = (gLo != null && gHi != null);
-        const ascending = !(known && gHi < gLo);
-        const leftIs5 = (geneStrandOf(t) > 0) === ascending;
-        const chrom = chromOf(t);
         // Genomic where the track knows it, the track's own position where it does not --
         // never one labelled as the other.
         const atEnd = (g, x) => known ? ((chrom ? (chrom + ':') : '') + commas(g))
@@ -172,7 +317,7 @@ return (async () => {
                         : 'Laid out left to right in descending genomic coordinate')
                     + ', ' + Math.round(perRow).toLocaleString() + ' nt per row'
                     + ' \u00b7 ' + (leftIs5 ? "transcript 5' is at the left" : "transcript 5' is at the right")
-                    + ' (' + (geneStrandOf(t) < 0 ? 'minus' : 'plus') + '-strand gene)',
+                    + ' (' + (or.strand < 0 ? 'minus' : 'plus') + '-strand gene)',
                     { size: 7.5, rgb: MUTED, max: WIDTH });
                 y -= 12;
             }
@@ -267,6 +412,135 @@ return (async () => {
         return y - 10;
     };
 
+    // ---- a zoomed snapshot of one pileup ----------------------------------------------
+    //
+    // The design map is drawn at thousands of bases to the inch, where a 20mer is a tick and
+    // a SNP is nothing at all. Where compounds pile up on a variant, that window is drawn
+    // again at base resolution: the compounds one per row with the variant marked inside
+    // each of them, the reference sequence when the window is short enough to letter, and
+    // the same 5'/3' labelling as the maps.
+    //
+    // Returns the y it finished at. The caller breaks the page; a panel is never split.
+    const drawZoom = (d, t, g, y, or) => {
+        const X0 = d.M, X1 = d.W - d.M;
+        const GUT = 118;                        // the compound names live to the left of the panel
+        const PX0 = X0 + GUT, PW = X1 - PX0 - 10;
+        const pad = Math.max(3, Math.round((g.hi - g.lo) * 0.08));
+        const lo = g.lo - pad, hi = g.hi + pad, span = Math.max(1, hi - lo);
+        const toX = (v) => PX0 + ((v - lo) / span) * PW;
+        const ROW_H = 10, MAX_ROWS = 14;
+
+        // Everything that covers any variant in this window, once each, left to right.
+        const cover = [];
+        for (const h of g.hits) for (const c of h.cover) { if (!cover.some((x) => x.e === c.e)) cover.push(c); }
+        cover.sort((a, b) => (a.s.lo - b.s.lo) || (a.s.hi - b.s.hi));
+        const shown = cover.slice(0, MAX_ROWS);
+
+        // Title: the variants themselves, which is what the panel is about.
+        const coordOf = (x) => { const gx = or.gOf(x); return (gx == null) ? ('track ' + commas(x)) : ((or.chrom ? or.chrom + ':' : '') + commas(gx)); };
+        const first = g.hits[0].vr;
+        const title = (g.hits.length === 1)
+            ? (coordOf(first.lo) + '   ' + (variantLabel(first.v) || 'variant'))
+            : (g.hits.length + ' variants   ' + coordOf(g.lo) + ' – ' + coordOf(g.hi));
+        d.text(X0, y, title, { size: 9.5, bold: true, rgb: INK, max: X1 - X0 - 90 });
+        d.text(X1, y, cover.length + ' compound' + (cover.length === 1 ? '' : 's'), { size: 8.5, rgb: VAR, align: 'right' });
+        y -= 12;
+        if (g.hits.length > 1) {
+            for (const h of g.hits) {
+                d.text(X0, y, '· ' + coordOf(h.vr.lo) + '  ' + (variantLabel(h.vr.v) || 'variant')
+                    + '  ·  ' + h.cover.length + ' compound' + (h.cover.length === 1 ? '' : 's'),
+                    { size: 7.5, rgb: MUTED, max: X1 - X0 });
+                y -= 9.5;
+            }
+            y -= 2;
+        }
+
+        // The reference sequence, when the window is short enough for the letters to be read.
+        const seq = str(t && t.sequence);
+        const base0 = nOf(t && t.xi);
+        const perBase = PW / span;
+        const lettered = (seq && base0 != null && span <= 80 && perBase >= 4.6);
+        if (lettered) {
+            for (let x = Math.ceil(lo); x < hi; x++) {
+                const i = Math.floor(x - base0);
+                if (i < 0 || i >= seq.length) continue;
+                const onVar = g.hits.some((h) => x >= h.vr.lo && x < h.vr.hi);
+                const cx = toX(x + 0.5);
+                if (onVar) d.rect(toX(x), y - 1.5, Math.max(1, perBase), 9, { fill: [0.97, 0.88, 0.88] });
+                d.text(cx, y, seq[i], { size: Math.min(7.5, perBase * 1.25), rgb: onVar ? VAR : MUTED, align: 'center' });
+            }
+            y -= 12;
+        }
+
+        // The variants: a line down through every row, so a compound's own mark lines up
+        // with the variant it belongs to even when the rows are tight.
+        const topY = y + 2;
+        const botY = y - shown.length * ROW_H - 2;
+        for (const h of g.hits) {
+            const cx = toX((h.vr.lo + h.vr.hi) / 2);
+            d.line(cx, topY, cx, botY, { lw: 0.5, rgb: [0.85, 0.65, 0.65] });
+        }
+
+        // One row per compound: its bar, the variant base picked out inside it, its name and
+        // where the variant falls within it.
+        for (const c of shown) {
+            const ry = y - ROW_H + 2;
+            const a = toX(c.s.lo), b = toX(c.s.hi);
+            d.rect(a, ry, Math.max(1.5, b - a), 6, { fill: OLIGO });
+            for (const h of g.hits) {
+                if (!(h.vr.lo < c.s.hi && h.vr.hi > c.s.lo)) continue;
+                const va = toX(Math.max(h.vr.lo, c.s.lo)), vb = toX(Math.min(h.vr.hi, c.s.hi));
+                d.rect(va, ry, Math.max(1.5, vb - va), 6, { fill: VAR });
+            }
+            d.text(X0, ry + 1, labelOf(c.e.oligo), { size: 7, rgb: INK, max: GUT - 46 });
+            // The covering variant nearest the start of the compound decides the position
+            // shown here; a compound over two of them is spelled out under the panel.
+            const mine = g.hits.filter((h) => h.vr.lo < c.s.hi && h.vr.hi > c.s.lo);
+            if (mine.length === 1) {
+                const f = siteFacts(c.e.oligo, c.e.row, mine[0].vr, or);
+                d.text(PX0 - 6, ry + 1, siteShort(f), { size: 6, rgb: MUTED, align: 'right' });
+            } else if (mine.length > 1) {
+                d.text(PX0 - 6, ry + 1, mine.length + ' variants', { size: 6, rgb: MUTED, align: 'right' });
+            }
+            y -= ROW_H;
+        }
+        if (cover.length > shown.length) {
+            d.text(PX0, y, '+ ' + (cover.length - shown.length) + ' more compound(s) over this window', { size: 6.5, rgb: MUTED });
+            y -= 9;
+        }
+
+        // The axis, with the window's ends in genomic coordinates and the transcript's
+        // direction marked the same way the maps mark it.
+        y -= 2;
+        d.line(PX0, y, PX0 + PW, y, { lw: 0.5, rgb: RULE });
+        d.text(PX0, y - 8, coordOf(lo), { size: 6.5, rgb: MUTED });
+        d.text(PX0 + PW, y - 8, coordOf(hi), { size: 6.5, rgb: MUTED, align: 'right' });
+        d.text(PX0 - 4, y - 8, or.leftIs5 ? "5'" : "3'", { size: 7.5, bold: true, rgb: INK, align: 'right' });
+        d.text(PX0 + PW + 4, y - 8, or.leftIs5 ? "3'" : "5'", { size: 7.5, bold: true, rgb: INK });
+        y -= 18;
+
+        // A compound over more than one variant in the window gets its positions in words:
+        // the row above it has no space for them, and this is the detail the panel is for.
+        for (const c of shown) {
+            const mine = g.hits.filter((h) => h.vr.lo < c.s.hi && h.vr.hi > c.s.lo);
+            if (mine.length < 2) continue;
+            // Named, not re-described: the allele and significance are in the list above.
+            const parts = mine.map((h) => (variantName(h.vr.v) || coordOf(h.vr.lo)) + ' ' + siteText(siteFacts(c.e.oligo, c.e.row, h.vr, or)));
+            const txt = labelOf(c.e.oligo) + ': ' + parts.join('; ');
+            for (const ln of wrapLines(d, txt, 6.5, X1 - X0, 3)) { d.text(X0, y, ln, { size: 6.5, rgb: MUTED }); y -= 8.5; }
+        }
+        return y;
+    };
+    // How tall that panel will be, so the caller can keep it off a page edge.
+    const zoomHeight = (d, t, g) => {
+        const cover = [];
+        for (const h of g.hits) for (const c of h.cover) { if (!cover.some((x) => x.e === c.e)) cover.push(c); }
+        const rows = Math.min(cover.length, 14);
+        const multi = cover.filter((c) => g.hits.filter((h) => h.vr.lo < c.s.hi && h.vr.hi > c.s.lo).length > 1).length;
+        return 12 + (g.hits.length > 1 ? (g.hits.length * 9.5 + 2) : 0) + 12 + rows * 10
+            + (cover.length > rows ? 9 : 0) + 20 + Math.min(multi, rows) * 9 + 10;
+    };
+
     // ---- the report ------------------------------------------------------------------
     const build = (spec) => {
         const o = spec || {};
@@ -277,6 +551,11 @@ return (async () => {
 
         const rule = (yy, g) => d.line(X0, yy, X1, yy, { lw: 0.6, rgb: g || RULE });
         const need = (h) => { if (y - h < d.M + 20) { d.page(); y = d.H - d.M; return true; } return false; };
+        // Wrapped running text, rather than a single clipped line.
+        const para = (text, size, rgb) => {
+            const sz = size || 8.5;
+            for (const ln of wrapLines(d, text, sz, WIDTH, 8)) { need(sz + 4); d.text(X0, y, ln, { size: sz, rgb: rgb || MUTED }); y -= sz + 3; }
+        };
         // A key and its value, wrapped onto further lines when the value is long.
         const field = (k, v, opts) => {
             const s = opts || {};
@@ -284,19 +563,7 @@ return (async () => {
             const size = s.size || 8.5;
             const text = str(v);
             if (text === '') return;
-            // Break a long value on spaces, and a long unbroken run (a sequence) on width.
-            const lines = [];
-            let rest = text;
-            while (rest.length) {
-                if (d.width(rest, size) <= valW) { lines.push(rest); break; }
-                let cut = rest.length;
-                while (cut > 1 && d.width(rest.slice(0, cut), size) > valW) cut--;
-                let brk = rest.lastIndexOf(' ', cut);
-                if (brk < cut * 0.6) brk = cut;          // no sensible space: break on width
-                lines.push(rest.slice(0, brk));
-                rest = rest.slice(brk).replace(/^ /, '');
-                if (lines.length > 14) { lines.push('…'); break; }
-            }
+            const lines = wrapLines(d, text, size, valW, 14);
             need(lines.length * (size + 2.5) + 2);
             d.text(X0, y, k, { size: size, rgb: MUTED });
             for (const ln of lines) {
@@ -320,11 +587,10 @@ return (async () => {
         }
 
         d.text(X0, y, 'Design map', { size: 11, bold: true, rgb: INK }); y -= 13;
-        d.text(X0, y, entries.length + ' compound' + (entries.length === 1 ? '' : 's') + ' on '
+        para(entries.length + ' compound' + (entries.length === 1 ? '' : 's') + ' on '
             + byTrack.length + ' track' + (byTrack.length === 1 ? '' : 's')
-            + ". Each map is broken into rows to fit the page; the transcript's 5' and 3' ends are marked.",
-            { size: 8.5, rgb: MUTED, max: WIDTH });
-        y -= 18;
+            + ". Each map is broken into rows to fit the page; the transcript's 5' and 3' ends are marked.");
+        y -= 8;
 
         for (const g of byTrack) {
             const t = g.track;
@@ -339,6 +605,44 @@ return (async () => {
             y -= 14;
         }
 
+        // ---- where compounds pile up on a variant ---------------------------------------
+        //
+        // Only drawn when the tracks actually carry variants. A design over a track with no
+        // variants loaded says nothing here rather than printing an empty heading.
+        const piles = [];
+        let variantsSeen = 0, singlesSeen = 0;
+        for (const grp of byTrack) {
+            const pu = pileupsOf(grp.track, grp.entries, 2);
+            variantsSeen += pu.variants;
+            singlesSeen += pu.singles.length;
+            for (const gg of pu.groups) piles.push({ track: grp.track, g: gg });
+        }
+        if (variantsSeen) {
+            need(70);
+            y -= 6;
+            d.text(X0, y, 'Variant pileups', { size: 11, bold: true, rgb: INK }); y -= 13;
+            if (piles.length) {
+                para(piles.length + ' window' + (piles.length === 1 ? '' : 's')
+                    + ' where two or more compounds cover the same variant, each drawn at base resolution'
+                    + (singlesSeen ? ('. A further ' + singlesSeen + ' variant' + (singlesSeen === 1 ? ' is' : 's are') + ' covered by one compound only, listed on that compound’s page.') : '.'));
+            } else {
+                para('No variant on these tracks is covered by more than one compound'
+                    + (singlesSeen ? ('; ' + singlesSeen + ' ' + (singlesSeen === 1 ? 'is covered by one' : 'are covered by a single') + ' compound, listed on that compound’s page.') : '.'));
+            }
+            y -= 8;
+            let lastTrack = null;
+            for (const pl of piles) {
+                const h = zoomHeight(d, pl.track, pl.g) + (pl.track !== lastTrack && byTrack.length > 1 ? 12 : 0);
+                if (y - h < d.M + 20) { d.page(); y = d.H - d.M; lastTrack = null; }
+                if (byTrack.length > 1 && pl.track !== lastTrack) {
+                    d.text(X0, y, str(pl.track && pl.track.name) || 'track', { size: 8.5, bold: true, rgb: MUTED });
+                    y -= 12;
+                }
+                lastTrack = pl.track;
+                y = drawZoom(d, pl.track, pl.g, y, orientOf(pl.track)) - 12;
+            }
+        }
+
         // ---- one section per compound ---------------------------------------------------
         for (let i = 0; i < entries.length; i++) {
             const e = entries[i];
@@ -351,7 +655,8 @@ return (async () => {
             rule(y, [0.2, 0.2, 0.2]); y -= 15;
 
             const sp = oligoSpan(o2);
-            const gOf2 = mapperFor(t);
+            const or2 = orientOf(t);
+            const gOf2 = or2.gOf;
             const gA = sp ? gOf2(sp.lo) : null, gB = sp ? gOf2(sp.hi - 1) : null;
             const coord = (gA == null || gB == null) ? ''
                 : (chromOf(t) ? chromOf(t) + ':' : '') + commas(Math.min(gA, gB)) + '-' + commas(Math.max(gA, gB));
@@ -369,6 +674,18 @@ return (async () => {
             field('Off-targets', row.off_target);
             field('Mismatches', row.mismatches);
             field('Annotations', row.annotations);
+            // The variants under this compound, and where they fall within it -- the same
+            // positions the pileup panels show, for a compound that has one to itself too.
+            if (sp) {
+                const mine = variantsOf(t).filter((vr) => vr.lo < sp.hi && vr.hi > sp.lo);
+                if (mine.length) {
+                    field('Variants covered', mine.map((vr) => {
+                        const gx = or2.gOf(vr.lo);
+                        const where = (variantLabel(vr.v) || ((or2.chrom ? or2.chrom + ':' : '') + commas(gx == null ? vr.lo : gx)));
+                        return where + ': ' + siteText(siteFacts(o2, row, vr, or2));
+                    }).join('; '), { rgb: VAR });
+                }
+            }
 
             y -= 8;
             need(120);

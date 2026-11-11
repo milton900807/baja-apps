@@ -153,8 +153,9 @@ fi
 #   baja/manchester/menu/run-off-targets.js, run-off-target-tool.js, run-off-target-tool-seed-seq.js
 #       an off-target run asks whether to rerun all compounds or only those with no result yet
 #   baja/io/pdf-writer.js, baja/io/aso-report-pdf.js, manchester/io/download-hub.js
-#       the detailed ASO report is drawn in the browser: a page per compound, and a map of
-#       the track broken into rows with the 5' and 3' ends marked
+#       the detailed ASO report is drawn in the browser: a page per compound, a map of the
+#       track broken into rows with the 5' and 3' ends marked, and a zoomed panel for each
+#       window where compounds pile up on a variant
 #
 # Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
 # so a REF that predates the change is said and skipped rather than installing an older
