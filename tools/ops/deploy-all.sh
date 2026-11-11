@@ -239,6 +239,10 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/chem-draw.js:WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND" \
     "flexigraph/oligo.js:__lettersOnBeads" \
     "flexigraph/sirna.js:__lettersOnBeads"
+  install_group "a compound that spans an applied deletion" \
+    "flexigraph/chem-draw.js:A COMPOUND THAT SPANS AN APPLIED DELETION" \
+    "baja/bio/track.js:HOW MANY TRACK BASES THIS COMPOUND COVERS" \
+    "baja/bio/track-flexi.js:shorter than its own genomic footprint"
   install_group "allele-selective design: say how many registers were possible" \
     "baja/bio/repeat-context.js:THE REPEAT A VARIANT SITS IN" \
     "baja/manchester/menu/allele-selective-design.js:THE SEQUENCE CONTEXT THAT DECIDES HOW MANY REGISTERS CAN EXIST" \
