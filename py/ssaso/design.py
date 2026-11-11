@@ -240,6 +240,70 @@ def max_self_complementary_stretch(seq: str) -> int:
     return best
 
 
+def low_complexity(seq: str, min_period: int = 1, max_period: int = 6,
+                   periodic_frac: float = 0.85, max_homopolymer: int = 6,
+                   max_g_run: int = 6, min_kmer_variety: float = 0.55) -> str:
+    """Why this sequence is low-complexity, or "" if it is not.
+
+    The scoring function already PENALISES repeats, and in rule-based mode that is
+    enough: a poly-T 16mer scores badly and never reaches the top N. A walk is
+    different. It emits every register over its site whatever the score, so the
+    penalty never bites and the export fills with TTTTTTTTTTTTTTTT and (AGAT)x5 --
+    oligos that will bind everywhere in the transcriptome and nowhere usefully.
+
+    The thresholds are the ones the scoring already uses, taken at the point where
+    its own term reaches zero: a homopolymer of 6 and a G run of 6 are each fully
+    penalised there, so they are the natural place to stop pretending the candidate
+    is usable at all.
+
+    The periodicity test is the part has_simple_repeat could not do. Its repeat
+    check only sees a six-base dinucleotide, so (AGAT)x5 -- a tetranucleotide
+    tandem repeat, and one of the worst offenders in the export that prompted this
+    -- walked straight through it. This compares the sequence against the periodic
+    extension of its own first u bases, for every unit length up to six, and calls
+    it low-complexity when any of them explains 85% of it.
+    """
+    seq = (seq or "").upper().replace("U", "T")
+    n = len(seq)
+    if n < 6:
+        return ""
+    hp = longest_homopolymer(seq)
+    if hp >= max_homopolymer:
+        return f"a homopolymer run of {hp}"
+    gr = longest_g_run(seq)
+    if gr >= max_g_run:
+        return f"a G run of {gr}"
+    for u in range(min_period, min(max_period, n // 2) + 1):
+        # PERIOD u, AT ANY PHASE. Comparing against the unit that starts at position
+        # zero only finds a repeat that begins at the 5' end: AAAAGATAGATAGATAGATA is
+        # (AGAT) four times with four A's in front of it, and anchoring on "AAAA"
+        # explains none of it. Comparing each base with the one u positions along
+        # asks whether the sequence repeats with period u wherever it starts, which
+        # is the question, and costs one pass.
+        pairs = n - u
+        if pairs <= 0:
+            break
+        same = sum(1 for i in range(pairs) if seq[i] == seq[i + u])
+        if same >= periodic_frac * pairs:
+            return (f"a {u}-base tandem repeat ({seq[:u]}…)" if u > 1
+                    else f"{same + 1} of {n} bases the same")
+    # HOW MANY DIFFERENT THINGS THE SEQUENCE SAYS. The tests above each describe one
+    # kind of repeat and a hybrid defeats both: AAAAGATAGATAGATA is a run of A's with
+    # a tetranucleotide repeat behind it, and neither explains 85% of it on its own.
+    # Counting distinct 3-mers asks the question they are both proxies for.
+    #
+    # The threshold is measured, not chosen by taste. On this track's real ASOs the
+    # ratio runs 0.67 to 0.94; on the sequences that prompted this it runs 0.07 to
+    # 0.44. Anything in that gap separates them, and the midpoint leaves margin on
+    # both sides rather than sitting against the weakest real candidate.
+    if n >= 12:
+        kmers = [seq[i:i + 3] for i in range(n - 2)]
+        variety = len(set(kmers)) / len(kmers)
+        if variety < min_kmer_variety:
+            return f"only {len(set(kmers))} distinct 3-mers in {len(kmers)}"
+    return ""
+
+
 def has_simple_repeat(seq: str) -> bool:
     if longest_homopolymer(seq) >= 4:
         return True
@@ -1009,6 +1073,7 @@ def generate_gapmer_candidates(
     cover_positions: Sequence[int] | None = None,
     cover_spans: Sequence[Sequence[int]] | None = None,
     tissue: str = "",
+    exclude_low_complexity: bool = True,
 ) -> List[GapmerCandidate]:
     seq_rna = clean_sequence(long_sequence)
     lengths = list(lengths)
@@ -1114,6 +1179,8 @@ def generate_gapmer_candidates(
 
     excluded_by_region = 0
     missed_required = 0
+    excluded_low_complexity = 0
+    low_complexity_examples: List[str] = []
 
     for length in lengths:
         valid_gap_sizes = [g for g in gap_sizes if g < length]
@@ -1156,6 +1223,23 @@ def generate_gapmer_candidates(
 
                 if exclude_gap_cleavage_motif_hits and cleavage_motif_hits:
                     continue
+
+                # REPEATS ARE A RULE HERE, NOT A PENALTY. The score already marks them
+                # down, which is enough in rule-based mode: a poly-T 16mer never reaches
+                # the top N. A walk emits every register over its site whatever the score,
+                # so the penalty never bites and the answer fills with oligos that bind
+                # everywhere and nowhere. The same rule applied to both modes makes them
+                # agree about what a usable oligo is, and costs rule-based nothing, since
+                # it was never going to choose one of these anyway.
+                if exclude_low_complexity:
+                    why_lc = low_complexity(antisense_core_rna)
+                    if why_lc:
+                        excluded_low_complexity += 1
+                        if len(low_complexity_examples) < 3:
+                            low_complexity_examples.append(
+                                to_requested_alphabet(antisense_core_rna, output_alphabet)
+                                + " (" + why_lc + ")")
+                        continue
 
                 (score, score_breakdown, notes, gc_percent, tm_c,
                  tm_modification_bonus_c) = score_gapmer_candidate(
@@ -1222,6 +1306,13 @@ def generate_gapmer_candidates(
     results.sort(key=lambda x: (-x.score, abs(x.tm_c - 60.0), abs(x.gc_percent - 50.0), -x.length))
     for idx, candidate in enumerate(results, start=1):
         candidate.rank = idx
+    # What the repeat rule removed, so the caller can say it rather than leave a mutation
+    # silently uncovered. A site sitting inside a poly-T tract has no usable register at
+    # all, and "no ASOs here" is a finding, not a failure to report.
+    generate_gapmer_candidates.last_run = {
+        "excluded_low_complexity": excluded_low_complexity,
+        "low_complexity_examples": list(low_complexity_examples),
+    }
     return results
 
 
@@ -1802,6 +1893,8 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         # "every mutation got a few" from "the first two got everything", and after the
         # walk became one-mutation-at-a-time that distinction is the whole behaviour.
         "allele_walk": allele_walk_stats,
+        # What the repeat rule removed before any of that.
+        "repeat_filter": dict(getattr(generate_gapmer_candidates, "last_run", {}) or {}),
     }
 
 

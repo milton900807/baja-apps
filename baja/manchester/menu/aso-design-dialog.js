@@ -392,7 +392,9 @@ function (kind, targetLength, context) {
                         + '. The mutations are ranked furthest from the reference first, and each one is '
                         + 'walked across every register that covers it before the next is started \u2014 so a '
                         + 'maximum below that total finishes the most discriminating mutations and leaves the '
-                        + 'rest with nothing, rather than giving every mutation a register or two.') : '');
+                        + 'rest with nothing, rather than giving every mutation a register or two. '
+                        + 'Registers that are homopolymer runs or tandem repeats are dropped, by the same '
+                        + 'rule the other strategies use, so a mutation inside a repeat may return nothing.') : '');
             };
             const setStrategy = (v) => {
                 strategy = v;

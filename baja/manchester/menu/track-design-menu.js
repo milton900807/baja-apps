@@ -1058,6 +1058,21 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // behaviour. The designer reports it; saying nothing would leave the
                     // user to infer from a number which mutations were never designed
                     // against at all.
+                    // WHAT THE REPEAT RULE REMOVED. A walk over a site inside a poly-T
+                    // tract or a tandem repeat has no usable register at all, and silence
+                    // there reads as "the designer found nothing", which is a different
+                    // claim from "every register here was a repeat".
+                    try {
+                        const rf = (r && (r.repeat_filter || (r.result && r.result.repeat_filter))) || null;
+                        if (rf && +rf.excluded_low_complexity > 0) {
+                            const eg = (rf.low_complexity_examples || []).slice(0, 2).join(', ');
+                            graph.setResultMessage(' ' + rf.excluded_low_complexity
+                                + ' candidate' + (+rf.excluded_low_complexity === 1 ? '' : 's')
+                                + ' dropped as low-complexity (homopolymer runs, tandem repeats)'
+                                + (eg ? (': ' + eg) : '') + '. ');
+                        }
+                    } catch (e) { }
+
                     if (__p.design_mode === 'allele') {
                         try {
                             const aw = (r && (r.allele_walk || (r.result && r.result.allele_walk))) || null;
