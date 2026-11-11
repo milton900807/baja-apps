@@ -4441,6 +4441,13 @@ return new Promise(async (resolve, reject) => {
         const k = o.xi + ':' + o.xf;
         if (o.__genomicSiteKey === k) return;
         o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
+        // HOW MANY TRACK BASES THIS COMPOUND COVERS. A compound built against a sequence
+        // with a deletion applied is SHORTER than its own genomic footprint by exactly the
+        // bases that were removed, and that difference is a fact rather than something to
+        // infer from how badly the sequences line up. The renderer uses it to align across
+        // the join instead of guessing whether a run of disagreement is a deletion or a
+        // genuinely mismatched compound.
+        o.__genomicSpan = (o.xf - o.xi) + 1;
         o.__genomicSiteKey = k;
       } catch (e) { o.__genomicSite = ''; }
     }

@@ -133,7 +133,7 @@ function () {
         // and the compound's own end is stored inclusively by some callers; requiring an
         // exact length made the row disappear on an off-by-one instead of drawing.
         const __refRaw = ('' + ((__host && __host.__genomicSite) || '')).toUpperCase().replace(/[^ACGTUN]/g, '');
-        const __ref = (__refRaw.length >= n) ? __refRaw.slice(0, n) : '';
+        let __ref = (__refRaw.length >= n) ? __refRaw.slice(0, n) : '';
         if (__refRaw && !__ref && __host && !__host.__refShortWarned) {
             __host.__refShortWarned = true;
             try {
@@ -175,6 +175,81 @@ function () {
                         + ': best fit to the reference under it is ' + best.k + ' of ' + n
                         + ' in any reading, so the reference is not drawn under it.');
                 } catch (e) { }
+            }
+        }
+
+        // ---- A COMPOUND THAT SPANS AN APPLIED DELETION ------------------------------------
+        //
+        // The four readings above all assume the compound and the reference under it are
+        // colinear. Across an applied deletion they are not: the oligo pairs with TWO
+        // segments of reference, one either side of the join, and the genomic slice beneath
+        // it is longer than the compound by exactly the bases that were removed. Compared
+        // straight, everything past the join is off by that much, which is why a one-base
+        // deletion drew a block of "mismatches" that grew a column wider with every register
+        // of the walk. Every one of those marks was the offset, not a base the oligo
+        // discriminates, and they were drawn in the same colour as the marks that are real.
+        //
+        // One gap is enough to explain a deletion, so that is all this looks for: the longest
+        // prefix of the compound that agrees with the slice, the longest suffix that agrees
+        // with it shifted right by d, and a d where the two meet or overlap. The SMALLEST
+        // such d wins, since a larger one can always manufacture agreement by skipping more
+        // sequence. Found by measuring prefix and suffix once per reading rather than trying
+        // every split, because this runs twice per compound per frame.
+        //
+        // An insertion is the mirror of this (the slice is shorter than the compound) and is
+        // not handled here; it still falls through to the compound's own target below.
+        //
+        // WHETHER THERE IS A DELETION AT ALL IS NOT GUESSED. The track stashes how many of
+        // its bases this compound covers, and a compound built against a sequence with a
+        // deletion applied is shorter than its own footprint by exactly the bases removed.
+        // That matters because the straight reading does not always fail: with the join near
+        // one end, fifteen of twenty residues still agree, which clears the three-quarters
+        // bar and draws the other five as mismatches. The footprint says plainly that those
+        // five are an offset, so the alignment runs on the fact and not on how badly the
+        // sequences happened to line up.
+        let __joinSlot = -1, __joinGap = 0;
+        const __span = +((__host && __host.__genomicSpan) || 0);
+        const __del = (__span > n) ? (__span - n) : 0;
+        if ((__del > 0 || __refFit < Math.ceil(n * 0.75)) && __refRaw.length > n && n > 2) {
+            const maxD = __del > 0 ? __del : Math.min(16, __refRaw.length - n);
+            const minD = __del > 0 ? __del : 1;
+            let bestJ = null;
+            for (const mirror of [false, true]) {
+                for (const same of [false, true]) {
+                    const B = [];
+                    for (let i = 0; i < n; i++) {
+                        const m = monos[mirror ? (n - 1 - i) : i];
+                        let b = (m && m.base) ? m.base[0] : '';
+                        if (b === 'U') b = 'T';
+                        B.push(same ? b : (COMP[b] || b));
+                    }
+                    let pre = 0;
+                    while (pre < n && B[pre] && B[pre] === __refRaw[pre]) pre++;
+                    for (let d = minD; d <= maxD; d++) {
+                        let suf = 0;
+                        while (suf < n) {
+                            const i = n - 1 - suf;
+                            if (!B[i] || B[i] !== __refRaw[i + d]) break;
+                            suf++;
+                        }
+                        if (pre + suf >= n) {
+                            if (!bestJ || d < bestJ.d) bestJ = { d: d, p: n - suf, mirror: mirror, same: same };
+                            break;
+                        }
+                    }
+                }
+            }
+            if (bestJ) {
+                __flip = bestJ.mirror;
+                __same = bestJ.same;
+                __joinGap = bestJ.d;
+                // A join at either end is not a join: it means the whole compound matched the
+                // slice at an offset, which is a placement question and not a deletion.
+                __joinSlot = (bestJ.p > 0 && bestJ.p < n) ? bestJ.p : -1;
+                let out = '';
+                for (let i = 0; i < n; i++) out += (i < bestJ.p) ? __refRaw[i] : __refRaw[i + bestJ.d];
+                __ref = out;
+                __refFit = n;
             }
         }
 
@@ -556,6 +631,30 @@ function () {
                     ctx.moveTo(cx, sy + R + 1);
                     ctx.lineTo(cx, sy + R + 5);
                     ctx.stroke();
+                    ctx.restore();
+                } catch (e) { }
+            }
+
+            // THE JOIN, where the deleted bases used to be. Drawn as a break in the row
+            // rather than as a mark on a residue, because nothing was substituted here: the
+            // two reference segments either side are simply no longer adjacent on this
+            // copy, and that gap IS what the oligo discriminates.
+            if (__joinSlot === i) {
+                try {
+                    const jx = Math.round(cx - per / 2);
+                    ctx.save();
+                    ctx.strokeStyle = '#b45309';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(jx, sy + R + 1);
+                    ctx.lineTo(jx, sy + R + 15);
+                    ctx.stroke();
+                    if (showBase && __joinGap > 0 && per >= 14) {
+                        ctx.font = 'bold 9px "Segoe UI", Arial, sans-serif';
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                        ctx.fillStyle = '#b45309';
+                        ctx.fillText('\u2212' + __joinGap, jx, sy + R + 16);
+                    }
                     ctx.restore();
                 } catch (e) { }
             }

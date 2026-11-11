@@ -3367,6 +3367,9 @@ return new Promise(async (resolve, reject) => {
                 const k = o.xi + ':' + o.xf;
                 if (o.__genomicSiteKey === k) return;
                 o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
+                // See track.js: a compound built against a sequence with a deletion applied
+                // is shorter than its own genomic footprint by the bases that were removed.
+                o.__genomicSpan = (o.xf - o.xi) + 1;
                 o.__genomicSiteKey = k;
             } catch (e) { o.__genomicSite = ''; }
         }
