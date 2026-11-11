@@ -258,8 +258,8 @@ if [[ $DO_API -eq 1 ]]; then
   # groups until this was noticed.
   install_group "compound sequence label (spans oligo.js, sirna.js, chem-draw.js and gene.js)" \
     "flexigraph/chem-draw.js:GENOMIC ORIENTATION" \
-    "baja/bio/track-flexi.js:THE REFERENCE SEQUENCE UNDER THIS COMPOUND" \
-    "baja/bio/track.js:the renderer needs the GENOME under the compound" \
+    "baja/bio/track-flexi.js:THE REFERENCE SEQUENCE UNDER ONE COMPOUND" \
+    "baja/bio/track.js:The reference sequence under one compound" \
     "baja/chem/ui/pick-chem-part.js:SLOT -> MONOMER" \
     "baja/chem/ui/chem-part-press.js:SLOT -> MONOMER" \
     "flexigraph/oligo.js:THE TARGET GOES UNDER THE COMPOUND" \

@@ -4430,6 +4430,21 @@ return new Promise(async (resolve, reject) => {
       try { return this.getSequenceRange(r.start, r.end) || ''; } catch (e) { return ''; }
     }
 
+    // The reference sequence under one compound, for the polymer renderer. A METHOD,
+    // because compounds go through draw() at one zoom and drawDetail() at another, in
+    // separate loops: stashing this beside only one of them made the row appear at one
+    // zoom and silently not at the other. End-exclusive accessor, inclusive compound end,
+    // so ask wide and let the renderer take the n it has. Cached on the span.
+    __stashGenomicSite(o) {
+      try {
+        if (!o) return;
+        const k = o.xi + ':' + o.xf;
+        if (o.__genomicSiteKey === k) return;
+        o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
+        o.__genomicSiteKey = k;
+      } catch (e) { o.__genomicSite = ''; }
+    }
+
     getSequenceRange(start, end) {
       let seq_index_start = Math.floor(start) - this.xi;
       let seq_index_end = Math.floor(end) - this.xi;
@@ -7370,17 +7385,7 @@ return new Promise(async (resolve, reject) => {
             for (let o of visOligos) {
               try {
                 o.showOfftargets = this.showOfftargets;
-
-                try {
-                  const __k = o.xi + ':' + o.xf;
-                  if (o.__genomicSiteKey !== __k) {
-                    // See track-flexi.js: the renderer needs the GENOME under the compound,
-                    // not whichever strand the designer was handed. Cached on the span.
-                    // End-EXCLUSIVE; ask wide and let the renderer take the n it has.
-                    o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
-                    o.__genomicSiteKey = __k;
-                  }
-                } catch (e) { o.__genomicSite = ''; }
+                this.__stashGenomicSite(o);
                 o.draw(graph, this.tgraph, y);
               } catch (e) {
                 // NOT silent. This is the call that draws every compound on the board, and
@@ -7597,7 +7602,7 @@ return new Promise(async (resolve, reject) => {
               }
               for (let o of visOligos) {
                 o.showOfftargets = this.showOfftargets;
-                o.drawDetail(graph, this.tgraph, index, y + 0.15);
+                (this.__stashGenomicSite(o), o.drawDetail(graph, this.tgraph, index, y + 0.15));
               }
             }
             // Draw each visible SNP/indel ONCE — not once per visible base. The old loop

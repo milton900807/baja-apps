@@ -3346,6 +3346,31 @@ return new Promise(async (resolve, reject) => {
             this.showAnnotaions = !this.showAnnotaions;
         }
 
+        // THE REFERENCE SEQUENCE UNDER ONE COMPOUND, for the polymer renderer: it draws
+        // the genome beneath the beads and works out which way round to lay them from it.
+        // It has to come from the track. A compound's own targetSequence is whatever the
+        // designer was handed, which is the mRNA on a minus-strand gene -- a different
+        // convention from one track to the next, and no basis for a drawing decision.
+        //
+        // A METHOD, BECAUSE THERE ARE TWO DRAW LOOPS. Compounds go through draw() at one
+        // zoom and drawDetail() at another, in separate loops, and stashing this beside
+        // only one of them meant the row appeared at one zoom and silently did not at the
+        // other -- which reads as the feature being broken rather than as a missing call.
+        //
+        // getSequenceRange is end-exclusive and a compound's end is stored inclusively by
+        // some callers, so ask for two more than either needs; the renderer takes the n it
+        // actually has. Cached on the span: a track carrying two thousand compounds must
+        // not slice its sequence two thousand times a frame.
+        __stashGenomicSite(o) {
+            try {
+                if (!o) return;
+                const k = o.xi + ':' + o.xf;
+                if (o.__genomicSiteKey === k) return;
+                o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
+                o.__genomicSiteKey = k;
+            } catch (e) { o.__genomicSite = ''; }
+        }
+
         getSequenceRange(start, end) {
             let seq_index_start = Math.floor(start) - this.xi;
             let seq_index_end = Math.floor(end) - this.xi;
@@ -4925,31 +4950,7 @@ return new Promise(async (resolve, reject) => {
                         o.showOfftargets = this.showOfftargets;
                         // Unguarded here, deliberately: one compound that throws would take
                         // the whole track's draw with it. Guarded AND reported, like track.js.
-                        // THE REFERENCE SEQUENCE UNDER THIS COMPOUND, so the polymer renderer
-                        // can draw the genome beneath the beads and work out which way round
-                        // to lay them. It has to come from the track: the compound's own
-                        // targetSequence is whatever the designer was handed, and after the
-                        // strand fix that is the mRNA on a minus-strand gene -- a different
-                        // convention from one track to the next, which is no basis for a
-                        // drawing decision. The genome is not a convention.
-                        //
-                        // Cached on the span, so a track carrying two thousand compounds
-                        // does not slice its sequence two thousand times a frame.
-                        try {
-                            const __k = o.xi + ':' + o.xf;
-                            if (o.__genomicSiteKey !== __k) {
-                                // END-EXCLUSIVE, and the compound's own end is stored
-                                // inclusively by some callers and exclusively by others, so
-                                // ask for two bases more than either needs and let the
-                                // renderer take the n it actually has. Asking for exactly
-                                // (xi, xf) returned one base short, the renderer's length
-                                // check failed, and the reference row silently vanished --
-                                // which looks like the feature not working rather than like
-                                // an off-by-one.
-                                o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
-                                o.__genomicSiteKey = __k;
-                            }
-                        } catch (e) { o.__genomicSite = ''; }
+                        this.__stashGenomicSite(o);
                         try {
                             o.draw(graph, this.grid, y);
                         } catch (e) {
@@ -5164,6 +5165,8 @@ return new Promise(async (resolve, reject) => {
 
                         for (let o of visOligos) {
                             o.showOfftargets = this.showOfftargets;
+                            // The other draw path. See __stashGenomicSite.
+                            this.__stashGenomicSite(o);
                             o.drawDetail(graph, this.grid, index, y + 0.15);
                         }
 
