@@ -1134,6 +1134,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         const oligos = [];
 
+                        // Counted across the whole run; see the check inside the loop.
+                        let __alleleSame = 0, __alleleDiff = 0;
                         const __back = __backMapper(__scope);
                         // Two mappings, in order: out of the mRNA view, then out of the rebuilt
                         // sequence. Both are the identity on a plus-strand track with no indels.
@@ -1152,6 +1154,30 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
                                 const name = antisense || target || `gapmer_${xi}_${xf}`;
+
+                                // DOES THIS ONE ACTUALLY DIFFER FROM THE REFERENCE?
+                                //
+                                // An allele-selective oligo that reads the same as the reference at its
+                                // own site cannot tell the two alleles apart. It is a tiling candidate
+                                // wearing the label, and nothing downstream notices: it draws, exports
+                                // and scores like any other.
+                                //
+                                // Every link before this one can fail quietly and produce exactly that --
+                                // a variant whose reference allele does not match the track is skipped, a
+                                // span can map to the wrong place, an indel can fail to apply -- and each
+                                // failure looks like a successful run with slightly dull oligos. So the
+                                // question is asked at the end, of the thing itself: the designed site
+                                // against the track's own sequence where this candidate was placed. One
+                                // comparison, and a mistake in any earlier step cannot hide from it.
+                                if (__p.design_mode === 'allele' && target) {
+                                    try {
+                                        const refHere = ('' + (selectedTrack.getSequenceRange(xi, xi + target.length) || '')).toUpperCase();
+                                        const tgtUp = ('' + target).toUpperCase().replace(/U/g, 'T');
+                                        if (refHere.length === tgtUp.length) {
+                                            if (refHere === tgtUp) __alleleSame++; else __alleleDiff++;
+                                        }
+                                    } catch (e) { }
+                                }
 
                                 const structure =
                                     (typeof c.structure === "string" && c.structure.trim().length > 0)
@@ -1238,6 +1264,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 console.error("Failed to build gapmer:", c, e);
                             }
                         });
+
+                        // SAY IT IF THE RUN IS NOT ALLELE-SELECTIVE. Silence here would be the worst
+                        // outcome: a drawer of oligos that look designed and discriminate nothing.
+                        if (__p.design_mode === 'allele' && __alleleSame > 0) {
+                            graph.setError(' Allele-selective: ' + __alleleSame + ' of ' + (__alleleSame + __alleleDiff) + ' oligos read the SAME as the reference at their own site, so they cannot tell the'
+                                + ' alleles apart. The mutation they were meant to cover was not applied to the'
+                                + ' designed sequence \u2014 check the line above for variants that did not match'
+                                + ' this track. '); }
 
                         if (track && typeof track.addOligo === "function") {
                             // Rows BEFORE they land: once added, they would count as occupants
