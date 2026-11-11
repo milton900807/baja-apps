@@ -457,6 +457,13 @@ function () {
         //    drawn as a furanose ring showing its 2'-chemistry; otherwise a 3D bead.
         const sugarMode = per >= SUGAR_PER && !opts.thin && !lowDetail;
         const showBase = per >= 11 && !opts.thin && !lowDetail;
+        // WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND. oligo.js and sirna.js draw a
+        // sequence label beside the compound as well; at this zoom that label is the same
+        // string a second time, a few pixels up and to the left of the beads that already
+        // spell it. They read this and stay out of the way. Recorded here rather than
+        // recomputed there, so there is one definition of "the letters are drawn" instead
+        // of two that drift apart the next time this zoom threshold moves.
+        try { if (host && host.__chemGeom) host.__chemGeom.letters = !!showBase; } catch (e) { }
 
         // ---- THE TARGET STRAND, UNDER THE COMPOUND ----------------------------------------
         //

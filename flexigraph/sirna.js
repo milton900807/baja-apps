@@ -952,7 +952,9 @@ function () {
                 // siRNA, the GUIDE (antisense) strand -- drawn as a pill above the duplex so a
                 // whole set can be read at once. Drawn on demand, not behind an oligo-label
                 // toggle. For an siRNA "synthesis" means the guide strand, set in the menu.
-                if (this.__seqDisp && graph.canvas) {
+                // See oligo.js: silent while the duplex itself carries the letters.
+                const __lettersOnBeads = !!(this.__chemGeom && this.__chemGeom.letters);
+                if (this.__seqDisp && graph.canvas && !__lettersOnBeads) {
                     try {
                         const _c = graph.canvas.getCTX();
                         const _t = '' + this.__seqDisp;

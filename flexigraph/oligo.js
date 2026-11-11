@@ -805,7 +805,12 @@ function () {
                         }
                     }
                 }
-                if (this.__seqDisp) {
+                // Not when the polymer renderer has already written the residue letters
+                // above the beads and the target row below them: the label would repeat
+                // both, offset from the compound it belongs to, which reads as a second
+                // oligo rather than as a caption for this one.
+                const __lettersOnBeads = !!(this.__chemGeom && this.__chemGeom.letters);
+                if (this.__seqDisp && !__lettersOnBeads) {
                     // IN REGISTER WITH THE BASES, when there is room for a letter per base:
                     // the target across the top and what will be synthesised underneath it,
                     // so the pairing -- and any mismatch in it -- is read off the drawing
