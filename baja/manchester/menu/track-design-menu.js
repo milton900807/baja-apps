@@ -1169,14 +1169,30 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 // question is asked at the end, of the thing itself: the designed site
                                 // against the track's own sequence where this candidate was placed. One
                                 // comparison, and a mistake in any earlier step cannot hide from it.
+                                let __alleleCols = null;
                                 if (__p.design_mode === 'allele' && target) {
                                     try {
                                         const refHere = ('' + (selectedTrack.getSequenceRange(xi, xi + target.length) || '')).toUpperCase();
                                         const tgtUp = ('' + target).toUpperCase().replace(/U/g, 'T');
-                                        if (refHere.length === tgtUp.length) {
-                                            if (refHere === tgtUp) __alleleSame++; else __alleleDiff++;
+                                        if (refHere.length === tgtUp.length && refHere.length) {
+                                            // BOTH ORIENTATIONS, because the designed sequence is not always in
+                                            // the track's. On a minus-strand track the designer was handed the
+                                            // mRNA, so the site it reports runs the other way; comparing it to a
+                                            // genomic slice without checking would call every column different
+                                            // and report the whole run as discriminating -- the same wrong answer
+                                            // as reporting none.
+                                            const RCV = { A: 'T', C: 'G', G: 'C', T: 'A', N: 'N' };
+                                            const rev = tgtUp.split('').reverse().map((b) => RCV[b] || b).join('');
+                                            const diffs = (a) => { const out = [];
+                                                for (let i = 0; i < refHere.length; i++) if (refHere[i] !== a[i]) out.push(i);
+                                                return out; };
+                                            const dFwd = diffs(tgtUp), dRev = diffs(rev);
+                                            // Fewer differences is the right reading: an allele-selective oligo
+                                            // differs in one or two places, not in fifteen.
+                                            __alleleCols = (dRev.length < dFwd.length) ? dRev : dFwd;
+                                            if (__alleleCols.length === 0) __alleleSame++; else __alleleDiff++;
                                         }
-                                    } catch (e) { }
+                                    } catch (e) { __alleleCols = null; }
                                 }
 
                                 const structure =
@@ -1201,6 +1217,18 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 oligo.synthesisSequence = antisense;
                                 oligo.targetSequence = target;
                                 oligo.targetSite = target;
+                                // WHICH RESIDUES DO THE DISCRIMINATING, recorded now rather than re-derived
+                                // when drawing. At this moment both sides are in hand and unambiguous: the
+                                // site this candidate was designed from, and the track's own sequence where
+                                // it was placed. A renderer working it out later has neither, and has to
+                                // guess an orientation to compare them.
+                                //
+                                // Column indices in the track's own left-to-right order, so a mirrored
+                                // compound needs no second convention.
+                                if (__alleleCols && __alleleCols.length) {
+                                    oligo.alleleCols = __alleleCols.slice();
+                                    oligo.alleleSelective = true;
+                                }
                                 oligo.targetSiteRna = c.target_site_rna || null;
                                 oligo.antisense = antisense;
                                 oligo.antisenseCoreRna = c.antisense_core_rna || null;

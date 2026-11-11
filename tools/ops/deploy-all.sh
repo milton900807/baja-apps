@@ -306,6 +306,13 @@ if [[ $DO_API -eq 1 ]]; then
   # All five or none: track-design-menu.js sends cover_spans, design.py is what honours
   # them, design-scope-from-workbench.js is what rebuilds the mutant sequence they are
   # indexed against, and a mismatched pair is worse than an old pair that agrees.
+  # The allele-selective annotation: which residue does the discriminating, recorded at
+  # design time and drawn on the compound. All three or none -- the menu reads the field
+  # track-design-menu writes and chem-draw draws it.
+  install_group "allele-selective: mark the discriminating residue" \
+    "baja/manchester/menu/track-design-menu.js:WHICH RESIDUES DO THE DISCRIMINATING" \
+    "flexigraph/chem-draw.js:THE RESIDUE THAT DOES THE DISCRIMINATING" \
+    "baja/manchester/menu/menu-for-single-aso.js:WHERE THE SELECTIVITY IS"
   install_group "allele-selective ASO design" \
     "py/ssaso/design.py:THE CALLER'S ORDER IS THE PRIORITY ORDER" \
     "baja/manchester/menu/track-design-menu.js:BACK FROM THE DESIGNED SEQUENCE TO THE TRACK" \

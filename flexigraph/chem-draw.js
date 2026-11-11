@@ -228,6 +228,18 @@ function () {
         // swapped the first time somebody edited a sugar.
         const __mono = (slot) => monos[__flip ? (n - 1 - slot) : slot] || {};
 
+        // The discriminating residues, as the designer recorded them. A Set because the
+        // draw loop asks once per residue.
+        const __alleleSet = (() => {
+            try {
+                const cols = __host && __host.alleleCols;
+                if (!cols || !cols.length) return null;
+                const out = new Set();
+                for (const c of cols) { const v = +c; if (v >= 0 && v < n) out.add(v); }
+                return out.size ? out : null;
+            } catch (e) { return null; }
+        })();
+
         const x0 = Math.min(sxs, sxf);
         const per = span / n;
         // Bead radius from per-base width, clamped. When beads would be too tight to read,
@@ -508,6 +520,39 @@ function () {
                 ctx.fillStyle = BASE_COL[mo.base[0]] || GX.ink;
                 ctx.fillText(mo.base[0], cx, sy - R - 2);
             }
+            // ---- THE RESIDUE THAT DOES THE DISCRIMINATING -------------------------------
+            //
+            // Recorded on the compound when it was designed, from the site it was built on
+            // against the track's own sequence, so this needs no comparison and holds even
+            // where the row underneath cannot be drawn -- across a deletion, or with no
+            // reference to hand. It is the one thing a reader of an allele-selective design
+            // is looking for and it was only ever implicit in two rows of letters.
+            //
+            // Indices are in the track's left-to-right order, which is the order slots are
+            // drawn in, so a mirrored compound needs no second convention.
+            //
+            // A RING ROUND THE BEAD, not a recolour: the bead's colour is its chemistry --
+            // which wing it is in, whether the gap reaches it -- and that is exactly what a
+            // reader checks next, once they know which residue discriminates. Painting over
+            // it would answer the first question by destroying the second.
+            if (__alleleSet && __alleleSet.has(i)) {
+                try {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(cx, sy, R + 2.5, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#b45309';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    // A tick below it too, so the residue is findable at a zoom where a
+                    // two-pixel ring is not.
+                    ctx.beginPath();
+                    ctx.moveTo(cx, sy + R + 1);
+                    ctx.lineTo(cx, sy + R + 5);
+                    ctx.stroke();
+                    ctx.restore();
+                } catch (e) { }
+            }
+
             // The target base that pairs with this monomer, directly beneath it. A column
             // that does NOT pair is the whole point of an allele-selective design, so it is
             // marked as a column rather than left for the reader to spot.

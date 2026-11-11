@@ -517,6 +517,38 @@ function (graph, oligo, genegraph_panel_layout) {
                         // Otherwise list what there is to edit: every residue, and every
                         // linkage between them, named by its current chemistry.
                         const items = [{ label: 'Pick a part of ' + ('' + (oligo.name || 'the compound')), move: () => { }, click: () => { } }];
+
+                        // WHERE THE SELECTIVITY IS, in words, because the ring on the bead says
+                        // WHICH residue and not whether it is in a position to do anything. A
+                        // mismatch in the DNA gap disrupts RNase H cleavage, which is where the
+                        // discrimination comes from in a gapmer; the same mismatch under a wing
+                        // costs a little binding energy and cleaves both alleles anyway. An
+                        // allele-selective oligo whose only discriminating base sits at a
+                        // terminus is not allele-selective in any useful sense, and nothing
+                        // else on screen says so.
+                        try {
+                            const cols = oligo.alleleCols || [];
+                            if (cols.length) {
+                                const N = monos.length;
+                                // The gap is the DNA stretch between the wings: read it off the
+                                // chemistry itself rather than assuming a 5-10-5.
+                                let gs = -1, ge = -1;
+                                for (let i = 0; i < N; i++) {
+                                    const sug = ('' + ((monos[i] && monos[i].sugar) || '')).toLowerCase();
+                                    if (sug === 'd') { if (gs < 0) gs = i; ge = i; }
+                                }
+                                const whereOf = (i) => (gs >= 0 && i >= gs && i <= ge) ? 'DNA gap'
+                                    : (i < (gs < 0 ? 0 : gs) ? "5' wing" : "3' wing");
+                                const parts = cols.map((c) => (c + 1) + ' (' + whereOf(c) + ')');
+                                const inGap = cols.filter((c) => gs >= 0 && c >= gs && c <= ge).length;
+                                items.push({
+                                    label: 'Allele-selective at residue ' + parts.join(', ') + ' of ' + N
+                                        + (inGap ? '' : '  \u2014 none of it in the gap, so it may not discriminate'),
+                                    move: () => { },
+                                    click: () => { }
+                                });
+                            }
+                        } catch (e) { }
                         for (let k = 0; k < monos.length; k++) {
                             const mm = monos[k];
                             items.push({
