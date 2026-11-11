@@ -239,6 +239,10 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/chem-draw.js:WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND" \
     "flexigraph/oligo.js:__lettersOnBeads" \
     "flexigraph/sirna.js:__lettersOnBeads"
+  install_group "track-wide allele design: drop candidates that bind both copies" \
+    "py/ssaso/design.py:THE HONEST TEST OF ALLELE SELECTIVITY" \
+    "baja/manchester/menu/design-scope-from-workbench.js:THE SEQUENCE AS DESIGNED, and the same window UNTOUCHED" \
+    "baja/manchester/menu/track-design-menu.js:AND THE COPY THAT HAS TO SURVIVE"
   install_group "a register that spans a deletion covers one more track base" \
     "baja/manchester/annotation/tile-variant.js:WHERE THIS REGISTER SITS ON THE TRACK"
   install_group "a compound that spans an applied deletion" \

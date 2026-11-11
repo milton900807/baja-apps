@@ -43,7 +43,12 @@ function (graph, track, sequence, opts) {
         const baseOf = (t) => Math.round(+(t && t.xi) || 0) + offset;
         const seq0 = '' + (sequence || '');
         const out = {
-            sequence: seq0, exclude_regions: [], note: '',
+            // THE SEQUENCE AS DESIGNED, and the same window UNTOUCHED beside it. The designer
+            // cannot tell whether a candidate also binds the copy that has to survive without
+            // something to compare against, and the only honest comparison is the sequence
+            // before any allele was written into it. Kept here because this is the one place
+            // that holds both.
+            sequence: seq0, wildType: seq0, exclude_regions: [], note: '',
             appliedAlleles: 0, appliedIndels: 0, skippedIndels: 0, mismatched: 0,
             excludedVariants: 0, otherTracks: 0, unmatched: [],
             // This track's own variants, as the designed sequence sees them: pos, the span a

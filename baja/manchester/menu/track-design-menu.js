@@ -1034,6 +1034,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         __muts2 = __muts2.slice().sort((a, b) =>
                             ((+b.edits || 0) - (+a.edits || 0)) || ((+a.pos || 0) - (+b.pos || 0)));
                         json_input.cover_spans = __muts2.map((m) => __mv.span(m.span));
+                        // ---- AND THE COPY THAT HAS TO SURVIVE --------------------------
+                        //
+                        // Covering a mutation's span is not the same as telling the two
+                        // copies apart, and until now the design assumed it was. A register
+                        // inside a repeat, a deletion that shortens a homopolymer, and a
+                        // mutation that silently failed to apply all produce a target the
+                        // wild-type copy also presents. The designer can only rule those out
+                        // if it is given the untouched window to compare against, in the
+                        // same frame as the sequence it is designing on. This is the test
+                        // the per-variant register walk already makes.
+                        try {
+                            const __wt = '' + ((__scope && __scope.wildType) || '');
+                            if (__wt && __wt.length) json_input.wild_type = __mRnaView(__wt).seq;
+                        } catch (e) { }
                         const __byType = __muts2.reduce((a, m) => { a[m.type] = (a[m.type] || 0) + 1; return a; }, {});
                         const __what = Object.keys(__byType).map((k) => __byType[k] + ' ' + k).join(', ');
                         try {
@@ -1074,6 +1088,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 + ' candidate' + (+rf.excluded_low_complexity === 1 ? '' : 's')
                                 + ' dropped as low-complexity (homopolymer runs, tandem repeats)'
                                 + (eg ? (': ' + eg) : '') + '. ');
+                        }
+                        // AND THE ONES THAT BIND BOTH COPIES. Said separately from the
+                        // low-complexity count because it means something different: those
+                        // were poor oligos, these are oligos against the wrong allele. When
+                        // EVERY candidate goes this way the mutations did not reach the
+                        // designed sequence at all, which is worth saying outright rather
+                        // than leaving as an empty result.
+                        if (rf && rf.wild_type_given && +rf.not_selective > 0) {
+                            const eg2 = (rf.not_selective_examples || []).slice(0, 2).join(', ');
+                            graph.setResultMessage(' ' + rf.not_selective
+                                + ' candidate' + (+rf.not_selective === 1 ? '' : 's')
+                                + ' dropped: their target also occurs on the wild-type copy, so they '
+                                + 'would bind the allele the design is meant to spare'
+                                + (eg2 ? (': ' + eg2) : '') + '. ');
                         }
                     } catch (e) { }
 

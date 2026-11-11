@@ -1074,8 +1074,13 @@ def generate_gapmer_candidates(
     cover_spans: Sequence[Sequence[int]] | None = None,
     tissue: str = "",
     exclude_low_complexity: bool = True,
+    wild_type: str = "",
 ) -> List[GapmerCandidate]:
     seq_rna = clean_sequence(long_sequence)
+    # THE COPY THAT HAS TO SURVIVE. Supplied only for an allele-selective run, where
+    # long_sequence is the track rebuilt with the alleles applied and this is the same window
+    # untouched.
+    wild_type_rna = clean_sequence(wild_type) if wild_type else ""
     lengths = list(lengths)
     gap_sizes = list(gap_sizes)
 
@@ -1181,6 +1186,8 @@ def generate_gapmer_candidates(
     missed_required = 0
     excluded_low_complexity = 0
     low_complexity_examples: List[str] = []
+    not_selective = 0
+    not_selective_examples: List[str] = []
 
     for length in lengths:
         valid_gap_sizes = [g for g in gap_sizes if g < length]
@@ -1240,6 +1247,27 @@ def generate_gapmer_candidates(
                                 to_requested_alphabet(antisense_core_rna, output_alphabet)
                                 + " (" + why_lc + ")")
                         continue
+
+                # ---- THE HONEST TEST OF ALLELE SELECTIVITY ------------------------
+                #
+                # Covering the span a mutation occupies is NOT the same as telling the two
+                # copies apart, and the whole design rested on the assumption that it was. A
+                # register inside a repeat, a deletion that shortens a homopolymer, or a
+                # mutation that was never applied to the rebuilt sequence in the first place
+                # all produce a target the wild-type copy also presents: the oligo binds
+                # both, knocks down the allele it was meant to spare, and arrives labelled
+                # allele-selective with nothing on it to say otherwise.
+                #
+                # The test needs no scoring and no threshold. If this target site occurs in
+                # the untouched window, that duplex exists on the other copy too. It is the
+                # same test the per-variant register walk makes, and it is what catches a run
+                # whose variants silently failed to apply -- every candidate is then a
+                # verbatim slice of the reference, and every one of them is dropped here.
+                if wild_type_rna and target_site_rna in wild_type_rna:
+                    not_selective += 1
+                    if len(not_selective_examples) < 3:
+                        not_selective_examples.append(target_display)
+                    continue
 
                 (score, score_breakdown, notes, gc_percent, tm_c,
                  tm_modification_bonus_c) = score_gapmer_candidate(
@@ -1312,6 +1340,10 @@ def generate_gapmer_candidates(
     generate_gapmer_candidates.last_run = {
         "excluded_low_complexity": excluded_low_complexity,
         "low_complexity_examples": list(low_complexity_examples),
+        # Only meaningful for an allele-selective run; zero without a wild type to compare to.
+        "wild_type_given": bool(wild_type_rna),
+        "not_selective": not_selective,
+        "not_selective_examples": list(not_selective_examples),
     }
     return results
 
@@ -1470,6 +1502,9 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     all_spans = [(int(x[0]), int(x[1])) for x in cover_spans]
     all_spans += [(int(p), int(p) + 1) for p in cover_positions]
     tissue = request.get("tissue", "")
+    # The same window with no alleles applied. Present only for an allele-selective run; it is
+    # what makes "does this oligo also bind the other copy" answerable rather than assumed.
+    wild_type = request.get("wild_type", "") or ""
     # Allele-selective without any mutation to sit over is not a design, it is a request for
     # every candidate in the transcript labelled as allele-selective. Refuse it here rather
     # than return one.
@@ -1539,6 +1574,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         cover_positions=cover_positions,
         cover_spans=cover_spans,
         tissue=tissue,
+        wild_type=wild_type,
     )
 
     # What the scoring pass actually cost, and what the motif filter removed -- a design that
