@@ -142,7 +142,7 @@ function () {
                     + 'reference is drawn under it.');
             } catch (e) { }
         }
-        let __flip = false, __same = false, __refFit = -1;
+        let __flip = false, __same = false, __refFit = -1, __targetRow = null;
         if (__ref.length === n && n > 1) {
             const fit = (mirror, same) => {
                 let k = 0;
@@ -173,9 +173,52 @@ function () {
                 try {
                     console.warn('[chem-draw] ' + (__host.name || __host.id)
                         + ': best fit to the reference under it is ' + best.k + ' of ' + n
-                        + ' in any reading, so the compound is not reoriented and no reference '
-                        + 'is drawn under it.');
+                        + ' in any reading, so the reference is not drawn under it.');
                 } catch (e) { }
+            }
+        }
+
+        // ---- FALLING BACK TO THE COMPOUND'S OWN TARGET ------------------------------------
+        //
+        // The reference is the better row -- it reads with the track line and a column that
+        // disagrees with it IS the allele-selective base. But it only works when the
+        // compound's residues line up with the reference one for one, and across an applied
+        // deletion they do not: a twenty-mer spanning a ten-base deletion covers thirty
+        // bases of reference, pairs with two separate segments of it, and no single
+        // contiguous slice is the right answer.
+        //
+        // Showing nothing there was my own doing and it was worse than what it replaced. A
+        // compound's own targetSequence is always its own length and always pairs, so it is
+        // drawn when the reference cannot be, with the orientation taken the same way --
+        // from whichever reading pairs. No column is marked, because everything pairs by
+        // construction: this row says what the oligo binds, not how it differs.
+        let __fromTarget = false;
+        if (__refFit < Math.ceil(n * 0.75) && n > 1) {
+            const raw = ('' + ((__host && (__host.targetSequence || __host.targetSite)) || ''))
+                .toUpperCase().replace(/[^ACGTUN]/g, '');
+            if (raw.length === n) {
+                const pairFit = (mirror, arr) => {
+                    let k = 0;
+                    for (let i = 0; i < n; i++) {
+                        const m = monos[mirror ? (n - 1 - i) : i];
+                        const b = (m && m.base) ? m.base[0] : '';
+                        if (b && arr[i] && COMP[b] === arr[i]) k++;
+                    }
+                    return k;
+                };
+                const fwd = raw.split(''), rev = fwd.slice().reverse();
+                let bestT = null;
+                for (const mirror of [false, true]) {
+                    for (const arr of [fwd, rev]) {
+                        const k = pairFit(mirror, arr);
+                        if (!bestT || k > bestT.k) bestT = { k: k, mirror: mirror, arr: arr };
+                    }
+                }
+                if (bestT && bestT.k >= Math.ceil(n * 0.75)) {
+                    __flip = bestT.mirror;
+                    __fromTarget = true;
+                    __targetRow = bestT.arr;
+                }
             }
         }
         // Slot -> monomer. Everything that draws walks SLOTS, left to right in genomic
@@ -415,7 +458,8 @@ function () {
         // itself is drawn in genomic order now, so the target is written exactly as it is
         // stored -- genomic order too -- and reads in the same direction as the track's own
         // sequence underneath it. Slot i pairs with target base i, by construction.
-        const tgtRow = (showBase && __refFit >= Math.ceil(n * 0.75)) ? __ref.split('') : null;
+        const tgtRow = !showBase ? null
+            : (__refFit >= Math.ceil(n * 0.75) ? __ref.split('') : __targetRow);
         for (let i = 0; i < n; i++) {
             const cx = x0 + (i + 0.5) * per;
             if (cx < visMin || cx > visMax) continue;   // off-screen residue — skip
@@ -459,7 +503,7 @@ function () {
                 // A column that disagrees with the REFERENCE is the allele-selective base:
                 // the one place the oligo was built to differ. Judged by the relation the
                 // measurement found, so it means the same thing on either strand.
-                const bad = !!(tb && mb && (__same ? (mb !== tb) : (COMP[mb] !== tb)));
+                const bad = !__fromTarget && !!(tb && mb && (__same ? (mb !== tb) : (COMP[mb] !== tb)));
                 if (bad) {
                     ctx.fillStyle = 'rgba(224,138,0,0.20)';
                     ctx.fillRect(Math.round(cx - per / 2), sy + R + 1, Math.max(1, Math.round(per)), 14);
