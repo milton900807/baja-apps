@@ -153,9 +153,12 @@ fi
 #   baja/manchester/menu/run-off-targets.js, run-off-target-tool.js, run-off-target-tool-seed-seq.js
 #       an off-target run asks whether to rerun all compounds or only those with no result yet
 #   baja/io/pdf-writer.js, baja/io/aso-report-pdf.js, manchester/io/download-hub.js
+#       (and baja/chem/structure/idt/idt-format.js)
 #       the detailed ASO report is drawn in the browser: a page per compound, a map of the
 #       track broken into rows with the 5' and 3' ends marked, and a zoomed panel for each
 #       window where compounds pile up on a variant
+#       the download hub also offers an IDT order file, and the IDT formatter writes the
+#       inline codes (+A, mA, rA, fA) instead of dropping or mangling them
 #
 # Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
 # so a REF that predates the change is said and skipped rather than installing an older
@@ -211,6 +214,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/io/pdf-writer.js:the low-level page builder" \
     "baja/io/aso-report-pdf.js:THE DETAILED ASO REPORT, drawn rather than tabulated" \
     "manchester/io/download-hub.js:aso-report-pdf.js"
+  # The IDT order file. The hub is in the group above as well; whichever group gets there
+  # first installs it and the other reports it current.
+  install_group "IDT order file, and the IDT inline modification codes" \
+    "baja/chem/structure/idt/idt-format.js:INLINE_SUGARS" \
+    "manchester/io/download-hub.js:IDT order file"
   # The Research panel: Home > Tools > Research reads the indication-market store rather
   # than running any research. All four or none, so Home never gets a live tile with
   # nothing behind it.

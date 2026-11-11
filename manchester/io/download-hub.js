@@ -334,6 +334,107 @@ function (graph, layout) {
             } catch (e) { try { graph.setError('Report failed: ' + e, 8); } catch (e2) { } }
         };
 
+        // ---- the IDT order file ----------------------------------------------------------
+        //
+        // What IDT's bulk entry wants: Name, Sequence, Scale, Purification, one row per
+        // STRAND. A duplex is two rows, and an amplicon is three (forward, reverse, probe) --
+        // what gets synthesised is a strand, not a compound.
+        //
+        // The sequence is written in IDT's own notation (/52MOErA/, +A, mA, rA, * for a
+        // phosphorothioate) by baja/chem/structure/idt/idt-format.js, the same formatter the
+        // editor's Vendor > IDT export uses, so an order placed from here and one placed
+        // from the editor agree. A chain wrapper (RNA1{…}, and '|'-joined strands) is taken
+        // off here and each chain formatted on its own, because a duplex is two tubes.
+        // A compound with no chemistry on it falls back to its synthesis sequence, and then
+        // to its target sequence; one with nothing at all is counted and left out, because a
+        // row with an empty sequence is an order line that fails at IDT rather than here.
+        //
+        // Scale and purification are DEFAULTS, not design facts -- the app does not hold
+        // them. Plain DNA gets IDT's own default; anything carrying a modification gets the
+        // scale and purification such oligos are normally ordered at. Both are plain columns
+        // in the CSV for whoever places the order to change.
+        const IDT_PLAIN = { scale: '25nm', purification: 'STD' };
+        const IDT_MODIFIED = { scale: '100nm', purification: 'HPLC' };
+        const idtIsModified = (seq) => /[\/*+]|(^|[^A-Za-z])[mrf][ACGTU]/.test('' + seq);
+
+        // One compound -> the strands to order for it: [{ suffix, seq }]. A single strand
+        // keeps the compound's name; a duplex becomes <name>_RNA1, <name>_RNA2. The chain
+        // splitting is the formatter's own (idt.chainsOf), so a strand ordered here is
+        // written exactly as the editor's Vendor > IDT export writes it.
+        const idtStrands = (idt, o) => {
+            try {
+                const chains = idt.chainsOf(o && o.structure);
+                const seqs = chains.map((c) => ({ id: c.id, seq: idt.formatChain(c.tokens) })).filter((c) => c.seq);
+                if (seqs.length === 1) return [{ suffix: '', seq: seqs[0].seq }];
+                if (seqs.length > 1) return seqs.map((c) => ({ suffix: '_' + c.id, seq: c.seq }));
+            } catch (e) { console.warn('IDT: could not read the chemistry of ' + (o && o.id), e); }
+            const plain = ('' + ((o && (o.synthesisSequence || o.sequence)) || '')).trim();
+            return plain ? [{ suffix: '', seq: plain }] : [];
+        };
+
+        // IDT names a tube by this, so it has to be unique and free of separators.
+        const idtName = (t, o, suffix, used) => {
+            let base = safe((o && (o.name != null && o.name !== '' ? o.name : o.id)) || (t && t.name) || 'oligo') + (suffix || '');
+            let name = base, n = 2;
+            while (used[name]) { name = base + '_' + n; n++; }
+            used[name] = true;
+            return name;
+        };
+
+        const idtOrderRows = async () => {
+            const idt = await exec('baja/chem/structure/idt/idt-format.js');
+            const rows = [], used = {};
+            let skipped = 0;
+            const addOne = (t, o, suffix) => {
+                const strands = idtStrands(idt, o);
+                if (!strands.length) { skipped++; return; }
+                for (const st of strands) {
+                    const d = idtIsModified(st.seq) ? IDT_MODIFIED : IDT_PLAIN;
+                    rows.push({
+                        'Name': idtName(t, o, (suffix || '') + st.suffix, used),
+                        'Sequence': st.seq,
+                        'Scale': d.scale,
+                        'Purification': d.purification
+                    });
+                }
+            };
+            for (const e of distinctOligos()) {
+                const o = e.o;
+                if (o && o.type === 'amplicon') {
+                    // The container is not orderable; its three oligos are.
+                    let any = false;
+                    for (const part of [['_F', o.left], ['_R', o.right], ['_P', o.mid]]) {
+                        if (!part[1]) continue;
+                        any = true;
+                        addOne(e.t, Object.assign({}, part[1], { name: (o.name != null && o.name !== '' ? o.name : o.id), id: o.id }), part[0]);
+                    }
+                    if (!any) skipped++;
+                    continue;
+                }
+                addOne(e.t, o, '');
+            }
+            return { rows: rows, skipped: skipped };
+        };
+
+        const downloadIdt = async () => {
+            try { graph.setMessage(' Building the IDT order file… '); } catch (e) { }
+            try {
+                const out = await idtOrderRows();
+                if (!out.rows.length) {
+                    try { graph.setError('None of the compounds has a sequence to order.', 7); } catch (e) { }
+                    return;
+                }
+                saveText(toCSV(out.rows), designBase() + '_IDT_order.csv', 'text/csv');
+                try {
+                    graph.setMessage(' IDT order file downloaded: ' + out.rows.length + ' strand' + (out.rows.length === 1 ? '' : 's')
+                        + (out.skipped ? (', ' + out.skipped + ' compound' + (out.skipped === 1 ? '' : 's') + ' skipped for having no sequence') : '')
+                        + '. Check the scale and purification columns before ordering. ');
+                } catch (e) { }
+            } catch (e) {
+                try { graph.setError('Could not build the IDT file: ' + e, 8); } catch (e2) { }
+            }
+        };
+
         // ---- primer-probes (amplicons live in t.oligos as type 'amplicon') ---------------
         const allAmplicons = () => distinctOligos().filter((e) => e.o && e.o.type === 'amplicon');
         const hasAmplicons = () => allAmplicons().length > 0;
@@ -375,6 +476,7 @@ function (graph, layout) {
             topBooks.push({ section: 'Download design', note: true, title: 'Every oligo in this design (' + __nOl + ' compound' + (__nOl === 1 ? '' : 's') + '), in one file — pick a format:' });
             formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(Object.assign({}, b, { section: 'Download design' })));
             topBooks.push({ section: 'Download design', title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates, with a map of the track showing where every compound sits.', open: () => downloadAsoReport() });
+            topBooks.push({ section: 'Download design', title: 'IDT order file', badge: '.csv', ready: true, leaf: true, blurb: "Every compound in IDT's bulk-order columns: Name, Sequence, Scale, Purification. The chemistry is written in IDT notation, a duplex becomes one row per strand and an amplicon one per primer and probe. Scale and purification are defaults to check before ordering.", open: () => downloadIdt() });
             // Primer-probes get their own download with primer/probe columns, before the
             // whole-canvas option, whenever the design carries any.
             if (hasAmplicons()) {
