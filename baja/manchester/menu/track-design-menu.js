@@ -934,12 +934,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "po_link_positions": [],
 
                         "output_alphabet": __p.output_alphabet || "DNA",
-                        // Default TRUE. Sent as false, this asked design.py for the global top N
-                        // with overlaps allowed, which is not the best N ASOs: every start is
-                        // generated at five lengths and three gap sizes, so the variants of one
-                        // good site fill the top of the list. The dialog's Advanced tab can still
-                        // ask for those variants explicitly.
-                        "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
+                        // Default FALSE now: overlapping layouts of a site are included unless
+                        // the dialog asks otherwise. Every layout of a site is a real candidate
+                        // and which one suits is a chemistry decision, so hiding the others is
+                        // not the designer's call to make.
+                        //
+                        // The cost is still real and is why this used to default the other way:
+                        // one site is generated at five lengths and three gap sizes, so with a
+                        // short top_n the variants of one good site can crowd out other sites.
+                        // The dialog's checkbox turns it off, and says that in as many words.
+                        "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : false),
 
                         // RULE-BASED or TILED. The first ranks every candidate and returns the
                         // best sites anywhere in the target; the second walks the target and

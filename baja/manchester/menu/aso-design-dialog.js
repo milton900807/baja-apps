@@ -192,7 +192,11 @@ function (kind, targetLength, context) {
                         + backboneEditor()))
                 + '<label style="' + lbl + '">Output alphabet</label>'
                 + '<select id="ad-alpha" style="' + inp + '"><option value="DNA">DNA</option><option value="RNA">RNA</option></select>'
-                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-overlap"/> Include overlapping layouts of the same site</label>'
+                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-overlap" checked/> Include overlapping layouts of the same site</label>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin:4px 0 0 27px;">'
+                + 'On by default. One site is generated at several lengths and gap sizes, and these are '
+                + 'the same site rather than different ones \u2014 so with a shortlist they can crowd out '
+                + 'other sites, and untick this to get the best layout of each site instead.</div>'
                 + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">Off, the design walks the ranking and takes one candidate per site, so it spans the transcript. On, it returns the global top N, which is mostly the same few sites at different lengths and gap sizes.</div>'
                 + '</div>'
                 + '</div></div>';
@@ -515,10 +519,23 @@ function (kind, targetLength, context) {
                     params.po_link_positions = pat.map((c, i) => (c === 'O' ? i + 1 : 0)).filter((n) => n > 0);
                     params.backbone_pattern_length = shownLength();
                     params.output_alphabet = q('#ad-alpha') ? q('#ad-alpha').value : 'DNA';
-                    // The checkbox asks the opposite question now: ticking it opts INTO the
-                    // overlapping layouts, which is the exception rather than the default.
-                    if (!tiling) params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
+                    // Ticking it opts INTO the overlapping layouts, and it is ticked by
+                    // default: every layout of a site is a real candidate, and which one
+                    // suits is a chemistry decision the designer should not be making on
+                    // the user's behalf by hiding the others.
+                    // Not for the two walks: they set this themselves above, because a walk
+                    // IS overlapping by construction and the checkbox has nothing to say
+                    // about it. Reading it here used to overwrite what they decided.
+                    if (!tiling && !allele) {
+                        params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
+                    }
                 }
+                // OVERLAPPING LAYOUTS ARE THE DEFAULT, on either tab. The checkbox lives on
+                // Advanced, so a Default-tab run never reaches the line above and used to
+                // leave this unset -- and the caller's own fallback was the opposite answer,
+                // so ticking the box by default would have changed nothing for anyone who
+                // did not open Advanced. Set here, where every path goes through.
+                if (params.enforce_non_overlapping == null) params.enforce_non_overlapping = false;
                 // Asked on both tabs: they are about the workbench, not about the chemistry,
                 // so a Default-tab run can use them without going through Advanced.
                 params.use_track_alleles = allele ? true : !!(q('#ad-allele') && q('#ad-allele').checked);
