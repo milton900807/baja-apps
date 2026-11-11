@@ -470,61 +470,22 @@ function () {
         // itself is drawn in genomic order now, so the target is written exactly as it is
         // stored -- genomic order too -- and reads in the same direction as the track's own
         // sequence underneath it. Slot i pairs with target base i, by construction.
-        // ---- THE ROW IS THE SITE THIS OLIGO BINDS, NOT THE REFERENCE ----------------------
+        // ---- THE ROW IS THE TRANSCRIPT, NOT THE STRAND THE TRACK STORES --------------------
         //
-        // It was the reference, complemented on a minus-strand compound so the columns
-        // paired. That row is unreadable for the one thing it exists for: it is the
-        // reference BY CONSTRUCTION, so it cannot show the mutation, and the only evidence
-        // of a discriminating base was a column highlight the reader had to notice.
+        // The track stores the genomic plus strand. On a minus-strand gene the transcript is
+        // its complement, and the ASO -- being antisense to the transcript -- then has the
+        // plus strand's own sequence. So drawing the plus strand under it reproduced the
+        // oligo's letters exactly: two identical rows, a duplex with no pairing in it, and
+        // nothing to read.
         //
-        // The row is the oligo's own target written in the TRACK'S alphabet: each residue
-        // expressed as the base it pairs against on the strand the track stores. Then it
-        // reads letter for letter against the track line a few pixels below, and it equals
-        // that line everywhere EXCEPT where this oligo was built to differ. Reference except
-        // for the SNP, which is what an allele-selective design is.
-        //
-        // One expression for both strands, because the measurement above already said which
-        // case this is: __same means the residues read as the reference does, so the residue
-        // IS the track-alphabet base; otherwise it is its complement.
-        const __siteRow = () => {
-            const out = [];
-            for (let i = 0; i < n; i++) {
-                const m = __mono(i);
-                let b = (m.base && m.base[0]) || '';
-                if (b === 'U') b = 'T';
-                out.push(!b ? '' : (__same ? b : (COMP[b] || b)));
-            }
-            return out;
-        };
-        const __refOK = __refFit >= Math.ceil(n * 0.75);
-        const tgtRow = !showBase ? null : (__refOK ? __siteRow() : __targetRow);
-
-        // ---- WHICH COLUMNS DISCRIMINATE, MEASURED RATHER THAN REMEMBERED ------------------
-        //
-        // The designer records them on the compound, which is the better source: it has both
-        // sides in hand and is right across a deletion, where no reference row can be drawn.
-        // But it only knows about compounds designed since it shipped, and a track carrying
-        // eighteen hundred older oligos would have shown nothing at all -- a correct answer
-        // that is useless on every compound a reader actually has.
-        //
-        // So the row answers it too, for free: a column where the site disagrees with the
-        // reference under it is a base this oligo does not share with the reference allele.
-        // The two are unioned, the recorded one winning nothing and losing nothing, because
-        // they are the same claim arrived at from different ends.
-        const __alleleCols = (() => {
-            const out = new Set();
-            if (__alleleSet) for (const v of __alleleSet) out.add(v);
-            if (__refOK) {
-                const row = __siteRow();
-                for (let i = 0; i < n; i++) {
-                    if (row[i] && __ref[i] && row[i] !== __ref[i]) out.add(i);
-                }
-            }
-            return out.size ? out : null;
-        })();
-        // Left where the menu can read it, so the words beside the picture are the picture's
-        // own answer and not a second opinion.
-        try { if (__host) __host.__alleleColsDrawn = __alleleCols ? Array.from(__alleleCols).sort((a, b) => a - b) : []; } catch (e) { }
+        // The measurement above already answers which case this is. __same means the
+        // residues match the reference rather than complementing it, which is a minus-strand
+        // compound, and there the transcript is the complement of what the track holds. The
+        // row is then the strand the oligo actually binds, every column is a true base pair,
+        // and a column that is NOT one is the allele-selective base.
+        const __transcriptRow = (row) => (__same ? row.map((b) => COMP[b] || b) : row);
+        const tgtRow = !showBase ? null
+            : (__refFit >= Math.ceil(n * 0.75) ? __transcriptRow(__ref.split('')) : __targetRow);
         for (let i = 0; i < n; i++) {
             const cx = x0 + (i + 0.5) * per;
             if (cx < visMin || cx > visMax) continue;   // off-screen residue — skip
@@ -574,7 +535,7 @@ function () {
             // which wing it is in, whether the gap reaches it -- and that is exactly what a
             // reader checks next, once they know which residue discriminates. Painting over
             // it would answer the first question by destroying the second.
-            if (__alleleCols && __alleleCols.has(i)) {
+            if (__alleleSet && __alleleSet.has(i)) {
                 try {
                     ctx.save();
                     ctx.beginPath();
@@ -597,13 +558,13 @@ function () {
             // marked as a column rather than left for the reader to spot.
             if (tgtRow) {
                 const tb = tgtRow[i] || '';
-                // The row and the reference are now in the SAME alphabet, so the test is
-                // the one a reader would make by eye: this column does not read the way the
-                // track reads there. That is the base the oligo was built to differ at.
-                // (The old test compared the residue with the row beneath it, which after
-                // this change pair by construction on a minus-strand compound -- every
-                // column would have been flagged.)
-                const bad = !__fromTarget && __refOK && !!(tb && __ref[i] && tb !== __ref[i]);
+                const mb = (mo.base && mo.base[0]) || '';
+                // A column that disagrees with the REFERENCE is the allele-selective base:
+                // the one place the oligo was built to differ. Judged by the relation the
+                // measurement found, so it means the same thing on either strand.
+                // One test now, on either strand: the row is the transcript, so a residue
+                // that does not complement it is the base this oligo was built to differ at.
+                const bad = !__fromTarget && !!(tb && mb && COMP[mb] !== tb);
                 if (bad) {
                     ctx.fillStyle = 'rgba(224,138,0,0.20)';
                     ctx.fillRect(Math.round(cx - per / 2), sy + R + 1, Math.max(1, Math.round(per)), 14);

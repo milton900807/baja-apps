@@ -527,12 +527,7 @@ function (graph, oligo, genegraph_panel_layout) {
                         // terminus is not allele-selective in any useful sense, and nothing
                         // else on screen says so.
                         try {
-                            // The designer's record when there is one; otherwise what the
-                            // drawing measured against the reference under this compound,
-                            // so an oligo designed before any of this was recorded still
-                            // answers the question.
-                            const cols = (oligo.alleleCols && oligo.alleleCols.length)
-                                ? oligo.alleleCols : (oligo.__alleleColsDrawn || []);
+                            const cols = oligo.alleleCols || [];
                             if (cols.length) {
                                 const N = monos.length;
                                 // The gap is the DNA stretch between the wings: read it off the
