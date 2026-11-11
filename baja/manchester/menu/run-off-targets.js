@@ -81,11 +81,39 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 if (ax !== bx) return ax - bx;              // left -> right
                 return (b.y || 0) - (a.y || 0);             // top -> bottom
             });
-            if (oligos.length > OFF_MAX) {
-                graph.setMessage(' Off-targets run ' + OFF_MAX + ' oligos at a time — running the first ' + OFF_MAX + ' (left→right, top→bottom). ');
-                oligos = oligos.slice(0, OFF_MAX);
-            }
         } catch (e) { }
+
+        // ---- run scope: rerun everything, or only what has no result yet -------------
+        // A compound "has off-targets" once a search has left a result on it — hits, or a
+        // genuine "0". One that was never searched, or whose search came back not
+        // determined (N/A), or that a cancelled / capped run never reached, has none.
+        // (Amplicons carry their results on the left/right/mid parts.)
+        const __hasOffResult = (o) => {
+            const one = (x) => !!(x && (x.offtarget != null || x._offtarget != null));
+            if (!o) return false;
+            if (o.type === 'amplicon') return one(o) || one(o.left) || one(o.right) || one(o.mid);
+            return one(o);
+        };
+        const __allOligos = oligos;
+        const __missingOligos = __allOligos.filter((o) => !__hasOffResult(o));
+        // 'all' = rerun every compound handed in; 'missing' = only those without a result.
+        // The 200 cap is applied AFTER the scope, so "missing" walks on through a set larger
+        // than one run: each pass picks up the next 200 that still have nothing.
+        let __scope = 'all';
+        const __applyScope = (scope) => {
+            __scope = (scope === 'missing') ? 'missing' : 'all';
+            let list = (__scope === 'missing') ? __missingOligos : __allOligos;
+            if (list.length > OFF_MAX) {
+                graph.setMessage(' Off-targets run ' + OFF_MAX + ' oligos at a time — running the first ' + OFF_MAX + ' (left→right, top→bottom). ');
+                list = list.slice(0, OFF_MAX);
+            }
+            oligos = list;
+        };
+        // A caller may fix the scope (options.scope: 'all' | 'missing') and skip the question.
+        const __presetScope = (options && (options.scope === 'missing' || options.scope === 'all')) ? options.scope : null;
+        // Only worth asking when the answer changes the run: some have results, some do not.
+        const __askScope = !__presetScope && __missingOligos.length > 0 && __missingOligos.length < __allOligos.length;
+        __applyScope(__presetScope || 'all');
 
         // For deriving an ASO synthesis strand when a compound lacks one (comp on reverse,
         // reverseComp on forward — see __querySeq).
@@ -812,11 +840,25 @@ function (graph, genegraph_panel_layout, oligos, options) {
             if (!speciesList.length) { graph.setMessage(' No indexed genomes found on the server. '); return; }
             if (speciesList.length === 1) { showGenomeMenu(speciesList[0]); return; }   // skip if only one
             const m = speciesList.map((sp) => ({ label: sp + ' (' + speciesMap[sp].length + ')', click: () => { showGenomeMenu(sp); }, move: () => { } }));
+            if (__askScope) m.push({ label: '‹ Back to run scope', click: () => { showScopeMenu(); }, move: () => { } });
             m.push({ label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } });
             graph.setMessage(' Select a species ');
             graph.showSideMenu(m, null, 'Species ▸');
         };
-        showSpeciesMenu();
+        // First step when the set is mixed: rerun every compound, or only the ones that
+        // have no off-target result yet (results already on the others are left untouched).
+        const showScopeMenu = () => {
+            const nAll = __allOligos.length, nMiss = __missingOligos.length;
+            const capNote = (n) => (n > OFF_MAX ? ', first ' + OFF_MAX : '');
+            const m = [
+                { label: 'Rerun all off-targets (' + nAll + capNote(nAll) + ')', click: () => { __applyScope('all'); showSpeciesMenu(); }, move: () => { } },
+                { label: 'Only compounds without off-targets (' + nMiss + capNote(nMiss) + ')', click: () => { __applyScope('missing'); showSpeciesMenu(); }, move: () => { } },
+                { label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } }
+            ];
+            graph.setMessage(' ' + (nAll - nMiss) + ' of ' + nAll + ' compounds already have off-targets — rerun all, or run only the ' + nMiss + ' without? ');
+            graph.showSideMenu(m, null, 'Run off-targets on ▸');
+        };
+        if (__askScope) showScopeMenu(); else showSpeciesMenu();
         resolve();
 
     })

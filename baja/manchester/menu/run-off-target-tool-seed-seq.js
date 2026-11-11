@@ -65,6 +65,9 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                 let oligos = t.getOligosInRange(range.start, range.end);
                 // When invoked with selectedOnly, restrict to the selected oligos.
                 if (selectedOnly) oligos = oligos.filter((o) => o && (o.selected || o.highlight__));
+                // "Only compounds without off-targets": keep just those with no seed result yet, BEFORE
+                // anything is cleared, so results already on the other compounds are left alone.
+                if (onlyMissing) oligos = oligos.filter((o) => o && o.mi_targets_transient_ == null);
 
                 for (let o of oligos) {
                     o.mi_targets_transient_ = null;
@@ -468,6 +471,8 @@ seed-pattern, GGG | Required
             CurrentLayout.setComponent('buttonMenuPanel', bpanel);
 
         }
+        // Run scope: false = rerun every visible compound; true = only those with no result yet.
+        let onlyMissing = false;
         let selected_genome = '';
         let bg = [];
         const __genomeKeys = Object.keys(available_genomes || {});
@@ -522,6 +527,29 @@ seed-pattern, GGG | Required
                             'width': '100%',
                             'component': ms
 
+                        },
+                        {
+                            'title': ' ', 'body': ``,
+                            'width': '100%',
+                            'component':
+                            {
+                                wid: 'html',
+                                data: '<hr>Run on'
+                            }
+                        },
+                        {
+                            'title': ' ', 'body': ` `,
+                            'width': '100%',
+                            'component':
+                            {
+                                wid: 'radio-buttons',
+                                data: {
+                                    'buttons': [
+                                        { 'label': 'All compounds (rerun all off-targets)', ionfunction: createIonFunction(() => { onlyMissing = false; }) },
+                                        { 'label': 'Only compounds without off-targets', ionfunction: createIonFunction(() => { onlyMissing = true; }) }
+                                    ]
+                                }
+                            }
                         },
                         {
                             'title': ' ',

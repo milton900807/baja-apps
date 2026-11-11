@@ -150,6 +150,8 @@ fi
 #   cpd/baja-project.js, cpd/baja-analytics.js
 #       the progress bar goes up before the megabytes of code load, and tells the home
 #       page's "Opening..." card it can go; Build > Add to a fundraising campaign
+#   baja/manchester/menu/run-off-targets.js, run-off-target-tool.js, run-off-target-tool-seed-seq.js
+#       an off-target run asks whether to rerun all compounds or only those with no result yet
 #
 # Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
 # so a REF that predates the change is said and skipped rather than installing an older
@@ -191,6 +193,14 @@ if [[ $DO_API -eq 1 ]]; then
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \
     "cpd/baja-analytics.js:__bajaOpening"
+  # Off-targets: rerun all, or only the compounds that have no off-target result yet. The
+  # three runners are independent of one another, so each is its own group.
+  install_group "off-targets: rerun all or only compounds without (editor runner)" \
+    "baja/manchester/menu/run-off-targets.js:__hasOffResult"
+  install_group "off-targets: rerun all or only compounds without (tool panel)" \
+    "baja/manchester/menu/run-off-target-tool.js:onlyMissing"
+  install_group "off-targets: rerun all or only compounds without (seed tool panel)" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:onlyMissing"
   # The Research panel: Home > Tools > Research reads the indication-market store rather
   # than running any research. All four or none, so Home never gets a live tile with
   # nothing behind it.
