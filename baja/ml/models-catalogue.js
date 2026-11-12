@@ -438,6 +438,53 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'Uniqueness / repeat gradient', badge: 'k-mer', ready: true,
+            blurb: 'Where along the transcript a window of k nt is unique, and where it is a repeat.',
+            open: () => __onParentTrack('Uniqueness / repeat gradient',
+                (list) => exec('baja/data/uniqueness-gradient.js', graph, L, list)),
+            docs: {
+                summary: 'For every window of size k (3-30) along the track, two scores that are '
+                    + 'deliberately not merged before you see both: how repetitive the window is on '
+                    + 'its own, and how often it occurs anywhere else. The layer drawn is the '
+                    + 'product, so a window scores well only when it is both locally clean and '
+                    + 'absent elsewhere, and the summary names which of the two pulled each low '
+                    + 'region down.',
+                provenance: 'NOT A TRAINED MODEL, and it sits in this catalogue as a scorer rather '
+                    + 'than a predictor. Nothing here was fitted: the complexity half is composition '
+                    + 'entropy, longest homopolymer run, strongest tandem periodicity (chance-'
+                    + 'corrected, since random sequence matches position+p a quarter of the time) '
+                    + 'and DUST-style triplet redundancy, combined with fixed weights. The '
+                    + 'uniqueness half is a count, taken from the same 2-bit off-target indexes '
+                    + 'baja-server already builds per species (py/sequence/offtarget), seeded off '
+                    + 'their W-mer index rather than by sweeping the reference. There is no '
+                    + 'training set, so there is no cross-validation to report and no learned '
+                    + 'weighting to inspect. Every number is reproducible by hand from the sequence '
+                    + 'and the index.',
+                usage: 'Pick the window size to match what you are designing, name the on-target '
+                    + 'gene symbol, and tick the species an oligo has to clear. Hits inside that '
+                    + 'gene count as on-target, which covers the transcript itself AND its '
+                    + 'orthologue in each other species, so a conserved window does not read as a '
+                    + 'mouse off-target; speciesOnTarget is then a conservation count. '
+                    + 'LIMITS: below k=12 the uniqueness half stops meaning anything, because a '
+                    + 'reference of R bases holds any k-mer about R/4^k times by chance -- it is '
+                    + 'reported with a warning and the complexity half still reads. Exact mode '
+                    + 'counts exact matches only, which is a LOWER BOUND on off-target burden for '
+                    + 'an RNase H oligo; the edit-distance mode is the one that answers the design '
+                    + 'question, and because it costs about 0.1 s per window per species it is '
+                    + 'strided rather than scored at every base. The reference is cDNA, so intronic '
+                    + 'and intergenic off-targets are invisible to it. A species whose index this '
+                    + 'server has not built is skipped and named in the summary rather than '
+                    + 'silently dropped.',
+                links: [
+                    { title: 'Off-target index service', url: '',
+                      note: 'py/sequence/offtarget/README.md -- the 2-bit index this reads, how it is built per species, and the seed-and-verify algorithm the edit-distance mode uses.' },
+                    { title: 'DUST: low-complexity sequence masking',
+                      url: 'https://doi.org/10.1089/cmb.2006.13.1028',
+                      note: 'The triplet-redundancy measure the complexity half borrows.' }
+                ]
+            }
+        },
+        {
             title: 'Primer design — djPrimer', badge: 'djPrimer', ready: true,
             blurb: 'primer3 designs ranked by predicted assay success, not by design score.',
             // Was track-design-menu.js on graph.track[0]: the Design MENU, opened against the

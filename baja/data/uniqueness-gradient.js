@@ -19,8 +19,10 @@ function (graph, genegraph_panel_layout, presetTrack) {
     //
     // presetTrack: the track to scan, decided by whoever opened this. Given, it runs on
     // that track at once; without it the click-a-track flow below stands, matching
-    // baja/data/aso-offtarget.js.
+    // baja/data/aso-offtarget.js. The models library hands a LIST (always one element --
+    // __onParentTrack resolves the choice before calling), so accept either shape.
     return new Promise(async (resolve, reject) => {
+        if (Array.isArray(presetTrack)) presetTrack = presetTrack.filter(Boolean)[0] || null;
         const server = window['env']['apiUrl'];
         const PY = server + '/py/sequence/offtarget/uniqueness-gradient.py';
 

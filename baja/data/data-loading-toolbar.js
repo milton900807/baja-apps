@@ -1,7 +1,7 @@
 function (graph, genegraph_panel_layout) {
     // Data toolbar (menu bar) docked in the button panel — shown from the Layers
-    // center menu's "Data" item. Menus: RNASeq | Patents | microRNA | Sequence | Variants |
-    // Protein | Edit Layer.
+    // center menu's "Data" item. Menus: RNASeq | Patents | microRNA | Variants | Protein |
+    // Edit Layer.
     //
     // Every /bd/ interval dataset here comes from baja/data/layer-sets.js, which the ?layer=
     // deep-link handler reads too — one definition, so the menu and a link can't disagree.
@@ -121,24 +121,6 @@ function (graph, genegraph_panel_layout) {
         })
     }));
 
-    // ---- Sequence ------------------------------------------------------------
-    // Uniqueness / repeat gradient: per-window intrinsic complexity and off-target
-    // occurrence across the species an oligo programme has to clear, drawn over the
-    // track as a coverage layer. The counts come from the off-target indexes
-    // baja-server already maintains (py/sequence/offtarget), not from a second copy
-    // of the reference data.
-    const sequenceItems = [
-        {
-            'label': 'Uniqueness / repeat gradient', 'ionfunction': go(async () => {
-                graph.clearMouseListeners();
-                graph.setMouseMode('navigate');
-                // No track passed: the loader falls back to click-a-track, like the
-                // ASO off-target scan it sits beside.
-                await exec('baja/data/uniqueness-gradient.js', graph, genegraph_panel_layout);
-            })
-        }
-    ];
-
     // ---- Variants (major variant databases; by selected range or whole track) ----
     const variantDbs = [
         { db: 'clinvar', label: 'ClinVar' },
@@ -208,7 +190,6 @@ function (graph, genegraph_panel_layout) {
                                     { 'label': 'RNASeq', 'items': rnaseqItems },
                                     { 'label': 'Patents', 'items': ipItems },
                                     { 'label': 'microRNA', 'items': mirnaItems },
-                                    { 'label': 'Sequence', 'items': sequenceItems },
                                     { 'label': 'Variants', 'items': variantItems },
                                     { 'label': 'Protein', 'items': proteinItems },
                                     { 'label': 'Edit Layer', 'items': editItems }
