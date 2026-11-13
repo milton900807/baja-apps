@@ -73,6 +73,33 @@ function (graph, genegraph_panel_layout) {
     if (allOligos().some(isSiRNA)) {
         offTargetItems.push({ 'label': 'Seed-sequence off-targets: all (siRNA)', 'ionfunction': createIonFunction(() => { runOff(allOligos().filter(isSiRNA), { seed: true }); }) });
     }
+    // WHICH GENES, not how many. The screen stores the gene behind every hit, and until
+    // now that was a count on a badge and an arc on the canvas: enough to say a compound is
+    // dirty, not enough to say what it is dirty against, and no way to take the list
+    // anywhere. This opens the compounds and their genes as two tables -- by gene, which
+    // says whether the DESIGN has a problem, and by compound, which says which one to drop
+    // -- and downloads either.
+    //
+    // Offered only when something has actually been screened: an empty table is a worse
+    // answer than an absent row, and the entry would otherwise read as "no off-targets"
+    // when it means "nothing has been run".
+    const screened = (l) => l.filter((o) => o && (o.offtargetsRun || o.offtarget != null));
+    if (anySelected && screened(selectedOligos()).length) {
+        offTargetItems.push({
+            'label': 'Off-target genes: selected (' + screened(selectedOligos()).length + ' screened)',
+            'ionfunction': createIonFunction(() => {
+                exec('baja/manchester/menu/selected-off-target-genes.js', graph, selectedOligos());
+            })
+        });
+    }
+    if (screened(allOligos()).length) {
+        offTargetItems.push({
+            'label': 'Off-target genes: all (' + screened(allOligos()).length + ' screened)',
+            'ionfunction': createIonFunction(() => {
+                exec('baja/manchester/menu/selected-off-target-genes.js', graph, allOligos());
+            })
+        });
+    }
     // Download oligos + genomic coordinates + off-target hits as CSV. Scope is
     // spelled out in the label — "selected" only when something is selected,
     // "all" always available.

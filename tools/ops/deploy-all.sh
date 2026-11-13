@@ -195,6 +195,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "off-target genes of the selected compounds, with downloads" \
+    "baja/manchester/menu/selected-off-target-genes.js:THE OFF-TARGET GENES OF THE SELECTED COMPOUNDS" \
+    "baja/manchester/menu/compound-editor.js:WHICH GENES, not how many"
   install_group "filter compounds by description (AI), on one shared definition" \
     "baja/bio/compound-filter.js:WHAT A COMPOUND FILTER MEANS, in one place" \
     "py/bio/compounds/filter-prompt.py:THE MODEL DOES NOT JUDGE ANY COMPOUND" \
