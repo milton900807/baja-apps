@@ -195,6 +195,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "filter compounds by description (AI), on one shared definition" \
+    "baja/bio/compound-filter.js:WHAT A COMPOUND FILTER MEANS, in one place" \
+    "py/bio/compounds/filter-prompt.py:THE MODEL DOES NOT JUDGE ANY COMPOUND" \
+    "baja/manchester/menu/compound-ai-filter.js:FILTER THE COMPOUNDS BY DESCRIBING THEM" \
+    "baja/manchester/menu/select-compounds-by.js:ONE DEFINITION OF WHAT THESE WORDS MEAN" \
+    "baja/manchester/menu/track-design-menu.js:Filter by description"
   install_group "select compounds by criteria" \
     "baja/manchester/menu/select-compounds-by.js:SELECT COMPOUNDS BY WHAT THEY ARE" \
     "baja/manchester/menu/compounds-editor.js:Select by criteria" \

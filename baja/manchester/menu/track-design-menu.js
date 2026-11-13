@@ -2933,6 +2933,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         open: () => highlightCompounds()
                     },
                     {
+                        title: 'Filter by description', badge: 'AI',
+                        ready: __oligoCount.here > 0,
+                        readyNote: 'no compounds on this track',
+                        blurb: 'Say which compounds you mean and pick them out: "the '
+                            + 'self-complementary ones", "anything under 40% GC", "gapmers with a '
+                            + 'Tm over 55". The model reads the sentence into the same fields the '
+                            + 'Select-by-criteria dialog has; the editor does the matching itself, '
+                            + 'so the same words give the same compounds every time. It shows what '
+                            + 'it understood and how many match before anything is selected or '
+                            + 'removed, and says so when part of the request is not something '
+                            + 'these fields can measure.',
+                        open: () => exec('baja/manchester/menu/compound-ai-filter.js', graph, selectedTrack)
+                    },
+                    {
                         title: 'Filter by off-target count', badge: 'Remove',
                         ready: __oligoCount.here > 0,
                         readyNote: 'no compounds on this track',

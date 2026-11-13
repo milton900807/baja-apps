@@ -16,8 +16,9 @@ function (graph, scopeTrack) {
     // the scale moves.
     //
     // Resolves the number selected, or null if cancelled.
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
         try {
+            const F = await exec('baja/bio/compound-filter.js');
             const old = document.getElementById('baja-select-by');
             if (old && old.parentNode) old.parentNode.removeChild(old);
 
@@ -34,56 +35,28 @@ function (graph, scopeTrack) {
 
             // What the set actually spans, so the ranges are offered as the numbers in front
             // of the user rather than as invented defaults they have to clear first.
-            // MISSING IS NOT ZERO. `+null` is 0 and `+''` is 0, so a compound carrying no GC
-            // at all read as GC 0% and matched every "GC below" filter ever typed -- a
-            // compound nothing is known about turning up in a narrowed set, which is the
-            // opposite of what narrowing is for. Absent values are null here and fail any
-            // range the user constrained.
-            const num = (v) => {
-                if (v == null || v === '') return null;
-                const n = +v;
-                return Number.isFinite(n) ? n : null;
-            };
+            // ONE DEFINITION OF WHAT THESE WORDS MEAN. The fault patterns, the colour
+            // bands, the missing-is-not-zero rule and the matching itself live in
+            // baja/bio/compound-filter.js, because the AI filter fills the same fields from
+            // a sentence and the two have to agree exactly. A model that says "17 are
+            // self-complementary" and a dialog that then selects 19 is worse than either
+            // alone: both look right.
+            const num = F.num;
             const spanOf = (get) => {
                 let lo = Infinity, hi = -Infinity, seen = 0;
                 for (const r of all) {
-                    const v = num(get(r.o));
+                    const v = get(r.o);
                     if (v == null) continue;
                     seen++; lo = Math.min(lo, v); hi = Math.max(hi, v);
                 }
                 return seen ? { lo: lo, hi: hi } : null;
             };
-            const sc = spanOf((o) => o.score);
-            const gc = spanOf((o) => o.gc_percent);
-            const tm = spanOf((o) => (o.tm_c != null ? o.tm_c : o.tm));
-            const ln = spanOf((o) => (o.length != null ? o.length : ((o.sequence || '').length || null)));
-
-            // The scorer's own words. Matched the way the red label is built in
-            // track-design-menu.js, so a tick here and the text on the canvas mean the
-            // same thing.
-            const FAULTS = [
-                ['gc', 'GC out of range', /GC outside preferred range/i],
-                ['tm', 'Tm out of range', /Tm outside preferred range/i],
-                ['cpg', 'CpG motif', /Contains CpG motif/i],
-                ['grun', 'Long G run', /Long G run detected/i],
-                ['pal', 'Palindromic', /Palindrome/i],
-                ['selfc', 'Self-complementary', /Self-complementary stretch detected/i],
-                ['rep', 'Repetitive', /Repetitive sequence/i]
-            ];
-
-            const MODALITIES = [
-                ['', 'Any modality'],
-                ['gapmer', 'Gapmer'],
-                ['steric', 'Steric-blocking'],
-                ['sirna', 'siRNA']
-            ];
-            const modalityOf = (o) => {
-                const d = ('' + (o.designType || o.type || '')).toLowerCase();
-                if (d.indexOf('steric') >= 0) return 'steric';
-                if (d.indexOf('sirna') >= 0) return 'sirna';
-                if (d.indexOf('gapmer') >= 0) return 'gapmer';
-                return '';
-            };
+            const sc = spanOf(F.scoreOf);
+            const gc = spanOf(F.gcOf);
+            const tm = spanOf(F.tmOf);
+            const ln = spanOf(F.lenOf);
+            const FAULTS = F.FAULTS.map((f) => [f.key, f.label, f.re]);
+            const MODALITIES = F.MODALITIES.map((m) => [m.key, m.label]);
 
             // ---- the form ------------------------------------------------------------
             const lbl = 'display:block;font:600 12px Arial;color:#9fb3c8;margin:12px 0 4px;';
@@ -165,57 +138,30 @@ function (graph, scopeTrack) {
             const bound = (s) => { const v = parseFloat(val(s)); return Number.isFinite(v) ? v : null; };
 
             // ---- the predicate -------------------------------------------------------
+            // The form's fields become a spec, and the spec is matched by the shared module.
             // One function, read by the live count and by the buttons, so what the header
             // promises and what the buttons do cannot come apart.
+            const specNow = () => {
+                const faults = FAULTS
+                    .filter((f) => { const el = panel.querySelector('[data-fault="' + f[0] + '"]'); return el && el.checked; })
+                    .map((f) => f[0]);
+                return {
+                    band: val('#sb-band'),
+                    faults: faults,
+                    modality: val('#sb-mod'),
+                    allele_only: !!(q('#sb-allele') && q('#sb-allele').checked),
+                    name_contains: val('#sb-name'),
+                    score_min: bound('#sb-score-lo'), score_max: bound('#sb-score-hi'),
+                    gc_min: bound('#sb-gc-lo'), gc_max: bound('#sb-gc-hi'),
+                    tm_min: bound('#sb-tm-lo'), tm_max: bound('#sb-tm-hi'),
+                    len_min: bound('#sb-len-lo'), len_max: bound('#sb-len-hi')
+                };
+            };
             const matches = () => {
                 const scope = val('#sb-scope');
-                const band = val('#sb-band');
-                const mod = val('#sb-mod');
-                const name = val('#sb-name').toLowerCase();
-                const allele = !!(q('#sb-allele') && q('#sb-allele').checked);
-                const wanted = FAULTS.filter((f) => {
-                    const el = panel.querySelector('[data-fault="' + f[0] + '"]');
-                    return el && el.checked;
-                });
-                const sLo = bound('#sb-score-lo'), sHi = bound('#sb-score-hi');
-                const gLo = bound('#sb-gc-lo'), gHi = bound('#sb-gc-hi');
-                const tLo = bound('#sb-tm-lo'), tHi = bound('#sb-tm-hi');
-                const lLo = bound('#sb-len-lo'), lHi = bound('#sb-len-hi');
-                const inRange = (v, lo, hi) => {
-                    if (lo == null && hi == null) return true;
-                    // A compound with no value for a field the user constrained is not a
-                    // match: treating missing as passing would quietly include compounds
-                    // nothing is known about, which is the opposite of narrowing.
-                    if (v == null) return false;
-                    if (lo != null && v < lo) return false;
-                    if (hi != null && v > hi) return false;
-                    return true;
-                };
-                const out = [];
-                for (const r of all) {
-                    const o = r.o;
-                    if (scope === 'track' && scopeTrack && r.t !== scopeTrack) continue;
-                    const red = (o.color === 'red' || !!o.flagReason);
-                    const col = ('' + (o.color || '')).toLowerCase();
-                    if (band === 'red' && !red) continue;
-                    if (band === 'notred' && red) continue;
-                    if (band === 'amber' && !(red || col === 'orange')) continue;
-                    if (band === 'green' && col.indexOf('green') < 0) continue;
-                    if (mod && modalityOf(o) !== mod) continue;
-                    if (allele && !(o.alleleSelective || (o.alleleCols && o.alleleCols.length))) continue;
-                    if (name && ('' + (o.name || '')).toLowerCase().indexOf(name) < 0) continue;
-                    if (!inRange(num(o.score), sLo, sHi)) continue;
-                    if (!inRange(num(o.gc_percent), gLo, gHi)) continue;
-                    if (!inRange(num(o.tm_c != null ? o.tm_c : o.tm), tLo, tHi)) continue;
-                    if (!inRange(num(o.length != null ? o.length : ((o.sequence || '').length || null)), lLo, lHi)) continue;
-                    if (wanted.length) {
-                        const notes = Array.isArray(o.notes) ? o.notes.join(' | ') : '';
-                        const text = notes + ' | ' + (o.flagReason || '');
-                        if (!wanted.some((f) => f[2].test(text))) continue;
-                    }
-                    out.push(r);
-                }
-                return out;
+                const pool = (scope === 'track' && scopeTrack)
+                    ? all.filter((r) => r.t === scopeTrack) : all;
+                return F.match(pool, specNow());
             };
 
             const refresh = () => {
