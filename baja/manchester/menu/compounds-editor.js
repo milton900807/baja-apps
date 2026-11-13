@@ -230,6 +230,31 @@ let screenActions = {
             })
         },
         {
+            // THE RED ONES ON THEIR OWN. "Select all" and then unpicking the good ones is the
+            // long way round to the question a finished design is usually asked: which of
+            // these are flagged. Judged by the colour the drawing uses rather than by a score
+            // threshold repeated here, so this row and the canvas cannot disagree about what
+            // red means; flagReason covers a compound carrying a warning whose colour was set
+            // some other way.
+            label: 'Select warnings only (red)',
+            ionfunction: createIonFunction(async () => {
+                let total = [], seen = 0;
+                for (let t of graph.track) {
+                    for (let o of t.oligos) {
+                        seen++;
+                        if (o && (o.color === 'red' || o.flagReason)) total.push({ 'o': o, 't': t });
+                    }
+                }
+                graph.setSelectedCompounds(total);
+                graph.setMessage(total.length
+                    ? ('Selected ' + total.length + ' flagged compound' + (total.length === 1 ? '' : 's')
+                        + ' of ' + seen)
+                    : ('Nothing is flagged: none of the ' + seen + ' compound'
+                        + (seen === 1 ? ' is' : 's are') + ' red'));
+                graph.currentShape = null;
+            })
+        },
+        {
             label: 'Clear all',
             ionfunction: createIonFunction(async () => {
                 let zoom_to = {

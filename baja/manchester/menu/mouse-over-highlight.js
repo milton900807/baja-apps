@@ -3856,6 +3856,34 @@ function (graph, genegraph_panel_layout) {
                                 } catch (e) { try { graph.setMessage(' Could not navigate: ' + e + ' '); } catch (e2) { } }
                             }
                         });
+                        // THE RED ONES ON THEIR OWN. The score colour is the first thing read
+                        // off a finished design, and "which ones are bad" is the first question
+                        // asked of it -- but acting on that answer meant picking them out of the
+                        // set by hand, one click at a time, against a drawing where the reason
+                        // they are red is hidden at any zoom wide enough to see them all.
+                        //
+                        // Judged by the colour the drawing actually uses, not by re-deriving a
+                        // threshold here: scoreToColor is the one place that decides what red
+                        // means, and a second copy of "score < 10" in this menu would be a
+                        // second answer to the same question. flagReason stands in for a
+                        // compound carrying a warning with its colour set some other way.
+                        const __red = __cs.filter((o) => o && (o.color === 'red' || o.flagReason));
+                        if (__red.length && __red.length < __cs.length) {
+                            golist.push({
+                                label: 'Select the warnings only (' + __red.length + ' red of ' + __cs.length + ')',
+                                move: () => { },
+                                click: () => {
+                                    try { graph.showSideMenu(null); } catch (e) { }
+                                    let n = 0;
+                                    for (const o of __red) { try { graph.addOligoToSelection(o, selectedTrack); n++; } catch (e) { } }
+                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                    try {
+                                        graph.setMessage(' Selected ' + n + ' flagged compound' + (n === 1 ? '' : 's')
+                                            + ' of ' + __cs.length + ' \u2014 see the selection window. ');
+                                    } catch (e) { }
+                                }
+                            });
+                        }
                         golist.push({
                             label: 'Select all compounds (' + __cs.length + ')',
                             move: () => { },

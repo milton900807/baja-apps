@@ -195,6 +195,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "select the flagged compounds on their own" \
+    "baja/manchester/menu/compounds-editor.js:Select warnings only (red)" \
+    "baja/manchester/menu/mouse-over-highlight.js:THE RED ONES ON THEIR OWN"
   install_group "ASO warnings hide when the compound is too narrow to carry them" \
     "flexigraph/oligo.js:ONLY WHILE THERE IS ROOM FOR IT"
   install_group "designers say why they refused, instead of answering with nothing" \
