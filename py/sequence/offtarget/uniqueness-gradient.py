@@ -60,7 +60,10 @@ K_MIN, K_MAX = 3, 30
 MIN_MEANINGFUL_K = 12           # below this, see the note in `warnings`
 MAX_PERIOD = 6
 EDITDIST_MAX_WINDOWS = 400      # editdistance mode is ~0.1 s/window/species
-MAX_WINDOWS = 4000              # scored windows per run, whatever the sequence length
+MAX_WINDOWS = 2000              # scored windows per run, whatever the sequence length.
+                                # A track is ~2000 px wide, so more points than this are
+                                # drawn on top of each other, and every one of them costs
+                                # bytes in a response the client has to parse in one piece.
 
 # Species -> off-target index names. Mirrors SPECIES_INDEX in
 # py/sequence/prompt-to-transcript.py; keep the two in sync, as with the
@@ -428,23 +431,40 @@ def run(sequence, k=20, species=None, on_symbol=None, stride=None,
     # unique), and quietly mixing it in would change what every existing number means.
     score = complexity * uniqueness if per_species else complexity
 
-    def clean(a):
+    def clean(a, nd=3):
+        """Floats to `nd` places; NaN to null. 3 places is past the precision of
+        anything that reads this and saves a fifth of the payload over 4."""
         return [None if (x is None or (isinstance(x, float) and np.isnan(x))) else
-                (round(float(x), 4) if isinstance(x, float) else x) for x in a]
+                (round(float(x), nd) if isinstance(x, float) else x) for x in a]
+
+    def sparse(a):
+        """Counts as {n, idx, val}, listing only non-zero entries.
+
+        Off-target counts are almost all zero -- that is the point of the track -- so
+        dense arrays spend most of their bytes writing "0" over and over. On five
+        species this was 120 KB of a 387 KB response, and the response has to arrive
+        and parse as a single piece.
+        """
+        arr = np.asarray(a)
+        nz = np.flatnonzero(arr != 0)
+        return {"n": int(arr.size), "idx": [int(i) for i in nz],
+                "val": [int(arr[i]) for i in nz]}
 
     gradient = {
-        "position": [int(s) + 1 for s in starts],            # 1-based window start
-        "center": [float(s) + 1 + (k - 1) / 2.0 for s in starts],
+        # 1-based window start. The centre is position + (k-1)/2, so it is derived on
+        # the client rather than sent as a second array of the same length.
+        "position": [int(s) + 1 for s in starts],
         "complexity": clean(complexity),
         "au": clean(comp["au"]),
         "flankAu": clean(au_plain),
         "flankAuWeighted": clean(au_weighted),
         "uniqueness": clean(uniqueness),
-        "worstOffTarget": clean(worst),
+        "worstOffTarget": sparse(np.nan_to_num(worst, nan=0.0).astype(int)),
         "speciesOnTarget": [int(c) for c in conserved],
         "score": clean(score),
-        "perSpecies": {kk: {"index": v["index"], "on": v["on"], "off": v["off"],
-                            "examples": v["examples"]}
+        "encoding": "count arrays are {n, idx, val}; only non-zero entries are listed",
+        "perSpecies": {kk: {"index": v["index"], "on": sparse(v["on"]),
+                            "off": sparse(v["off"]), "examples": v["examples"]}
                        for kk, v in per_species.items()},
     }
     return {"mode": mode, "k": k, "stride": stride, "flank": flank,

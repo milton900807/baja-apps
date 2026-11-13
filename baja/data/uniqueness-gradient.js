@@ -311,15 +311,45 @@ function (graph, genegraph_panel_layout, presetTrack) {
             graph.setMessage(' Scoring ' + seq.length + ' nt at k=' + opts.k + ' across '
                 + opts.species.length + ' species... ');
 
-            const res = await exec(PY, em, seq, opts.k, opts.species, opts.gene || null,
-                null, opts.mode, opts.dist, opts.flank);
+            // The transport itself can fail, not just the payload: a response that
+            // arrives short surfaces as "the answer could not be read" from exec, which
+            // throws. Without this the promise never settles and the panel sits in its
+            // working state with no explanation.
+            let res;
+            try {
+                res = await exec(PY, em, seq, opts.k, opts.species, opts.gene || null,
+                    null, opts.mode, opts.dist, opts.flank);
+            } catch (e) {
+                graph.setError(' Could not run the gradient on ' + track.name + ': '
+                    + ((e && (e.message || e)) || 'the request failed') + '. If this was a '
+                    + 'long track, try highlighting a region, and avoid running another '
+                    + 'model at the same time.');
+                return null;
+            }
             let grad;
             try {
                 grad = JSON.parse(res.gradient);
             } catch (e) {
-                graph.setMessage(' Failed to parse the gradient for ' + track.name);
+                graph.setError(' The gradient for ' + track.name + ' came back incomplete '
+                    + '(' + ((res && res.gradient) ? res.gradient.length : 0) + ' bytes). '
+                    + 'Try a smaller region or fewer species.');
                 return null;
             }
+            // Count arrays arrive sparse: {n, idx, val}, only non-zero entries listed.
+            const expand = (o) => {
+                if (!o || !o.n) return [];
+                const a = new Array(o.n).fill(0);
+                for (let j = 0; j < o.idx.length; j++) a[o.idx[j]] = o.val[j];
+                return a;
+            };
+            grad.worstOffTarget = expand(grad.worstOffTarget);
+            for (const s of Object.keys(grad.perSpecies || {})) {
+                grad.perSpecies[s].on = expand(grad.perSpecies[s].on);
+                grad.perSpecies[s].off = expand(grad.perSpecies[s].off);
+            }
+            // The window centre is position + (k-1)/2, derived here rather than sent as a
+            // second array as long as the first.
+            grad.center = grad.position.map((p) => p + (res.k - 1) / 2);
             await addLayers(track, grad, res, opts, offset);
             renderSummary(res, grad, track, opts);
             graph.setMessage(' Gradient drawn: ' + res.nWindows + ' windows, k=' + res.k
