@@ -485,7 +485,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 + ((v.reference0 || v.reference || '?') + '>' + (v.alternate0 || v.alternate || '?'))).join(', ');
             const askPhase = () => new Promise((resolve) => {
                 (graph.openMenuAtPointer || graph.showSideMenu).call(graph, [
-                    { label: 'Variants sit on BOTH copies here \u2014 choose the one to design against', move: () => { }, click: () => { } },
+                    { label: 'Variants sit on BOTH copies here \u2014 choose the one to design against', header: true },
                     { label: (phaseOf(snp) === 1 ? '\u2713 ' : '') + 'Copy 1 (above): ' + (listFor(1) || 'nothing else'),
                         move: () => { }, click: () => { graph.showSideMenu(null); resolve(1); } },
                     { label: (phaseOf(snp) === 0 ? '\u2713 ' : '') + 'Copy 2 (below): ' + (listFor(0) || 'nothing else'),

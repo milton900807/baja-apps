@@ -134,7 +134,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         // track's gene model, so a selection is not a thing it can be scoped to, and an
         // entry here that quietly ignored the selection would be worse than no entry.
         const mlItems = [
-            { label: (t.name || 'track') + '  ' + len.toLocaleString() + ' nt', move: () => { }, click: () => { } },
+            { label: (t.name || 'track') + '  ' + len.toLocaleString() + ' nt', header: true },
             // The question this answers is 'what binds here', which is the one you have
             // when you have selected a stretch and do not yet know what is on it. First
             // because it is the only entry that needs no parameter chosen first.
@@ -149,7 +149,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         ];
 
         const navItems = [
-            { label: (t.name || 'track') + '  ' + start + '–' + end, move: () => { }, click: () => { } },
+            { label: (t.name || 'track') + '  ' + start + '–' + end, header: true },
             go('Zoom to selection', async () => zoomToSpan(start, end, 0.25)),
             go('Zoom to selection (tight)', async () => zoomToSpan(start, end, 0.02)),
             go('Zoom in to read the sequence', async () => {
@@ -223,8 +223,8 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             // the data loaders honour markstart..markend, and the models are handed (t, range) --
             // so the layers land over the selected span rather than the whole track.
             sub('Layers ▸', [
-                { label: 'Layers on ' + (t.name || 'track'), move: () => { }, click: () => { } },
-                { label: '  ' + start + '–' + end + '  (' + len + ' nt)', move: () => { }, click: () => { } },
+                { label: 'Layers on ' + (t.name || 'track'), header: true },
+                { label: '  ' + start + '–' + end + '  (' + len + ' nt)', header: true },
                 // Data opens the Data Resources Library directly rather than expanding a short
                 // list of shortcuts to it. The library is the catalogue -- RNASeq, public data,
                 // your own uploads -- so a submenu naming three of its shelves was a second,

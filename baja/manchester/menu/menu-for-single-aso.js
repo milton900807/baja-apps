@@ -516,7 +516,7 @@ function (graph, oligo, genegraph_panel_layout) {
 
                         // Otherwise list what there is to edit: every residue, and every
                         // linkage between them, named by its current chemistry.
-                        const items = [{ label: 'Pick a part of ' + ('' + (oligo.name || 'the compound')), move: () => { }, click: () => { } }];
+                        const items = [{ label: 'Pick a part of ' + ('' + (oligo.name || 'the compound')), header: true }];
 
                         // WHERE THE SELECTIVITY IS, in words, because the ring on the bead says
                         // WHICH residue and not whether it is in a position to do anything. A
@@ -543,10 +543,7 @@ function (graph, oligo, genegraph_panel_layout) {
                                 const inGap = cols.filter((c) => gs >= 0 && c >= gs && c <= ge).length;
                                 items.push({
                                     label: 'Allele-selective at residue ' + parts.join(', ') + ' of ' + N
-                                        + (inGap ? '' : '  \u2014 none of it in the gap, so it may not discriminate'),
-                                    move: () => { },
-                                    click: () => { }
-                                });
+                                        + (inGap ? '' : '  \u2014 none of it in the gap, so it may not discriminate'), header: true });
                             }
                         } catch (e) { }
                         for (let k = 0; k < monos.length; k++) {
@@ -593,7 +590,7 @@ function (graph, oligo, genegraph_panel_layout) {
                         };
                         if (nb.length === 1) { done(nb[0]); return; }
                         try {
-                            graph.showSideMenu([{ label: 'Rejoin with', move: () => { }, click: () => { } }].concat(
+                            graph.showSideMenu([{ label: 'Rejoin with', header: true }].concat(
                                 nb.map((q) => ({
                                     label: (q.side === '5' ? "5\u2032  " : "3\u2032  ") + ('' + (q.other.name || 'fragment')),
                                     move: () => { }, click: () => done(q),
@@ -693,8 +690,8 @@ function (graph, oligo, genegraph_panel_layout) {
                         };
                         try {
                             graph.showSideMenu([
-                                { label: 'Delete ' + (nm.length > 30 ? nm.slice(0, 29) + '\u2026' : nm) + '?', move: () => { }, click: () => { } },
-                                { label: '  undo will bring it back', move: () => { }, click: () => { } },
+                                { label: 'Delete ' + (nm.length > 30 ? nm.slice(0, 29) + '\u2026' : nm) + '?', header: true },
+                                { label: '  undo will bring it back', header: true },
                                 { label: 'Yes, delete it', move: () => { }, click: () => doDelete() },
                                 { label: '\u2039 Cancel', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } },
                             ]);

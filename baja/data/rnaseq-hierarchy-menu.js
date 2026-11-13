@@ -101,7 +101,7 @@ function (graph, genegraph_panel_layout) {
             });
         }
         if (!folders.length && !files.length) {
-            items.push({ label: error ? ('(' + error + ')') : '(no RNASeq data here)', move: () => { }, click: () => { } });
+            items.push({ label: error ? ('(' + error + ')') : '(no RNASeq data here)', header: true });
         }
         graph.showSideMenu(items);
         try { graph.setMessage(''); } catch (e) { }

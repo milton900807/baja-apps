@@ -108,9 +108,11 @@ function (graph, genegraph_panel_layout, track, range) {
                 } catch (e) { say('Could not profile ' + r.rbp + ': ' + (e && e.message ? e.message : e)); }
             }
         }));
+        // Captions, not rows: header: true draws them as captions and leaves them
+        // unclickable, where a no-op click draws a button that does nothing.
         const menu = [
-            { label: 'Which RBP binds this ' + seq.length.toLocaleString() + ' nt', move: () => { }, click: () => { } },
-            { label: '  ' + scored + ' of ' + windows + ' windows scored at all', move: () => { }, click: () => { } }
+            { label: 'Which RBP binds this ' + seq.length.toLocaleString() + ' nt', header: true },
+            { label: scored + ' of ' + windows + ' windows scored at all', header: true }
         ].concat(rows);
         if (graph.openMenuAtPointer) graph.openMenuAtPointer(menu, 'BajaCLIP');
         else graph.showSideMenu(menu);

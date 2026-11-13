@@ -94,13 +94,16 @@ function (graph, selectedTrack) {
             return 0;
         }
 
+        // Captions, not rows: these state what was understood and are not actions. With a
+        // no-op click they drew as buttons, so the menu looked like six things to press and
+        // only two of them did anything.
         const menu = [
-            { label: head, move: () => { }, click: () => { } },
-            { label: '  from: “' + ask + '”', move: () => { }, click: () => { } }
+            { label: head, header: true },
+            { label: 'from: “' + ask + '”', header: true }
         ];
-        if (r.explain) menu.push({ label: '  read as: ' + r.explain, move: () => { }, click: () => { } });
+        if (r.explain) menu.push({ label: 'read as: ' + r.explain, header: true });
         for (const u of unsupported) {
-            menu.push({ label: '  ⚠ not expressible: ' + u, move: () => { }, click: () => { } });
+            menu.push({ label: '⚠ not expressible: ' + u, header: true });
         }
         menu.push({
             label: 'Select these ' + hits.length,

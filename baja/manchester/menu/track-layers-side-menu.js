@@ -70,12 +70,12 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
             ];
             // Only the moves that would change something are offered.
             if (all.length > 1) {
-                items.push({ label: '— order —', move: () => { }, click: () => { } });
+                items.push({ label: '— order —', header: true });
                 if (!isFront) items.push({ label: 'Bring to front', move: () => { }, click: reorder('front') });
                 if (!isFront) items.push({ label: 'Bring forward', move: () => { }, click: reorder('forward') });
                 if (!isBack) items.push({ label: 'Send backward', move: () => { }, click: reorder('backward') });
                 if (!isBack) items.push({ label: 'Send to back', move: () => { }, click: reorder('back') });
-                items.push({ label: '— layer —', move: () => { }, click: () => { } });
+                items.push({ label: '— layer —', header: true });
             }
             items.push(
                 {
@@ -136,7 +136,7 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
             const layers = track.track_layers || [];
             const items = [];
             if (!layers.length && !(track.variantBatches || []).length) {
-                items.push({ label: '(no layers on this track)', move: () => { }, click: () => { } });
+                items.push({ label: '(no layers on this track)', header: true });
             }
             for (const layer of layers.slice().reverse()) {   // front layer first, like the rows under the track name
                 const vis = layer.visible !== false;
@@ -147,7 +147,7 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
                 });
             }
             if (layers.length) {
-                items.push({ label: '— all layers —', move: () => { }, click: () => { } });
+                items.push({ label: '— all layers —', header: true });
                 items.push({ label: 'Show all', move: () => { }, click: () => { layers.forEach((l) => { l.visible = true; }); refreshDraw(); showRoot(); } });
                 items.push({ label: 'Hide all', move: () => { }, click: () => { layers.forEach((l) => { l.visible = false; }); refreshDraw(); showRoot(); } });
                 items.push({ label: 'Interaction on (all)', move: () => { }, click: () => { layers.forEach((l) => { l.interactive = true; }); refreshDraw(); showRoot(); } });
@@ -162,7 +162,7 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
             // looking for it in a second place would be the surprise.
             const batches = track.variantBatches || [];
             if (batches.length) {
-                items.push({ label: '— variants added —', move: () => { }, click: () => { } });
+                items.push({ label: '— variants added —', header: true });
                 for (const b of batches.slice().reverse()) {
                     items.push({
                         label: (b.hidden ? '○ ' : '● ') + b.summary(),

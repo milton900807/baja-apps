@@ -335,10 +335,10 @@ function (graph, track, snp) {
             const cur = snp.markerShape || 'circle';
             const curCol = snp.markerColor;
             return [
-                { label: 'Appearance', move: () => { }, click: () => { } },
+                { label: 'Appearance', header: true },
                 {
                     label: '  Shape \u25b8  (' + (SHAPES[cur] || cur) + ')', move: () => { },
-                    click: () => openAt([{ label: 'Marker shape', move: () => { }, click: () => { } }].concat(
+                    click: () => openAt([{ label: 'Marker shape', header: true }].concat(
                         Object.keys(SHAPES).map((k) => ({
                             label: '  ' + (GLYPH[k] || '') + SHAPES[k] + (k === cur ? '   \u2713' : ''),
                             move: () => { },
@@ -348,7 +348,7 @@ function (graph, track, snp) {
                 },
                 {
                     label: '  Colour \u25b8' + (curCol ? ('  (' + curCol + ')') : '  (automatic)'), move: () => { },
-                    click: () => openAt([{ label: 'Marker colour', move: () => { }, click: () => { } },
+                    click: () => openAt([{ label: 'Marker colour', header: true },
                         {
                             label: '  Automatic' + (curCol ? '' : '   \u2713'), move: () => { },
                             click: () => applyLook('colour', () => { snp.markerColor = null; },
@@ -364,7 +364,7 @@ function (graph, track, snp) {
                     click: () => applyLook('both', () => { snp.markerShape = null; snp.markerColor = null; },
                                            'appearance reset'),
                 },
-                { label: '\u2039 Back', move: () => { }, click: () => { } },
+                { label: '\u2039 Back', header: true },
             ];
         };
         menuList.push({

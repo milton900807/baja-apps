@@ -68,8 +68,13 @@ function (graph, selectedTrack, kind) {
             const finish = (v) => { if (!done) { done = true; resolve(v); } };
 
             const chemMenu = () => {
+                // A CAPTION, NOT A ROW. `header: true` is the renderer's own convention
+                // (popup-menu.js, flexigraph/gene.js): it draws as a small uppercase caption
+                // and is not clickable. A label with a no-op click draws as a BUTTON that
+                // does nothing when pressed, which is how these menus came out with rows
+                // that looked live and were not.
                 const items = [
-                    { label: 'Chemistry for the compound you place', move: () => { }, click: () => { } }
+                    { label: 'Chemistry for the compound you place', header: true }
                 ];
                 if (current) {
                     items.push({
@@ -102,14 +107,17 @@ function (graph, selectedTrack, kind) {
 
             const top = () => {
                 const items = [
-                    { label: (isGapmer ? 'Gapmer' : 'Steric-blocking') + ' ASO', move: () => { }, click: () => { } },
+                    { label: (isGapmer ? 'Gapmer' : 'Steric-blocking') + ' ASO', header: true },
                     {
-                        label: 'Place one by hand — choose a chemistry, then click the site',
+                        // The trailing arrow is the renderer's mark for a row that opens
+                        // another menu, so a row that asks a second question reads
+                        // differently from one that acts.
+                        label: 'Place one by hand: choose a chemistry, then click the site ▸',
                         move: () => { },
                         click: () => { try { graph.showSideMenu(null); } catch (e) { } chemMenu(); }
                     },
                     {
-                        label: 'Design across the target — scoring, tiling or allele-selective',
+                        label: 'Design across the target: scoring, tiling or allele-selective',
                         move: () => { },
                         click: () => { try { graph.showSideMenu(null); } catch (e) { } finish('design'); }
                     },

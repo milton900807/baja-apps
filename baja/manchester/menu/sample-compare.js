@@ -215,7 +215,7 @@ function (graph, track, action) {
     const total = (track.snpindels || []).filter((s) => genotypesOf(s)).length;
     for (const n of names) {
         const c = (track.snpindels || []).filter((s) => { const g = genotypesOf(s); if (!g) return false; const j = g[0].indexOf(n); return j >= 0 && carries(g[1][j]); }).length;
-        items.push({ label: '   ' + n + ': ' + c + ' of ' + total + ' variants', move: () => { }, click: () => { } });
+        items.push({ label: '   ' + n + ': ' + c + ' of ' + total + ' variants', header: true });
     }
     graph.showSideMenu(items, null, 'Samples ▸');
     return true;

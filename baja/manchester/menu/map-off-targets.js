@@ -208,10 +208,12 @@ function (graph, oligos) {
             result(g.sym + ': ' + (bits.length ? bits.join(', ') : 'nothing to place') + '. Undo removes the markers.');
         };
 
+        // Captions, not rows. See popup-menu.js: header: true is a caption, a no-op click
+        // is a button that does nothing.
         const menu = [
             { label: 'Off-target genes of ' + list.length + ' compound' + (list.length === 1 ? '' : 's'),
-              move: () => { }, click: () => { } },
-            { label: '  opens the gene and marks where the compound lands', move: () => { }, click: () => { } }
+              header: true },
+            { label: 'opens the gene and marks where the compound lands', header: true }
         ].concat(genes.slice(0, 40).map((g) => ({
             label: '  ' + g.sym + '   ' + g.rows.length + ' hit' + (g.rows.length === 1 ? '' : 's')
                 + ' · ' + g.compounds + ' compound' + (g.compounds === 1 ? '' : 's')
@@ -220,7 +222,7 @@ function (graph, oligos) {
             click: () => { try { graph.showSideMenu(null); } catch (e) { } openGene(g); }
         })));
         if (genes.length > 40) {
-            menu.push({ label: '  …and ' + (genes.length - 40) + ' more genes', move: () => { }, click: () => { } });
+            menu.push({ label: '…and ' + (genes.length - 40) + ' more genes', header: true });
         }
         if (graph.openMenuAtPointer) graph.openMenuAtPointer(menu, 'Off-targets');
         else graph.showSideMenu(menu);

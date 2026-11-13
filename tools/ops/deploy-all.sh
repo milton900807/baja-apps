@@ -195,6 +195,19 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "a menu caption is a caption, not a button that does nothing" \
+    "baja/manchester/menu/design-or-place.js:A CAPTION, NOT A ROW" \
+    "baja/bio/rbp/rbp-competition.js:Captions, not rows" \
+    "baja/manchester/menu/compound-ai-filter.js:Captions, not rows" \
+    "baja/manchester/menu/map-off-targets.js:Captions, not rows" \
+    "baja/manchester/menu/selected-sequence-menu.js:header: true" \
+    "baja/manchester/menu/snp-menu.js:header: true" \
+    "baja/manchester/menu/track-layers-side-menu.js:header: true" \
+    "baja/manchester/menu/menu-for-single-aso.js:header: true" \
+    "baja/manchester/menu/allele-selective-design.js:header: true" \
+    "baja/bio/splicing/clinvar-splice-variants.js:header: true" \
+    "baja/data/rnaseq-hierarchy-menu.js:header: true" \
+    "baja/manchester/menu/sample-compare.js:header: true"
   install_group "place an ASO by hand, or design across the target" \
     "baja/manchester/menu/design-or-place.js:DESIGN THE SITE, OR CHOOSE THE SITE YOURSELF" \
     "baja/manchester/menu/track-design-menu.js:PLACE IT, OR DESIGN IT"
