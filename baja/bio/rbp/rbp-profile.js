@@ -358,6 +358,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                     if (!el || !el.getAttribute) return;
                     const act = el.getAttribute('data-rbp-act');
                     if (!act) return;
+                    // Belt as well as braces: the element is a button now, but this listener
+                    // is what makes the click mean something, so it is also what should stop
+                    // the click meaning anything else.
+                    try { e.preventDefault(); } catch (e2) { }
                     const boxes = document.querySelectorAll('input[data-rbp]');
                     for (const bx of boxes) {
                         bx.checked = (act === 'all');
@@ -386,8 +390,13 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
                 wid: 'html',
                 data: ''
                     + '<div style="display:flex;gap:10px;align-items:center;padding:4px 6px 8px;">'
-                    + '<a href="javascript:void(0)" data-rbp-act="all" style="font-size:12px;">Select all</a>'
-                    + '<a href="javascript:void(0)" data-rbp-act="none" style="font-size:12px;">Clear</a>'
+                    // Buttons rather than anchors, for the reason shelf.js records: an <a>
+                    // carries a default navigation whatever its href says, and inside the
+                    // routed app a click that reaches it leaves the page.
+                    + '<button type="button" data-rbp-act="all" style="font-size:12px;background:none;'
+                    + 'border:0;padding:0;cursor:pointer;color:inherit;text-decoration:underline;">Select all</button>'
+                    + '<button type="button" data-rbp-act="none" style="font-size:12px;background:none;'
+                    + 'border:0;padding:0;cursor:pointer;color:inherit;text-decoration:underline;">Clear</button>'
                     + '<span id="__bajaRbpCount" style="font-size:12px;opacity:0.75;">none selected</span>'
                     + '</div>'
                     + '<div style="max-height:52vh;overflow:auto;-webkit-overflow-scrolling:touch;'
