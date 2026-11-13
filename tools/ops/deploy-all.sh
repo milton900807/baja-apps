@@ -245,6 +245,21 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # BajaSplice under Exon -> AI Models: splice-site strength, PSI, the cis-regulatory
+  # windows at the acceptor and at the donor, and intron retention. The submenu replaces
+  # the old LJSplice v2 window, which posted to /ljdonor TF-serving; these run through
+  # exec into bajasplice-lib instead. None of this chain had ever been installed, which
+  # is why the server still offered LJSplice: the code was in git, not on the box.
+  # All eight or none, since the menu entries and the scripts they open are useless apart.
+  install_group "BajaSplice on an exon" \
+    "baja/manchester/menu/menu-factory.js:label: 'BajaSplice \\u25b8'" \
+    "baja/bio/splicing/splicing-profile.js:Splicing profile — pick a magnitude mode" \
+    "baja/bio/splicing/cis-attribution.js:Cis-regulatory attribution — pick the tool" \
+    "baja/bio/splicing/intron-retention.js:Intron-retention propensity (BajaIR) as a track layer" \
+    "baja/bio/splicing/cryptic-exons.js:generateCrypticExons" \
+    "py/bio/splice/splicing-profile.py:Splicing profile for a raw sequence, via the bajasplice-lib models" \
+    "py/bio/splice/cis-profile.py:Cis-regulatory profile around one splice site, via bajasplice-lib" \
+    "py/bio/splice/intron-retention.py:Intron-retention propensity for a gene, via bajair"
   # Uniqueness / repeat gradient on a transcript track. All three or none: the catalogue
   # entry would otherwise open onto a loader that is not there, and the loader would
   # call a scorer that is not there.
