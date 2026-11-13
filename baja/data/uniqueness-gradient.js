@@ -89,11 +89,30 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 + '<input type="checkbox" class="ug-sp" value="' + s.key + '"' + (s.on ? ' checked' : '') + '/>'
                 + esc(s.label) + '</label>').join('');
 
+            const nt = (track.sequence || '').length;
+            // A pre-mRNA track runs to hundreds of kb. The scorer caps how many windows it
+            // scores and derives a stride to suit, which is the only way the run stays quick
+            // and the layer stays drawable. Say so here rather than letting the stride
+            // warning in the summary be the first the user hears of it.
+            // Threshold is the scorer's own cap, not a round number: anything past about
+            // 4,000 windows gets strided, so a 40 kb track is strided too and saying
+            // nothing about it would be the same silent surprise as on a 550 kb one.
+            const MAX_WINDOWS = 4000;
+            const estStride = Math.max(1, Math.ceil((nt - 19) / MAX_WINDOWS));
+            const strideNote = estStride > 1
+                ? '<div style="margin:0 0 16px;padding:9px 11px;border-radius:8px;'
+                + 'background:rgba(42,120,214,0.14);border:1px solid rgba(42,120,214,0.5);'
+                + 'font:12.5px Arial;color:#cfe2ff;">This track is ' + nt.toLocaleString()
+                + ' nt, which is past the ' + MAX_WINDOWS.toLocaleString() + '-window cap, so it '
+                + 'will be scored every ' + estStride + ' nt rather than at every base '
+                + '(at a 20 nt window; a different window size shifts this slightly). '
+                + 'Highlight a region first to scan that region at full resolution.</div>'
+                : '';
             const panel = shell({
                 title: 'Uniqueness / repeat gradient',
-                subtitle: track.name + ' · ' + (track.sequence || '').length + ' nt',
+                subtitle: track.name + ' · ' + nt.toLocaleString() + ' nt',
                 go: 'Run',
-                body: ''
+                body: strideNote
                     + '<label style="' + LBL + '">Window size (nt)</label>'
                     + '<input id="ug-k" type="number" min="3" max="30" step="1" value="20" style="' + INP + 'width:110px;"/>'
                     + '<div style="' + NOTE + '">3 to 30. Below 12 the uniqueness half stops meaning anything: '

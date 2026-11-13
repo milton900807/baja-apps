@@ -41,6 +41,8 @@ Params (from JS via exec, after the EngineMonitor):
   param(7) : edit distance 0-3, editdistance mode only. Default 2.
   param(8) : flank size in nt for the local-AU track, 0 to turn it off. Default 30,
              the window over which local AU predicts miRNA site efficacy.
+  param(9) : maximum scored windows. Default 4000; the stride is derived from it so a
+             long pre-mRNA returns in reasonable time with a drawable number of points.
 
 Resolves {mode, k, stride, nWindows, species, gradient (JSON), warnings}.
 """
@@ -58,6 +60,7 @@ K_MIN, K_MAX = 3, 30
 MIN_MEANINGFUL_K = 12           # below this, see the note in `warnings`
 MAX_PERIOD = 6
 EDITDIST_MAX_WINDOWS = 400      # editdistance mode is ~0.1 s/window/species
+MAX_WINDOWS = 4000              # scored windows per run, whatever the sequence length
 
 # Species -> off-target index names. Mirrors SPECIES_INDEX in
 # py/sequence/prompt-to-transcript.py; keep the two in sync, as with the
@@ -103,7 +106,7 @@ def rolling_codes(codes, w):
 
 
 # --- intrinsic complexity -----------------------------------------------------
-def flanking_au(codes, k, flank=30):
+def flanking_au(codes, k, starts=None, flank=30):
     """AU fraction of the sequence FLANKING each window, the window itself excluded.
 
     This is the miRNA-context variable, not a repeat measure: local AU near a seed
@@ -122,19 +125,20 @@ def flanking_au(codes, k, flank=30):
     n_win = len(codes) - k + 1
     if n_win <= 0:
         return np.zeros(0), np.zeros(0)
+    starts = np.arange(n_win) if starts is None else np.asarray(starts, dtype=np.int64)
     is_au = np.where(codes == 255, np.nan, ((codes == 0) | (codes == 3)).astype(float))
     n = len(codes)
 
-    plain_num = np.zeros(n_win); plain_den = np.zeros(n_win)
-    wt_num = np.zeros(n_win); wt_den = np.zeros(n_win)
-    starts = np.arange(n_win)
+    m = len(starts)
+    plain_num = np.zeros(m); plain_den = np.zeros(m)
+    wt_num = np.zeros(m); wt_den = np.zeros(m)
     # One pass per offset: 30 vector operations, which is cheaper than it looks and far
     # easier to check than an index-juggling convolution.
     for j in range(1, flank + 1):
         w = 1.0 / j
         for idx in (starts - j, starts + k - 1 + j):
             ok = (idx >= 0) & (idx < n)
-            vals = np.zeros(n_win); valid = np.zeros(n_win, dtype=bool)
+            vals = np.zeros(m); valid = np.zeros(m, dtype=bool)
             vals[ok] = np.nan_to_num(is_au[idx[ok]])
             valid[ok] = ~np.isnan(is_au[idx[ok]])
             plain_num += np.where(valid, vals, 0.0)
@@ -147,11 +151,19 @@ def flanking_au(codes, k, flank=30):
     return plain, weighted
 
 
-def window_complexity(codes, k):
-    """Per-window metrics, oriented so 1.0 = complex and 0.0 = repetitive."""
-    from numpy.lib.stride_tricks import sliding_window_view
+def window_complexity(codes, k, starts=None):
+    """Per-window metrics, oriented so 1.0 = complex and 0.0 = repetitive.
 
-    W = sliding_window_view(codes, k)
+    `starts` selects which windows to score. Pass it: the previous version built the
+    full sliding-window array and let the caller subsample afterwards, which on a
+    550 kb pre-mRNA meant 550,000 windows and a ~210 MB peak to produce the few
+    thousand values anything downstream could use.
+    """
+    n_win = len(codes) - k + 1
+    if n_win <= 0:
+        raise ValueError("sequence (%d nt) shorter than the window (%d)" % (len(codes), k))
+    starts = np.arange(n_win) if starts is None else np.asarray(starts, dtype=np.int64)
+    W = codes[starts[:, None] + np.arange(k)]
     has_n = (W == 255).any(axis=1)
     Wc = np.where(W == 255, 0, W)
 
@@ -309,7 +321,7 @@ def editdistance_counts(index_name, seq, k, starts, dist, on_symbol):
 
 # --- entry point --------------------------------------------------------------
 def run(sequence, k=20, species=None, on_symbol=None, stride=None,
-        mode="exact", dist=2, flank=30, progress=lambda p: None):
+        mode="exact", dist=2, flank=30, max_windows=None, progress=lambda p: None):
     warnings = []
     k = int(k)
     if not K_MIN <= k <= K_MAX:
@@ -327,18 +339,37 @@ def run(sequence, k=20, species=None, on_symbol=None, stride=None,
     if len(codes) < k:
         raise ValueError("sequence (%d nt) shorter than the window (%d)" % (len(codes), k))
 
-    comp = window_complexity(codes, k)
-    n_win = len(comp["complexity"])
+    n_win = len(codes) - k + 1
+    mode = (mode or "exact").lower()
+
+    # Which windows to score is settled first, and everything after it works on that
+    # subset. A DNM3-scale pre-mRNA is ~550 kb, so scoring every window means 550,000
+    # of them: a few hundred MB of metrics, a Python loop of that length per species in
+    # exact_counts, a JSON payload of tens of MB, and a track layer with more polygon
+    # points than the screen has pixels. Nothing downstream can use more than a few
+    # thousand, so the stride is capped to deliver about that many.
+    cap = int(max_windows) if max_windows else MAX_WINDOWS
+    if mode == "editdistance":
+        cap = min(cap, EDITDIST_MAX_WINDOWS)      # ~0.1 s per window per species
+    if stride:
+        stride = max(1, int(stride))
+    else:
+        stride = max(1, -(-n_win // cap))         # ceil, so n_win/stride <= cap
+    starts = np.arange(0, n_win, stride)
+    if stride > 1:
+        warnings.append({
+            "scope": "stride",
+            "reason": ("%d windows at k=%d; scoring every %d nt (%d windows) so the "
+                       "result stays usable. Pass an explicit stride to override, or "
+                       "highlight a region to scan it at full resolution."
+                       % (n_win, k, stride, len(starts)))})
+
+    comp = window_complexity(codes, k, starts)
     flank = int(flank) if flank else 0
     if flank > 0:
-        au_plain, au_weighted = flanking_au(codes, k, flank)
+        au_plain, au_weighted = flanking_au(codes, k, starts=starts, flank=flank)
     else:
-        au_plain = au_weighted = np.full(n_win, np.nan)
-
-    mode = (mode or "exact").lower()
-    stride = int(stride) if stride else (1 if mode == "exact" else
-                                         max(1, n_win // EDITDIST_MAX_WINDOWS))
-    starts = np.arange(0, n_win, stride)
+        au_plain = au_weighted = np.full(len(starts), np.nan)
 
     species = species or ["human"]
     if isinstance(species, str):
@@ -376,7 +407,7 @@ def run(sequence, k=20, species=None, on_symbol=None, stride=None,
         used.append(str(entry))
         progress(int(100 * (n + 1) / max(len(species), 1)))
 
-    complexity = comp["complexity"][starts]
+    complexity = comp["complexity"]
     if per_species:
         offs = np.vstack([np.asarray(v["off"], dtype=float) for v in per_species.values()])
         offs = np.where(offs < 0, np.nan, offs)
@@ -405,9 +436,9 @@ def run(sequence, k=20, species=None, on_symbol=None, stride=None,
         "position": [int(s) + 1 for s in starts],            # 1-based window start
         "center": [float(s) + 1 + (k - 1) / 2.0 for s in starts],
         "complexity": clean(complexity),
-        "au": clean(comp["au"][starts]),
-        "flankAu": clean(au_plain[starts]),
-        "flankAuWeighted": clean(au_weighted[starts]),
+        "au": clean(comp["au"]),
+        "flankAu": clean(au_plain),
+        "flankAuWeighted": clean(au_weighted),
         "uniqueness": clean(uniqueness),
         "worstOffTarget": clean(worst),
         "speciesOnTarget": [int(c) for c in conserved],
@@ -435,9 +466,11 @@ def _main_cli(argv):
     ap.add_argument("--mode", default="exact")
     ap.add_argument("--dist", type=int, default=2)
     ap.add_argument("--flank", type=int, default=30)
+    ap.add_argument("--max-windows", type=int, default=None)
     a = ap.parse_args(argv)
     seq = "".join(l.strip() for l in open(a.fasta) if not l.startswith(">"))
-    out = run(seq, a.k, a.species.split(","), a.gene, a.stride, a.mode, a.dist, a.flank)
+    out = run(seq, a.k, a.species.split(","), a.gene, a.stride, a.mode, a.dist,
+              a.flank, a.max_windows)
     g = json.loads(out.pop("gradient"))
     print(json.dumps(out, indent=2))
     return g
@@ -453,6 +486,6 @@ if __name__ == "__main__":
                      works.param(4), works.param(5), works.param(6) or "exact",
                      works.param(7) or 2,
                      30 if works.param(8) is None else works.param(8),
-                     progress=works.progress)
+                     works.param(9), progress=works.progress)
         works.progress(100)
         works.resolve(result)
