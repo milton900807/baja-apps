@@ -781,7 +781,13 @@ function () {
                                                         Promise.resolve(exec(path, graph, genegraph_panel_layout, selectedTrack, ...args))
                                                             .catch((e) => { try { graph.setMessage(' BajaSplice: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } });
                                                     };
-                                                    graph.showSideMenu([
+                                                    // Opened AT THE POINTER, not in the side panel. This list is reached by clicking
+                                                    // an item in a floating menu, so sending it to the top-left panel moves the
+                                                    // reader's eye off the exon they just clicked and leaves the floating session
+                                                    // behind it looking abandoned. openMenuAtPointer (flexigraph/gene.js) draws the
+                                                    // same list in the same style where the click happened; showSideMenu stays as
+                                                    // the fallback for a graph that does not have it.
+                                                    const __bajaSplice = [
                                                         {
                                                             label: 'Splice-site strength (SpliceNet)',
                                                             click: () => run('baja/bio/splicing/splicing-profile.js', { start: lo, end: hi }, 'sites'),
@@ -807,7 +813,9 @@ function () {
                                                             click: () => run('baja/bio/splicing/intron-retention.js'),
                                                             move: () => log('')
                                                         }
-                                                    ]);
+                                                    ];
+                                                    if (graph.openMenuAtPointer) graph.openMenuAtPointer(__bajaSplice, 'BajaSplice');
+                                                    else graph.showSideMenu(__bajaSplice);
                                                 },
                                                 move: () => log('')
                                             },
