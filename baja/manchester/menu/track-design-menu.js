@@ -881,6 +881,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         });
                         __muts = (__probe && __probe.mutations) || [];
                     } catch (e) { __muts = []; }
+                    // PLACE IT, OR DESIGN IT. The dialog below answers "where should this go"
+                    // by scoring every start position, which is the wrong question when the
+                    // site is already decided: a published compound, a site a collaborator
+                    // named, a window off a splicing profile. Asked here rather than in a
+                    // menu somewhere else, because this is the point the choice is made.
+                    const __howG = await exec('baja/manchester/menu/design-or-place.js',
+                        graph, selectedTrack, 'gapmer');
+                    if (__howG !== 'design') return;   // placed by hand, or cancelled
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer', __targetLen, {
                         mutations: __muts.length,
                         mutationsAll: ((selectedTrack && selectedTrack.snpindels) || []).length,
@@ -1440,6 +1448,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // step costs in compounds before the run (see the gapmer call above).
                     let __targetLenS = 0;
                     try { __targetLenS = (__wholeTrackSequence() || '').length; } catch (e) { __targetLenS = 0; }
+                    // PLACE IT, OR DESIGN IT. The dialog below answers "where should this go"
+                    // by scoring every start position, which is the wrong question when the
+                    // site is already decided: a published compound, a site a collaborator
+                    // named, a window off a splicing profile. Asked here rather than in a
+                    // menu somewhere else, because this is the point the choice is made.
+                    const __howS = await exec('baja/manchester/menu/design-or-place.js',
+                        graph, selectedTrack, 'steric');
+                    if (__howS !== 'design') return;   // placed by hand, or cancelled
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric', __targetLenS);
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();

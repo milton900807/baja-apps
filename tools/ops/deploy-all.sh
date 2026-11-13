@@ -195,6 +195,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "place an ASO by hand, or design across the target" \
+    "baja/manchester/menu/design-or-place.js:DESIGN THE SITE, OR CHOOSE THE SITE YOURSELF" \
+    "baja/manchester/menu/track-design-menu.js:PLACE IT, OR DESIGN IT"
   install_group "analyse and map off-targets from the selection page" \
     "flexigraph/gene.js:WHAT THE SCREEN FOUND, once it has been run" \
     "baja/manchester/menu/map-off-targets.js:PUT THE COMPOUND ON THE GENE IT SHOULDN"
