@@ -250,9 +250,16 @@ if [[ $DO_API -eq 1 ]]; then
   # the old LJSplice v2 window, which posted to /ljdonor TF-serving; these run through
   # exec into bajasplice-lib instead. None of this chain had ever been installed, which
   # is why the server still offered LJSplice: the code was in git, not on the box.
-  # All eight or none, since the menu entries and the scripts they open are useless apart.
+  # The list itself now lives in ONE file, baja/bio/splicing/exon-ai-models.js, which both
+  # menu-factory.js and manchester/editor.js call. It had been inlined in both, and only
+  # menu-factory.js was updated to BajaSplice -- while editor.js is the copy that actually
+  # ships, so the editor kept offering LJSplice v2.
+  # All of them or none: editor.js calling a module that is not there breaks the exon menu,
+  # and a menu entry whose script is missing is worse than no entry.
   install_group "BajaSplice on an exon" \
-    "baja/manchester/menu/menu-factory.js:label: 'BajaSplice \\u25b8'" \
+    "baja/bio/splicing/exon-ai-models.js:label: 'BajaSplice \\u25b8'" \
+    "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'" \
+    "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
     "baja/bio/splicing/splicing-profile.js:Splicing profile — pick a magnitude mode" \
     "baja/bio/splicing/cis-attribution.js:Cis-regulatory attribution — pick the tool" \
     "baja/bio/splicing/intron-retention.js:Intron-retention propensity (BajaIR) as a track layer" \
