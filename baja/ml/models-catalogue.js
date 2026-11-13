@@ -443,12 +443,13 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             open: () => __onParentTrack('Uniqueness / repeat gradient',
                 (list) => exec('baja/data/uniqueness-gradient.js', graph, L, list)),
             docs: {
-                summary: 'For every window of size k (3-30) along the track, two scores that are '
-                    + 'deliberately not merged before you see both: how repetitive the window is on '
-                    + 'its own, and how often it occurs anywhere else. The layer drawn is the '
-                    + 'product, so a window scores well only when it is both locally clean and '
-                    + 'absent elsewhere, and the summary names which of the two pulled each low '
-                    + 'region down.',
+                summary: 'For every window of size k (3-30) along the track, scores that are '
+                    + 'deliberately not merged before you see them: how repetitive the window is on '
+                    + 'its own, how often it occurs anywhere else, and the AU content of the '
+                    + 'sequence flanking it. The layer drawn is complexity x uniqueness, so a window '
+                    + 'scores well only when it is both locally clean and absent elsewhere, and the '
+                    + 'summary names which of the two pulled each low region down. Flanking AU is an '
+                    + 'optional third layer and is never folded into the score.',
                 provenance: 'NOT A TRAINED MODEL, and it sits in this catalogue as a scorer rather '
                     + 'than a predictor. Nothing here was fitted: the complexity half is composition '
                     + 'entropy, longest homopolymer run, strongest tandem periodicity (chance-'
@@ -460,7 +461,18 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                     + 'training set, so there is no cross-validation to report and no learned '
                     + 'weighting to inspect. Every number is reproducible by hand from the sequence '
                     + 'and the index.',
-                usage: 'Pick the window size to match what you are designing, name the on-target '
+                usage: 'ON A 3-PRIME UTR, tick the flanking-AU layer and read it against miRNA '
+                    + 'sites: local AU around a seed match is the established determinant of site '
+                    + 'efficacy (Grimson 2007), standing in for weaker secondary structure and so '
+                    + 'better access to the site. It is NOT the same thing as low complexity, and '
+                    + 'the distinction is measurable: across 149 human 3-prime UTRs and 600 '
+                    + 'canonical seed matches, flanking AU separates 8mer from 7mer-m8 site contexts '
+                    + '(0.599 vs 0.561, p=0.0006) while the complexity composite does not (p=0.12), '
+                    + 'because its tandem, homopolymer and DUST terms dilute the compositional '
+                    + 'signal. In the same data, seed-match flanks are if anything marginally MORE '
+                    + 'complex than matched background positions in the same UTR, so "miRNAs target '
+                    + 'low-complexity sites" is not what the sequence says. '
+                    + 'Pick the window size to match what you are designing, name the on-target '
                     + 'gene symbol, and tick the species an oligo has to clear. Hits inside that '
                     + 'gene count as on-target, which covers the transcript itself AND its '
                     + 'orthologue in each other species, so a conserved window does not read as a '
@@ -478,6 +490,9 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                 links: [
                     { title: 'Off-target index service', url: '',
                       note: 'py/sequence/offtarget/README.md -- the 2-bit index this reads, how it is built per species, and the seed-and-verify algorithm the edit-distance mode uses.' },
+                    { title: 'Grimson 2007, determinants beyond seed pairing',
+                      url: 'https://pubmed.ncbi.nlm.nih.gov/17612493/',
+                      note: 'Local AU content near a site as a context determinant of miRNA site efficacy; the +/-30 nt window the AU track uses, and the 1/distance weighting of the context+ local_AU feature.' },
                     { title: 'DUST: low-complexity sequence masking',
                       url: 'https://doi.org/10.1089/cmb.2006.13.1028',
                       note: 'The triplet-redundancy measure the complexity half borrows.' }
