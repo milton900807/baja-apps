@@ -745,7 +745,27 @@ function () {
                 // said "something is wrong" and nothing said what -- the reader has to find a
                 // menu before the drawing will tell them why it is warning them. Score, name
                 // and every other attribute stay behind the toggle; this one does not.
-                const __flagged = this.labelAttribute === 'flagReason' && this.flagReason;
+                //
+                // ...BUT ONLY WHILE THERE IS ROOM FOR IT. The reason is a sentence -- "Low
+                // score -30 - GC 21.4%, Tm 34.0C, repetitive" is about 250 px of text -- and
+                // the compound it describes shrinks with the zoom. Once a design is small
+                // enough to see whole, which is exactly when you look for the bad ones, every
+                // red compound was drawing a label several times its own width, and twenty of
+                // them stacked into a wall that hid the track, the scores and each other. The
+                // colour already says which ones are bad; the sentence says why, and why is a
+                // question you ask one compound at a time.
+                //
+                // So the label is drawn while the compound is wide enough to carry it and
+                // dropped below that, leaving the colour. Measured as the compound's own
+                // width in pixels rather than a zoom level, because that is the thing the
+                // label has to fit against. Further out again, where track-flexi draws each
+                // compound as a line, __drawFlagLabels takes over and shows the worst few
+                // with leader lines and a count of the rest.
+                const FLAG_MIN_PX = 90;         // a 20-mer at ~4.5 px per base
+                let __flagWidth = 0;
+                try { __flagWidth = Math.abs(graph.X(tgraph.X(this.xf)) - graph.X(tgraph.X(this.xi))); } catch (e) { __flagWidth = 0; }
+                const __flagged = this.labelAttribute === 'flagReason' && this.flagReason
+                    && __flagWidth >= FLAG_MIN_PX;
                 const generalLabel = (graph.showOligoLabels || __flagged)
                     ? this.getDisplayLabelValue() : null;
                 if (generalLabel != null) {

@@ -195,6 +195,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "ASO warnings hide when the compound is too narrow to carry them" \
+    "flexigraph/oligo.js:ONLY WHILE THERE IS ROOM FOR IT"
   install_group "designers say why they refused, instead of answering with nothing" \
     "py/ssaso/design-steric-blocking.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
     "py/ssaso/design.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
