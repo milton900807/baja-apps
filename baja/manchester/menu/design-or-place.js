@@ -18,33 +18,6 @@ function (graph, selectedTrack, kind) {
         const result = (m) => { try { (graph.setResultMessage || graph.setMessage).call(graph, ' ' + m + ' '); } catch (e) { } };
         const isGapmer = ('' + (kind || '')).toLowerCase().indexOf('gap') >= 0;
 
-        // CHEMISTRIES THAT ALREADY EXIST IN THIS CODEBASE, not invented ones. The template
-        // grammar is `residue()linkage.` and the only monomers written anywhere here are
-        // `moe` and `d` (baja/chem/aso-editor.js, baja/plate/views/templates/aso.js), with
-        // `sp.` for the phosphorothioate linkage. Offering LNA or cEt would mean guessing a
-        // code, and a chemistry that draws wrong is worse than one that is not on the list.
-        const RES = (m, n) => {
-            const out = [];
-            for (let i = 0; i < n; i++) out.push(m + '()');
-            return out;
-        };
-        const join = (parts) => parts.join('sp.');          // every linkage phosphorothioate
-        const gapmerTemplate = (wing, gap) => join(RES('moe', wing).concat(RES('d', gap), RES('moe', wing)));
-        const uniformTemplate = (n) => join(RES('moe', n));
-        const dnaTemplate = (n) => join(RES('d', n));
-
-        const CHEMS = isGapmer
-            ? [
-                { label: "Gapmer 5-10-5, 2'-MOE wings, full PS (20 nt)", len: 20, t: () => gapmerTemplate(5, 10) },
-                { label: "Gapmer 5-8-5, 2'-MOE wings, full PS (18 nt)", len: 18, t: () => gapmerTemplate(5, 8) },
-                { label: 'Plain DNA, full PS (20 nt)', len: 20, t: () => dnaTemplate(20) }
-            ]
-            : [
-                { label: "Uniform 2'-MOE, full PS (20 nt)", len: 20, t: () => uniformTemplate(20) },
-                { label: "Uniform 2'-MOE, full PS (18 nt)", len: 18, t: () => uniformTemplate(18) },
-                { label: 'Plain DNA, full PS (20 nt)', len: 20, t: () => dnaTemplate(20) }
-            ];
-
         const current = graph.props && graph.props.selected_chemistry;
         const currentName = current && (current.name || current.type);
 
@@ -74,27 +47,32 @@ function (graph, selectedTrack, kind) {
                 // does nothing when pressed, which is how these menus came out with rows
                 // that looked live and were not.
                 const items = [
-                    { label: 'Chemistry for the compound you place', header: true }
+                    { label: 'Chemistry for the compound you place', header: true },
+                    {
+                        // The full editor: architecture, length, a sugar per region and a
+                        // linkage per position, from the vocabulary biopolymer.js defines
+                        // rather than from a canned list. Two templates was the wrong shape
+                        // of answer to "which chemistry" -- the question has four parts.
+                        label: 'Build a chemistry\u2026',
+                        move: () => { },
+                        click: async () => {
+                            try { graph.showSideMenu(null); } catch (e) { }
+                            let chem = null;
+                            try {
+                                chem = await exec('baja/manchester/menu/chemistry-builder.js',
+                                    isGapmer ? 'gapmer' : 'steric', null);
+                            } catch (e) { result('Could not open the chemistry editor: ' + e); finish(null); return; }
+                            if (!chem) { finish(null); return; }   // cancelled in the editor
+                            place(chem);
+                            finish('place');
+                        }
+                    }
                 ];
                 if (current) {
                     items.push({
                         label: 'Use the current chemistry' + (currentName ? (' (' + currentName + ')') : ''),
                         move: () => { },
                         click: () => { try { graph.showSideMenu(null); } catch (e) { } place(current); finish('place'); }
-                    });
-                }
-                for (const c of CHEMS) {
-                    items.push({
-                        label: '  ' + c.label,
-                        move: () => { },
-                        click: () => {
-                            try { graph.showSideMenu(null); } catch (e) { }
-                            place({
-                                type: 'DNA', name: c.label, length: c.len,
-                                template: c.t(), shapeFunction: 'baja/shapes/myshapefunction.js'
-                            });
-                            finish('place');
-                        }
                     });
                 }
                 items.push({

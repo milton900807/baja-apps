@@ -208,6 +208,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/clinvar-splice-variants.js:header: true" \
     "baja/data/rnaseq-hierarchy-menu.js:header: true" \
     "baja/manchester/menu/sample-compare.js:header: true"
+  install_group "a chemistry editor, not two canned templates" \
+    "baja/manchester/menu/chemistry-builder.js:BUILD A COMPOUND'S CHEMISTRY" \
+    "baja/manchester/menu/design-or-place.js:Build a chemistry"
   install_group "place an ASO by hand, or design across the target" \
     "baja/manchester/menu/design-or-place.js:DESIGN THE SITE, OR CHOOSE THE SITE YOURSELF" \
     "baja/manchester/menu/track-design-menu.js:PLACE IT, OR DESIGN IT"
