@@ -44,11 +44,27 @@ function (graph, selectedTrack, kind) {
                 graph.__hoverRearm = () => { };
                 setTimeout(() => { try { graph.__hoverRearm = prev; } catch (e) { } }, 600);
             } catch (e) { }
+            // ---- AND THE SELECTION WOULD TAKE IT BEFORE ANY LISTENER SAW IT ----------
+            //
+            // This is the one that was actually biting. gene.js's own mousedown handler runs
+            // BEFORE this.mouseDownListeners: a press inside an existing selection is claimed
+            // by __trackAtSelection, which opens the selected-sequence menu and RETURNS. So
+            // with 15 nt selected on the track, every click was the selection's click and
+            // draw-oligos never heard one, whoever else was or was not armed.
+            //
+            // clearSequenceSelections() is gene.js's own method for this: it drops every
+            // track's marks and the drag state behind them, which is what stops the next
+            // mouse-up re-applying the range just cleared. Said out loud in the message
+            // below, because losing a selection you made on purpose should not be silent.
+            let __cleared = 0;
+            try { __cleared = graph.clearSequenceSelections() || 0; } catch (e) { __cleared = 0; }
+
             // What the working callers of draw-oligos do first (compound-editor.js): the
             // drag that places a compound is a navigate-mode drag.
             try { graph.setMouseMode('navigate'); } catch (e) { }
 
-            say('Click and drag along the track to place the compound.');
+            say('Click and drag along the track to place the compound.'
+                + (__cleared ? ' (The sequence selection was cleared: a click inside one opens its menu instead.)' : ''));
             try {
                 // draw-oligos.js is the existing click-and-drop tool; it reads the chemistry
                 // off graph.props and takes the length from it, so setting both here is the

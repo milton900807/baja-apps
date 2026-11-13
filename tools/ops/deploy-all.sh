@@ -209,7 +209,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/data/rnaseq-hierarchy-menu.js:header: true" \
     "baja/manchester/menu/sample-compare.js:header: true"
   install_group "the hover handler does not take the first click" \
-    "baja/manchester/menu/design-or-place.js:THE HOVER HANDLER WOULD TAKE THE FIRST CLICK"
+    "baja/manchester/menu/design-or-place.js:THE HOVER HANDLER WOULD TAKE THE FIRST CLICK" \
+    "baja/manchester/menu/design-or-place.js:AND THE SELECTION WOULD TAKE IT BEFORE ANY LISTENER SAW IT"
   install_group "a chemistry editor, not two canned templates" \
     "baja/manchester/menu/chemistry-builder.js:BUILD A COMPOUND'S CHEMISTRY" \
     "baja/manchester/menu/design-or-place.js:Build a chemistry"
