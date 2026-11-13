@@ -229,27 +229,29 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/annotation/tile-variant.js:AND WHICH STRAND THE RECORD IS WRITTEN ON" \
     "py/bio/allele-selective-targets.py:def context_for("
   # Linear motifs (ELM) on a peptide track, and what a variant does to them.
-  # All three or none: the menu entry would open a submenu onto a layer that is not
-  # there, and the layer would call a scan that is not there.
-  install_group "linear motifs (ELM)" \
-    "baja/bio/protein/slim-motif-layer.js baja/bio/protein/slim-motif-panel.js baja/bio/protein/motif-impact.js baja/bio/protein/motif-impact.js:SHORT LINEAR MOTIFS AS A LAYER" \
-    "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
-    "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling"
-  # Linear motifs (ELM) on a peptide track, and what a variant does to them.
-  # All three or none: the menu entry would open a submenu onto a layer that is not
-  # there, and the layer would call a scan that is not there.
-  install_group "linear motifs (ELM)" \
-    "baja/bio/protein/slim-motif-layer.js baja/bio/protein/slim-motif-panel.js baja/bio/protein/motif-impact.js baja/bio/protein/motif-impact.js:SHORT LINEAR MOTIFS AS A LAYER" \
-    "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
-    "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling"
-  # Linear motifs (ELM) on a peptide track, and what a variant does to them.
-  # All four or none: the catalogue entry and the track menu would both open onto a
+  # All five or none: the catalogue entry and the track menu would both open onto a
   # layer that is not there, and the layer would call a scan that is not there.
+  #
+  # The three baja/bio/protein files used to share one pair, space-joined before the
+  # marker. install_group reads everything left of the first colon as ONE filename, so
+  # that pair asked for a path with spaces in it, the download failed, and the whole
+  # group took the "not at REF; skipped" branch -- silently, every run, which is why
+  # models-catalogue.js never reached the server. One pair per file, each with a marker
+  # of its own.
   install_group "linear motifs (ELM)" \
-    "baja/bio/protein/slim-motif-layer.js baja/bio/protein/slim-motif-panel.js baja/bio/protein/motif-impact.js baja/bio/protein/motif-impact.js:SHORT LINEAR MOTIFS AS A LAYER" \
+    "baja/bio/protein/slim-motif-layer.js:SHORT LINEAR MOTIFS AS A LAYER" \
+    "baja/bio/protein/slim-motif-panel.js:The description window for one linear motif" \
+    "baja/bio/protein/motif-impact.js:MOTIF IMPACT OF ONE MISSENSE VARIANT" \
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # Uniqueness / repeat gradient on a transcript track. All three or none: the catalogue
+  # entry would otherwise open onto a loader that is not there, and the loader would
+  # call a scorer that is not there.
+  install_group "uniqueness / repeat gradient" \
+    "baja/data/uniqueness-gradient.js:Uniqueness / repeat gradient laid over a transcript track" \
+    "py/sequence/offtarget/uniqueness-gradient.py:Uniqueness / repeat gradient along a transcript" \
+    "baja/ml/models-catalogue.js:title: 'Uniqueness / repeat gradient', badge: 'k-mer'" 
   install_group "Research panel" \
     "py/ion-lib/indication_store.py:def browse(" \
     "py/analytics/indication-browse.py:Reading the indication-market store" \
