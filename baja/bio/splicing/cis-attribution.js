@@ -22,6 +22,18 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
         // as a flat line that would read as "no regulatory content out here".
         let cis_window = 500;
         let cis_bin = 50;
+        // THE SMALLEST BIN THAT MEASURES ANYTHING. The perturbation is a
+        // dinucleotide-preserving shuffle (Altschul-Erikson). Under four bases there is no
+        // rearrangement that preserves the dinucleotides at all: dinuc_shuffle returns
+        // `codes.copy()` unchanged, the model scores the identical sequence, and every bar
+        // is exactly zero. A smaller bin is not a finer measurement, it is no measurement.
+        //
+        // The old floor was 4, which is barely better. Measured over random windows, the
+        // share with NO alternative arrangement is 100% at 2 and 3 nt, 98% at 4, 68% at 5,
+        // 48% at 6, 2% at 8, and 0% from 10 nt up. So a 4 nt bin returns a near-flat profile
+        // of zeros for almost every window, which is the same confusion one step along. 8 is
+        // the first width where a shuffle almost always has somewhere to go.
+        const CIS_BIN_MIN = 8;
 
         const SUPPORT = [15, 110, 123];     // teal
         const SUPPRESS = [163, 64, 44];     // red
@@ -97,7 +109,20 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
                 const w = parseInt(va['Window (nt each side)']);
                 const b = parseInt(va['Bin size (nt)']);
                 if (isFinite(w) && w > 0) cis_window = w;
-                if (isFinite(b) && b >= 4) cis_bin = b;
+                // Clamped, and SAID. The old test dropped anything under 4 on the floor and
+                // ran with whatever the last accepted bin was, so entering 2 was
+                // indistinguishable from entering nothing: the dialog took the number, the
+                // profile came back at 50 nt, and nothing anywhere said why.
+                if (isFinite(b) && b > 0) {
+                    if (b < CIS_BIN_MIN) {
+                        cis_bin = CIS_BIN_MIN;
+                        const __why = ' A ' + b + ' nt bin cannot be scrambled: the windows are shuffled'
+                            + ' keeping their dinucleotide composition, and a window that small almost never has'
+                            + ' another arrangement to take, so every bar would read zero. Profiling at '
+                            + CIS_BIN_MIN + ' nt instead. ';
+                        try { (graph.setResultMessage || graph.setMessage).call(graph, __why); } catch (e) { }
+                    } else cis_bin = b;
+                }
                 // Half the bin steps the windows, so neighbouring bars overlap and a
                 // narrow element is not missed by falling between two bins.
                 const step = Math.max(1, Math.floor(cis_bin / 2));
