@@ -3885,6 +3885,15 @@ function (graph, genegraph_panel_layout) {
                             });
                         }
                         golist.push({
+                            // Scoped to this track, since that is the set the menu is about.
+                            label: 'Select by criteria\u2026',
+                            move: () => { },
+                            click: () => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                try { exec('baja/manchester/menu/select-compounds-by.js', graph, selectedTrack); } catch (e) { }
+                            }
+                        });
+                        golist.push({
                             label: 'Select all compounds (' + __cs.length + ')',
                             move: () => { },
                             click: () => {

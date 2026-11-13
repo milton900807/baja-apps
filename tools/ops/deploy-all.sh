@@ -195,6 +195,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "select compounds by criteria" \
+    "baja/manchester/menu/select-compounds-by.js:SELECT COMPOUNDS BY WHAT THEY ARE" \
+    "baja/manchester/menu/compounds-editor.js:Select by criteria" \
+    "baja/manchester/menu/mouse-over-highlight.js:Scoped to this track, since that is the set"
   install_group "select the flagged compounds on their own" \
     "baja/manchester/menu/compounds-editor.js:Select warnings only (red)" \
     "baja/manchester/menu/mouse-over-highlight.js:THE RED ONES ON THEIR OWN"

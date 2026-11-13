@@ -255,6 +255,15 @@ let screenActions = {
             })
         },
         {
+            // The same question with every other field attached: score, GC, Tm, length,
+            // modality, which fault the scorer named, and a live count so the answer is
+            // visible before the selection changes rather than after.
+            label: 'Select by criteria\u2026',
+            ionfunction: createIonFunction(async () => {
+                await exec('baja/manchester/menu/select-compounds-by.js', graph, null);
+            })
+        },
+        {
             label: 'Clear all',
             ionfunction: createIonFunction(async () => {
                 let zoom_to = {
