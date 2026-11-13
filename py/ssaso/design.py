@@ -1936,7 +1936,18 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
 
 def _main() -> int:
     payload = works.param(1)
-    works.resolve(design_gapmer_sites(payload))
+    # A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL. Without a resolve the response body
+    # is empty, so the browser reported "Unexpected end of JSON input" and the actual reason
+    # -- a length outside the allowed range, a bad backbone, an unparseable payload -- was
+    # lost on this side of the wire. Every one of those is a message the user can act on, and
+    # none of them reached them. Resolved as {"error": ...} instead, which the caller already
+    # knows how to read, with the traceback left to the server log where it belongs.
+    try:
+        works.resolve(design_gapmer_sites(payload))
+    except Exception as exc:                     # noqa: BLE001 - the point is to report it
+        import traceback
+        traceback.print_exc()
+        works.resolve({"error": str(exc) or exc.__class__.__name__})
     return 0
 
 

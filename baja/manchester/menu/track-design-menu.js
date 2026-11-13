@@ -702,6 +702,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         return "red";
                     }
                     function buildSirnaArray(resultJson, options = {}) {
+                        // THE DESIGNER'S OWN REASON, SHOWN. The scripts resolve {error: "..."}
+                        // when they refuse a request -- a length outside the allowed range, a
+                        // backbone they do not know -- and nothing here read it, so a refusal
+                        // with a perfectly clear reason surfaced as "invalid result JSON" and a
+                        // silent empty design.
+                        if (resultJson && resultJson.error) {
+                            try { graph.setError(' siRNA design: ' + resultJson.error + ' '); } catch (e) { }
+                            return [];
+                        }
                         if (!resultJson || !Array.isArray(resultJson.top_candidates)) {
                             console.warn("Invalid siRNA result JSON");
                             return [];
@@ -1142,6 +1151,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     }
 
                     function buildGapmerArray(resultJson, options = {}) {
+                        // THE DESIGNER'S OWN REASON, SHOWN. The scripts resolve {error: "..."}
+                        // when they refuse a request -- a length outside the allowed range, a
+                        // backbone they do not know -- and nothing here read it, so a refusal
+                        // with a perfectly clear reason surfaced as "invalid result JSON" and a
+                        // silent empty design.
+                        if (resultJson && resultJson.error) {
+                            try { graph.setError(' Gapmer design: ' + resultJson.error + ' '); } catch (e) { }
+                            return [];
+                        }
                         const candidates = Array.isArray(resultJson?.hits)
                             ? resultJson.hits
                             : Array.isArray(resultJson?.top_candidates)
@@ -1781,6 +1799,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // a form that can be read and exported.
 
                     function buildStericBlockingArray(resultJson, options = {}) {
+                        // THE DESIGNER'S OWN REASON, SHOWN. The scripts resolve {error: "..."}
+                        // when they refuse a request -- a length outside the allowed range, a
+                        // backbone they do not know -- and nothing here read it, so a refusal
+                        // with a perfectly clear reason surfaced as "invalid result JSON" and a
+                        // silent empty design.
+                        if (resultJson && resultJson.error) {
+                            try { graph.setError(' Steric-blocking design: ' + resultJson.error + ' '); } catch (e) { }
+                            return [];
+                        }
                         if (!resultJson || !Array.isArray(resultJson.top_candidates)) {
                             console.warn("Invalid steric-blocking result JSON");
                             return [];

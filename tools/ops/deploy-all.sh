@@ -195,6 +195,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "designers say why they refused, instead of answering with nothing" \
+    "py/ssaso/design-steric-blocking.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
+    "py/ssaso/design.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
+    "py/sirna/design.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
+    "baja/manchester/menu/track-design-menu.js:THE DESIGNER'S OWN REASON, SHOWN" \
+    "baja/manchester/menu/aso-design-dialog.js:CHECKED HERE, WHERE THE NUMBER WAS TYPED"
   install_group "Select all is a button, and listening before the list loads" \
     "baja/lib/shelf.js:BUTTONS, NOT ANCHORS" \
     "baja/bio/rbp/rbp-profile.js:Buttons rather than anchors"

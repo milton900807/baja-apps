@@ -176,7 +176,8 @@ function (kind, targetLength, context) {
                 // tab at least showed the numbers. The rules go here, where the choice is made.
                 + '<div id="ad-doc"></div>'
                 + '<div id="ad-adv" style="display:none;">'
-                + '<label style="' + lbl + '">ASO lengths (nt, comma-separated)</label>'
+                + '<label style="' + lbl + '">ASO lengths (nt, comma-separated, '
+                + (isGapmer ? '16\u201320' : '12\u201325') + ')</label>'
                 // THE ADVANCED TAB OPENS ON ONE LAYOUT, NOT ON THE WHOLE SEARCH SPACE. A gapmer
                 // programme runs on a house layout -- the 5-10-5 20-mer, full PS, 2'-MOE wings --
                 // and the tab that exists to tune a design should start from the thing being
@@ -506,6 +507,36 @@ function (kind, targetLength, context) {
                 }
                 if (mode === 'advanced') {
                     params.lengths = parseList(q('#ad-lengths').value, isGapmer ? [20] : [18, 19, 20]);
+                    // CHECKED HERE, WHERE THE NUMBER WAS TYPED. The designers refuse a length
+                    // outside their range -- 16-20 for a gapmer, 12-25 for a steric blocker,
+                    // both chemistry limits rather than arbitrary ones -- and the refusal used
+                    // to arrive as a failed run with no readable reason. The field is free text,
+                    // so this is the only place that can say which value was wrong while the
+                    // user is still looking at it.
+                    const __lo = isGapmer ? 16 : 12, __hi = isGapmer ? 20 : 25;
+                    const __bad = params.lengths.filter((n) => n < __lo || n > __hi);
+                    if (__bad.length) {
+                        const __msg = (isGapmer ? 'Gapmer' : 'Steric-blocking')
+                            + ' lengths must be ' + __lo + '\u2013' + __hi + ' nt. '
+                            + (__bad.length === 1 ? ('Remove ' + __bad[0] + '.')
+                                : ('Remove ' + __bad.join(', ') + '.'));
+                        try {
+                            const w = q('#ad-lengths');
+                            if (w) { w.style.borderColor = '#ef4444'; w.focus(); }
+                            const n = q('#ad-length-note');
+                            if (n) { n.textContent = __msg; n.style.display = ''; }
+                            else if (w && w.insertAdjacentHTML) {
+                                w.insertAdjacentHTML('afterend',
+                                    '<div id="ad-length-note" style="font:12px Arial;color:#ef4444;margin:4px 0 0;">'
+                                    + __msg + '</div>');
+                            }
+                        } catch (e) { }
+                        return;                      // the dialog stays open on the bad field
+                    }
+                    try {
+                        const w = q('#ad-lengths'); if (w) w.style.borderColor = '';
+                        const n = q('#ad-length-note'); if (n) n.style.display = 'none';
+                    } catch (e) { }
                     if (isGapmer) { params.gap_sizes = parseList(q('#ad-gaps').value, [10]); }
                     params.wing_modification = q('#ad-wing') ? q('#ad-wing').value : "2'-MOE";
                     params.chemistry_template = params.wing_modification;
