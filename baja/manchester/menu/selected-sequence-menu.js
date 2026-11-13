@@ -123,6 +123,31 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             } catch (e) { say(' Could not navigate: ' + e + ' '); }
         };
 
+        // ---- ML ------------------------------------------------------------------------
+        //
+        // The models that take a SPAN, run on this one. Every entry hands the track and the
+        // selected range to the tool the Models library already uses, so a model reached
+        // from here and the same model reached from the library are the same run drawing the
+        // same layer, not two code paths that agree until one of them is changed.
+        //
+        // Intron retention is deliberately absent: BajaIR scores whole introns off the
+        // track's gene model, so a selection is not a thing it can be scoped to, and an
+        // entry here that quietly ignored the selection would be worse than no entry.
+        const mlItems = [
+            { label: (t.name || 'track') + '  ' + len.toLocaleString() + ' nt', move: () => { }, click: () => { } },
+            // The question this answers is 'what binds here', which is the one you have
+            // when you have selected a stretch and do not yet know what is on it. First
+            // because it is the only entry that needs no parameter chosen first.
+            go('Which RBP binds this? (BajaCLIP)\u2026', async () =>
+                exec('baja/bio/rbp/rbp-competition.js', graph, genegraph_panel_layout, t, range)),
+            go('RBP binding profile (BajaCLIP)\u2026', async () =>
+                exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t, range, null)),
+            go('Splice-site strength (SpliceNet)\u2026', async () =>
+                exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range, 'sites')),
+            go('Exon inclusion, PSI (PSINet)\u2026', async () =>
+                exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range, 'psi'))
+        ];
+
         const navItems = [
             { label: (t.name || 'track') + '  ' + start + '–' + end, move: () => { }, click: () => { } },
             go('Zoom to selection', async () => zoomToSpan(start, end, 0.25)),
@@ -256,6 +281,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             // residues are meant. Only offered when the span actually holds some.
             ...(__foldAa ? [go('Fold selected peptide (AlphaFold, ' + __foldAa + ' aa)\u2026', async () =>
                 exec('baja/manchester/menu/alphafold-track.js', graph, genegraph_panel_layout, t))] : []),
+            sub('ML ▸', mlItems),
             sub('Sequence ▸', seqItems),
             go('Design ▸', async () => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout)),
             go('Off-targets...', async () => exec('baja/manchester/menu/run-off-targets.js', graph, genegraph_panel_layout)),

@@ -195,6 +195,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "selected sequence: ML menu, and which RBP wins the stretch" \
+    "baja/manchester/menu/selected-sequence-menu.js:The models that take a SPAN" \
+    "baja/bio/rbp/rbp-competition.js:WHICH RBP WINS THIS STRETCH" \
+    "py/bio/rbp/rbp-competition.py:WHY A COMPETITION RATHER THAN A SCORE"
   install_group "cis-regulatory: a bin too small to scramble is said, not swallowed" \
     "baja/bio/splicing/cis-attribution.js:THE SMALLEST BIN THAT MEASURES ANYTHING" \
     "py/bio/splice/cis-profile.py:The smallest bin that measures anything"
