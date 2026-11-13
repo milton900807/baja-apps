@@ -25,6 +25,29 @@ function (graph, selectedTrack, kind) {
             try {
                 graph.props.selected_chemistry = chem;
             } catch (e) { result('Could not set the chemistry: ' + e); return; }
+
+            // ---- THE HOVER HANDLER WOULD TAKE THE FIRST CLICK -------------------------
+            //
+            // When a menu closes, gene.js schedules a re-arm of mouse-over-highlight at +40
+            // and +180 ms, guarded only by "are there no mouse listeners right now". draw-
+            // oligos.js awaits biopolymer.js before it arms its own, so in that gap the
+            // guard is true, the hover handler comes back, and the first click on the canvas
+            // is read as a click on the selection: the selected-sequence menu opens and no
+            // compound is placed. Nothing is wrong with either piece; they are racing.
+            //
+            // __hoverRearm is gene.js's own override for this, checked before it re-arms, so
+            // the handoff is declared rather than fought. It is restored after the window
+            // both timers live in, and only that window: once draw-oligos has its listeners
+            // the ordinary guard does the job again.
+            try {
+                const prev = graph.__hoverRearm;
+                graph.__hoverRearm = () => { };
+                setTimeout(() => { try { graph.__hoverRearm = prev; } catch (e) { } }, 600);
+            } catch (e) { }
+            // What the working callers of draw-oligos do first (compound-editor.js): the
+            // drag that places a compound is a navigate-mode drag.
+            try { graph.setMouseMode('navigate'); } catch (e) { }
+
             say('Click and drag along the track to place the compound.');
             try {
                 // draw-oligos.js is the existing click-and-drop tool; it reads the chemistry

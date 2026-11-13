@@ -208,6 +208,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/clinvar-splice-variants.js:header: true" \
     "baja/data/rnaseq-hierarchy-menu.js:header: true" \
     "baja/manchester/menu/sample-compare.js:header: true"
+  install_group "the hover handler does not take the first click" \
+    "baja/manchester/menu/design-or-place.js:THE HOVER HANDLER WOULD TAKE THE FIRST CLICK"
   install_group "a chemistry editor, not two canned templates" \
     "baja/manchester/menu/chemistry-builder.js:BUILD A COMPOUND'S CHEMISTRY" \
     "baja/manchester/menu/design-or-place.js:Build a chemistry"
