@@ -12676,6 +12676,34 @@ pattern, GGGG | Required`
                         // { label: 'Compounds  (' + items.length + ')', header: true, click: () => { }, move: () => { } },
                         { label: 'Choose a compound…', click: () => { pickOne(); }, move: () => { } },
                         { label: 'Run off-targets…', click: () => { startOffTargets('oligo'); }, move: () => { } },
+                        // WHAT THE SCREEN FOUND, once it has been run. Running it was already
+                        // here; reading the result was not, so a screen's whole output was a
+                        // count on a badge. Analyse opens the genes as tables and downloads
+                        // them; Map opens the off-target gene itself and marks where the
+                        // compound lands on it, which is the question a count cannot answer:
+                        // whether the hit is in an exon or somewhere nobody keeps.
+                        {
+                            label: 'Analyse off-targets\u2026', move: () => { },
+                            click: () => {
+                                const refs = refsOf();
+                                if (!refs.length) { this.setMessage(' No compounds selected. '); return; }
+                                closeHandoff();
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/selected-off-target-genes.js', this, refs)).catch(() => { });
+                                } catch (e) { this.setMessage(' Could not open the off-target tables: ' + e + ' '); }
+                            }
+                        },
+                        {
+                            label: 'Map onto off-target genes\u2026', move: () => { },
+                            click: () => {
+                                const refs = refsOf();
+                                if (!refs.length) { this.setMessage(' No compounds selected. '); return; }
+                                closeHandoff();
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/map-off-targets.js', this, refs)).catch(() => { });
+                                } catch (e) { this.setMessage(' Could not open the off-target map: ' + e + ' '); }
+                            }
+                        },
                         { label: 'Zoom into', click: () => { close(); zoomToAll(); }, move: () => { } },
                         {
                             label: 'Modify chemistry', click: () => {
