@@ -63,9 +63,24 @@ function (graph, items, screenX, screenY, opts) {
             }
             const lab = labelOf(it);
             if (!lab) return;
-            if (it.header || it.type === 'text') {
+            // A ROW WITH NOTHING BEHIND IT IS NOT A BUTTON.
+            //
+            // Clicking is `it.click && it.click(...)`, so an item with no click closed the
+            // menu and did nothing, while looking exactly like the rows that work. Two kinds
+            // of row end up like that: a caption someone wrote as a plain label without
+            // marking it `header: true`, and an item whose handler was never wired. Both are
+            // drawn as captions now. The first is then labelled the way it was meant to be,
+            // and the second stops advertising an action it has not got -- which is the only
+            // honest thing to do with it, and visible enough that it gets fixed.
+            //
+            // `disabled` is deliberately NOT included: a disabled row is a button that is
+            // unavailable right now and says so by being greyed, which is a different
+            // statement from a row that was never an action at all.
+            const inert = !it.header && it.type !== 'text' && typeof it.click !== 'function' && !it.disabled;
+            if (it.header || it.type === 'text' || inert) {
                 html += '<div style="padding:7px 10px 3px;font:600 10.5px system-ui,Segoe UI,Arial;'
-                    + 'letter-spacing:.09em;text-transform:uppercase;color:' + C.dim + ';">' + esc(lab) + '</div>';
+                    + 'letter-spacing:.09em;text-transform:uppercase;color:' + C.dim + ';">'
+                    + esc(lab.replace(/\s*[▸►>]\s*$/, '')) + '</div>';
                 return;
             }
             const danger = (it.emphasis === 'danger');

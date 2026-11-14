@@ -282,6 +282,12 @@ if [[ $DO_API -eq 1 ]]; then
   # Find published miRs: the shelf card, the reader that aggregates miRTarBase over the
   # track, and the model that says what is published about each entry. All three, because
   # the card calls the reader by path and the reader calls the script by path.
+  # A menu row with nothing behind it is drawn as a caption, not a button. Both DOM menu
+  # renderers, because a list is handed to whichever one the context picks and the two
+  # disagreeing about what a row is would be worse than either one being wrong.
+  install_group "menu rows with no action are captions" \
+    "baja/manchester/menu/floating-menu.js:WHAT IS A CAPTION RATHER THAN A BUTTON" \
+    "baja/manchester/menu/popup-menu.js:A ROW WITH NOTHING BEHIND IT IS NOT A BUTTON"
   install_group "Find published miRs" \
     "baja/data/data-resources-library.js:First, because it answers the question the other two" \
     "baja/data/find-published-mirs.js:THE REASON FOR THAT LINE" \
