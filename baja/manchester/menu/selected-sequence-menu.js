@@ -133,6 +133,22 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         // Intron retention is deliberately absent: BajaIR scores whole introns off the
         // track's gene model, so a selection is not a thing it can be scoped to, and an
         // entry here that quietly ignored the selection would be worse than no entry.
+        // Variants over the marked region: autoUseSelection with this track in the list skips
+        // the scope prompt, which is the whole reason for having these here rather than in
+        // the toolbar.
+        const loadVariants = (db, label) => exec('baja/data/load-variants.js',
+            window['env']['apiUrl'], graph, genegraph_panel_layout, db, label, true, [t]);
+        // A /bd/ interval set onto this track. bed-hits reads the whole transcript's hits,
+        // the layer is then on the track and the selection frames it; saying that in the
+        // label would be noise, saying it here is not: this is the one Data entry whose
+        // scope is the TRACK and not the range.
+        const loadBed = async (key) => {
+            const SETS = await exec('baja/data/layer-sets.js');
+            const cfg = SETS[key];
+            if (!cfg) { graph.setMessage(' No such layer set: ' + key + ' '); return; }
+            return exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, cfg, t);
+        };
+
         const mlItems = [
             { label: (t.name || 'track') + '  ' + len.toLocaleString() + ' nt', header: true },
             // The question this answers is 'what binds here', which is the one you have
@@ -145,7 +161,37 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             go('Splice-site strength (SpliceNet)\u2026', async () =>
                 exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range, 'sites')),
             go('Exon inclusion, PSI (PSINet)\u2026', async () =>
-                exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range, 'psi'))
+                exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range, 'psi')),
+            // Sequence-only, so it is the one entry here that needs no model and no server:
+            // canonical seed matches, scanned on the MESSAGE rather than on the strand the
+            // track stores. It says in its own result that it finds sites rather than
+            // predicting targets, and that the set it scans is the de-targeting list.
+            go('microRNA sites (seed scan)\u2026', async () =>
+                exec('baja/bio/mirna/mirna-sites.js', graph, t, range))
+        ];
+
+        // ---- DATA ----------------------------------------------------------------------
+        //
+        // The same datasets the Data toolbar loads, scoped to THIS track and THIS range.
+        // Reached from the toolbar they all begin by asking which track, which is a question
+        // already answered by the time this menu is open: bed-hits takes the track as an
+        // argument, and load-variants takes a track list plus autoUseSelection, which makes
+        // it load over the marked region instead of prompting for a scope.
+        //
+        // One definition of what each layer IS, from baja/data/layer-sets.js, which the
+        // toolbar and the ?layer= deep link also read: a second copy here would be a second
+        // answer to what mirtarbase10_strong means.
+        const dataItems = [
+            { label: 'Into ' + (t.name || 'track') + ', over ' + len.toLocaleString() + ' nt', header: true },
+            go('Variants here: ClinVar\u2026', async () => loadVariants('clinvar', 'ClinVar')),
+            go('Variants here: dbSNP\u2026', async () => loadVariants('dbsnp', 'dbSNP')),
+            go('Variants here: gnomAD\u2026', async () => loadVariants('gnomad', 'gnomAD')),
+            go('Variants here: COSMIC\u2026', async () => loadVariants('cosmic', 'COSMIC')),
+            go('Validated miRNA sites (miRTarBase, strong)\u2026', async () => loadBed('mirtarbase10_strong')),
+            go('Validated miRNA sites (miRTarBase, all tiers)\u2026', async () => loadBed('mirtarbase10_all')),
+            go('Patented ASO / siRNA / gene therapy sites\u2026', async () => loadBed('aso_sirna_gt')),
+            go('RNASeq library\u2026', async () =>
+                exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout))
         ];
 
         const navItems = [
@@ -282,6 +328,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             ...(__foldAa ? [go('Fold selected peptide (AlphaFold, ' + __foldAa + ' aa)\u2026', async () =>
                 exec('baja/manchester/menu/alphafold-track.js', graph, genegraph_panel_layout, t))] : []),
             sub('ML ▸', mlItems),
+            sub('Data ▸', dataItems),
             sub('Sequence ▸', seqItems),
             go('Design ▸', async () => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout)),
             go('Off-targets...', async () => exec('baja/manchester/menu/run-off-targets.js', graph, genegraph_panel_layout)),

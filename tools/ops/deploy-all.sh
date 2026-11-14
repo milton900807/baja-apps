@@ -257,6 +257,10 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Select all is a button, and listening before the list loads" \
     "baja/lib/shelf.js:BUTTONS, NOT ANCHORS" \
     "baja/bio/rbp/rbp-profile.js:Buttons rather than anchors"
+  install_group "selected sequence: microRNA site scan, and a Data submenu" \
+    "baja/bio/mirna/mirna-seeds.js:MIRNA SEEDS, AND THE SITE CLASSES THEY MAKE" \
+    "baja/bio/mirna/mirna-sites.js:MICRORNA SITES IN A SELECTED STRETCH" \
+    "baja/manchester/menu/selected-sequence-menu.js:The same datasets the Data toolbar loads"
   install_group "selected sequence: ML menu, and which RBP wins the stretch" \
     "baja/manchester/menu/selected-sequence-menu.js:The models that take a SPAN" \
     "baja/bio/rbp/rbp-competition.js:WHICH RBP WINS THIS STRETCH" \
