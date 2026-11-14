@@ -147,13 +147,19 @@ function (graph, genegraph_panel_layout, presetTrack) {
                     + '<input id="ug-comp" type="checkbox"/> complexity, so a dip reads as repeat vs off-target'
                     + '</label>'
                     + '<label style="display:inline-flex;align-items:center;gap:6px;">'
+                    + '<input id="ug-ppt" type="checkbox"/> upstream polypyrimidine tract'
+                    + '</label>'
+                    + '<label style="display:inline-flex;align-items:center;gap:6px;">'
                     + '<input id="ug-au" type="checkbox"/> flanking AU, ±'
                     + '<input id="ug-flank" type="number" min="5" max="200" step="5" value="30" style="'
                     + INP + 'width:72px;padding:4px 8px;"/> nt'
                     + '</label>'
                     + '<div style="' + NOTE + '">Flanking AU excludes the window itself, and is drawn but never '
                     + 'scored. On a 3\'UTR this is the track to read against miRNA sites: local AU is what '
-                    + 'predicts site efficacy, and it is not the same thing as low complexity. Across 149 human '
+                    + 'predicts site efficacy, and it is not the same thing as low complexity. The PPT track '
+                    + 'is the pyrimidine (C+T) version and asks a different question again: how strong a '
+                    + 'polypyrimidine tract sits 5 to 40 nt upstream, which is what a 3\' splice site reads. '
+                    + 'Across 149 human '
                     + '3\'UTRs it separates 8mer from 7mer-m8 site contexts (0.599 vs 0.561) where the complexity '
                     + 'composite does not.</div>'
             });
@@ -176,6 +182,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 resolveOpts({
                     k: k, species: species, mode: mode,
                     auLayer: !!q('#ug-au').checked,
+                    pptLayer: !!q('#ug-ppt').checked,
                     flank: parseInt(q('#ug-flank').value, 10) || 30,
                     gene: ('' + (q('#ug-gene').value || '')).trim(),
                     dist: parseInt(q('#ug-dist').value, 10) || 2,
@@ -291,6 +298,12 @@ function (graph, genegraph_panel_layout, presetTrack) {
             if (opts.complexityLayer) track.addLayer(mk('complexity k=' + out.k, grad.complexity));
             // Already a fraction in 0..1, so it needs no scaling to sit on the same axis.
             if (opts.auLayer) track.addLayer(mk('flanking AU \u00b1' + out.flank, grad.flankAu));
+            // The PPT track is asymmetric on purpose: the polypyrimidine tract a 3' splice
+            // site reads sits UPSTREAM, 5 to 40 nt out, so this is the best pyrimidine
+            // stretch in that window rather than a mean either side. Read it against the
+            // repeat track: an antisense SINE with a strong tract inside it is the shape of
+            // a cryptic exon.
+            if (opts.pptLayer) track.addLayer(mk('polypyrimidine tract', grad.ppt));
         }
 
         async function runGradient(track) {

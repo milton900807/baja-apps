@@ -245,6 +245,31 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # Transposons / repeats on a track, under Data -> Repeats. The loader asks Ensembl for
+  # the elements over the track's region and labels each sense or antisense TO THE GENE,
+  # which is the field that matters: an antisense SINE presents a poly-T tract that reads
+  # as a polypyrimidine tract, so a cryptic 3' splice site can be selected downstream of
+  # it, and the same element the other way round does not do that.
+  #
+  # This group is larger than the feature because of what it found: of the ten scripts the
+  # Data toolbar opens, exactly one was under deploy management. The rest are whatever the
+  # original install left on the box, drifting from git ever since. Shipping the new
+  # toolbar alone would point its OTHER items at those stale copies, so the toolbar moves
+  # together with everything it opens. That is the point of the group, and it is a bigger
+  # change than adding a menu entry: it brings the whole Data menu up to date at once.
+  install_group "repeats track and the Data menu it joins" \
+    "baja/data/repeat-track.js:Transposable elements and repeats on a track, as annotations" \
+    "py/bio/repeats/ensembl-repeats.py:Repeat / transposable-element features for a region, from Ensembl" \
+    "baja/data/data-loading-toolbar.js:Data toolbar (menu bar) docked in the button panel" \
+    "baja/data/bed-hits.js:Transcript-keyed BED hits" \
+    "baja/data/layer-sets.js:Every /bd/ interval dataset that can be dropped onto a track as a layer" \
+    "baja/data/load-variants.js:Load variants from a major variant database" \
+    "baja/data/patents.js:Patents — click a track, read patent_hg38_transcript_hits.bed.gz" \
+    "baja/data/rnaseq-library.js:RNASeq Library — every RNASeq dataset under BIG_DATA/RNASeq" \
+    "baja/lib/shelf.js:Reusable \"bookshelf\" overlay" \
+    "baja/manchester/menu/protein-domains.js:Protein Domains: prompt the user to SELECT A TRACK" \
+    "baja/manchester/menu/track-layers-side-menu.js:MENUS AT THE POINTER, NOT IN THE CORNER"
+
   # BajaSplice under Exon -> AI Models: splice-site strength, PSI, the cis-regulatory
   # windows at the acceptor and at the donor, and intron retention. The submenu replaces
   # the old LJSplice v2 window, which posted to /ljdonor TF-serving; these run through

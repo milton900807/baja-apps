@@ -9,6 +9,11 @@ before the caller sees both:
               (chance-corrected), DUST-style triplet redundancy. Needs no
               reference and is defined for every k from 3 to 30.
 
+  flankPy     pyrimidine (C+T) fraction either side, and `ppt`/`pptRun`, the best
+              pyrimidine tract and longest unbroken pyrimidine run 5-40 nt UPSTREAM.
+              That upstream tract is the polypyrimidine signal a 3' splice site reads,
+              and it is what an antisense Alu's poly-T arm supplies.
+
   flankAu     AU fraction of the sequence either side of the window, the window
               itself excluded, plain and 1/distance-weighted. Reported, never folded
               into the score: it answers site accessibility, not usability.
@@ -50,6 +55,7 @@ Resolves {mode, k, stride, nWindows, species, gradient (JSON), warnings}.
 import json
 import os
 import sys
+import warnings as warnings_module
 
 import numpy as np
 
@@ -109,7 +115,11 @@ def rolling_codes(codes, w):
 
 
 # --- intrinsic complexity -----------------------------------------------------
-def flanking_au(codes, k, starts=None, flank=30):
+AU_SET = (0, 3)          # A, T/U
+PY_SET = (1, 3)          # C, T/U -- pyrimidines
+
+
+def flanking_au(codes, k, starts=None, flank=30, bases=AU_SET):
     """AU fraction of the sequence FLANKING each window, the window itself excluded.
 
     This is the miRNA-context variable, not a repeat measure: local AU near a seed
@@ -129,7 +139,8 @@ def flanking_au(codes, k, starts=None, flank=30):
     if n_win <= 0:
         return np.zeros(0), np.zeros(0)
     starts = np.arange(n_win) if starts is None else np.asarray(starts, dtype=np.int64)
-    is_au = np.where(codes == 255, np.nan, ((codes == 0) | (codes == 3)).astype(float))
+    want = np.isin(codes, np.asarray(bases))
+    is_au = np.where(codes == 255, np.nan, want.astype(float))
     n = len(codes)
 
     m = len(starts)
@@ -152,6 +163,56 @@ def flanking_au(codes, k, starts=None, flank=30):
         plain = np.where(plain_den > 0, plain_num / plain_den, np.nan)
         weighted = np.where(wt_den > 0, wt_num / wt_den, np.nan)
     return plain, weighted
+
+
+def upstream_ppt(codes, k, starts=None, lo=5, hi=40, tract=15):
+    """The polypyrimidine tract 5' of each window, as a splice model would read it.
+
+    A PPT is a run of pyrimidines a short way UPSTREAM of a 3' splice site, not a
+    pyrimidine-rich neighbourhood either side of it, so this is deliberately
+    asymmetric and deliberately a tract rather than a mean: `score` is the best
+    pyrimidine fraction of any `tract`-nt stretch inside the window [start-hi,
+    start-lo), and `run` is the longest unbroken pyrimidine run in the same region.
+    An antisense Alu's poly-T arm is what this is built to find.
+
+    ASSUMES THE SEQUENCE IS IN TRANSCRIPT ORIENTATION. On a minus-strand gene the
+    caller must hand over the reverse complement, or "upstream" is the wrong end.
+    """
+    n_win = len(codes) - k + 1
+    if n_win <= 0:
+        return np.zeros(0), np.zeros(0)
+    starts = np.arange(n_win) if starts is None else np.asarray(starts, dtype=np.int64)
+    is_py = np.isin(codes, np.asarray(PY_SET)) & (codes != 255)
+    cum = np.concatenate([[0], np.cumsum(is_py)])
+    n = len(codes)
+
+    # best pyrimidine fraction of any tract-length stretch in the upstream region
+    offs = np.arange(0, (hi - lo) - tract + 1)
+    if offs.size == 0:
+        offs = np.array([0])
+    i = (starts[:, None] - hi) + offs[None, :]
+    ok = (i >= 0) & (i + tract <= n)
+    i_safe = np.clip(i, 0, max(n - tract, 0))
+    frac = (cum[i_safe + tract] - cum[i_safe]) / float(tract)
+    frac = np.where(ok, frac, np.nan)
+    # Windows near the sequence start have no upstream region at all, so their row is
+    # entirely NaN. That is the right answer, not a problem, and nanmax warns about it
+    # on every run; the warning would land on stderr of a script whose stdout is parsed.
+    with np.errstate(invalid="ignore"), warnings_module.catch_warnings():
+        warnings_module.simplefilter("ignore", RuntimeWarning)
+        score = np.nanmax(frac, axis=1) if frac.size else np.full(len(starts), np.nan)
+
+    # longest unbroken pyrimidine run in the same region
+    width = hi - lo
+    j = (starts[:, None] - hi) + np.arange(width)[None, :]
+    inside = (j >= 0) & (j < n)
+    R = np.where(inside, is_py[np.clip(j, 0, n - 1)], False)
+    best = np.zeros(len(starts), dtype=np.int32)
+    run = np.zeros(len(starts), dtype=np.int32)
+    for c in range(width):
+        run = np.where(R[:, c], run + 1, 0)
+        best = np.maximum(best, run)
+    return score, best
 
 
 def window_complexity(codes, k, starts=None):
@@ -210,11 +271,12 @@ def window_complexity(codes, k, starts=None):
         dust = np.zeros(Wc.shape[0])
 
     au_self = ((Wc == 0) | (Wc == 3)).mean(axis=1)
+    py_self = ((Wc == 1) | (Wc == 3)).mean(axis=1)
     homo_term = 1.0 - np.clip((homo - 4) / max(k - 4, 1), 0, 1)
     composite = (0.35 * entropy + 0.25 * (1.0 - tandem_adj)
                  + 0.20 * homo_term + 0.20 * (1.0 - dust))
     composite = np.where(has_n, np.nan, np.clip(composite, 0, 1))
-    return {"complexity": composite, "entropy": entropy, "maxHomopolymer": homo, "au": au_self,
+    return {"complexity": composite, "entropy": entropy, "maxHomopolymer": homo, "au": au_self, "py": py_self,
             "tandemFraction": tandem, "tandemPeriod": period, "dust": dust,
             "hasAmbiguous": has_n}
 
@@ -371,8 +433,10 @@ def run(sequence, k=20, species=None, on_symbol=None, stride=None,
     flank = int(flank) if flank else 0
     if flank > 0:
         au_plain, au_weighted = flanking_au(codes, k, starts=starts, flank=flank)
+        py_plain, _ = flanking_au(codes, k, starts=starts, flank=flank, bases=PY_SET)
     else:
-        au_plain = au_weighted = np.full(len(starts), np.nan)
+        au_plain = au_weighted = py_plain = np.full(len(starts), np.nan)
+    ppt_score, ppt_run = upstream_ppt(codes, k, starts=starts)
 
     species = species or ["human"]
     if isinstance(species, str):
@@ -456,7 +520,11 @@ def run(sequence, k=20, species=None, on_symbol=None, stride=None,
         "position": [int(s) + 1 for s in starts],
         "complexity": clean(complexity),
         "au": clean(comp["au"]),
+        "py": clean(comp["py"]),
         "flankAu": clean(au_plain),
+        "flankPy": clean(py_plain),
+        "ppt": clean(ppt_score),
+        "pptRun": [int(x) for x in ppt_run],
         "flankAuWeighted": clean(au_weighted),
         "uniqueness": clean(uniqueness),
         "worstOffTarget": sparse(np.nan_to_num(worst, nan=0.0).astype(int)),
