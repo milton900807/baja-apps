@@ -3529,6 +3529,85 @@ function (path, config) {
                         if (__symbolIcons[b.label] && !b.icon && !b.iconSymbol) b.iconSymbol = __symbolIcons[b.label];
                         else if (__icons[b.label] && !b.icon) b.icon = __icons[b.label];
                     }
+
+                    // THE TOOLBAR IS THE COMMAND BOX. The nine icons become two menus and the
+                    // rest of the bar is a text field, because everything behind those icons is
+                    // reachable by name now and a row of marks was a row of guesses. Files is
+                    // the work going in and out; Tools is what is done to it.
+                    //
+                    // REGROUPED HERE RATHER THAN RE-DECLARED ABOVE. The buttons are four
+                    // hundred lines of definitions that are all still wanted, just in two
+                    // drawers instead of in a row; rewriting that literal to move them would
+                    // risk every one of them to rearrange them. The array is mutated IN PLACE
+                    // because button-menu binds the array it was handed -- the same reason the
+                    // Selection badge works -- and each item keeps its own object identity, so
+                    // the badge keeps updating from inside the menu.
+                    const __files = ['File', 'Download', 'Share', 'Bookmarks'];
+                    const __byLabel = (n) => __bm.find((b) => b && b.label === n);
+                    const __ask = __byLabel('Ask');
+                    const __filesItems = __files.map(__byLabel).filter(Boolean);
+                    // Everything else, in the order it was declared. A button added later and
+                    // not named here lands in Tools rather than disappearing.
+                    const __toolsItems = __bm.filter((b) => b && b.label && b !== __ask
+                        && __files.indexOf(b.label) < 0);
+
+                    if (__filesItems.length && __toolsItems.length) {
+                        const __openList = (title, items) => {
+                            // The fallback for a frontend that predates the menu item type:
+                            // there the menu renders as a plain button and this is its click.
+                            try {
+                                graph.showSideMenu([{ label: title, header: true }].concat(
+                                    items.map((b) => ({
+                                        label: b.label, move: () => { },
+                                        click: () => {
+                                            try { graph.showSideMenu(null); } catch (e) { }
+                                            try { if (typeof b.ionFunction === 'function') b.ionFunction(b); } catch (e) { }
+                                        }
+                                    }))));
+                            } catch (e) { }
+                        };
+                        const __bar = [
+                            {
+                                type: 'menu', label: 'Files', icon: 'folder',
+                                tooltip: 'Open, save, download and share this design',
+                                items: __filesItems,
+                                ionFunction: createIonFunction(() => { __openList('Files', __filesItems); })
+                            },
+                            {
+                                type: 'menu', label: 'Tools', icon: 'build',
+                                tooltip: 'Tracks, layers, drawing, design, navigation and the selection',
+                                items: __toolsItems,
+                                ionFunction: createIonFunction(() => { __openList('Tools', __toolsItems); })
+                            },
+                            {
+                                type: 'input', label: 'Ask', icon: 'auto_awesome', goLabel: 'Go',
+                                placeholder: 'say what you want done — select the 3′ UTR · '
+                                    + 'load clinvar pathogenic snps · are any of these pathogenic',
+                                tooltip: 'Say what you want done and the editor works out which operation does it',
+                                // One function for both frontends. With the input item type the
+                                // component writes the typed text onto this object before
+                                // firing; an older build renders the item as a plain button, so
+                                // there is no text and the panel opens with its own box. Either
+                                // way the same module reads the request.
+                                ionFunction: createIonFunction(async (item) => {
+                                    try { graph.hideMenu(); } catch (e) { }
+                                    if (!graph.track || graph.track.length === 0) {
+                                        graph.setSunsetMessage(" Load a track first ");
+                                        return;
+                                    }
+                                    const text = ('' + ((item && item.value) || '')).trim();
+                                    try {
+                                        await exec('baja/manchester/menu/editor-command.js', graph,
+                                            genegraph_panel_layout, text ? { prefill: text } : undefined);
+                                    } catch (e) {
+                                        try { graph.setError('Could not open Ask: ' + e, 8); } catch (e2) { }
+                                    }
+                                })
+                            }
+                        ];
+                        __bm.length = 0;
+                        for (const b of __bar) __bm.push(b);
+                    }
                 } catch (e) { }
 
                 progressBar(100);

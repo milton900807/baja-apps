@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, options) {
 
     // ASK: SAY WHAT YOU WANT DONE, AND IT WORKS OUT WHICH OPERATION DOES IT.
     //   await exec('baja/manchester/menu/editor-command.js', graph, genegraph_panel_layout);
@@ -26,7 +26,17 @@ function (graph, genegraph_panel_layout) {
     //
     // Nothing destructive runs without its own click, with its count in the label, and
     // history is pushed first so undo puts it back.
+    //
+    // TWO PLACES, ONE IMPLEMENTATION. Called with no options this is the full-screen panel
+    // with its own input. Called with { host } it renders into that element instead and takes
+    // the request from { prefill } -- which is how the toolbar's inline input uses it, so the
+    // box in the toolbar and the box in the panel cannot drift into two different behaviours.
+    //   opts.host      element to render into; no panel is created
+    //   opts.prefill   the request, when the caller already has one
+    //   opts.onDone    called with the number of records affected, when a plan finishes
     return (async () => {
+        const OPT = options || {};
+        const HOST = OPT.host || null;
         const result = (m) => { try { (graph.setResultMessage || graph.setMessage).call(graph, ' ' + m + ' '); } catch (e) { } };
         const say = (m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } };
 
@@ -133,16 +143,30 @@ function (graph, genegraph_panel_layout) {
             try { const old = document.getElementById('baja-editor-command'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
 
             const ctx = context();
-            const panel = document.createElement('div');
-            panel.id = 'baja-editor-command';
-            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(3,10,20,0.62);'
-                + 'font-family:Arial,Helvetica,sans-serif;display:flex;align-items:flex-start;justify-content:center;'
-                + 'padding:72px 16px 16px;overflow:auto;';
-
+            // HOSTED: the caller owns the surface and supplies the request, so none of the
+            // chrome below is built. Everything after this point -- the planner call, the
+            // validation, the plan card, the answer -- is identical in both modes, which is
+            // the point of having one file do both.
+            // Shared by both modes: the plan card builds buttons with these, and the panel
+            // builds its own input with them. Declared before the branch, or they end up
+            // scoped to the branch that happens to have built the chrome.
             const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;'
                 + 'border:1px solid rgba(255,255,255,0.22);border-radius:10px;padding:13px 15px;font:15px Arial;';
             const btn = 'cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
                 + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;';
+
+            const panel = document.createElement('div');
+            if (HOST) {
+                panel.style.cssText = 'font-family:Arial,Helvetica,sans-serif;color:#fff;';
+                panel.innerHTML = '<input id="ec-q" type="hidden"/>'
+                    + '<div id="ec-busy" style="font:12.5px Arial;color:#9fb3c8;"></div>'
+                    + '<div id="ec-out"></div>';
+                try { HOST.innerHTML = ''; HOST.appendChild(panel); } catch (e) { }
+            } else {
+            panel.id = 'baja-editor-command';
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(3,10,20,0.62);'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;align-items:flex-start;justify-content:center;'
+                + 'padding:72px 16px 16px;overflow:auto;';
 
             const selNote = ctx.has_selection
                 ? (ctx.tracks_with_a_selection === 1
@@ -185,19 +209,28 @@ function (graph, genegraph_panel_layout) {
                 + '<div id="ec-out" style="margin-top:16px;"></div>'
                 + '</div></div>';
             document.body.appendChild(panel);
+            }
 
             const q = (s) => panel.querySelector(s);
-            const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
-            const done = (n) => { close(); resolve(n || 0); };
+            const close = () => {
+                if (HOST) { try { HOST.innerHTML = ''; } catch (e) { } return; }
+                try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
+            };
+            const done = (n) => {
+                close(); resolve(n || 0);
+                if (OPT.onDone) { try { OPT.onDone(n || 0); } catch (e) { } }
+            };
 
             // The editor listens on the window for keys and pastes; without this a typed
             // sentence is also read as something to do to the canvas.
             for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
                 panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
             }
-            panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') done(0); });
-            panel.addEventListener('mousedown', (e) => { if (e.target === panel) done(0); });
-            q('#ec-close').onclick = () => done(0);
+            if (!HOST) {
+                panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') done(0); });
+                panel.addEventListener('mousedown', (e) => { if (e.target === panel) done(0); });
+                q('#ec-close').onclick = () => done(0);
+            }
 
             let busy = false;
             const parse = (v, d) => {
@@ -212,7 +245,7 @@ function (graph, genegraph_panel_layout) {
             // Asked for by name, because "what can it do" is the first thing anyone wants
             // from a box like this, and a guess that comes back "not something this can do"
             // teaches nothing about what is.
-            q('#ec-what').onclick = () => {
+            if (q('#ec-what')) q('#ec-what').onclick = () => {
                 q('#ec-out').innerHTML = card(
                     '<div style="font:700 13px Arial;color:#7fb0e8;margin-bottom:9px;">'
                     + CAP.list.length + ' operations</div>'
@@ -326,7 +359,10 @@ function (graph, genegraph_panel_layout) {
                     + '<button id="ec-again" style="' + btn + '">Ask something else</button></div>';
 
                 const again = q('#ec-again');
-                if (again) again.onclick = () => { out.innerHTML = ''; try { q('#ec-q').value = ''; q('#ec-q').focus(); } catch (e) { } };
+                if (again) again.onclick = () => {
+                    if (HOST) { done(0); return; }
+                    out.innerHTML = ''; try { q('#ec-q').value = ''; q('#ec-q').focus(); } catch (e) { }
+                };
                 const sel = q('#ec-sel');
                 if (sel) sel.onclick = () => {
                     CAP.selectVariants(hitRows);
@@ -427,7 +463,10 @@ function (graph, genegraph_panel_layout) {
                     + '<button id="ec-no" style="' + btn + '">Cancel</button></div>',
                     danger ? 'rgba(248,113,113,0.5)' : null);
 
-                q('#ec-no').onclick = () => { out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { } };
+                q('#ec-no').onclick = () => {
+                    if (HOST) { done(0); return; }
+                    out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { }
+                };
                 const go = q('#ec-go');
                 if (go) go.onclick = async () => {
                     go.disabled = true;
@@ -481,9 +520,20 @@ function (graph, genegraph_panel_layout) {
                 render(r, ask);
             };
 
-            q('#ec-run').onclick = run;
-            q('#ec-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } };
-            try { q('#ec-q').focus(); } catch (e) { }
+            if (q('#ec-run')) q('#ec-run').onclick = run;
+            if (!HOST) {
+                q('#ec-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } };
+                try { q('#ec-q').focus(); } catch (e) { }
+                // Typed in the toolbar: the panel opens with the request already in it and
+                // already read, rather than an empty box to type it into a second time.
+                const pre = ('' + (OPT.prefill || '')).trim();
+                if (pre) { q('#ec-q').value = pre; run(); }
+            } else {
+                // Hosted: the request came with the call, so run it straight away rather
+                // than waiting for an input that is not here.
+                q('#ec-q').value = ('' + (OPT.prefill || '')).trim();
+                if (q('#ec-q').value) run(); else done(0);
+            }
         });
     })();
 }

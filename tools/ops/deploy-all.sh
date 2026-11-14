@@ -280,7 +280,7 @@ if [[ $DO_API -eq 1 ]]; then
   # button without the rest is a button that errors. Splitting them would let a half
   # install pass its served-check and fail on the first click.
   install_group "Ask: plan against the editor's own catalogue of operations" \
-    "manchester/editor.js:ASK sits between Download and Share" \
+    "manchester/editor.js:THE TOOLBAR IS THE COMMAND BOX" \
     "baja/manchester/menu/editor-command.js:ASK: SAY WHAT YOU WANT DONE" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR CAN BE ASKED TO DO, DECLARED" \
     "baja/bio/track-regions.js:COORDINATES ARE GENOMIC ORDER, ORIENTATION IS NOT" \
