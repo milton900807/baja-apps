@@ -529,24 +529,30 @@ if [[ $DO_WEB -eq 1 ]]; then
   git -C "$SRC_DIR" reset -q --hard "origin/$BRANCH"
   say "At $(git -C "$SRC_DIR" log --oneline -1)"
 
-  # THIS TREE NEEDS --legacy-peer-deps, and saying so is better than discovering it.
+  # THIS TREE IS INSTALLED WITH --legacy-peer-deps. That is the intended mode, not a
+  # workaround applied after something failed.
   #
   # ngx-monaco-editor-v2 asks for Angular 18 peers while the application is on Angular 17,
-  # and the committed lock holds @angular/core at 17.3.8 beside an @angular/animations
-  # 17.3.12 that demands core 17.3.12 exactly. Neither is new and neither breaks the build:
-  # the tree was installed with peer checking off, which is how it has always been built.
-  # So npm ci is tried honestly first, and the flag is the fallback rather than the habit.
-  # Aligning the versions properly is a separate job; it is not one to do inside a deploy.
-  say "Installing dependencies (this is the slow part)…"
+  # and the tree holds @angular/core at 17.3.8 beside an @angular/animations 17.3.12 that
+  # demands core 17.3.12 exactly. Neither is new and neither breaks the build; the versions
+  # that are actually installed are the ones the app has always been built against.
+  #
+  # It used to try a plain `npm ci` first and fall back. That printed forty lines of
+  # ERESOLVE across the screen on every single frontend deploy, in the middle of the step
+  # that takes longest, and the retry that followed was the real install. A deploy that
+  # prints its own expected failure teaches whoever is watching to read errors as noise,
+  # which is the opposite of what an error is for. So the flag is passed up front and the
+  # reason is stated once.
+  say "Installing dependencies with --legacy-peer-deps (this is the slow part)…"
+  say "  (Angular 17 app, one package asking for 18 peers: expected, and how this tree builds.)"
   npm_in() { ( cd "$SRC_DIR" && npm "$@" --no-audit --no-fund ); }
   if [[ -f "$SRC_DIR/package-lock.json" ]]; then
-    npm_in ci || {
-      say "npm ci would not resolve the peers; retrying with --legacy-peer-deps, which is"
-      say "how this tree has always been installed."
-      npm_in ci --legacy-peer-deps || npm_in install --legacy-peer-deps
+    npm_in ci --legacy-peer-deps || {
+      say "npm ci could not use the committed lock; installing without it."
+      npm_in install --legacy-peer-deps
     }
   else
-    npm_in install || npm_in install --legacy-peer-deps
+    npm_in install --legacy-peer-deps
   fi
 
   say "Building…"
