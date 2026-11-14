@@ -3638,10 +3638,11 @@ function (path, config) {
                                 // its own. Either way the same module reads the request.
                                 ionFunction: createIonFunction(async (item) => {
                                     try { graph.hideMenu(); } catch (e) { }
-                                    if (!graph.track || graph.track.length === 0) {
-                                        graph.setSunsetMessage(" Load a track first ");
-                                        return;
-                                    }
+                                    // No track check here. Loading one is an operation the box
+                                    // can carry out, and an empty canvas is precisely when
+                                    // someone types "load DNM1"; refusing to open was turning
+                                    // the one request that needs no track into the one request
+                                    // it would not take.
                                     const text = ('' + ((item && item.value) || '')).trim();
                                     // The panel under the bar, when the component gave us one.
                                     // Without it the module opens its own window, which is the

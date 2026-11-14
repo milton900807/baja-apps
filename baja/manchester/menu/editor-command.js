@@ -43,7 +43,9 @@ function (graph, genegraph_panel_layout, options) {
         const CAP = await exec('baja/manchester/menu/editor-capabilities.js', graph, genegraph_panel_layout);
         const VS = CAP.VS, F = CAP.F;
 
-        if (!CAP.tracks().length) { say('Load a track first.'); return 0; }
+        // NO TRACK IS NOT A REASON TO REFUSE TO OPEN. Loading one is itself an operation
+        // here, and an empty canvas is exactly when someone types "load DNM1". Every
+        // operation that does need a track says so for itself, before its button.
 
         // WHAT IS ACTUALLY ON SCREEN. A question like "are any of these pathogenic" means
         // the ones in view, not the four thousand on the track, and answering about the
@@ -207,8 +209,8 @@ function (graph, genegraph_panel_layout, options) {
                 + '<button id="ec-what" style="' + btn + '">What can it do?</button>'
                 + '<div id="ec-busy" style="font:12.5px Arial;color:#9fb3c8;"></div></div>'
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:14px;line-height:1.8;">'
-                + '<b>Load:</b> clinvar pathogenic snps and indels over the selection · gnomad variants · '
-                + 'put the known ASO and siRNA layer on<br>'
+                + '<b>Load:</b> load DNM1 · clinvar pathogenic snps and indels over the selection · '
+                + 'gnomad variants · put the known ASO and siRNA layer on<br>'
                 + '<b>Run a model:</b> which RBP binds this · splice site strength here · '
                 + 'microRNA sites in the selection<br>'
                 + '<b>Select a region:</b> select the 3\u2032 UTR · select exon 5 · select the CDS · '

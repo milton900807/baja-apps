@@ -296,6 +296,14 @@ if [[ $DO_API -eq 1 ]]; then
   # Down arrows marking where compounds sit. The shape lives in the draw registry, the
   # module that creates the annotations calls it by type, and the catalogue reaches the
   # module: an annotation of a type the registry does not know draws nothing at all.
+  # "load dnm1": ask whether that is a gene or a file, with both as things to click.
+  # editor.js moves with it because the toolbar's own no-track guard had to go: loading is
+  # the one request that needs no track, and it was the one the box would not take.
+  install_group "load by name" \
+    "baja/manchester/menu/load-by-name.js:IS THAT A GENE OR A FILE" \
+    "baja/manchester/menu/editor-capabilities.js:load_by_name" \
+    "baja/manchester/menu/editor-command.js:NO TRACK IS NOT A REASON TO REFUSE TO OPEN" \
+    "manchester/editor.js:No track check here"
   install_group "show compound locations" \
     "flexigraph/gene-draw.js:A DOWN ARROW OVER THE TRACK, marking where something sits" \
     "baja/manchester/menu/mark-compound-locations.js:SHOW WHERE THE COMPOUNDS ARE" \

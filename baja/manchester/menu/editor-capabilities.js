@@ -271,6 +271,34 @@ function (graph, genegraph_panel_layout) {
                 }
             },
 
+            {
+                name: 'load_by_name',
+                summary: 'Put a GENE or a SAVED FILE on the canvas by name. Use this whenever the '
+                    + 'request is "load X", "open X", "pull up X" or "bring in X" and X is a gene '
+                    + 'symbol, an Ensembl id, or a file the person has saved. A bare name is '
+                    + 'ambiguous, and the editor asks which it is rather than guessing, so passing '
+                    + 'the name alone is the normal thing to do.',
+                opens: true,
+                params: {
+                    name: {
+                        type: 'string', required: true,
+                        about: 'the gene symbol, Ensembl id or file name, exactly as the person '
+                            + 'wrote it. Do not expand it, correct its spelling or add a species'
+                    },
+                    kind: {
+                        type: 'enum', values: ['gene', 'file'],
+                        about: 'only when the request SAYS which it is ("load the gene DNM1", '
+                            + '"open my file DNM3-design"). Omit it otherwise and the editor asks'
+                    }
+                },
+                run: (a) => exec('baja/manchester/menu/load-by-name.js', graph, genegraph_panel_layout, a),
+                preview: (a) => {
+                    if (a.kind === 'gene') return 'look up the gene ' + a.name + ' and pick a transcript';
+                    if (a.kind === 'file') return 'find a saved file called “' + a.name + '”';
+                    return 'load “' + a.name + '” — asks whether that is a gene or a file';
+                }
+            },
+
             // ---------------------------------------------------------------- models -------
             {
                 name: 'rbp_competition',
