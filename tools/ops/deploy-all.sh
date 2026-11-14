@@ -283,6 +283,7 @@ if [[ $DO_API -eq 1 ]]; then
     "manchester/editor.js:ASK sits between Download and Share" \
     "baja/manchester/menu/editor-command.js:ASK: SAY WHAT YOU WANT DONE" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR CAN BE ASKED TO DO, DECLARED" \
+    "baja/bio/track-regions.js:COORDINATES ARE GENOMIC ORDER, ORIENTATION IS NOT" \
     "py/bio/editor/plan.py:THE CATALOGUE IS SENT IN, NOT WRITTEN HERE" \
     "py/bio/editor/variant-question.py:EVERY VERDICT IS INDEXED, NOT NAMED"
   install_group "baja-project: progress bar first, Add to a fundraising campaign" \

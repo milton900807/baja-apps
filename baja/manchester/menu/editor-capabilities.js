@@ -74,6 +74,27 @@ function (graph, genegraph_panel_layout) {
             return (sub.length === 1) ? sub[0] : null;
         };
 
+        // The named regions of a transcript (UTRs, CDS, exons, introns), cached per track
+        // because resolving them walks the annotation list.
+        const __regions = new Map();
+        const regionsOf = async (t) => {
+            if (!t) return null;
+            if (__regions.has(t)) return __regions.get(t);
+            let R = null;
+            try { R = await exec('baja/bio/track-regions.js', t); } catch (e) { R = null; }
+            __regions.set(t, R);
+            return R;
+        };
+        // Resolved synchronously once the module has been loaded for that track, so preview()
+        // and argBlocker() can use it without becoming async.
+        const regionsNow = (t) => (t ? (__regions.get(t) || null) : null);
+
+        // Resolved up front for every open track. preview() and argBlocker() are synchronous
+        // -- they run while a plan is being drawn -- so a cache filled only by run() would
+        // mean the first plan never checks the region and "exon 14 of 11" is discovered after
+        // the button rather than before it.
+        for (const t of tracks()) { try { await regionsOf(t); } catch (e) { } }
+
         const LAYER_SETS = await (async () => { try { return await exec('baja/data/layer-sets.js'); } catch (e) { return {}; } })();
         const LAYER_KEYS = Object.keys(LAYER_SETS || {});
 
@@ -368,6 +389,96 @@ function (graph, genegraph_panel_layout) {
                 preview: (a) => 'delete the compounds: ' + F.describe(a)
             },
             {
+                name: 'select_sequence_region',
+                summary: 'Select a named part of the transcript as the sequence selection: the '
+                    + "5' UTR, the 3' UTR, the coding region, a numbered exon or intron, the whole "
+                    + 'transcript, or an explicit coordinate range. This is the selection every '
+                    + 'model and design runs on, so it is the step that comes before "which RBP '
+                    + 'binds this" or "load variants over the selection" when the user names a '
+                    + 'region instead of dragging one.',
+                needs: 'track',
+                params: {
+                    region: {
+                        type: 'enum',
+                        values: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'coordinates'],
+                        required: true,
+                        about: "which part. cds is the coding sequence (also called the ORF or the "
+                            + "translated region). Use exon or intron with index, and coordinates "
+                            + "with start and end"
+                    },
+                    index: { type: 'number', about: 'which exon or intron, counting from 1 along the transcript' },
+                    start: { type: 'number', about: 'with region=coordinates: the first base, counting from the start of the track' },
+                    end: { type: 'number', about: 'with region=coordinates: the last base' },
+                    track: { type: 'string', about: 'which track, by name. Omit when there is only one, or to use the selected one' }
+                },
+                run: async (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const R = await regionsOf(t);
+                    if (!R) { result('Could not read the regions of ' + (t.name || 'that track') + '.'); return; }
+                    const r = R.resolve(a);
+                    if (r.error) { result(r.error); return; }
+                    // Clear first: a second region selection should REPLACE the first, not leave
+                    // a stale mark on another track that every later "over the selection" step
+                    // would then silently include.
+                    try {
+                        if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections();
+                    } catch (e) { }
+                    t.markstart = r.start;
+                    t.markend = r.end;
+                    t.showResizeBar = true;
+                    // startX/endX are world coordinates and are what zoomToSelection reads; a
+                    // selection made here should behave like one made by dragging. select_ is
+                    // deliberately left alone: it marks a drag IN PROGRESS, and setting it would
+                    // let the next mouse-up overwrite this.
+                    try {
+                        graph.startX = t.tgraph.X(r.start);
+                        graph.endX = t.tgraph.X(r.end);
+                    } catch (e) { }
+                    // Frame it, with a margin. A selection off screen is not visibly a selection,
+                    // and the next thing anyone does with a region is look at it.
+                    try {
+                        const tg = t.tgraph;
+                        const pad = Math.max(8, (r.end - r.start) * 0.06);
+                        const cy = tg.yi + (tg.height || 0) / 2, h = Math.abs(tg.height || 0) || 0.1;
+                        if (graph.zoomRect) await graph.zoomRect(tg.X(r.start - pad), tg.X(r.end + pad),
+                            cy + h * 3.6, cy - h * 2.2, 400);
+                    } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result('Selected the ' + r.label + ' of ' + (t.name || 'the track') + ': '
+                        + (r.end - r.start).toLocaleString() + ' nt, ' + r.start.toLocaleString()
+                        + ' to ' + r.end.toLocaleString() + '.');
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const R = regionsNow(t);
+                    const where = t ? (' of ' + (t.name || 'the track')) : '';
+                    if (R) {
+                        const r = R.resolve(a);
+                        if (!r.error) return 'select the ' + r.label + where + ': '
+                            + (r.end - r.start).toLocaleString() + ' nt';
+                    }
+                    const what = ('' + (a.region || '')).replace(/_/g, ' ')
+                        + ((a.index != null) ? (' ' + a.index) : '');
+                    return 'select the ' + what + where;
+                },
+                // Resolved before the button so "this transcript has 11 exons, so there is no
+                // exon 14" is something the user reads instead of a run that does nothing.
+                argBlocker: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) {
+                        return a.track
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'more than one track is open: name the one you mean';
+                    }
+                    const R = regionsNow(t);
+                    if (!R) return '';          // not loaded yet; run() resolves and reports
+                    const r = R.resolve(a);
+                    return r.error || '';
+                }
+            },
+            {
                 name: 'clear_sequence_selection',
                 summary: 'Drop the selected sequence: the marked stretch on a track, made by '
                     + 'dragging across it. This is what "deselect", "deselect sequence", "clear '
@@ -608,8 +719,18 @@ function (graph, genegraph_panel_layout) {
             return o;
         });
 
+        // What regions each track actually has, for the request context: a model asked to
+        // select exon 5 should know whether there are five, and that a non-coding track has
+        // no UTRs to name.
+        const regionInfo = (t) => {
+            const R = regionsNow(t);
+            if (!R) return null;
+            try { return R.available(); } catch (e) { return null; }
+        };
+
         return {
             list: LIST, byName: byName, validate: validate, preview: preview,
+            regionInfo: regionInfo, regionsOf: regionsOf,
             blocker: blocker, catalogue: catalogue,
             vhits: vhits, vrows: vrows, crows: crows, selectVariants: selectVariants,
             selTracks: selTracks, oneSelTrack: oneSelTrack, tracks: tracks, rangeOf: rangeOf,

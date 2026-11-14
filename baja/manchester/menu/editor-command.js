@@ -109,6 +109,9 @@ function (graph, genegraph_panel_layout) {
                     gene: t.geneID || undefined,
                     variants: (t.snpindels || []).length,
                     compounds: (t.oligos || []).length,
+                    // So "select exon 5" can be checked against a transcript that has four,
+                    // and a non-coding track is not asked for a UTR it has not got.
+                    regions: CAP.regionInfo(t) || undefined,
                     selection: (t.markend > t.markstart)
                         ? { start: Math.floor(t.markstart), end: Math.ceil(t.markend),
                             length: Math.ceil(t.markend) - Math.floor(t.markstart) } : null
@@ -171,8 +174,10 @@ function (graph, genegraph_panel_layout) {
                 + 'put the known ASO and siRNA layer on<br>'
                 + '<b>Run a model:</b> which RBP binds this · splice site strength here · '
                 + 'microRNA sites in the selection<br>'
+                + '<b>Select a region:</b> select the 3\u2032 UTR · select exon 5 · select the CDS · '
+                + 'deselect the sequence<br>'
                 + '<b>Select or remove:</b> select all snps · select every red compound · '
-                + 'remove the benign ones · deselect the sequence · go to DNM3<br>'
+                + 'remove the benign ones · go to DNM3<br>'
                 + '<b>Ask:</b> are any of these snps pathogenic · which of these hit a splice site<br>'
                 + 'It picks from the operations the editor has, shows you which and with what, '
                 + 'and runs nothing until you say so.'
@@ -368,9 +373,14 @@ function (graph, genegraph_panel_layout) {
                 // A single question is answered rather than planned.
                 if (good.length === 1 && !bad.length && good[0].p.answers) { answer(good[0].step, ask); return; }
 
-                const blocked = good.filter((x) => x.p.blocker);
                 const danger = good.some((x) => x.p.destructive);
-                const runnable = good.filter((x) => !x.p.blocker);
+                // A LATER STEP'S PRECONDITION IS USUALLY THE EARLIER STEP'S OUTPUT. "select the
+                // 3' UTR, then run BajaCLIP on it" has no selection at the moment the plan is
+                // drawn, so judging step 2 against the canvas as it stands now drops the very
+                // step the first one exists to enable. Only the FIRST step is blocked on the
+                // state in front of us; a later one's unmet need is shown as what it expects,
+                // and re-checked for real immediately before it runs.
+                const runnable = good.filter((x, i) => (i === 0 ? !x.p.blocker : true));
 
                 const row = (x, i) => {
                     const p = x.p;
@@ -387,7 +397,11 @@ function (graph, genegraph_panel_layout) {
                         + (x.step.dropped && x.step.dropped.length
                             ? '<div style="font:11px Arial;color:#fbbf24;margin-top:3px;">ignored, not a parameter of this operation: '
                                 + H(x.step.dropped.join(', ')) + '</div>' : '')
-                        + (p.blocker ? '<div style="font:11.5px Arial;color:#fbbf24;margin-top:3px;">cannot run: ' + H(p.blocker) + '</div>' : '')
+                        + (p.blocker
+                            ? ('<div style="font:11.5px Arial;color:#fbbf24;margin-top:3px;">'
+                                + (i === 0 ? 'cannot run: ' : 'expects, from the step before it: ')
+                                + H(p.blocker) + '</div>')
+                            : '')
                         + '</div>';
                 };
 
@@ -423,7 +437,13 @@ function (graph, genegraph_panel_layout) {
                     // they assume.
                     let ran = 0, failed = null;
                     for (const x of runnable) {
-                        try { await x.p.capability.run(x.p.args); ran++; }
+                        // Re-checked HERE, against the canvas as the previous steps left it.
+                        // This is the only check that can be trusted for a later step, and it
+                        // is what makes allowing them above safe rather than optimistic.
+                        let now = null;
+                        try { now = CAP.preview(x.step); } catch (e) { now = null; }
+                        if (now && now.ok && now.blocker) { failed = now.capability.name + ': ' + now.blocker; break; }
+                        try { await (now && now.ok ? now.capability.run(now.args) : x.p.capability.run(x.p.args)); ran++; }
                         catch (e) { failed = (x.p.capability.name + ': ' + (e && e.message ? e.message : e)); break; }
                     }
                     // Operations report their own outcome; only a multi-step plan or a
