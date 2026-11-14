@@ -2990,7 +2990,7 @@ function (path, config) {
                                                     // baja/bio/compound-filter.js do the matching, and the two
                                                     // destructive verbs each need their own second click.
                                                     label: 'Ask', icon: 'auto_awesome',
-                                                    tooltip: 'Say what you want done -- "select all snps", "remove the pathogenic variants", "select every red compound"',
+                                                    tooltip: 'Say what you want done and it works out which operation does it -- "load clinvar pathogenic snps over the selection", "which RBP binds this", "select all snps", "are any of these pathogenic"',
                                                     ionFunction: createIonFunction(async () => {
                                                         try { graph.hideMenu(); } catch (e) { }
                                                         if (!graph.track || graph.track.length === 0) {

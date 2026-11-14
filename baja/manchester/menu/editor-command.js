@@ -1,44 +1,39 @@
-function (graph, layout) {
+function (graph, genegraph_panel_layout) {
 
-    // TYPE WHAT YOU WANT DONE, IN WORDS.
+    // ASK: SAY WHAT YOU WANT DONE, AND IT WORKS OUT WHICH OPERATION DOES IT.
     //   await exec('baja/manchester/menu/editor-command.js', graph, genegraph_panel_layout);
     //
-    // "select all snps", "remove the pathogenic variants", "select every red compound",
-    // "clear the selection", "zoom to the selection", "fit".
+    // "load clinvar pathogenic snp indels into selected sequence", "which RBP binds this",
+    // "select all snps", "remove the benign ones", "are any of these pathogenic".
     //
-    // The model is a TRANSLATOR AND NOTHING ELSE. It reads the sentence and names one verb
-    // from a closed list, with parameters; it never emits code, never names a function, and
-    // never decides what any individual variant or compound is. The matching is done here,
-    // by the same two engines the rest of the editor uses: baja/data/variant-search.js for
-    // variants and baja/bio/compound-filter.js for compounds.
+    // Three parts, and the split between them is the whole design:
     //
-    // That split is the only reason a free-text box belongs on a toolbar. A model that could
-    // say "run this" would be a remote shell on someone's unsaved work. A model that can only
-    // say "the verb is remove_variants and the query is pathogenic" can be read back, counted
-    // and refused before a single record moves, which is what the panel below does: the
-    // understood action and the number of records it would touch are always shown first, and
-    // the two destructive verbs never run until their own button is pressed.
+    //   1. baja/manchester/menu/editor-capabilities.js DECLARES what the editor can do --
+    //      each operation, the arguments it takes, and the values those arguments may hold.
+    //   2. py/bio/editor/plan.py is handed that catalogue and the sentence, and returns a
+    //      PLAN: which operations, with which arguments. It is given no other vocabulary.
+    //   3. This file validates every step back against the same declarations, shows what
+    //      the plan would actually do on THIS canvas, and only then runs it.
     //
-    // Select is also preferred over remove whenever the sentence is ambiguous, upstream in
-    // the prompt. Selecting is reversible; removing is the one that destroys work.
+    // WHY THE CATALOGUE AND NOT THE CODEBASE. Every file under baja/ is exec-able by path
+    // with arbitrary arguments. A model that could name a path and its arguments would be a
+    // remote shell on someone's unsaved work, and checking the sentence that produced it
+    // would not change that, because the sentence is not what runs. So the model chooses
+    // from an enumerated list and fills declared arguments, and anything else it returns is
+    // dropped before it reaches a track: a path as an operation name is refused, an
+    // unrecognised value refuses its step rather than being quietly replaced by a plausible
+    // one, and an argument the operation has no notion of is dropped and named on screen.
+    //
+    // Nothing destructive runs without its own click, with its count in the label, and
+    // history is pushed first so undo puts it back.
     return (async () => {
-        const say = (m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } };
         const result = (m) => { try { (graph.setResultMessage || graph.setMessage).call(graph, ' ' + m + ' '); } catch (e) { } };
-        const redraw = () => { try { if (graph.wake) graph.wake(); } catch (e) { } };
+        const say = (m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } };
 
-        const tracks = (graph.track || []).filter(Boolean);
-        if (!tracks.length) { say('Load a track first.'); return 0; }
+        const CAP = await exec('baja/manchester/menu/editor-capabilities.js', graph, genegraph_panel_layout);
+        const VS = CAP.VS, F = CAP.F;
 
-        const VS = await exec('baja/data/variant-search.js', graph, { engineOnly: true });
-        const F = await exec('baja/bio/compound-filter.js');
-
-        // Every variant and every compound on the canvas, paired with its track. Built once:
-        // the counts shown with the request and the records acted on are then the same set,
-        // so a number read on screen cannot drift from what the button does.
-        const vrows = [];
-        for (const t of tracks) for (const v of (t.snpindels || [])) vrows.push({ t: t, v: v, rec: VS.recordOf(v) });
-        const crows = [];
-        for (const t of tracks) for (const o of (t.oligos || [])) crows.push({ t: t, o: o });
+        if (!CAP.tracks().length) { say('Load a track first.'); return 0; }
 
         // WHAT IS ACTUALLY ON SCREEN. A question like "are any of these pathogenic" means
         // the ones in view, not the four thousand on the track, and answering about the
@@ -50,14 +45,15 @@ function (graph, layout) {
         // because tgraph.height is signed and a track scrolled off the top is not visible
         // however well its bases line up.
         const visibleVariants = () => {
+            const all = CAP.vrows();
             let x0, x1, y0, y1;
             try {
                 const g = graph.grid;
                 x0 = g.getxmin(); x1 = g.getxmax();
                 y0 = Math.min(g.getymin(), g.getymax());
                 y1 = Math.max(g.getymin(), g.getymax());
-            } catch (e) { return vrows.slice(); }      // no window to test against: all of them
-            if (!isFinite(x0) || !isFinite(x1)) return vrows.slice();
+            } catch (e) { return all; }
+            if (!isFinite(x0) || !isFinite(x1)) return all;
             const lo = Math.min(x0, x1), hi = Math.max(x0, x1);
             const okTrack = new Map();
             const trackVisible = (t) => {
@@ -71,7 +67,7 @@ function (graph, layout) {
                 okTrack.set(t, v);
                 return v;
             };
-            return vrows.filter((r) => {
+            return all.filter((r) => {
                 if (!trackVisible(r.t)) return false;
                 let wx;
                 try { wx = r.t.tgraph.X(r.v.xi); } catch (e) { return false; }
@@ -79,9 +75,8 @@ function (graph, layout) {
             });
         };
 
-        // The fields the question is answered from, and ONLY these. No sequence, no
-        // coordinates beyond the position, nothing that would let a question about what is
-        // on screen turn into a request for the design itself.
+        // The fields a question is answered from, and ONLY these. No sequence, nothing that
+        // would let a question about what is on screen turn into a request for the design.
         const askRecord = (r, i) => {
             const rec = r.rec;
             const o = { i: i, name: rec.name || ('variant ' + (i + 1)) };
@@ -97,190 +92,90 @@ function (graph, layout) {
             return o;
         };
 
-        const ctx = {
-            tracks: tracks.map((t) => t.name || '(unnamed)').slice(0, 12),
-            counts: {
-                variants: vrows.length,
+        // WHAT IS ON THE CANVAS, sent with the request. Without it "the selected sequence"
+        // and "these variants" are phrases a model has to guess the referent of, and a
+        // relative request ("the low-scoring ones") lands on invented numbers.
+        const context = () => {
+            const sel = CAP.selTracks();
+            const span = (get, list) => {
+                let lo = Infinity, hi = -Infinity, seen = 0;
+                for (const r of list) { const v = get(r.o); if (v == null) continue; seen++; lo = Math.min(lo, v); hi = Math.max(hi, v); }
+                return seen ? [Math.round(lo * 10) / 10, Math.round(hi * 10) / 10] : null;
+            };
+            const cr = CAP.crows();
+            return {
+                tracks: CAP.tracks().map((t) => ({
+                    name: t.name || '(unnamed)',
+                    gene: t.geneID || undefined,
+                    variants: (t.snpindels || []).length,
+                    compounds: (t.oligos || []).length,
+                    selection: (t.markend > t.markstart)
+                        ? { start: Math.floor(t.markstart), end: Math.ceil(t.markend),
+                            length: Math.ceil(t.markend) - Math.floor(t.markstart) } : null
+                })).slice(0, 12),
+                has_selection: sel.length > 0,
+                tracks_with_a_selection: sel.length,
+                variants_total: CAP.vrows().length,
                 variants_on_screen: visibleVariants().length,
-                compounds: crows.length,
-                flagged_compounds: crows.filter((r) => F.isRed(r.o)).length
-            },
-            has_selection: !!(graph.startX != null && graph.endX != null && graph.startX !== graph.endX)
+                compounds_total: cr.length,
+                flagged_compounds: cr.filter((r) => F.isRed(r.o)).length,
+                compound_spans: { score: span(F.scoreOf, cr), gc: span(F.gcOf, cr), tm: span(F.tmOf, cr), length: span(F.lenOf, cr) }
+            };
         };
 
-        // ------------------------------------------------------------------ the verbs -----
-        // One entry per action the translator is allowed to name. `count` says how many
-        // records the action would touch, `run` does it. Nothing outside this table can be
-        // reached from the input box, whatever comes back from the model.
-        const vhits = (query) => {
-            const q = VS.compileQuery(query);
-            return q ? vrows.filter((r) => q(r.rec)) : vrows.slice();   // no terms means all
-        };
-        const chits = (spec) => F.match(crows, spec || {});
-
-        const selectVariants = (rows) => {
-            for (const r of vrows) { try { r.v.deselect(); } catch (e) { } }
-            for (const r of rows) { try { r.v.select(); } catch (e) { } }
-            redraw();
-        };
-
-        const ACTIONS = {
-            select_variants: {
-                noun: 'variant',
-                scope: (p) => vhits(p.query),
-                describe: (p) => ('' + (p.query || '')).trim() ? ('matching “' + p.query + '”') : 'every variant',
-                verb: 'Select',
-                run: (rows) => {
-                    selectVariants(rows);
-                    result('Selected ' + rows.length + ' of ' + vrows.length + ' variants.');
-                }
-            },
-            remove_variants: {
-                noun: 'variant', destructive: true,
-                scope: (p) => vhits(p.query),
-                describe: (p) => ('' + (p.query || '')).trim() ? ('matching “' + p.query + '”') : 'every variant',
-                verb: 'Remove',
-                run: (rows) => {
-                    try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
-                    // Grouped by track and filtered in one pass per track, rather than a
-                    // removesnp() call per record: splicing an array while walking it is how
-                    // the last variant of a run gets left behind.
-                    const doomed = new Set(rows.map((r) => r.v));
-                    let n = 0;
-                    for (const t of tracks) {
-                        if (!t.snpindels) continue;
-                        const before = t.snpindels.length;
-                        t.snpindels = t.snpindels.filter((v) => !doomed.has(v));
-                        n += before - t.snpindels.length;
-                    }
-                    redraw();
-                    try { if (graph.rescale) graph.rescale(); } catch (e) { }
-                    result('Removed ' + n + ' variant' + (n === 1 ? '' : 's') + '. Undo restores them.');
-                }
-            },
-            clear_variant_selection: {
-                noun: 'variant', bare: true,
-                run: () => { selectVariants([]); result('Variant selection cleared.'); }
-            },
-            select_compounds: {
-                noun: 'compound',
-                scope: (p) => chits(p.filter),
-                describe: (p) => F.describe(p.filter),
-                verb: 'Select',
-                run: (rows) => {
-                    try {
-                        graph.setSelectedCompounds(rows.map((r) => ({ o: r.o, t: r.t })));
-                        graph.currentShape = null;
-                    } catch (e) { }
-                    redraw();
-                    result('Selected ' + rows.length + ' of ' + crows.length + ' compounds.');
-                }
-            },
-            remove_compounds: {
-                noun: 'compound', destructive: true,
-                scope: (p) => chits(p.filter),
-                describe: (p) => F.describe(p.filter),
-                verb: 'Remove',
-                run: (rows) => {
-                    try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
-                    const doomed = new Set(rows.map((r) => r.o));
-                    let n = 0;
-                    for (const t of tracks) {
-                        if (!t.oligos) continue;
-                        const before = t.oligos.length;
-                        t.oligos = t.oligos.filter((o) => !doomed.has(o));
-                        n += before - t.oligos.length;
-                    }
-                    // Prune the selection rather than emptying it: a compound that was
-                    // selected and NOT removed should still be selected afterwards, and a
-                    // removed one left in the list is a reference to a compound no track
-                    // carries any more.
-                    try {
-                        graph.setSelectedCompounds((graph.selectedCompounds || [])
-                            .filter((s) => s && s.o && !doomed.has(s.o)));
-                    } catch (e) { }
-                    redraw();
-                    try { if (graph.rescale) graph.rescale(); } catch (e) { }
-                    result('Removed ' + n + ' compound' + (n === 1 ? '' : 's') + '. Undo restores them.');
-                }
-            },
-            clear_compound_selection: {
-                noun: 'compound', bare: true,
-                run: () => {
-                    try { graph.deselectAllCompounds(); } catch (e) { }
-                    redraw();
-                    result('Compound selection cleared.');
-                }
-            },
-            zoom_selection: {
-                bare: true,
-                run: async () => {
-                    if (!ctx.has_selection) { result('Nothing is selected to zoom to. Drag across a track first.'); return; }
-                    try { await graph.zoomToSelection(); } catch (e) { }
-                    result('Framed the selection.');
-                }
-            },
-            fit: {
-                bare: true,
-                run: async () => {
-                    try { await graph.viewAllTracks(); } catch (e) { }
-                    result('Zoomed out to every track.');
-                }
-            },
-            // The one verb that ANSWERS rather than acts. It has no `run`: answering is
-            // a second round trip, so it is handled on its own path below, which renders
-            // the answer and then offers the selection as a button.
-            ask_variants: { noun: 'variant', question: true }
-        };
-
-        // ------------------------------------------------------------------ the panel -----
+        // --------------------------------------------------------------------- the panel ---
         return new Promise((resolve) => {
             const H = (s) => ('' + (s == null ? '' : s))
                 .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
             try { const old = document.getElementById('baja-editor-command'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
 
+            const ctx = context();
             const panel = document.createElement('div');
             panel.id = 'baja-editor-command';
             panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(3,10,20,0.62);'
                 + 'font-family:Arial,Helvetica,sans-serif;display:flex;align-items:flex-start;justify-content:center;'
-                + 'padding:84px 16px 16px;overflow:auto;';
+                + 'padding:72px 16px 16px;overflow:auto;';
 
             const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;'
                 + 'border:1px solid rgba(255,255,255,0.22);border-radius:10px;padding:13px 15px;font:15px Arial;';
             const btn = 'cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
                 + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;';
 
+            const selNote = ctx.has_selection
+                ? (ctx.tracks_with_a_selection === 1
+                    ? ('a selection of ' + (CAP.oneSelTrack() ? (Math.ceil(CAP.oneSelTrack().markend) - Math.floor(CAP.oneSelTrack().markstart)).toLocaleString() + ' nt' : 'some sequence') + ' on ' + (CAP.oneSelTrack().name || 'a track'))
+                    : (ctx.tracks_with_a_selection + ' tracks have a selection'))
+                : 'no sequence selected';
+
             panel.innerHTML = ''
-                + '<div style="width:100%;max-width:640px;background:#071a30;color:#fff;border-radius:14px;'
+                + '<div style="width:100%;max-width:680px;background:#071a30;color:#fff;border-radius:14px;'
                 + 'border:1px solid rgba(255,255,255,0.14);box-shadow:0 18px 54px rgba(0,0,0,0.55);overflow:hidden;">'
                 + '<div style="display:flex;align-items:center;gap:14px;padding:15px 20px 13px;background:#0b2545;'
                 + 'border-bottom:1px solid rgba(255,255,255,0.12);">'
                 + '<div style="min-width:0;"><div style="font:700 17px Arial;">Ask the editor</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
-                + ctx.counts.variants_on_screen + ' of ' + ctx.counts.variants + ' variant'
-                + (ctx.counts.variants === 1 ? '' : 's') + ' on screen, '
-                + ctx.counts.compounds + ' compound' + (ctx.counts.compounds === 1 ? '' : 's')
-                + ' on ' + tracks.length + ' track' + (tracks.length === 1 ? '' : 's') + '. '
-                + 'A question is answered about what is in view; an instruction applies to the whole canvas.'
-                + '</div></div>'
+                + CAP.list.length + ' operations · ' + ctx.variants_total + ' variants ('
+                + ctx.variants_on_screen + ' on screen) · ' + ctx.compounds_total + ' compounds · '
+                + H(selNote) + '</div></div>'
                 + '<div style="margin-left:auto;"><button id="ec-close" style="' + btn + '">Close</button></div>'
                 + '</div>'
                 + '<div style="padding:18px 20px 22px;">'
-                + '<input id="ec-q" placeholder="are any of these snps pathogenic" style="' + inp + '"/>'
+                + '<input id="ec-q" placeholder="load clinvar pathogenic snp indels into selected sequence" style="' + inp + '"/>'
                 + '<div style="display:flex;align-items:center;gap:10px;margin-top:11px;">'
                 + '<button id="ec-run" style="cursor:pointer;border-radius:8px;padding:10px 20px;font:700 13px Arial;'
                 + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Go</button>'
+                + '<button id="ec-what" style="' + btn + '">What can it do?</button>'
                 + '<div id="ec-busy" style="font:12.5px Arial;color:#9fb3c8;"></div></div>'
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:14px;line-height:1.8;">'
-                + '<b>Ask about what is on screen:</b> are any of these snps pathogenic · '
-                + 'which of these hit a splice site · what are these variants<br>'
-                + '<b>Or say what to do:</b> select all snps · select the pathogenic variants · '
-                + 'remove all snps · select every red compound · remove gapmers under 40% GC · '
-                + 'clear the selection · fit<br>'
-                + 'A question is answered about the variants in view, with what each record already says '
-                + 'shown beside it. An instruction picks one action from a fixed list and shows you which, '
-                + 'with a count, before anything happens; removing always needs a second click, and undo '
-                + 'restores it.'
+                + '<b>Load:</b> clinvar pathogenic snps and indels over the selection · gnomad variants · '
+                + 'put the known ASO and siRNA layer on<br>'
+                + '<b>Run a model:</b> which RBP binds this · splice site strength here · '
+                + 'microRNA sites in the selection<br>'
+                + '<b>Select or remove:</b> select all snps · select every red compound · '
+                + 'remove the benign ones<br>'
+                + '<b>Ask:</b> are any of these snps pathogenic · which of these hit a splice site<br>'
+                + 'It picks from the operations the editor has, shows you which and with what, '
+                + 'and runs nothing until you say so.'
                 + '</div>'
                 + '<div id="ec-out" style="margin-top:16px;"></div>'
                 + '</div></div>';
@@ -300,112 +195,57 @@ function (graph, layout) {
             q('#ec-close').onclick = () => done(0);
 
             let busy = false;
+            const parse = (v, d) => {
+                if (v == null) return d;
+                if (typeof v !== 'string') return v;
+                try { return JSON.parse(v); } catch (e) { return d; }
+            };
+            const card = (inner, border) => '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
+                + 'border:1px solid ' + (border || 'rgba(255,255,255,0.12)') + ';">' + inner + '</div>';
 
-            const render = (r, ask) => {
-                const out = q('#ec-out');
-                const A = ACTIONS[r.action];
-                const unsupported = Array.isArray(r.unsupported) ? r.unsupported : [];
-                const warn = unsupported.map((u) => '<div style="font:12.5px Arial;color:#fbbf24;margin-top:7px;">'
-                    + '&#9888; not something this can do: ' + H(u) + '</div>').join('');
-
-                if (!A) {
-                    out.innerHTML = '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
-                        + 'border:1px solid rgba(255,255,255,0.12);">'
-                        + '<div style="font:700 13.5px Arial;color:#e8f0fb;">That is not one of the things this box can do.</div>'
-                        + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:6px;line-height:1.7;">'
-                        + 'It can answer a question about the variants on screen, select or remove '
-                        + 'variants and compounds, clear either selection, zoom to the selection, or fit '
-                        + 'the view. Designing, loading data, editing sequence and exporting all live in '
-                        + 'the toolbar menus.</div>' + warn + '</div>';
-                    return;
-                }
-
-                // ---- a question, not an action ------------------------------------------
-                if (A.question) { answer(r, ask); return; }
-
-                // A bare verb has no records to count, so it runs on the one click that asked
-                // for it. Nothing it does destroys anything and all of it is one keystroke to
-                // put back, so a confirmation would only be ceremony.
-                if (A.bare) {
-                    Promise.resolve(A.run()).then(() => done(0));
-                    return;
-                }
-
-                const rows = A.scope({ query: r.query, filter: r.filter || {} });
-                const what = A.describe({ query: r.query, filter: r.filter || {} });
-                const total = (A.noun === 'variant') ? vrows.length : crows.length;
-                // "1 of 6 variants", not "1 of 6 variant": in the headline the noun agrees
-                // with the total it is counted out of, and on the button, where there is no
-                // "of", it agrees with the number being acted on.
-                const noun = A.noun + (total === 1 ? '' : 's');
-                const nounN = A.noun + (rows.length === 1 ? '' : 's');
-
-                if (!rows.length) {
-                    out.innerHTML = '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
-                        + 'border:1px solid rgba(255,255,255,0.12);">'
-                        + '<div style="font:700 13.5px Arial;color:#e8f0fb;">Nothing matches ' + H(what) + '.</div>'
-                        + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:6px;">Read as: ' + H(r.explain || (A.verb.toLowerCase() + ' ' + A.noun + 's')) + '</div>'
-                        + warn + '</div>';
-                    return;
-                }
-
-                // THE COUNT AND THE FILTER, IN THE EDITOR'S WORDS. `explain` is prose a model
-                // wrote and may mention a parameter that did not survive cleaning on the way
-                // here; the headline is built from the action that will actually run, and the
-                // model's sentence sits under it where a difference between them is visible.
-                const head = A.verb + ' ' + rows.length + ' of ' + total + ' ' + noun + ' -- ' + what;
-                const danger = !!A.destructive;
-                out.innerHTML = '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
-                    + 'border:1px solid ' + (danger ? 'rgba(248,113,113,0.5)' : 'rgba(255,255,255,0.12)') + ';">'
-                    + '<div style="font:700 14px Arial;color:' + (danger ? '#fca5a5' : '#7fb0e8') + ';">' + H(head) + '</div>'
-                    + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:6px;">from “' + H(ask) + '”'
-                    + (r.explain ? ('<br>read as: ' + H(r.explain)) : '') + '</div>'
-                    + warn
-                    + (danger ? '<div style="font:12.5px Arial;color:#fca5a5;margin-top:9px;">'
-                        + 'This deletes them from the track' + (total === rows.length ? ' -- every one of them' : '')
-                        + '. Undo restores them.</div>' : '')
-                    + '<div style="display:flex;gap:10px;margin-top:13px;">'
-                    + '<button id="ec-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
-                    + (danger ? 'border:1px solid #ef4444;background:#ef4444;color:#2a0505;'
-                        : 'border:1px solid #22c55e;background:#22c55e;color:#04210f;') + '">'
-                    + H(A.verb + ' ' + rows.length + ' ' + nounN) + '</button>'
-                    + '<button id="ec-no" style="' + btn + '">Cancel</button>'
-                    + '</div></div>';
-
-                q('#ec-no').onclick = () => { out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { } };
-                q('#ec-go').onclick = () => { Promise.resolve(A.run(rows)).then(() => done(rows.length)); };
-                try { q('#ec-go').focus(); } catch (e) { }
+            // ------------------------------------------------------------- the catalogue ---
+            // Asked for by name, because "what can it do" is the first thing anyone wants
+            // from a box like this, and a guess that comes back "not something this can do"
+            // teaches nothing about what is.
+            q('#ec-what').onclick = () => {
+                q('#ec-out').innerHTML = card(
+                    '<div style="font:700 13px Arial;color:#7fb0e8;margin-bottom:9px;">'
+                    + CAP.list.length + ' operations</div>'
+                    + CAP.list.map((c) => {
+                        const b = CAP.blocker(c);
+                        return '<div style="padding:7px 0;border-top:1px solid rgba(255,255,255,0.08);">'
+                            + '<div style="font:700 12px Arial;color:' + (c.destructive ? '#fca5a5' : '#e8f0fb') + ';">'
+                            + H(c.name.replace(/_/g, ' ')) + (c.destructive ? ' · deletes work' : '') + '</div>'
+                            + '<div style="font:11.5px Arial;color:#9fb3c8;margin-top:2px;line-height:1.6;">'
+                            + H(c.summary) + '</div>'
+                            + (b ? '<div style="font:11px Arial;color:#fbbf24;margin-top:2px;">not available: ' + H(b) + '</div>' : '')
+                            + '</div>';
+                    }).join(''));
             };
 
-            // ------------------------------------------------------------------ answering ---
-            // Collect what is on screen, send the records, render the verdicts beside what
-            // each record already said, and offer the affirmative ones as a selection.
-            const answer = async (r, ask) => {
+            // ------------------------------------------------------------- answering -------
+            const answer = async (step, ask) => {
                 const out = q('#ec-out');
                 let rows = visibleVariants();
-                const narrowed = ('' + (r.query || '')).trim();
+                const narrowed = ('' + ((step.args && step.args.query) || '')).trim();
                 if (narrowed) {
                     const qq = VS.compileQuery(narrowed);
                     if (qq) rows = rows.filter((x) => qq(x.rec));
                 }
                 if (!rows.length) {
-                    out.innerHTML = '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
-                        + 'border:1px solid rgba(255,255,255,0.12);font:13px Arial;color:#9fb3c8;">'
-                        + (vrows.length
+                    out.innerHTML = card('<div style="font:13px Arial;color:#9fb3c8;">'
+                        + (CAP.vrows().length
                             ? ('No variants are on screen' + (narrowed ? (' matching “' + H(narrowed) + '”') : '')
-                                + '. Zoom out, or ask about the whole track by name.')
-                            : 'There are no variants on the open tracks.')
-                        + '</div>';
-                    return;
+                                + '. Zoom out, or load some first.')
+                            : 'There are no variants on the open tracks.') + '</div>');
+                    return 0;
                 }
-
-                // A HARD CAP, SAID OUT LOUD. Past a few hundred records the answer stops
-                // being about what the user is looking at, and silently truncating the list
-                // would make "none of these are pathogenic" a statement about an arbitrary
-                // prefix of the screen.
-                const CAP = 300;
+                // A HARD CAP, SAID OUT LOUD. Past a few hundred records the answer stops being
+                // about what the user is looking at, and silently truncating would make "none
+                // of these are pathogenic" a statement about an arbitrary prefix of the screen.
+                const CAPN = 300;
                 let capped = 0;
-                if (rows.length > CAP) { capped = rows.length - CAP; rows = rows.slice(0, CAP); }
+                if (rows.length > CAPN) { capped = rows.length - CAPN; rows = rows.slice(0, CAPN); }
 
                 q('#ec-busy').textContent = 'reading ' + rows.length + ' variant' + (rows.length === 1 ? '' : 's') + '…';
                 let a = null;
@@ -417,39 +257,26 @@ function (graph, layout) {
                     q('#ec-busy').textContent = '';
                     out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that: '
                         + H(e && e.message ? e.message : e) + '</div>';
-                    return;
+                    return 0;
                 }
                 q('#ec-busy').textContent = '';
                 if (!a || a.status !== 'OK') {
                     out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that'
                         + (a && a.error ? (': ' + H(a.error)) : '.') + '</div>';
-                    return;
+                    return 0;
                 }
 
-                const parse = (v, d) => {
-                    if (v == null) return d;
-                    if (typeof v !== 'string') return v;
-                    try { return JSON.parse(v); } catch (e) { return d; }
-                };
                 const verdicts = parse(a.verdicts, []) || [];
                 const matches = (parse(a.matches, []) || []).filter((i) => i >= 0 && i < rows.length);
                 const hitRows = matches.map((i) => rows[i]).filter(Boolean);
-
-                const VCOL = {
-                    pathogenic: '#fca5a5', likely_pathogenic: '#fdba74', uncertain: '#fcd34d',
-                    likely_benign: '#a7f3d0', benign: '#86efac', unknown: '#9fb3c8'
-                };
-                const VLAB = {
-                    pathogenic: 'pathogenic', likely_pathogenic: 'likely pathogenic',
-                    uncertain: 'uncertain', likely_benign: 'likely benign',
-                    benign: 'benign', unknown: 'not known to it'
-                };
+                const VCOL = { pathogenic: '#fca5a5', likely_pathogenic: '#fdba74', uncertain: '#fcd34d', likely_benign: '#a7f3d0', benign: '#86efac', unknown: '#9fb3c8' };
+                const VLAB = { pathogenic: 'pathogenic', likely_pathogenic: 'likely pathogenic', uncertain: 'uncertain', likely_benign: 'likely benign', benign: 'benign', unknown: 'not known to it' };
 
                 const line = (v) => {
                     const row = rows[v.i];
                     if (!row) return '';
                     const rec = row.rec;
-                    const who = [rec.name, rec.gene, rec.change && rec.change !== '>' ? rec.change : '']
+                    const who = [rec.name, rec.gene, (rec.change && rec.change !== '>') ? rec.change : '']
                         .map((x) => ('' + (x || '')).trim()).filter(Boolean).join(' · ');
                     // THE RECORD'S OWN CALL, ALWAYS, WHERE THERE IS ONE. Side by side rather
                     // than merged: where the model agrees this is corroboration, and where it
@@ -460,31 +287,25 @@ function (graph, layout) {
                         + 'border-top:1px solid rgba(255,255,255,0.08);">'
                         + '<div style="flex:0 0 118px;font:700 11.5px Arial;color:' + (VCOL[v.verdict] || '#9fb3c8') + ';">'
                         + H(VLAB[v.verdict] || v.verdict)
-                        + '<div style="font:400 10.5px Arial;color:#6b8299;margin-top:2px;">'
-                        + H(v.confidence) + ' confidence</div></div>'
+                        + '<div style="font:400 10.5px Arial;color:#6b8299;margin-top:2px;">' + H(v.confidence) + ' confidence</div></div>'
                         + '<div style="min-width:0;flex:1 1 auto;">'
                         + '<div style="font:700 12.5px Arial;color:#e8f0fb;">' + H(who || '(unnamed)') + '</div>'
                         + (own ? '<div style="font:11.5px Arial;color:#7fb0e8;margin-top:2px;">record says: '
                             + H(own) + (rec.condition ? (' (' + H(rec.condition) + ')') : '') + '</div>' : '')
-                        + (v.why ? '<div style="font:11.5px Arial;color:#9fb3c8;margin-top:3px;line-height:1.6;">'
-                            + H(v.why) + '</div>' : '')
+                        + (v.why ? '<div style="font:11.5px Arial;color:#9fb3c8;margin-top:3px;line-height:1.6;">' + H(v.why) + '</div>' : '')
                         + '</div></div>';
                 };
-
                 const withCall = rows.filter((x) => ('' + (x.rec.clinsig || '')).trim()).length;
 
-                out.innerHTML = ''
-                    + '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
-                    + 'border:1px solid rgba(255,255,255,0.12);">'
-                    + '<div style="font:13.5px Arial;color:#e8f0fb;line-height:1.7;">' + H(a.answer || '(no answer)') + '</div>'
+                out.innerHTML = card(
+                    '<div style="font:13.5px Arial;color:#e8f0fb;line-height:1.7;">' + H(a.answer || '(no answer)') + '</div>'
                     + '<div style="font:11.5px Arial;color:#6b8299;margin-top:7px;">'
                     + 'asked about ' + rows.length + ' variant' + (rows.length === 1 ? '' : 's') + ' on screen'
                     + (narrowed ? (' matching “' + H(narrowed) + '”') : '')
                     + ' · ' + withCall + ' of them already carry a clinical call'
                     + (capped ? (' · ' + capped + ' more on screen were NOT included, zoom in to cover them') : '')
                     + '</div>'
-                    + (a.caveat ? '<div style="font:11.5px Arial;color:#fbbf24;margin-top:7px;">' + H(a.caveat) + '</div>' : '')
-                    + '</div>'
+                    + (a.caveat ? '<div style="font:11.5px Arial;color:#fbbf24;margin-top:7px;">' + H(a.caveat) + '</div>' : ''))
                     + (verdicts.length
                         ? ('<div style="margin-top:12px;border-radius:10px;background:#071f3a;'
                             + 'border:1px solid rgba(255,255,255,0.12);overflow:hidden;">'
@@ -492,21 +313,124 @@ function (graph, layout) {
                             + 'PER VARIANT · a model reading the record, not a clinical determination</div>'
                             + verdicts.map(line).join('') + '</div>')
                         : '')
+                    + '<div style="display:flex;gap:10px;margin-top:13px;">'
                     + (hitRows.length
-                        ? ('<div style="display:flex;gap:10px;margin-top:13px;">'
-                            + '<button id="ec-sel" style="cursor:pointer;border-radius:8px;padding:9px 18px;'
-                            + 'font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">'
-                            + 'Select these ' + hitRows.length + '</button>'
-                            + '<button id="ec-again" style="' + btn + '">Ask something else</button></div>')
-                        : ('<div style="margin-top:13px;"><button id="ec-again" style="' + btn + '">Ask something else</button></div>'));
+                        ? ('<button id="ec-sel" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
+                            + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Select these ' + hitRows.length + '</button>')
+                        : '')
+                    + '<button id="ec-again" style="' + btn + '">Ask something else</button></div>';
 
                 const again = q('#ec-again');
                 if (again) again.onclick = () => { out.innerHTML = ''; try { q('#ec-q').value = ''; q('#ec-q').focus(); } catch (e) { } };
                 const sel = q('#ec-sel');
                 if (sel) sel.onclick = () => {
-                    selectVariants(hitRows);
+                    CAP.selectVariants(hitRows);
                     done(hitRows.length);
                     result('Selected ' + hitRows.length + ' variant' + (hitRows.length === 1 ? '' : 's') + '.');
+                };
+                return hitRows.length;
+            };
+
+            // ------------------------------------------------------------- the plan ---------
+            const render = (r, ask) => {
+                const out = q('#ec-out');
+                const steps = parse(r.steps, []) || [];
+                const unsupported = parse(r.unsupported, []) || [];
+                const problems = parse(r.problems, []) || [];
+
+                const warn = []
+                    .concat(unsupported.map((u) => ['#fbbf24', 'not something the editor can do: ' + u]))
+                    .concat(problems.map((p) => ['#fca5a5', 'refused: ' + p]))
+                    .map(([c, t]) => '<div style="font:12.5px Arial;color:' + c + ';margin-top:7px;">&#9888; ' + H(t) + '</div>')
+                    .join('');
+
+                // Validated here as well as in the planner. Same declarations, both sides: a
+                // check that lives in only one of the two is one refactor from being gone,
+                // and this is the side holding the user's unsaved work.
+                const plan = steps.map((s) => ({ step: s, p: CAP.preview(s) }));
+                const bad = plan.filter((x) => !x.p.ok);
+                const good = plan.filter((x) => x.p.ok);
+
+                // NOTHING LEFT TO RUN is one outcome, whether the planner returned no steps
+                // or returned steps this side refused. Rendering a plan card around zero
+                // runnable steps read as "One operation" with a refusal underneath it.
+                if (!good.length) {
+                    out.innerHTML = card(
+                        '<div style="font:700 13.5px Arial;color:#e8f0fb;">Nothing in the editor does that.</div>'
+                        + bad.map((x) => '<div style="font:12.5px Arial;color:#fca5a5;margin-top:7px;">'
+                            + '&#9888; refused: ' + H(x.p.text) + '</div>').join('')
+                        + warn
+                        + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
+                        + 'Press “What can it do?” for the full list.</div>');
+                    return;
+                }
+
+                // A single question is answered rather than planned.
+                if (good.length === 1 && !bad.length && good[0].p.answers) { answer(good[0].step, ask); return; }
+
+                const blocked = good.filter((x) => x.p.blocker);
+                const danger = good.some((x) => x.p.destructive);
+                const runnable = good.filter((x) => !x.p.blocker);
+
+                const row = (x, i) => {
+                    const p = x.p;
+                    const n = (p.count == null) ? '' : (' · ' + p.count + ' match' + (p.count === 1 ? '' : 'es'));
+                    const args = Object.keys(x.step.args || {});
+                    return '<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,0.08);">'
+                        + '<div style="font:700 12.5px Arial;color:' + (p.destructive ? '#fca5a5' : '#e8f0fb') + ';">'
+                        + (good.length > 1 ? ((i + 1) + '. ') : '') + H(p.text) + H(n)
+                        + (p.opens ? ' <span style="font:400 11px Arial;color:#9fb3c8;">(opens a dialog)</span>' : '')
+                        + '</div>'
+                        + '<div style="font:11px Arial;color:#6b8299;margin-top:3px;">'
+                        + H(p.capability.name) + (args.length ? (' · ' + args.map((k) => k + '=' + JSON.stringify(x.step.args[k])).join(' ')) : ' · no arguments')
+                        + '</div>'
+                        + (x.step.dropped && x.step.dropped.length
+                            ? '<div style="font:11px Arial;color:#fbbf24;margin-top:3px;">ignored, not a parameter of this operation: '
+                                + H(x.step.dropped.join(', ')) + '</div>' : '')
+                        + (p.blocker ? '<div style="font:11.5px Arial;color:#fbbf24;margin-top:3px;">cannot run: ' + H(p.blocker) + '</div>' : '')
+                        + '</div>';
+                };
+
+                const verb = danger ? 'Run it' : (runnable.length > 1 ? ('Run all ' + runnable.length) : 'Run it');
+                const nShown = good.length;
+                out.innerHTML = card(
+                    '<div style="font:700 13px Arial;color:' + (danger ? '#fca5a5' : '#7fb0e8') + ';">'
+                    + (nShown > 1 ? ('A plan, ' + nShown + ' steps') : 'One operation') + '</div>'
+                    + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:5px;">from “' + H(ask) + '”'
+                    + (r.explain ? ('<br>read as: ' + H(r.explain)) : '') + '</div>'
+                    + good.map(row).join('')
+                    + bad.map((x) => '<div style="font:11.5px Arial;color:#fca5a5;padding:8px 0;'
+                        + 'border-top:1px solid rgba(255,255,255,0.08);">refused: ' + H(x.p.text) + '</div>').join('')
+                    + warn
+                    + (danger ? '<div style="font:12.5px Arial;color:#fca5a5;margin-top:9px;">'
+                        + 'This deletes work. Undo restores it.</div>' : '')
+                    + '<div style="display:flex;gap:10px;margin-top:13px;">'
+                    + (runnable.length
+                        ? ('<button id="ec-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
+                            + (danger ? 'border:1px solid #ef4444;background:#ef4444;color:#2a0505;'
+                                : 'border:1px solid #22c55e;background:#22c55e;color:#04210f;') + '">' + H(verb) + '</button>')
+                        : '')
+                    + '<button id="ec-no" style="' + btn + '">Cancel</button></div>',
+                    danger ? 'rgba(248,113,113,0.5)' : null);
+
+                q('#ec-no').onclick = () => { out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { } };
+                const go = q('#ec-go');
+                if (go) go.onclick = async () => {
+                    go.disabled = true;
+                    // IN ORDER, AND STOPPING AT THE FIRST FAILURE. A later step is usually
+                    // written against what an earlier one produced, so carrying on past a
+                    // failure runs the rest against a canvas that never reached the state
+                    // they assume.
+                    let ran = 0, failed = null;
+                    for (const x of runnable) {
+                        try { await x.p.capability.run(x.p.args); ran++; }
+                        catch (e) { failed = (x.p.capability.name + ': ' + (e && e.message ? e.message : e)); break; }
+                    }
+                    // Operations report their own outcome; only a multi-step plan or a
+                    // failure needs a line of its own, or the roll-up buries what they said.
+                    if (failed) result('Stopped after ' + ran + ' of ' + runnable.length + ': ' + failed);
+                    else if (runnable.length > 1) result('Ran all ' + ran + ' steps.');
+                    done(ran);
                 };
             };
 
@@ -515,31 +439,26 @@ function (graph, layout) {
                 const ask = ('' + q('#ec-q').value).trim();
                 if (!ask) { try { q('#ec-q').focus(); } catch (e) { } return; }
                 busy = true;
-                q('#ec-busy').textContent = 'reading…';
+                q('#ec-busy').textContent = 'working out what to run…';
                 q('#ec-out').innerHTML = '';
                 let r = null;
                 try {
                     const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
-                    r = await exec(window['env']['apiUrl'] + '/py/bio/editor/command.py',
-                        em, ask, JSON.stringify(ctx), '');
+                    r = await exec(window['env']['apiUrl'] + '/py/bio/editor/plan.py',
+                        em, ask, JSON.stringify(CAP.catalogue()), JSON.stringify(context()), '');
                 } catch (e) {
                     busy = false; q('#ec-busy').textContent = '';
-                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">'
-                        + 'Could not read that: ' + H(e && e.message ? e.message : e) + '</div>';
+                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that: '
+                        + H(e && e.message ? e.message : e) + '</div>';
                     return;
                 }
                 busy = false; q('#ec-busy').textContent = '';
                 if (!r || r.status !== 'OK') {
-                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">'
-                        + 'Could not read that' + (r && r.error ? (': ' + H(r.error)) : '.') + '</div>';
+                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that'
+                        + (r && r.error ? (': ' + H(r.error)) : '.') + '</div>';
                     return;
                 }
-                // The engine hands strings back for object fields on some paths.
-                let filter = {};
-                try { filter = (typeof r.filter === 'string') ? JSON.parse(r.filter || '{}') : (r.filter || {}); } catch (e) { filter = {}; }
-                let unsupported = r.unsupported;
-                if (typeof unsupported === 'string') { try { unsupported = JSON.parse(unsupported); } catch (e) { unsupported = unsupported ? [unsupported] : []; } }
-                render({ action: r.action, query: r.query, filter: filter, explain: r.explain, unsupported: unsupported }, ask);
+                render(r, ask);
             };
 
             q('#ec-run').onclick = run;

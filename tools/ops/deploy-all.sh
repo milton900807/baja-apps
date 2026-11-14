@@ -273,20 +273,17 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/menu-factory.js:openMenuAtPointer(__bajaSplice"
   install_group "editor loading notice" \
     "manchester/editor.js:baja-loading-notice"
-  # Ask: a free-text box on the toolbar that names ONE action out of a fixed list. The
-  # translator and the overlay are one feature and the overlay calls the translator by
-  # path, so an editor.js that offers the button without them is a button that errors.
-  install_group "Ask: the toolbar command box and its translator" \
+  # Ask: the toolbar box, the catalogue of operations it may choose from, the planner that
+  # chooses, and the answerer for questions. ONE GROUP, because they only work together:
+  # the box reads the catalogue by path and calls both scripts by path, the planner is
+  # handed the catalogue rather than carrying its own copy, and an editor.js offering the
+  # button without the rest is a button that errors. Splitting them would let a half
+  # install pass its served-check and fail on the first click.
+  install_group "Ask: plan against the editor's own catalogue of operations" \
     "manchester/editor.js:ASK sits between Download and Share" \
-    "baja/manchester/menu/editor-command.js:TYPE WHAT YOU WANT DONE, IN WORDS" \
-    "py/bio/editor/command.py:THE MODEL CHOOSES FROM A CLOSED LIST AND FILLS ITS PARAMETERS"
-  # Asking a QUESTION about the variants on screen, rather than naming an action. The
-  # overlay collects the visible records and calls variant-question.py by path, and
-  # command.py has to know the ask_variants verb or the question is never routed there,
-  # so the three move together.
-  install_group "Ask: questions about the variants on screen" \
-    "baja/manchester/menu/editor-command.js:WHAT IS ACTUALLY ON SCREEN" \
-    "py/bio/editor/command.py:ANSWER A QUESTION about the variants currently on screen" \
+    "baja/manchester/menu/editor-command.js:ASK: SAY WHAT YOU WANT DONE" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR CAN BE ASKED TO DO, DECLARED" \
+    "py/bio/editor/plan.py:THE CATALOGUE IS SENT IN, NOT WRITTEN HERE" \
     "py/bio/editor/variant-question.py:EVERY VERDICT IS INDEXED, NOT NAMED"
   install_group "baja-project: progress bar first, Add to a fundraising campaign" \
     "cpd/baja-project.js:__bajaOpening"
