@@ -203,6 +203,8 @@ function (graph, genegraph_panel_layout, options) {
                 + '<b>Select or remove:</b> select all snps · select every red compound · '
                 + 'remove the benign ones · go to DNM3<br>'
                 + '<b>Ask:</b> are any of these snps pathogenic · which of these hit a splice site<br>'
+                + '<b>Or open a shelf and pick:</b> show me the ML options · what data can I load · '
+                + 'what modalities are there<br>'
                 + 'It picks from the operations the editor has, shows you which and with what, '
                 + 'and runs nothing until you say so.'
                 + '</div>'
@@ -420,8 +422,10 @@ function (graph, genegraph_panel_layout, options) {
                             + '&#9888; refused: ' + H(x.p.text) + '</div>').join('')
                         + warn
                         + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
-                        + (HOST ? 'Ask the editor for the full list of operations.'
-                            : 'Press “What can it do?” for the full list.') + '</div>'
+                        + (HOST ? 'Ask the editor for the full list of operations, '
+                            : 'Press “What can it do?” for the full list, ')
+                        + 'or ask to open a library \u2014 the models, the data, the modalities \u2014 '
+                        + 'and pick from there.</div>'
                         + dismissRow('ec-x1'));
                     wireDismiss('ec-x1');
                     return;

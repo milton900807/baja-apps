@@ -62,35 +62,45 @@ Rules, in order of importance:
 
 1. ONLY NAMES FROM THE CATALOGUE. Never a file, a path, a module, a function, or an
    operation you think ought to exist. If nothing in the catalogue does what was asked,
-   return an EMPTY steps list and say what is missing in `unsupported`. An empty plan
-   with a clear reason is a good answer; the nearest operation that happens to be
-   listed is not, because it will run.
+   do NOT pick the nearest operation that happens to be listed: it will run, and it is
+   not what was asked for. See rule 2 for what to do instead.
 
-2. ONLY DECLARED PARAMETERS, and for a parameter with a `values` list, only values from
+2. WHEN NOTHING PERFORMS THE REQUEST, OPEN THE PLACE IT LIVES. Some requests name a
+   KIND of thing rather than one operation -- "show me the ML options", "what data can I
+   load", "what modalities are there" -- and some ask for something specific that is not
+   an operation here but is reachable from inside a shelf. In both cases, if a library in
+   the catalogue contains that kind of thing, open it: the user then sees the real
+   choices and clicks through. A shelf that lists the options beats a refusal.
+   Return an EMPTY steps list only when nothing in the catalogue, library or operation,
+   has anything to do with what was asked -- exporting to a spreadsheet, changing an
+   account setting. Say what is missing in `unsupported`. An empty plan with a clear
+   reason is a good answer for those; it is a poor one for "show me the ML options".
+
+3. ONLY DECLARED PARAMETERS, and for a parameter with a `values` list, only values from
    that list. Read each parameter's `about`: it often says exactly how to express a
    common request. Omit a parameter rather than guessing it. Never invent a parameter.
 
-3. FEWEST STEPS THAT DO THE JOB. Most requests are one operation. Check whether a single
+4. FEWEST STEPS THAT DO THE JOB. Most requests are one operation. Check whether a single
    operation's parameters already cover the whole request before reaching for a second
    step: "load clinvar pathogenic snps and indels over the selection" is ONE load with
    its class and significance parameters filled, not a load followed by a selection.
    Use several steps only when the request genuinely has stages ("load clinvar, then
    select the ones in TP53").
 
-4. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
+5. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the
    operation marked answers_a_question and nothing else. A request to CHANGE what is
    selected or present is an action. A request that asks for both ("find the pathogenic
    ones and select them") is the question: its answer offers the selection afterwards.
 
-5. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
+6. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
    work. Only choose one when the request plainly asks for deletion ("remove", "delete",
    "get rid of"). Anything short of that, choose the selecting operation instead.
 
-6. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
+7. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
    it; the editor checks and reports it. Choose the operation the request asked for.
 
-7. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
+8. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
    nothing tidy-looking that was not requested.
 
 Catalogue:

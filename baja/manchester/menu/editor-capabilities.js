@@ -95,6 +95,11 @@ function (graph, genegraph_panel_layout) {
         // the button rather than before it.
         for (const t of tracks()) { try { await regionsOf(t); } catch (e) { } }
 
+        // The tracks a shelf should load onto: the ones carrying a selection when any do,
+        // otherwise every open track. A shelf opened with no tracks asks the user to click
+        // one, which is the right behaviour and not worth pre-empting.
+        const scopeTracks = () => (selTracks().length ? selTracks() : tracks());
+
         const LAYER_SETS = await (async () => { try { return await exec('baja/data/layer-sets.js'); } catch (e) { return {}; } })();
         const LAYER_KEYS = Object.keys(LAYER_SETS || {});
 
@@ -279,6 +284,74 @@ function (graph, genegraph_panel_layout) {
                 run: (a) => exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout,
                     a.modality || null, oneTrack() || null),
                 preview: (a) => 'open the tiling designer' + (a.modality ? (' on ' + a.modality) : '')
+            },
+
+            {
+                name: 'open_library',
+                summary: 'OPEN A LIBRARY and let the user pick from it. This is the answer when the '
+                    + 'request names a KIND of thing rather than one operation -- "show me the ML '
+                    + 'options", "what data can I load", "what modalities are there" -- and when the '
+                    + 'exact thing asked for is not an operation here but lives inside one of these '
+                    + 'shelves. A shelf that lists the real choices beats refusing.',
+                opens: true,
+                params: {
+                    library: {
+                        type: 'enum',
+                        values: ['ml_models', 'ml_models_reference', 'data', 'data_reference',
+                            'design_modalities', 'chemistry', 'clinical_compounds', 'drawing',
+                            'across_tracks', 'everything'],
+                        required: true,
+                        about: 'ml_models: the models as things to RUN on a track (BajaCLIP, BajaSplice, '
+                            + 'BajaIR, djPrimer). ml_models_reference: what each model is, its evidence '
+                            + 'and its limits, changing nothing. data: every dataset that can be loaded '
+                            + 'as a layer. data_reference: what each data source is and what it does not '
+                            + 'support. design_modalities: the design space as a map, every modality with '
+                            + 'its precedent. chemistry: reference reading on oligonucleotide chemistry. '
+                            + 'clinical_compounds: clinical RNA compounds with their trial records. '
+                            + 'drawing: the drawing and annotation tools. across_tracks: operations '
+                            + 'spanning several tracks. everything: the library of all the libraries, '
+                            + 'for a request too broad to place'
+                    }
+                },
+                run: (a) => {
+                    const PATHS = {
+                        ml_models: ['baja/ml/models-library.js', true],
+                        ml_models_reference: ['baja/ml/institute-of-models-library.js', false],
+                        data: ['baja/data/data-resources-library.js', true],
+                        data_reference: ['baja/data/data-loading-library.js', false],
+                        design_modalities: ['baja/lib/institute-rna-design.js', false],
+                        chemistry: ['baja/lib/rna-chemistry-library.js', false],
+                        clinical_compounds: ['manchester/clinical-library.js', false],
+                        drawing: ['baja/manchester/menu/draw-tools-library.js', false],
+                        across_tracks: ['baja/manchester/menu/across-tracks.js', false],
+                        everything: ['baja/lib/library-of-libraries.js', false]
+                    };
+                    const e = PATHS[a.library];
+                    if (!e) { result('No such library: ' + a.library); return; }
+                    try { graph.showSideMenu(null); } catch (e2) { }
+                    // The shelves that load onto a track take the set to load onto; the
+                    // reading rooms take none and would ignore a third argument anyway.
+                    // Passed explicitly rather than always, so a reading room cannot end up
+                    // with a track list it was never written to read.
+                    return e[1]
+                        ? exec(e[0], graph, genegraph_panel_layout, scopeTracks())
+                        : exec(e[0], graph, genegraph_panel_layout);
+                },
+                preview: (a) => {
+                    const NAMES = {
+                        ml_models: 'the machine learning models, to run one',
+                        ml_models_reference: 'what each model is and what it is worth',
+                        data: 'the data that can be loaded onto a track',
+                        data_reference: 'what each data source is',
+                        design_modalities: 'the design space, modality by modality',
+                        chemistry: 'the RNA chemistry reading shelf',
+                        clinical_compounds: 'the clinical compounds and their trials',
+                        drawing: 'the drawing and annotation tools',
+                        across_tracks: 'what can be done across several tracks',
+                        everything: 'every library there is'
+                    };
+                    return 'open ' + (NAMES[a.library] || a.library);
+                }
             },
 
             // ---------------------------------------------------------------- selecting ----
