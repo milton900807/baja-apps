@@ -172,7 +172,7 @@ function (graph, genegraph_panel_layout) {
                 + '<b>Run a model:</b> which RBP binds this · splice site strength here · '
                 + 'microRNA sites in the selection<br>'
                 + '<b>Select or remove:</b> select all snps · select every red compound · '
-                + 'remove the benign ones<br>'
+                + 'remove the benign ones · deselect the sequence · go to DNM3<br>'
                 + '<b>Ask:</b> are any of these snps pathogenic · which of these hit a splice site<br>'
                 + 'It picks from the operations the editor has, shows you which and with what, '
                 + 'and runs nothing until you say so.'

@@ -57,6 +57,23 @@ function (graph, genegraph_panel_layout) {
             return (s.length === 1) ? s[0] : null;
         };
 
+        // One track from a name the user typed. Exact first, then a unique prefix, then a
+        // unique substring: "DNM3" should find DNM3-201 without also claiming DNM3OS-201,
+        // and two matches is not a match, because framing the wrong track looks like the
+        // editor ignoring the request.
+        const matchTrack = (name) => {
+            const want = ('' + (name || '')).trim().toLowerCase();
+            if (!want) return null;
+            const all = tracks();
+            const nm = (t) => ('' + (t.name || '')).toLowerCase();
+            const exact = all.filter((t) => nm(t) === want);
+            if (exact.length === 1) return exact[0];
+            const pre = all.filter((t) => nm(t).indexOf(want) === 0);
+            if (pre.length === 1) return pre[0];
+            const sub = all.filter((t) => nm(t).indexOf(want) >= 0);
+            return (sub.length === 1) ? sub[0] : null;
+        };
+
         const LAYER_SETS = await (async () => { try { return await exec('baja/data/layer-sets.js'); } catch (e) { return {}; } })();
         const LAYER_KEYS = Object.keys(LAYER_SETS || {});
 
@@ -291,7 +308,8 @@ function (graph, genegraph_panel_layout) {
             },
             {
                 name: 'clear_variant_selection',
-                summary: 'Deselect every variant.',
+                summary: 'Deselect every variant: the highlighted SNPs and indels. Does not touch '
+                    + 'a selected sequence range.',
                 needs: 'variants', params: {},
                 run: () => { selectVariants([]); result('Variant selection cleared.'); }
             },
@@ -350,8 +368,46 @@ function (graph, genegraph_panel_layout) {
                 preview: (a) => 'delete the compounds: ' + F.describe(a)
             },
             {
+                name: 'clear_sequence_selection',
+                summary: 'Drop the selected sequence: the marked stretch on a track, made by '
+                    + 'dragging across it. This is what "deselect", "deselect sequence", "clear '
+                    + 'the selection" and "unselect the region" mean when a stretch of sequence '
+                    + 'is marked. It does not touch selected variants or compounds.',
+                needs: 'any_selection', params: {},
+                count: () => selTracks().length,
+                run: () => {
+                    // gene.js owns this because clearing a range also has to reset the drag
+                    // state that created it, or the next mouse-up re-applies the range just
+                    // cleared. Falling back to clearing the marks here keeps the operation
+                    // working against a gene.js that predates the method -- and the count is
+                    // taken BEFORE, so a failure cannot report itself as "nothing was
+                    // selected", which is the one wrong answer available here.
+                    const before = selTracks().length;
+                    let done = false;
+                    if (typeof graph.clearSequenceSelections === 'function') {
+                        try { graph.clearSequenceSelections(); done = true; } catch (e) { done = false; }
+                    }
+                    if (!done) {
+                        for (const t of selTracks()) {
+                            try { t.markstart = null; t.markend = null; t.showResizeBar = false; } catch (e) { }
+                        }
+                        try { graph.select_ = false; graph.startX = null; graph.endX = null; graph.__dragMark = null; } catch (e) { }
+                    }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    const left = selTracks().length;
+                    if (left) { result('Could not clear the selection on ' + left + ' track' + (left === 1 ? '' : 's') + '.'); return; }
+                    result(before ? ('Cleared the selected sequence on ' + before + ' track' + (before === 1 ? '' : 's') + '.')
+                        : 'No sequence was selected.');
+                },
+                preview: () => {
+                    const s = selTracks();
+                    return 'drop the selected sequence on ' + (s.length
+                        ? s.map((t) => t.name || 'a track').join(', ') : 'any track that has one');
+                }
+            },
+            {
                 name: 'clear_compound_selection',
-                summary: 'Deselect every compound.',
+                summary: 'Deselect every compound. Does not touch a selected sequence range.',
                 needs: 'compounds', params: {},
                 run: () => {
                     try { graph.deselectAllCompounds(); } catch (e) { }
@@ -366,6 +422,32 @@ function (graph, genegraph_panel_layout) {
                 summary: 'Frame whatever is currently selected.',
                 needs: 'selection', params: {},
                 run: async () => { try { await graph.zoomToSelection(); } catch (e) { } result('Framed the selection.'); }
+            },
+            {
+                name: 'zoom_to_track',
+                summary: 'Frame one track by name, filling the view with it.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string', required: true,
+                        about: 'the track name, or enough of it to pick it out. Use the names given '
+                            + 'in canvas_now'
+                    }
+                },
+                // Resolved here rather than in the prompt: a name that matches nothing, or
+                // matches two tracks, is a thing to say before the button is pressed.
+                run: (a) => {
+                    const t = matchTrack(a.track);
+                    if (!t) { result('No single track matches “' + a.track + '”.'); return; }
+                    return graph.zoomToTrack(t, 0.05);
+                },
+                preview: (a) => {
+                    const t = matchTrack(a.track);
+                    return t ? ('frame ' + (t.name || 'that track')) : ('frame the track “' + a.track + '”');
+                },
+                argBlocker: (a) => matchTrack(a.track) ? ''
+                    : ('no single track matches “' + a.track + '”: open tracks are '
+                        + tracks().map((t) => t.name || '(unnamed)').join(', '))
             },
             {
                 name: 'fit',
@@ -471,10 +553,14 @@ function (graph, genegraph_panel_layout) {
         const blocker = (c) => {
             if (!c) return '';
             if (c.needs === 'track' && !tracks().length) return 'no track is loaded';
+            // 'selection' is a model or a scan, which runs on ONE marked stretch. 'any_selection'
+            // only needs a mark to exist: clearing every selection across three tracks is not
+            // ambiguous the way running SpliceNet on three of them would be.
             if (c.needs === 'selection') {
                 if (!selTracks().length) return 'no sequence is selected: drag across a track first';
                 if (!oneSelTrack()) return 'more than one track has a selection: this runs on one';
             }
+            if (c.needs === 'any_selection' && !selTracks().length) return 'no sequence is selected';
             if (c.needs === 'variants' && !vrows().length) return 'there are no variants on the tracks';
             if (c.needs === 'compounds' && !crows().length) return 'there are no compounds on the tracks';
             return '';
@@ -489,9 +575,14 @@ function (graph, genegraph_panel_layout) {
             catch (e) { text = c.summary.split('.')[0].toLowerCase(); }
             let n = null;
             try { n = c.count ? c.count(v.args) : null; } catch (e) { n = null; }
+            // A capability may also refuse on its arguments rather than on the canvas: a
+            // track name matching nothing, or matching two tracks, is known here and is
+            // worth saying before the button rather than after it.
+            let b = blocker(c);
+            if (!b && c.argBlocker) { try { b = c.argBlocker(v.args) || ''; } catch (e) { b = ''; } }
             return {
                 ok: true, capability: c, args: v.args, text: text, count: n,
-                blocker: blocker(c), destructive: !!c.destructive,
+                blocker: b, destructive: !!c.destructive,
                 opens: !!c.opens, answers: !!c.answers
             };
         };
