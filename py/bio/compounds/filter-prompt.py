@@ -70,6 +70,17 @@ Fields, all optional. Leave a field out or null when the request does not constr
   gc_min, gc_max          percent, 0-100
   tm_min, tm_max          degrees C
   len_min, len_max        nucleotides
+  offtarget_min, offtarget_max
+                          off-target SITES: places in the genome the oligo hits. Plain
+                          "off-targets" means this. "more than 10 off-targets" is
+                          offtarget_min 11; "under 5" is offtarget_max 4.
+  offtarget_genes_min, offtarget_genes_max
+                          distinct off-target GENES, the smaller number. Only when the
+                          request says genes.
+  screened                true for compounds the off-target screen has been RUN on,
+                          false for the ones it has not. A compound that was never
+                          screened has an UNKNOWN count and matches no off-target range
+                          either way, so it is never swept up by one.
   modality      one of "gapmer", "steric", "sirna"
   allele_only   true when the request asks for allele-selective compounds
   name_contains a substring of the compound name
@@ -93,6 +104,8 @@ Also return:
 Return ONLY this JSON, with the fields that apply:
 { "band": ..., "faults": [...], "score_min": ..., "score_max": ..., "gc_min": ...,
   "gc_max": ..., "tm_min": ..., "tm_max": ..., "len_min": ..., "len_max": ...,
+ "offtarget_min": ..., "offtarget_max": ..., "offtarget_genes_min": ...,
+ "offtarget_genes_max": ..., "screened": true/false,
   "modality": ..., "allele_only": ..., "name_contains": ...,
   "action": "select" or "remove", "explain": "...", "unsupported": [...] }
 
@@ -109,7 +122,8 @@ Rules:
 """ % (", ".join('"%s" (%s)' % (k, v) for k, v in FAULT_KEYS.items()))
 
 NUMERIC = ("score_min", "score_max", "gc_min", "gc_max",
-           "tm_min", "tm_max", "len_min", "len_max")
+           "tm_min", "tm_max", "len_min", "len_max",
+           "offtarget_min", "offtarget_max", "offtarget_genes_min", "offtarget_genes_max")
 BANDS = ("red", "amber", "notred", "green")
 MODALITIES = ("gapmer", "steric", "sirna")
 
@@ -169,6 +183,14 @@ def _clean(out: Dict[str, Any]) -> Dict[str, Any]:
 
     if out.get("allele_only") is True:
         spec["allele_only"] = True
+
+    # Three-valued on purpose: absent means "do not care", which is not the same as
+    # either true or false, and coercing it to a bool would silently filter on a
+    # criterion the request never mentioned.
+    if out.get("screened") is True:
+        spec["screened"] = True
+    elif out.get("screened") is False:
+        spec["screened"] = False
 
     name = str(out.get("name_contains") or "").strip()
     if name:

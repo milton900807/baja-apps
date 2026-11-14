@@ -18,6 +18,10 @@ function () {
     //   modality      ''|'gapmer'|'steric'|'sirna'
     //   allele_only   bool
     //   name_contains string
+    //   offtarget_min/max              off-target SITES, numbers or null
+    //   offtarget_genes_min/max        distinct off-target GENES, numbers or null
+    //   screened      true to keep only compounds the off-target screen has been run on,
+    //                 false to keep only the ones it has not
     //
     // Everything reads a field the DESIGNER wrote on the compound, or the colour the renderer
     // gave it. Nothing is re-derived: a copy of "red means score under 10" here would be a
@@ -75,6 +79,68 @@ function () {
     const tmOf = (o) => num(o && (o.tm_c != null ? o.tm_c : o.tm));
     const lenOf = (o) => num(o && (o.length != null ? o.length : (('' + (o.sequence || '')).length || null)));
     const isRed = (o) => !!(o && (o.color === 'red' || o.flagReason));
+
+    // ---- off-targets --------------------------------------------------------------------
+    // SCREENED-AND-ZERO IS NOT THE SAME AS NEVER-SCREENED, and almost every bug in this
+    // area is that confusion. A compound nobody has run the screen on has an UNKNOWN
+    // off-target count, so it must not match "more than 10" and must not match "fewer than
+    // 10" either. These return null for unknown, and inRange above already fails a
+    // constraint on null, so an unscreened compound is left out of both answers instead of
+    // being quietly counted as clean.
+    //
+    // Two different quantities, which the designers write separately:
+    //   SITES  how many places in the genome the oligo hits. This is what "off-targets"
+    //          means on its own in oligo screening.
+    //   GENES  how many distinct genes those sites fall in, which is the smaller number and
+    //          the one that matters for a liability argument.
+    const screenedOf = (o) => !!(o && (o.offtargetsRun || o.offtarget != null));
+
+    const offtargetSitesOf = (o) => {
+        if (!o) return null;
+        const raw = o.offtarget;
+        if (Array.isArray(raw)) return raw.length;
+        // A count rather than a list: over a thousand hits and the list was not kept. The
+        // number is still the real one and is exactly what a "more than N" test wants.
+        if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+        if (typeof raw === 'string') {
+            const t = raw.trim();
+            if (!t) return null;
+            const n = parseInt(t.replace(/[^0-9-]/g, ''), 10);
+            return Number.isFinite(n) ? n : null;
+        }
+        // Screened, and the designer recorded nothing: that is zero hits, which is a result.
+        if (o.offtargetsRun) return 0;
+        return null;
+    };
+
+    // Distinct genes. offtargetGeneCount is the designer's own total and is trusted first;
+    // offtargetsymbols is a DISPLAY list capped at thirty, so counting it would report
+    // "30 genes" for a compound that hits four hundred.
+    const offtargetGenesOf = (o) => {
+        if (!o) return null;
+        const total = num(o.offtargetGeneCount);
+        if (total != null) return total;
+        const raw = o.offtarget;
+        if (Array.isArray(raw)) {
+            const set = new Set();
+            for (const h of raw) {
+                const g = ('' + ((h && (h.symbol || h.gene || h.gene_symbol)) || '')).trim();
+                if (g) set.add(g);
+            }
+            // An empty hit list is genuinely zero genes. Hits that name no gene leave the
+            // gene count unknown, which is not zero.
+            if (set.size) return set.size;
+            return raw.length ? null : 0;
+        }
+        if (o.offtargetsRun && (raw === 0 || raw === '0')) return 0;
+        return null;
+    };
+
+    // How many of a list could not be judged on off-targets. Worth reporting beside any
+    // off-target filter: "none matched" reads as a clean design, and "none matched because
+    // forty of them have never been screened" is a different thing entirely.
+    const unscreened = (list) => (list || [])
+        .filter((r) => r && r.o && !screenedOf(r.o)).length;
     const faultText = (o) => ((Array.isArray(o && o.notes) ? o.notes.join(' | ') : '')
         + ' | ' + ((o && o.flagReason) || ''));
 
@@ -94,6 +160,10 @@ function () {
         if (!inRange(gcOf(o), num(s.gc_min), num(s.gc_max))) return false;
         if (!inRange(tmOf(o), num(s.tm_min), num(s.tm_max))) return false;
         if (!inRange(lenOf(o), num(s.len_min), num(s.len_max))) return false;
+        if (!inRange(offtargetSitesOf(o), num(s.offtarget_min), num(s.offtarget_max))) return false;
+        if (!inRange(offtargetGenesOf(o), num(s.offtarget_genes_min), num(s.offtarget_genes_max))) return false;
+        if (s.screened === true && !screenedOf(o)) return false;
+        if (s.screened === false && screenedOf(o)) return false;
         const want = Array.isArray(s.faults) ? s.faults.filter((k) => FAULTS.some((f) => f.key === k)) : [];
         if (want.length) {
             const text = faultText(o);
@@ -132,7 +202,11 @@ function () {
         for (const r of [range(s.score_min, s.score_max, 'score', ''),
                          range(s.gc_min, s.gc_max, 'GC', '%'),
                          range(s.tm_min, s.tm_max, 'Tm', '°C'),
-                         range(s.len_min, s.len_max, 'length', ' nt')]) if (r) bits.push(r);
+                         range(s.len_min, s.len_max, 'length', ' nt'),
+                         range(s.offtarget_min, s.offtarget_max, 'off-target sites', ''),
+                         range(s.offtarget_genes_min, s.offtarget_genes_max, 'off-target genes', '')]) if (r) bits.push(r);
+        if (s.screened === true) bits.push('off-target screen run');
+        if (s.screened === false) bits.push('off-target screen NOT run');
         if (s.allele_only) bits.push('allele-selective');
         if (s.name_contains) bits.push('name contains “' + s.name_contains + '”');
         return bits.length ? bits.join(', ') : 'everything';
@@ -142,6 +216,8 @@ function () {
         FAULTS: FAULTS, MODALITIES: MODALITIES,
         modalityOf: modalityOf, num: num, inRange: inRange,
         scoreOf: scoreOf, gcOf: gcOf, tmOf: tmOf, lenOf: lenOf, isRed: isRed,
+        screenedOf: screenedOf, offtargetSitesOf: offtargetSitesOf,
+        offtargetGenesOf: offtargetGenesOf, unscreened: unscreened,
         matchOne: matchOne, match: match, describe: describe
     };
 }

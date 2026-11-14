@@ -285,6 +285,16 @@ if [[ $DO_API -eq 1 ]]; then
   # A menu row with nothing behind it is drawn as a caption, not a button. Both DOM menu
   # renderers, because a list is handed to whichever one the context picks and the two
   # disagreeing about what a row is would be worse than either one being wrong.
+  # Off-target criteria in the compound filter. The markers here are phrases from THIS
+  # change, not the ones the older groups match: those are shared by both versions, so a
+  # stale cached copy would pass the served-check and the new criteria would silently not
+  # be there. All four files, because the contract, the two UIs that fill it and the
+  # script that fills it from a sentence have to agree on what the fields mean.
+  install_group "compound filter: off-target counts" \
+    "baja/bio/compound-filter.js:SCREENED-AND-ZERO IS NOT THE SAME AS NEVER-SCREENED" \
+    "baja/manchester/menu/editor-capabilities.js:never swept up by one" \
+    "baja/manchester/menu/select-compounds-by.js:Off-target sites" \
+    "py/bio/compounds/filter-prompt.py:off-target SITES: places in the genome the oligo hits"
   install_group "menu rows with no action are captions" \
     "baja/manchester/menu/floating-menu.js:WHAT IS A CAPTION RATHER THAN A BUTTON" \
     "baja/manchester/menu/popup-menu.js:A ROW WITH NOTHING BEHIND IT IS NOT A BUTTON"

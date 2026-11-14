@@ -160,6 +160,16 @@ function (graph, genegraph_panel_layout) {
             return q ? all.filter((r) => q(r.rec)) : all;     // no terms means all of them
         };
         const chits = (spec) => F.match(crows(), spec || {});
+        // An off-target filter cannot judge a compound the screen was never run on, so it
+        // leaves those out of BOTH sides of the answer. Said here, because "0 matches" and
+        // "0 matches, and 38 of the 52 have never been screened" look identical on screen
+        // and mean completely different things.
+        const USES_OFFTARGET = ['offtarget_min', 'offtarget_max', 'offtarget_genes_min', 'offtarget_genes_max'];
+        const offtargetNote = (a) => {
+            if (!USES_OFFTARGET.some((k) => a && a[k] != null)) return '';
+            const n = F.unscreened(crows());
+            return n ? (' (' + n + ' never screened, so not counted either way)') : '';
+        };
         const result = (m) => { try { (graph.setResultMessage || graph.setMessage).call(graph, ' ' + m + ' '); } catch (e) { } };
 
         // Significance words as ClinVar writes them, which is what load-variants.js matches
@@ -441,8 +451,9 @@ function (graph, genegraph_panel_layout) {
             {
                 name: 'select_compounds',
                 summary: 'Select the compounds (ASOs, siRNAs) matching a FILTER on score band, the '
-                    + "scorer's own flags, score, GC, Tm, length, modality or name. This describes "
-                    + 'compounds by their properties; it does not act on what is already selected.',
+                    + "scorer's own flags, score, GC, Tm, length, off-target count, modality or name. "
+                    + 'This describes compounds by their properties; it does not act on what is '
+                    + 'already selected.',
                 needs: 'compounds',
                 params: {
                     band: { type: 'enum', values: ['red', 'amber', 'notred', 'green'], about: 'red is flagged, amber is red or orange, green is best' },
@@ -451,6 +462,25 @@ function (graph, genegraph_panel_layout) {
                     gc_min: { type: 'number', about: 'percent' }, gc_max: { type: 'number', about: 'percent' },
                     tm_min: { type: 'number', about: 'degrees C' }, tm_max: { type: 'number', about: 'degrees C' },
                     len_min: { type: 'number', about: 'nt' }, len_max: { type: 'number', about: 'nt' },
+                    offtarget_min: {
+                        type: 'number',
+                        about: 'fewest off-target SITES, counting places in the genome the oligo hits. '
+                            + '"more than 10 off-targets" is offtarget_min 11'
+                    },
+                    offtarget_max: { type: 'number', about: 'most off-target sites. "under 5 off-targets" is 4' },
+                    offtarget_genes_min: {
+                        type: 'number',
+                        about: 'fewest distinct off-target GENES, which is the smaller number. Use this '
+                            + 'only when the request says genes; plain "off-targets" means sites'
+                    },
+                    offtarget_genes_max: { type: 'number', about: 'most distinct off-target genes' },
+                    screened: {
+                        type: 'boolean',
+                        about: 'true keeps only compounds the off-target screen has been RUN on, false '
+                            + 'only the ones it has not. A compound that was never screened has an '
+                            + 'unknown count and matches no off-target range either way, so it is '
+                            + 'never swept up by one'
+                    },
                     modality: { type: 'enum', values: ['gapmer', 'steric', 'sirna'] },
                     allele_only: { type: 'boolean', about: 'only allele-selective compounds' },
                     name_contains: { type: 'string' }
@@ -465,7 +495,7 @@ function (graph, genegraph_panel_layout) {
                     try { if (graph.wake) graph.wake(); } catch (e) { }
                     result('Selected ' + hits.length + ' of ' + crows().length + ' compounds.');
                 },
-                preview: (a) => 'select the compounds: ' + F.describe(a)
+                preview: (a) => 'select the compounds: ' + F.describe(a) + offtargetNote(a)
             },
             {
                 name: 'remove_compounds',
@@ -492,7 +522,7 @@ function (graph, genegraph_panel_layout) {
                     try { if (graph.wake) graph.wake(); } catch (e) { }
                     result('Removed ' + n + ' compound' + (n === 1 ? '' : 's') + '. Undo restores them.');
                 },
-                preview: (a) => 'delete the compounds: ' + F.describe(a)
+                preview: (a) => 'delete the compounds: ' + F.describe(a) + offtargetNote(a)
             },
             {
                 name: 'select_sequence_region',

@@ -55,6 +55,8 @@ function (graph, scopeTrack) {
             const gc = spanOf(F.gcOf);
             const tm = spanOf(F.tmOf);
             const ln = spanOf(F.lenOf);
+            const ot = spanOf(F.offtargetSitesOf);
+            const notRun = F.unscreened(all);
             const FAULTS = F.FAULTS.map((f) => [f.key, f.label, f.re]);
             const MODALITIES = F.MODALITIES.map((m) => [m.key, m.label]);
 
@@ -109,6 +111,18 @@ function (graph, scopeTrack) {
                 + '<label style="' + lbl + '">GC %</label>' + pair('sb-gc', gc, '')
                 + '<label style="' + lbl + '">Tm (°C)</label>' + pair('sb-tm', tm, '')
                 + '<label style="' + lbl + '">Length (nt)</label>' + pair('sb-len', ln, '')
+                + '<label style="' + lbl + '">Off-target sites</label>' + pair('sb-ot', ot, '')
+                + '<label style="' + lbl + '">Off-target genes</label>'
+                + pair('sb-otg', spanOf(F.offtargetGenesOf), '')
+                + '<div style="font:11.5px Arial;color:#7f97a6;margin-top:5px;">'
+                + 'Sites are places in the genome the oligo hits; genes is how many distinct genes '
+                + 'those fall in, which is the smaller number. '
+                + (notRun
+                    ? ('<b>' + notRun + ' of these ' + all.length + ' have not been screened</b>, so their '
+                        + 'counts are unknown and an off-target range leaves them out of the answer '
+                        + 'either way \u2014 they are not counted as clean.')
+                    : 'Every compound here has been screened.')
+                + '</div>'
 
                 + '<label style="' + lbl + '">Modality</label>'
                 + '<select id="sb-mod" style="' + inp + '">'
@@ -154,7 +168,9 @@ function (graph, scopeTrack) {
                     score_min: bound('#sb-score-lo'), score_max: bound('#sb-score-hi'),
                     gc_min: bound('#sb-gc-lo'), gc_max: bound('#sb-gc-hi'),
                     tm_min: bound('#sb-tm-lo'), tm_max: bound('#sb-tm-hi'),
-                    len_min: bound('#sb-len-lo'), len_max: bound('#sb-len-hi')
+                    len_min: bound('#sb-len-lo'), len_max: bound('#sb-len-hi'),
+                    offtarget_min: bound('#sb-ot-lo'), offtarget_max: bound('#sb-ot-hi'),
+                    offtarget_genes_min: bound('#sb-otg-lo'), offtarget_genes_max: bound('#sb-otg-hi')
                 };
             };
             const matches = () => {
