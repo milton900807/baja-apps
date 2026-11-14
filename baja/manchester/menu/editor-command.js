@@ -188,8 +188,11 @@ function (graph, genegraph_panel_layout, options) {
                 + 'border:1px solid rgba(255,255,255,0.14);box-shadow:0 18px 54px rgba(0,0,0,0.55);overflow:hidden;">'
                 + '<div style="display:flex;align-items:center;gap:14px;padding:15px 20px 13px;background:#0b2545;'
                 + 'border-bottom:1px solid rgba(255,255,255,0.12);">'
-                + '<div style="min-width:0;"><div style="font:700 17px Arial;">Ask the editor</div>'
-                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
+                // No title. The box says what it is by being a box you type in, and a heading
+                // over it was a label on the obvious. What is left is the only thing the
+                // header was ever for: what is on the canvas right now.
+                + '<div style="min-width:0;">'
+                + '<div style="font:12.5px Arial;color:#9fb3c8;">'
                 + CAP.list.length + ' operations · ' + ctx.variants_total + ' variants ('
                 + ctx.variants_on_screen + ' on screen) · ' + ctx.compounds_total + ' compounds'
                 + (ctx.selected_now.compounds ? (' (' + ctx.selected_now.compounds + ' selected)') : '')
@@ -433,7 +436,7 @@ function (graph, genegraph_panel_layout, options) {
                             + '&#9888; refused: ' + H(x.p.text) + '</div>').join('')
                         + warn
                         + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
-                        + (HOST ? 'Ask the editor for the full list of operations, '
+                        + (HOST ? 'Ask for the full list of operations, '
                             : 'Press “What can it do?” for the full list, ')
                         + 'or ask to open a library \u2014 the models, the data, the modalities \u2014 '
                         + 'and pick from there.</div>'
