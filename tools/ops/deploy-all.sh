@@ -279,6 +279,13 @@ if [[ $DO_API -eq 1 ]]; then
   # handed the catalogue rather than carrying its own copy, and an editor.js offering the
   # button without the rest is a button that errors. Splitting them would let a half
   # install pass its served-check and fail on the first click.
+  # Find published miRs: the shelf card, the reader that aggregates miRTarBase over the
+  # track, and the model that says what is published about each entry. All three, because
+  # the card calls the reader by path and the reader calls the script by path.
+  install_group "Find published miRs" \
+    "baja/data/data-resources-library.js:First, because it answers the question the other two" \
+    "baja/data/find-published-mirs.js:THE REASON FOR THAT LINE" \
+    "py/bio/mirna/published-mirs.py:THE MODEL NEVER SUPPLIES A miRNA, A SITE OR A SEQUENCE"
   install_group "Ask: plan against the editor's own catalogue of operations" \
     "manchester/editor.js:THE TOOLBAR IS THE COMMAND BOX" \
     "baja/manchester/menu/editor-command.js:ASK: SAY WHAT YOU WANT DONE" \

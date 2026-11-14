@@ -185,6 +185,20 @@ function (graph, genegraph_panel_layout, tracks) {
             const SETS = await exec('baja/data/layer-sets.js');
             return [
                 {
+                    // First, because it answers the question the other two only supply data
+                    // for: which of these miRNAs matters, and what is published about it.
+                    title: 'Find published miRs', badge: 'AI + miRTarBase',
+                    blurb: 'Read the miRNAs reported against this transcript (or just the selected '
+                        + 'sequence), then say what is published about each one: what it does to this '
+                        + 'gene, in what tissue, and how well established it is. The sites and PMIDs '
+                        + 'come from miRTarBase; the model writes about those entries and supplies no '
+                        + 'miRNA, site or sequence of its own. Anything it names that the dataset does '
+                        + 'not have is listed separately and is not drawn.',
+                    open: () => __onParentTrack('Find published miRs',
+                        (list) => exec('baja/data/find-published-mirs.js', graph, genegraph_panel_layout,
+                            (list && list[0]) || null))
+                },
+                {
                     title: SETS.mirtarbase10_strong.label, badge: 'Strong evidence',
                     blurb: 'Sites confirmed by reporter assay, western blot or qPCR — the smaller, '
                         + 'higher-confidence set.',
@@ -279,7 +293,8 @@ function (graph, genegraph_panel_layout, tracks) {
                 subtitle: 'Pick an evidence set',
                 blurb: 'Experimentally reported miRNA target sites from miRTarBase 10, keyed by '
                     + 'transcript. Adds them as an interval layer carrying the miRNA, the evidence '
-                    + 'type and the PMIDs behind each site.',
+                    + 'type and the PMIDs behind each site — or asks what is published about the '
+                    + 'ones reported here.',
                 books: mirnaBooks
             },
             {
