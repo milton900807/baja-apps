@@ -208,6 +208,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/clinvar-splice-variants.js:header: true" \
     "baja/data/rnaseq-hierarchy-menu.js:header: true" \
     "baja/manchester/menu/sample-compare.js:header: true"
+  install_group "a tool that owns the canvas keeps its clicks" \
+    "flexigraph/gene.js:A TOOL OWNS THE CANVAS ONLY WHILE ITS LISTENERS DO" \
+    "baja/manchester/menu/draw-oligos.js:THIS TOOL OWNS THE CANVAS"
   install_group "the hover handler does not take the first click" \
     "baja/manchester/menu/design-or-place.js:THE HOVER HANDLER WOULD TAKE THE FIRST CLICK" \
     "baja/manchester/menu/design-or-place.js:AND THE SELECTION WOULD TAKE IT BEFORE ANY LISTENER SAW IT"

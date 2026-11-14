@@ -2,6 +2,16 @@ function (graph) {
 
     graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
 
+    // THIS TOOL OWNS THE CANVAS. Its preview IS a track highlight -- the window the compound
+    // would occupy, repainted on every mouse move -- and gene.js's mouseDown treats a press
+    // inside a highlight as a press on a selection: it opens the selected-sequence menu and
+    // returns before this tool's own listener runs, so nothing is ever placed. Declaring the
+    // tool makes those shortcuts stand down; clearMouseListeners releases it again, so the
+    // flag cannot outlive the tool even though this tool has no exit path of its own.
+    //
+    // Set AFTER the clear above, which is what releases any previous tool's claim.
+    try { graph.__canvasTool = 'draw-oligos'; } catch (e) { }
+
     graph.selectOff();
     let ed;
     const nameHook = createIonFunction((editor) => {

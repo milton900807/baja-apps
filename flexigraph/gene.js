@@ -2471,6 +2471,13 @@ function (progress, options) {
                 this.mouseMoveListeners = [];
                 this.mouseUpListeners = [];
                 this.highlightmethod = null;
+                // A TOOL OWNS THE CANVAS ONLY WHILE ITS LISTENERS DO. __canvasTool is set by
+                // a tool that draws its own preview out of track marks (draw-oligos.js) and
+                // is what tells the selection shortcuts in mouseDown to stand down. Released
+                // here rather than by the tool, because this is the one place that is
+                // guaranteed to run when a tool stops: every tool ends by having its
+                // listeners cleared, and several never get to run a line of their own again.
+                this.__canvasTool = null;
                 if (mo != null) {
                     exec(mo, this, this.genegraph_panel_layout)
                 } else {
@@ -5297,7 +5304,17 @@ function (progress, options) {
                         // because it sits inside the selection and would otherwise be swallowed
                         // by the "click inside a selection opens its menu" branch below.
                         try {
-                            const __clr = this.__hitSelectionClear(this.graph.X(xwc), this.graph.Y(ywc));
+                            // ...unless a TOOL owns the canvas. A tool that previews with
+                            // track marks (draw-oligos.js highlights the window the compound
+                            // would occupy) paints a selection, arrow heads and clear button
+                            // included, on every mouse move. These three branches then claim
+                            // the press and RETURN before this.mouseDownListeners is reached,
+                            // so the tool's own handler never sees a click: the compound is
+                            // never placed and the selected-sequence menu opens instead. The
+                            // preview is not a selection the user made, so the shortcuts for
+                            // acting on one do not apply to it.
+                            const __clr = this.__canvasTool ? null
+                                : this.__hitSelectionClear(this.graph.X(xwc), this.graph.Y(ywc));
                             if (__clr) {
                                 this.__downMenuHandled = true;
                                 __clr.markstart = null;
@@ -5319,7 +5336,8 @@ function (progress, options) {
                         // of the selection window (updated in mouseMove, cleared in mouseUp). Consume
                         // the press so it doesn't also start a new lasso/selection.
                         try {
-                            const __hit = this.__hitSelectionArrow(this.graph.X(xwc), this.graph.Y(ywc));
+                            const __hit = this.__canvasTool ? null
+                                : this.__hitSelectionArrow(this.graph.X(xwc), this.graph.Y(ywc));
                             if (__hit) {
                                 this.__dragMark = __hit;
                                 this.__downMenuHandled = true;
@@ -5332,7 +5350,7 @@ function (progress, options) {
                         // already claimed those) opens the Selected Sequence side menu: the same
                         // shape as the track menu, scoped to markstart..markend.
                         try {
-                            const __selT = this.__trackAtSelection(xwc, ywc);
+                            const __selT = this.__canvasTool ? null : this.__trackAtSelection(xwc, ywc);
                             if (__selT) {
                                 this.__downMenuHandled = true;
                                 exec('baja/manchester/menu/selected-sequence-menu.js', this, __selT, this.genegraph_panel_layout);
