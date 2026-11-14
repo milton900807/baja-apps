@@ -83,9 +83,17 @@ function (graph, opts) {
                 // transposed.
                 const well = String.fromCharCode(65 + (n % 8)) + (Math.floor(n / 8) + 1);
                 if (!c.structure) { skip('no chemistry on the compound'); continue; }
-                let code = '';
-                try { code = idt.format(c.structure); } catch (e) { code = ''; }
-                if (!code) { skip('the chemistry could not be written as IDT codes'); continue; }
+                // formatStrict, not format: it refuses a sugar it has no code for instead of
+                // falling through to the bare base. That fall-through is how a 2'-OMe/2'-F
+                // siRNA was exporting as an unmodified oligo, in a file that looked complete.
+                let code = '', why = null;
+                try {
+                    const res = idt.formatStrict(c.structure);
+                    code = (res && res.idt) || '';
+                    if (res && res.problems && res.problems.length) why = res.problems[0];
+                } catch (e) { why = 'the chemistry could not be read'; }
+                if (why) { skip(why); continue; }
+                if (!code) { skip('the chemistry produced no IDT codes'); continue; }
                 out.push({ well: well, name: nameOf(c, n), id: c.id || '', sequence: seqOf(c), idt: code });
                 n++; wrote++;
             }

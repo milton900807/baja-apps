@@ -291,6 +291,11 @@ if [[ $DO_API -eq 1 ]]; then
   # be there. All four files, because the contract, the two UIs that fill it and the
   # script that fills it from a sentence have to agree on what the fields mean.
   # Exporting compounds to a file: the exporter and the catalogue entry that reaches it.
+  # The IDT code table. Ships with the exporter that calls formatStrict: an export-compounds
+  # that calls it against an idt-format without it writes no codes at all.
+  install_group "IDT codes: an explicit sugar table" \
+    "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
+    "baja/manchester/menu/export-compounds.js:formatStrict, not format"
   install_group "export compounds" \
     "baja/manchester/menu/export-compounds.js:IT REPORTS WHAT IT COULD NOT WRITE" \
     "baja/manchester/menu/editor-capabilities.js:THE SKIPPED ONES ARE NAMED"
