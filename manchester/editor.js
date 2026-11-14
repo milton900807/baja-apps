@@ -3620,9 +3620,10 @@ function (path, config) {
                                 tooltip: 'Say what you want done and the editor works out which operation does it',
                                 // One function for both frontends. With the input item type the
                                 // component writes the typed text onto this object before
-                                // firing; an older build renders the item as a plain button, so
-                                // there is no text and the panel opens with its own box. Either
-                                // way the same module reads the request.
+                                // firing, and hands over the panel under the bar to render the
+                                // answer into; an older build renders the item as a plain
+                                // button, so there is neither, and the module opens a window of
+                                // its own. Either way the same module reads the request.
                                 ionFunction: createIonFunction(async (item) => {
                                     try { graph.hideMenu(); } catch (e) { }
                                     if (!graph.track || graph.track.length === 0) {
@@ -3630,9 +3631,16 @@ function (path, config) {
                                         return;
                                     }
                                     const text = ('' + ((item && item.value) || '')).trim();
+                                    // The panel under the bar, when the component gave us one.
+                                    // Without it the module opens its own window, which is the
+                                    // older frontend's path and the fallback here.
+                                    const host = (item && item.resultsHost) || null;
+                                    const opts = text
+                                        ? (host ? { host: host, prefill: text } : { prefill: text })
+                                        : undefined;
                                     try {
                                         await exec('baja/manchester/menu/editor-command.js', graph,
-                                            genegraph_panel_layout, text ? { prefill: text } : undefined);
+                                            genegraph_panel_layout, opts);
                                     } catch (e) {
                                         try { graph.setError('Could not open Ask: ' + e, 8); } catch (e2) { }
                                     }

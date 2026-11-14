@@ -470,6 +470,12 @@ function (graph, genegraph_panel_layout, options) {
                 const go = q('#ec-go');
                 if (go) go.onclick = async () => {
                     go.disabled = true;
+                    // CLOSED BEFORE THE WORK, not after. A step that opens a dialog of its
+                    // own -- the tiling designer, a library, a confirm -- was opening BEHIND
+                    // this, because this was the newer layer on the screen. The plan has been
+                    // read and accepted by the time this runs, so there is nothing left here
+                    // to look at, and what the steps report goes to the status line anyway.
+                    close();
                     // IN ORDER, AND STOPPING AT THE FIRST FAILURE. A later step is usually
                     // written against what an earlier one produced, so carrying on past a
                     // failure runs the rest against a canvas that never reached the state
