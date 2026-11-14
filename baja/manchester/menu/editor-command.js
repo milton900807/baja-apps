@@ -40,10 +40,68 @@ function (graph, layout) {
         const crows = [];
         for (const t of tracks) for (const o of (t.oligos || [])) crows.push({ t: t, o: o });
 
+        // WHAT IS ACTUALLY ON SCREEN. A question like "are any of these pathogenic" means
+        // the ones in view, not the four thousand on the track, and answering about the
+        // whole track would be answering a question nobody asked.
+        //
+        // graph.grid holds the visible world window; t.tgraph.X(baseIndex) maps a variant's
+        // index on its track into that same world frame, which is how every drawing path
+        // here places one. The vertical test is the track's own band overlapping the window,
+        // because tgraph.height is signed and a track scrolled off the top is not visible
+        // however well its bases line up.
+        const visibleVariants = () => {
+            let x0, x1, y0, y1;
+            try {
+                const g = graph.grid;
+                x0 = g.getxmin(); x1 = g.getxmax();
+                y0 = Math.min(g.getymin(), g.getymax());
+                y1 = Math.max(g.getymin(), g.getymax());
+            } catch (e) { return vrows.slice(); }      // no window to test against: all of them
+            if (!isFinite(x0) || !isFinite(x1)) return vrows.slice();
+            const lo = Math.min(x0, x1), hi = Math.max(x0, x1);
+            const okTrack = new Map();
+            const trackVisible = (t) => {
+                if (okTrack.has(t)) return okTrack.get(t);
+                let v = true;
+                try {
+                    const tg = t.tgraph;
+                    const a = tg.yi, b = tg.yi + (tg.height || 0);
+                    v = (Math.max(a, b) >= y0) && (Math.min(a, b) <= y1);
+                } catch (e) { v = true; }
+                okTrack.set(t, v);
+                return v;
+            };
+            return vrows.filter((r) => {
+                if (!trackVisible(r.t)) return false;
+                let wx;
+                try { wx = r.t.tgraph.X(r.v.xi); } catch (e) { return false; }
+                return isFinite(wx) && wx >= lo && wx <= hi;
+            });
+        };
+
+        // The fields the question is answered from, and ONLY these. No sequence, no
+        // coordinates beyond the position, nothing that would let a question about what is
+        // on screen turn into a request for the design itself.
+        const askRecord = (r, i) => {
+            const rec = r.rec;
+            const o = { i: i, name: rec.name || ('variant ' + (i + 1)) };
+            if (rec.gene) o.gene = rec.gene;
+            if (rec.change && rec.change !== '>') o.change = rec.change;
+            if (rec.pos) o.pos = rec.pos;
+            if (rec.consequence) o.consequence = ('' + rec.consequence).slice(0, 160);
+            if (rec.clinsig) o.clinsig = rec.clinsig;
+            if (rec.condition) o.condition = ('' + rec.condition).slice(0, 160);
+            if (rec.source) o.source = rec.source;
+            if (rec.type) o.type = rec.type;
+            if (r.t && r.t.name) o.track = r.t.name;
+            return o;
+        };
+
         const ctx = {
             tracks: tracks.map((t) => t.name || '(unnamed)').slice(0, 12),
             counts: {
                 variants: vrows.length,
+                variants_on_screen: visibleVariants().length,
                 compounds: crows.length,
                 flagged_compounds: crows.filter((r) => F.isRed(r.o)).length
             },
@@ -168,7 +226,11 @@ function (graph, layout) {
                     try { await graph.viewAllTracks(); } catch (e) { }
                     result('Zoomed out to every track.');
                 }
-            }
+            },
+            // The one verb that ANSWERS rather than acts. It has no `run`: answering is
+            // a second round trip, so it is handled on its own path below, which renders
+            // the answer and then offers the selection as a button.
+            ask_variants: { noun: 'variant', question: true }
         };
 
         // ------------------------------------------------------------------ the panel -----
@@ -195,23 +257,30 @@ function (graph, layout) {
                 + 'border-bottom:1px solid rgba(255,255,255,0.12);">'
                 + '<div style="min-width:0;"><div style="font:700 17px Arial;">Ask the editor</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
-                + ctx.counts.variants + ' variant' + (ctx.counts.variants === 1 ? '' : 's') + ' and '
+                + ctx.counts.variants_on_screen + ' of ' + ctx.counts.variants + ' variant'
+                + (ctx.counts.variants === 1 ? '' : 's') + ' on screen, '
                 + ctx.counts.compounds + ' compound' + (ctx.counts.compounds === 1 ? '' : 's')
-                + ' on ' + tracks.length + ' track' + (tracks.length === 1 ? '' : 's') + '.</div></div>'
+                + ' on ' + tracks.length + ' track' + (tracks.length === 1 ? '' : 's') + '. '
+                + 'A question is answered about what is in view; an instruction applies to the whole canvas.'
+                + '</div></div>'
                 + '<div style="margin-left:auto;"><button id="ec-close" style="' + btn + '">Close</button></div>'
                 + '</div>'
                 + '<div style="padding:18px 20px 22px;">'
-                + '<input id="ec-q" placeholder="select all snps" style="' + inp + '"/>'
+                + '<input id="ec-q" placeholder="are any of these snps pathogenic" style="' + inp + '"/>'
                 + '<div style="display:flex;align-items:center;gap:10px;margin-top:11px;">'
                 + '<button id="ec-run" style="cursor:pointer;border-radius:8px;padding:10px 20px;font:700 13px Arial;'
-                + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Read it</button>'
+                + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Go</button>'
                 + '<div id="ec-busy" style="font:12.5px Arial;color:#9fb3c8;"></div></div>'
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:14px;line-height:1.8;">'
-                + 'Try: <b>select all snps</b> · <b>select the pathogenic variants</b> · '
-                + '<b>remove all snps</b> · <b>select every red compound</b> · '
-                + '<b>remove gapmers under 40% GC</b> · <b>clear the selection</b> · <b>fit</b><br>'
-                + 'It picks one action from a fixed list and shows you which, with a count, before anything happens. '
-                + 'Removing always needs a second click, and undo restores it.'
+                + '<b>Ask about what is on screen:</b> are any of these snps pathogenic · '
+                + 'which of these hit a splice site · what are these variants<br>'
+                + '<b>Or say what to do:</b> select all snps · select the pathogenic variants · '
+                + 'remove all snps · select every red compound · remove gapmers under 40% GC · '
+                + 'clear the selection · fit<br>'
+                + 'A question is answered about the variants in view, with what each record already says '
+                + 'shown beside it. An instruction picks one action from a fixed list and shows you which, '
+                + 'with a count, before anything happens; removing always needs a second click, and undo '
+                + 'restores it.'
                 + '</div>'
                 + '<div id="ec-out" style="margin-top:16px;"></div>'
                 + '</div></div>';
@@ -244,11 +313,15 @@ function (graph, layout) {
                         + 'border:1px solid rgba(255,255,255,0.12);">'
                         + '<div style="font:700 13.5px Arial;color:#e8f0fb;">That is not one of the things this box can do.</div>'
                         + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:6px;line-height:1.7;">'
-                        + 'It can select or remove variants and compounds, clear either selection, '
-                        + 'zoom to the selection, or fit the view. Designing, loading data, editing sequence '
-                        + 'and exporting all live in the toolbar menus.</div>' + warn + '</div>';
+                        + 'It can answer a question about the variants on screen, select or remove '
+                        + 'variants and compounds, clear either selection, zoom to the selection, or fit '
+                        + 'the view. Designing, loading data, editing sequence and exporting all live in '
+                        + 'the toolbar menus.</div>' + warn + '</div>';
                     return;
                 }
+
+                // ---- a question, not an action ------------------------------------------
+                if (A.question) { answer(r, ask); return; }
 
                 // A bare verb has no records to count, so it runs on the one click that asked
                 // for it. Nothing it does destroys anything and all of it is one keystroke to
@@ -260,8 +333,12 @@ function (graph, layout) {
 
                 const rows = A.scope({ query: r.query, filter: r.filter || {} });
                 const what = A.describe({ query: r.query, filter: r.filter || {} });
-                const noun = A.noun + (rows.length === 1 ? '' : 's');
                 const total = (A.noun === 'variant') ? vrows.length : crows.length;
+                // "1 of 6 variants", not "1 of 6 variant": in the headline the noun agrees
+                // with the total it is counted out of, and on the button, where there is no
+                // "of", it agrees with the number being acted on.
+                const noun = A.noun + (total === 1 ? '' : 's');
+                const nounN = A.noun + (rows.length === 1 ? '' : 's');
 
                 if (!rows.length) {
                     out.innerHTML = '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
@@ -291,13 +368,146 @@ function (graph, layout) {
                     + '<button id="ec-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
                     + (danger ? 'border:1px solid #ef4444;background:#ef4444;color:#2a0505;'
                         : 'border:1px solid #22c55e;background:#22c55e;color:#04210f;') + '">'
-                    + H(A.verb + ' ' + rows.length + ' ' + noun) + '</button>'
+                    + H(A.verb + ' ' + rows.length + ' ' + nounN) + '</button>'
                     + '<button id="ec-no" style="' + btn + '">Cancel</button>'
                     + '</div></div>';
 
                 q('#ec-no').onclick = () => { out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { } };
                 q('#ec-go').onclick = () => { Promise.resolve(A.run(rows)).then(() => done(rows.length)); };
                 try { q('#ec-go').focus(); } catch (e) { }
+            };
+
+            // ------------------------------------------------------------------ answering ---
+            // Collect what is on screen, send the records, render the verdicts beside what
+            // each record already said, and offer the affirmative ones as a selection.
+            const answer = async (r, ask) => {
+                const out = q('#ec-out');
+                let rows = visibleVariants();
+                const narrowed = ('' + (r.query || '')).trim();
+                if (narrowed) {
+                    const qq = VS.compileQuery(narrowed);
+                    if (qq) rows = rows.filter((x) => qq(x.rec));
+                }
+                if (!rows.length) {
+                    out.innerHTML = '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
+                        + 'border:1px solid rgba(255,255,255,0.12);font:13px Arial;color:#9fb3c8;">'
+                        + (vrows.length
+                            ? ('No variants are on screen' + (narrowed ? (' matching “' + H(narrowed) + '”') : '')
+                                + '. Zoom out, or ask about the whole track by name.')
+                            : 'There are no variants on the open tracks.')
+                        + '</div>';
+                    return;
+                }
+
+                // A HARD CAP, SAID OUT LOUD. Past a few hundred records the answer stops
+                // being about what the user is looking at, and silently truncating the list
+                // would make "none of these are pathogenic" a statement about an arbitrary
+                // prefix of the screen.
+                const CAP = 300;
+                let capped = 0;
+                if (rows.length > CAP) { capped = rows.length - CAP; rows = rows.slice(0, CAP); }
+
+                q('#ec-busy').textContent = 'reading ' + rows.length + ' variant' + (rows.length === 1 ? '' : 's') + '…';
+                let a = null;
+                try {
+                    const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                    a = await exec(window['env']['apiUrl'] + '/py/bio/editor/variant-question.py',
+                        em, ask, JSON.stringify(rows.map(askRecord)), '');
+                } catch (e) {
+                    q('#ec-busy').textContent = '';
+                    out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that: '
+                        + H(e && e.message ? e.message : e) + '</div>';
+                    return;
+                }
+                q('#ec-busy').textContent = '';
+                if (!a || a.status !== 'OK') {
+                    out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that'
+                        + (a && a.error ? (': ' + H(a.error)) : '.') + '</div>';
+                    return;
+                }
+
+                const parse = (v, d) => {
+                    if (v == null) return d;
+                    if (typeof v !== 'string') return v;
+                    try { return JSON.parse(v); } catch (e) { return d; }
+                };
+                const verdicts = parse(a.verdicts, []) || [];
+                const matches = (parse(a.matches, []) || []).filter((i) => i >= 0 && i < rows.length);
+                const hitRows = matches.map((i) => rows[i]).filter(Boolean);
+
+                const VCOL = {
+                    pathogenic: '#fca5a5', likely_pathogenic: '#fdba74', uncertain: '#fcd34d',
+                    likely_benign: '#a7f3d0', benign: '#86efac', unknown: '#9fb3c8'
+                };
+                const VLAB = {
+                    pathogenic: 'pathogenic', likely_pathogenic: 'likely pathogenic',
+                    uncertain: 'uncertain', likely_benign: 'likely benign',
+                    benign: 'benign', unknown: 'not known to it'
+                };
+
+                const line = (v) => {
+                    const row = rows[v.i];
+                    if (!row) return '';
+                    const rec = row.rec;
+                    const who = [rec.name, rec.gene, rec.change && rec.change !== '>' ? rec.change : '']
+                        .map((x) => ('' + (x || '')).trim()).filter(Boolean).join(' · ');
+                    // THE RECORD'S OWN CALL, ALWAYS, WHERE THERE IS ONE. Side by side rather
+                    // than merged: where the model agrees this is corroboration, and where it
+                    // disagrees that is something the user needs to see, not something for
+                    // either side to win quietly.
+                    const own = ('' + (rec.clinsig || '')).trim();
+                    return '<div style="display:flex;gap:11px;align-items:flex-start;padding:9px 11px;'
+                        + 'border-top:1px solid rgba(255,255,255,0.08);">'
+                        + '<div style="flex:0 0 118px;font:700 11.5px Arial;color:' + (VCOL[v.verdict] || '#9fb3c8') + ';">'
+                        + H(VLAB[v.verdict] || v.verdict)
+                        + '<div style="font:400 10.5px Arial;color:#6b8299;margin-top:2px;">'
+                        + H(v.confidence) + ' confidence</div></div>'
+                        + '<div style="min-width:0;flex:1 1 auto;">'
+                        + '<div style="font:700 12.5px Arial;color:#e8f0fb;">' + H(who || '(unnamed)') + '</div>'
+                        + (own ? '<div style="font:11.5px Arial;color:#7fb0e8;margin-top:2px;">record says: '
+                            + H(own) + (rec.condition ? (' (' + H(rec.condition) + ')') : '') + '</div>' : '')
+                        + (v.why ? '<div style="font:11.5px Arial;color:#9fb3c8;margin-top:3px;line-height:1.6;">'
+                            + H(v.why) + '</div>' : '')
+                        + '</div></div>';
+                };
+
+                const withCall = rows.filter((x) => ('' + (x.rec.clinsig || '')).trim()).length;
+
+                out.innerHTML = ''
+                    + '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
+                    + 'border:1px solid rgba(255,255,255,0.12);">'
+                    + '<div style="font:13.5px Arial;color:#e8f0fb;line-height:1.7;">' + H(a.answer || '(no answer)') + '</div>'
+                    + '<div style="font:11.5px Arial;color:#6b8299;margin-top:7px;">'
+                    + 'asked about ' + rows.length + ' variant' + (rows.length === 1 ? '' : 's') + ' on screen'
+                    + (narrowed ? (' matching “' + H(narrowed) + '”') : '')
+                    + ' · ' + withCall + ' of them already carry a clinical call'
+                    + (capped ? (' · ' + capped + ' more on screen were NOT included, zoom in to cover them') : '')
+                    + '</div>'
+                    + (a.caveat ? '<div style="font:11.5px Arial;color:#fbbf24;margin-top:7px;">' + H(a.caveat) + '</div>' : '')
+                    + '</div>'
+                    + (verdicts.length
+                        ? ('<div style="margin-top:12px;border-radius:10px;background:#071f3a;'
+                            + 'border:1px solid rgba(255,255,255,0.12);overflow:hidden;">'
+                            + '<div style="padding:9px 11px;font:700 11px Arial;color:#6b8299;letter-spacing:0.4px;">'
+                            + 'PER VARIANT · a model reading the record, not a clinical determination</div>'
+                            + verdicts.map(line).join('') + '</div>')
+                        : '')
+                    + (hitRows.length
+                        ? ('<div style="display:flex;gap:10px;margin-top:13px;">'
+                            + '<button id="ec-sel" style="cursor:pointer;border-radius:8px;padding:9px 18px;'
+                            + 'font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">'
+                            + 'Select these ' + hitRows.length + '</button>'
+                            + '<button id="ec-again" style="' + btn + '">Ask something else</button></div>')
+                        : ('<div style="margin-top:13px;"><button id="ec-again" style="' + btn + '">Ask something else</button></div>'));
+
+                const again = q('#ec-again');
+                if (again) again.onclick = () => { out.innerHTML = ''; try { q('#ec-q').value = ''; q('#ec-q').focus(); } catch (e) { } };
+                const sel = q('#ec-sel');
+                if (sel) sel.onclick = () => {
+                    selectVariants(hitRows);
+                    done(hitRows.length);
+                    result('Selected ' + hitRows.length + ' variant' + (hitRows.length === 1 ? '' : 's') + '.');
+                };
             };
 
             const run = async () => {

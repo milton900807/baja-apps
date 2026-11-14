@@ -29,6 +29,11 @@ Actions, and what each takes:
     clear_compound_selection
     zoom_selection
     fit
+    ask_variants            query   optional terms NARROWING which visible variants the
+                                    question is about; empty means all of them. The
+                                    question itself is passed through untouched and
+                                    answered by py/bio/editor/variant-question.py, which
+                                    is the only place a model judges records here.
 
 param(1): the sentence
 param(2): optional JSON context about what is open, so a relative phrase lands
@@ -56,6 +61,7 @@ ACTIONS = {
     "clear_compound_selection": "deselect all compounds",
     "zoom_selection": "frame whatever is currently selected",
     "fit": "frame the whole track",
+    "ask_variants": "ANSWER A QUESTION about the variants currently on screen",
 }
 
 FAULTS = ["gc", "tm", "cpg", "grun", "pal", "selfc", "rep"]
@@ -91,6 +97,21 @@ Also return:
                 loading data, anything about a file: none of these are actions here.
                 List them rather than choosing the nearest action, because the nearest
                 action will be run.
+
+`query`, for ask_variants: the same search language, used ONLY to narrow which of the
+visible variants the question covers ("of the TP53 ones, are any pathogenic" -> "TP53").
+An empty query, which is the usual case, means every variant on screen.
+
+Choosing between a QUESTION and an ACTION, which is the distinction that matters most:
+  - A request to CHANGE WHAT IS SELECTED OR PRESENT is an action. "select the pathogenic
+    variants", "remove the benign ones".
+  - A request to KNOW SOMETHING is ask_variants. "are any of these pathogenic", "which of
+    these are in a hotspot", "is anything here a splice variant", "what are these".
+  - A question phrased as a request for a list is still a question: "show me which of these
+    are pathogenic" wants to be told, not to have its selection replaced.
+  - When the sentence asks to be told AND to act ("find the pathogenic ones and select
+    them"), choose ask_variants. The answer it gives offers the selection as a button, so
+    the user gets both, in that order, and sees what was found before it is applied.
 
 Rules:
 - "all" means an empty query or an empty filter, NOT an invented one.

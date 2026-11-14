@@ -280,6 +280,14 @@ if [[ $DO_API -eq 1 ]]; then
     "manchester/editor.js:ASK sits between Download and Share" \
     "baja/manchester/menu/editor-command.js:TYPE WHAT YOU WANT DONE, IN WORDS" \
     "py/bio/editor/command.py:THE MODEL CHOOSES FROM A CLOSED LIST AND FILLS ITS PARAMETERS"
+  # Asking a QUESTION about the variants on screen, rather than naming an action. The
+  # overlay collects the visible records and calls variant-question.py by path, and
+  # command.py has to know the ask_variants verb or the question is never routed there,
+  # so the three move together.
+  install_group "Ask: questions about the variants on screen" \
+    "baja/manchester/menu/editor-command.js:WHAT IS ACTUALLY ON SCREEN" \
+    "py/bio/editor/command.py:ANSWER A QUESTION about the variants currently on screen" \
+    "py/bio/editor/variant-question.py:EVERY VERDICT IS INDEXED, NOT NAMED"
   install_group "baja-project: progress bar first, Add to a fundraising campaign" \
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \
