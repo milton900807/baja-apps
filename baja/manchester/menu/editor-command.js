@@ -241,6 +241,20 @@ function (graph, genegraph_panel_layout, options) {
             const card = (inner, border) => '<div style="padding:13px 15px;border-radius:10px;background:#0a1e3a;'
                 + 'border:1px solid ' + (border || 'rgba(255,255,255,0.12)') + ';">' + inner + '</div>';
 
+            // A WAY OUT OF EVERY ANSWER. In the panel there is a Close button in the header;
+            // in the toolbar's results panel there is nothing around the content, so the
+            // content has to carry it. Some answers already end in Cancel or "Ask something
+            // else"; this is for the ones that are a single line of text, which would
+            // otherwise sit under the toolbar until the next request replaced them.
+            const dismissRow = (id) => HOST
+                ? ('<div style="margin-top:12px;"><button id="' + id + '" style="' + btn + '">Close</button></div>')
+                : '';
+            const wireDismiss = (id) => {
+                if (!HOST) return;
+                const el = q('#' + id);
+                if (el) el.onclick = () => done(0);
+            };
+
             // ------------------------------------------------------------- the catalogue ---
             // Asked for by name, because "what can it do" is the first thing anyone wants
             // from a box like this, and a guess that comes back "not something this can do"
@@ -275,7 +289,9 @@ function (graph, genegraph_panel_layout, options) {
                         + (CAP.vrows().length
                             ? ('No variants are on screen' + (narrowed ? (' matching “' + H(narrowed) + '”') : '')
                                 + '. Zoom out, or load some first.')
-                            : 'There are no variants on the open tracks.') + '</div>');
+                            : 'There are no variants on the open tracks.') + '</div>'
+                        + dismissRow('ec-x4'));
+                    wireDismiss('ec-x4');
                     return 0;
                 }
                 // A HARD CAP, SAID OUT LOUD. Past a few hundred records the answer stops being
@@ -294,13 +310,15 @@ function (graph, genegraph_panel_layout, options) {
                 } catch (e) {
                     q('#ec-busy').textContent = '';
                     out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that: '
-                        + H(e && e.message ? e.message : e) + '</div>';
+                        + H(e && e.message ? e.message : e) + '</div>' + dismissRow('ec-x5');
+                    wireDismiss('ec-x5');
                     return 0;
                 }
                 q('#ec-busy').textContent = '';
                 if (!a || a.status !== 'OK') {
                     out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that'
-                        + (a && a.error ? (': ' + H(a.error)) : '.') + '</div>';
+                        + (a && a.error ? (': ' + H(a.error)) : '.') + '</div>' + dismissRow('ec-x6');
+                    wireDismiss('ec-x6');
                     return 0;
                 }
 
@@ -402,7 +420,10 @@ function (graph, genegraph_panel_layout, options) {
                             + '&#9888; refused: ' + H(x.p.text) + '</div>').join('')
                         + warn
                         + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
-                        + 'Press “What can it do?” for the full list.</div>');
+                        + (HOST ? 'Ask the editor for the full list of operations.'
+                            : 'Press “What can it do?” for the full list.') + '</div>'
+                        + dismissRow('ec-x1'));
+                    wireDismiss('ec-x1');
                     return;
                 }
 
@@ -514,13 +535,15 @@ function (graph, genegraph_panel_layout, options) {
                 } catch (e) {
                     busy = false; q('#ec-busy').textContent = '';
                     q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that: '
-                        + H(e && e.message ? e.message : e) + '</div>';
+                        + H(e && e.message ? e.message : e) + '</div>' + dismissRow('ec-x2');
+                    wireDismiss('ec-x2');
                     return;
                 }
                 busy = false; q('#ec-busy').textContent = '';
                 if (!r || r.status !== 'OK') {
                     q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that'
-                        + (r && r.error ? (': ' + H(r.error)) : '.') + '</div>';
+                        + (r && r.error ? (': ' + H(r.error)) : '.') + '</div>' + dismissRow('ec-x3');
+                    wireDismiss('ec-x3');
                     return;
                 }
                 render(r, ask);

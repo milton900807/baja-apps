@@ -3595,7 +3595,19 @@ function (path, config) {
                                         label: b.label, move: () => { },
                                         click: () => {
                                             try { graph.showSideMenu(null); } catch (e) { }
-                                            try { if (typeof b.ionFunction === 'function') b.ionFunction(b); } catch (e) { }
+                                            // ionFunction is a REFERENCE, not a function:
+                                            // createIonFunction registers the function and
+                                            // returns a key. Calling the key did nothing and
+                                            // threw nothing, so every entry in this fallback
+                                            // menu was a button that quietly did not work.
+                                            try {
+                                                const fn = (typeof b.ionFunction === 'function')
+                                                    ? b.ionFunction : getIonFunction(b.ionFunction);
+                                                if (fn) fn(b);
+                                                else graph.setError('No action is wired to ' + b.label, 6);
+                                            } catch (e) {
+                                                try { graph.setError('Could not open ' + b.label + ': ' + e, 8); } catch (e2) { }
+                                            }
                                         }
                                     }))));
                             } catch (e) { }
