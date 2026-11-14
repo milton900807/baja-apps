@@ -2982,6 +2982,26 @@ function (path, config) {
                                                     })
                                                 },
                                                 {
+                                                    // ASK sits between Download and Share, at the end of the
+                                                    // doing-things half of the toolbar. It opens one input: a
+                                                    // sentence goes in, and ONE action out of a fixed list comes
+                                                    // back, named and counted, before anything moves. The model
+                                                    // translates; baja/data/variant-search.js and
+                                                    // baja/bio/compound-filter.js do the matching, and the two
+                                                    // destructive verbs each need their own second click.
+                                                    label: 'Ask', icon: 'auto_awesome',
+                                                    tooltip: 'Say what you want done -- "select all snps", "remove the pathogenic variants", "select every red compound"',
+                                                    ionFunction: createIonFunction(async () => {
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ");
+                                                            return;
+                                                        }
+                                                        try { await exec('baja/manchester/menu/editor-command.js', graph, genegraph_panel_layout); }
+                                                        catch (e) { try { graph.setError('Could not open Ask: ' + e, 8); } catch (e2) { } }
+                                                    })
+                                                },
+                                                {
                                                     // Share sits beside Download: both are ways
                                                     // of sending work out. A LIBRARY, not a menu --
                                                     // two shelves, one for naming people and one
@@ -3500,7 +3520,7 @@ function (path, config) {
                 // any button without a mapped icon falls back to its text label.
                 try {
                     const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
-                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'file_download', Share: 'share', Bookmarks: 'bookmarks' };
+                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'file_download', Ask: 'auto_awesome', Share: 'share', Bookmarks: 'bookmarks' };
                     // Track uses a Material SYMBOLS glyph (DNA double helix) rather than a classic
                     // Material Icons ligature — rendered via b.iconSymbol (see button-menu.component).
                     const __symbolIcons = { Track: 'genetics' };

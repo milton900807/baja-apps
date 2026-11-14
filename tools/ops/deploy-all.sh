@@ -273,6 +273,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/menu-factory.js:openMenuAtPointer(__bajaSplice"
   install_group "editor loading notice" \
     "manchester/editor.js:baja-loading-notice"
+  # Ask: a free-text box on the toolbar that names ONE action out of a fixed list. The
+  # translator and the overlay are one feature and the overlay calls the translator by
+  # path, so an editor.js that offers the button without them is a button that errors.
+  install_group "Ask: the toolbar command box and its translator" \
+    "manchester/editor.js:ASK sits between Download and Share" \
+    "baja/manchester/menu/editor-command.js:TYPE WHAT YOU WANT DONE, IN WORDS" \
+    "py/bio/editor/command.py:THE MODEL CHOOSES FROM A CLOSED LIST AND FILLS ITS PARAMETERS"
   install_group "baja-project: progress bar first, Add to a fundraising campaign" \
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \
