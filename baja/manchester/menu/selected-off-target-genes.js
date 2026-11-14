@@ -87,6 +87,15 @@ function (graph, oligos) {
 
         const rows = list.map((o) => ({ o: o, name: nameOf(o), g: genesOf(o) }));
 
+        // WHICH ONES CAN BE PUT ON THE GENE, and which cannot. The screen keeps the hit list
+        // only while it is under a thousand hits; past that run-off-targets.js stores a bare
+        // count and the coordinates are gone, so there is nothing to place. That is exactly
+        // the line between a gene that can be opened from here and one that cannot, and it
+        // is a property of the COMPOUND, not of the gene: the same gene may be mappable from
+        // one compound and not from another.
+        const mappable = (o) => Array.isArray(o && o.offtarget) && o.offtarget.length > 0;
+        const canMap = rows.filter((r) => mappable(r.o)).map((r) => r.o);
+
         // By gene: which compounds hit it. Sorted by how many, so the gene this design keeps
         // running into is the first thing read.
         const byGene = new Map();
@@ -96,8 +105,18 @@ function (graph, oligos) {
                 byGene.get(gene).push(r.name);
             }
         }
+        const byGeneMappable = new Map();
+        for (const r of rows) {
+            if (!mappable(r.o)) continue;
+            for (const h of r.o.offtarget) {
+                const sym = ('' + ((h && (h.symbol || h.gene || h.gene_symbol)) || '')).trim();
+                if (!sym) continue;
+                byGeneMappable.set(sym, (byGeneMappable.get(sym) || 0) + 1);
+            }
+        }
         const geneRows = Array.from(byGene.entries())
-            .map(([gene, who]) => ({ gene: gene, n: who.length, who: who }))
+            .map(([gene, who]) => ({ gene: gene, n: who.length, who: who,
+                                     hits: byGeneMappable.get(gene) || 0 }))
             .sort((a, b) => (b.n - a.n) || (a.gene < b.gene ? -1 : 1));
 
         const nScreened = rows.filter((r) => r.g.state !== 'unscreened').length;
@@ -174,6 +193,10 @@ function (graph, oligos) {
         if (nClean) note.push(nClean + ' with none');
         if (nPartial) note.push(nPartial + ' with a truncated list');
         if (nCountOnly) note.push(nCountOnly + ' with too many hits to list');
+        // Said once at the top rather than only as a greyed-out cell per row: a reader who
+        // sees a few buttons missing should know the reason without having to infer it.
+        const nNoCoords = rows.length - canMap.length;
+        if (nNoCoords) note.push(nNoCoords + ' cannot be mapped (over 1,000 hits, so no coordinates were kept)');
 
         const btn = (id, label, primary) => '<button id="' + id + '" style="cursor:pointer;border-radius:9px;'
             + 'padding:10px 16px;font:700 13px Arial;border:1px solid '
@@ -198,10 +221,21 @@ function (graph, oligos) {
             + (geneRows.length
                 ? ('<table style="border-collapse:collapse;width:100%;"><thead><tr>'
                     + '<th style="' + th + '">Gene</th><th style="' + th + '">Compounds</th>'
-                    + '<th style="' + th + '">Which</th></tr></thead><tbody>'
+                    + '<th style="' + th + '">Which</th><th style="' + th + '"></th></tr></thead><tbody>'
                     + geneRows.map((g) => '<tr><td style="' + td + '">' + esc(g.gene) + '</td>'
                         + '<td style="' + td + '">' + g.n + '</td>'
-                        + '<td style="' + td + 'color:#9fb3c8;">' + esc(g.who.join(', ')) + '</td></tr>').join('')
+                        + '<td style="' + td + 'color:#9fb3c8;">' + esc(g.who.join(', ')) + '</td>'
+                        // Offered only where there are coordinates to place. A disabled
+                        // button saying why beats a live one that opens a gene and then
+                        // marks nothing on it.
+                        + '<td style="' + td + '">'
+                        + (g.hits
+                            ? ('<button data-map="' + esc(g.gene) + '" style="cursor:pointer;'
+                                + 'border-radius:7px;padding:4px 10px;font:700 11.5px Arial;'
+                                + 'border:1px solid #4fd0e6;background:transparent;color:#4fd0e6;">'
+                                + 'Open gene \u00b7 ' + g.hits + ' site' + (g.hits === 1 ? '' : 's') + '</button>')
+                            : ('<span style="font:11.5px Arial;color:#7f97a6;">no coordinates kept</span>'))
+                        + '</td></tr>').join('')
                     + '</tbody></table>')
                 : '<div style="font:13px Arial;color:#9fb3c8;">No off-target genes are known for these compounds.</div>')
             + '</div>'
@@ -235,6 +269,21 @@ function (graph, oligos) {
         const q = (s) => panel.querySelector(s);
         const close = () => { try { panel.parentNode.removeChild(panel); } catch (e) { } };
         q('#og-csv1').onclick = () => download(csvByCompound(), 'off-targets-by-compound-' + stamp() + '.csv');
+        // Open the gene and put the compound on it. The panel closes first: the point of
+        // the button is to look at the canvas, and leaving a full-screen table over it would
+        // mean dismissing the thing you just asked for before you could see it.
+        for (const b of panel.querySelectorAll('[data-map]')) {
+            b.onclick = () => {
+                const gene = b.getAttribute('data-map');
+                close();
+                try {
+                    Promise.resolve(exec('baja/manchester/menu/map-off-targets.js',
+                        graph, canMap, { gene: gene })).catch((e) => {
+                            say('Could not open ' + gene + ': ' + (e && e.message ? e.message : e));
+                        });
+                } catch (e) { say('Could not open ' + gene + ': ' + e); }
+            };
+        }
         q('#og-csv2').onclick = () => download(csvByGene(), 'off-targets-by-gene-' + stamp() + '.csv');
         q('#og-txt').onclick = () => download(genesTxt(), 'off-target-genes-' + stamp() + '.txt', 'text/plain');
         q('#og-close').onclick = () => close();

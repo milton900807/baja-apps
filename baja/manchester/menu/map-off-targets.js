@@ -1,4 +1,4 @@
-function (graph, oligos) {
+function (graph, oligos, opts) {
 
     // PUT THE COMPOUND ON THE GENE IT SHOULDN'T BIND.
     //   await exec('baja/manchester/menu/map-off-targets.js', graph, list);
@@ -210,6 +210,16 @@ function (graph, oligos) {
 
         // Captions, not rows. See popup-menu.js: header: true is a caption, a no-op click
         // is a button that does nothing.
+        // ONE GENE, NAMED BY THE CALLER. The off-target tables open this per row, where the
+        // gene has already been chosen and a menu of forty would be asking the same question
+        // twice. Unknown gene: fall through to the menu rather than failing, since the only
+        // way to be sure is to look at the list this already built.
+        const want = ('' + ((opts && opts.gene) || '')).trim().toUpperCase();
+        if (want) {
+            const hit = genes.find((g) => ('' + g.sym).toUpperCase() === want);
+            if (hit) { await openGene(hit); return 1; }
+        }
+
         const menu = [
             { label: 'Off-target genes of ' + list.length + ' compound' + (list.length === 1 ? '' : 's'),
               header: true },
