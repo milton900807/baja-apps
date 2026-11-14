@@ -290,6 +290,10 @@ if [[ $DO_API -eq 1 ]]; then
   # stale cached copy would pass the served-check and the new criteria would silently not
   # be there. All four files, because the contract, the two UIs that fill it and the
   # script that fills it from a sentence have to agree on what the fields mean.
+  # Exporting compounds to a file: the exporter and the catalogue entry that reaches it.
+  install_group "export compounds" \
+    "baja/manchester/menu/export-compounds.js:IT REPORTS WHAT IT COULD NOT WRITE" \
+    "baja/manchester/menu/editor-capabilities.js:THE SKIPPED ONES ARE NAMED"
   install_group "compound filter: off-target counts" \
     "baja/bio/compound-filter.js:SCREENED-AND-ZERO IS NOT THE SAME AS NEVER-SCREENED" \
     "baja/manchester/menu/editor-capabilities.js:never swept up by one" \

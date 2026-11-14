@@ -722,6 +722,60 @@ function (graph, genegraph_panel_layout) {
                 }
             },
 
+            {
+                name: 'export_compounds',
+                summary: 'Write the compounds to a file and download it: IDT order codes, the design '
+                    + 'table as CSV, or plain FASTA sequences. Exports the SELECTED compounds when any '
+                    + 'are selected, otherwise all of them.',
+                needs: 'compounds',
+                params: {
+                    format: {
+                        type: 'enum', values: ['idt', 'csv', 'fasta'], required: true,
+                        about: 'idt: IDT order codes, one row per compound with its plate well, for '
+                            + 'ordering synthesis. csv: the design table -- sequence, chemistry, score, '
+                            + 'GC, Tm, off-target counts, flags. fasta: sequences only'
+                    },
+                    scope: {
+                        type: 'enum', values: ['selected', 'all'],
+                        about: 'omit to export the selection when there is one and everything when '
+                            + 'there is not, which is what a bare "export the compounds" means'
+                    }
+                },
+                count: (a) => {
+                    const sel = selectedCompoundSet();
+                    const useSel = (a.scope === 'selected') || (a.scope !== 'all' && sel.size > 0);
+                    return useSel ? sel.size : crows().length;
+                },
+                run: async (a) => {
+                    let r = null;
+                    try { r = await exec('baja/manchester/menu/export-compounds.js', graph, a); }
+                    catch (e) { result('Could not export: ' + (e && e.message ? e.message : e)); return; }
+                    if (!r || !r.wrote) {
+                        result('Nothing was exported' + (r && r.note ? (': ' + r.note) : '.'));
+                        return;
+                    }
+                    // THE SKIPPED ONES ARE NAMED. An order file that is short by sixteen rows
+                    // and says nothing is the failure this exists to prevent.
+                    const why = Object.keys(r.reasons || {})
+                        .map((k) => r.reasons[k] + ' ' + k).join('; ');
+                    result('Wrote ' + r.wrote + ' compound' + (r.wrote === 1 ? '' : 's') + ' to ' + r.file
+                        + (r.skipped ? ('. ' + r.skipped + ' left out: ' + why + '.') : '.'));
+                },
+                preview: (a) => {
+                    const sel = selectedCompoundSet();
+                    const useSel = (a.scope === 'selected') || (a.scope !== 'all' && sel.size > 0);
+                    const n = useSel ? sel.size : crows().length;
+                    const F2 = { idt: 'IDT order codes', csv: 'the design table as CSV', fasta: 'FASTA sequences' };
+                    return 'export ' + n + ' ' + (useSel ? 'selected ' : '') + 'compound'
+                        + (n === 1 ? '' : 's') + ' as ' + (F2[a.format] || a.format);
+                },
+                argBlocker: (a) => {
+                    const sel = selectedCompoundSet();
+                    if ((a.scope === 'selected') && !sel.size) return 'no compounds are selected';
+                    return '';
+                }
+            },
+
             // ---------------------------------------------------------------- the view -----
             {
                 name: 'zoom_selection',

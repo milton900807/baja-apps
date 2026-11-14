@@ -212,6 +212,7 @@ function (graph, genegraph_panel_layout, options) {
                 + 'deselect the sequence<br>'
                 + '<b>Select or remove:</b> select all snps · select every red compound · '
                 + 'remove the benign ones · delete the selected compounds · go to DNM3<br>'
+                + '<b>Export:</b> export compounds in IDT format · export the design table as csv<br>'
                 + '<b>Ask:</b> are any of these snps pathogenic · which of these hit a splice site<br>'
                 + '<b>Or open a shelf and pick:</b> show me the ML options · what data can I load · '
                 + 'what modalities are there<br>'
