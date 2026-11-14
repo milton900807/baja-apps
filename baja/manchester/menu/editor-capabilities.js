@@ -100,6 +100,37 @@ function (graph, genegraph_panel_layout) {
         // one, which is the right behaviour and not worth pre-empting.
         const scopeTracks = () => (selTracks().length ? selTracks() : tracks());
 
+        // WHAT THE USER MEANS BY "SELECTED" -- and there are two stores, which is why this
+        // exists rather than reading one of them.
+        //
+        //   graph.__lassoSelection   what the selection window holds, and what the toolbar's
+        //                            Selection badge counts: a lasso, a shift-click, a pick
+        //                            off a track. Entries are {kind, ref, track}.
+        //   graph.selectedCompounds  what setSelectedCompounds holds, which is what the
+        //                            compound filters here write to.
+        //
+        // The two are separate in the editor and neither is wrong, so a request to act on
+        // "the selected compounds" takes the union: whatever the person is looking at as
+        // selected, by either route, is what they mean.
+        const lassoOf = (kind) => (graph.__lassoSelection || []).filter((s) => s && s.kind === kind && s.ref);
+        const selectedCompoundSet = () => {
+            const out = new Set();
+            for (const s of lassoOf('oligo')) out.add(s.ref);
+            for (const s of (graph.selectedCompounds || [])) { if (s && s.o) out.add(s.o); }
+            return out;
+        };
+        const SEL_KINDS = {
+            compounds: { kind: 'oligo', noun: 'compound', arr: 'oligos' },
+            variants: { kind: 'snp', noun: 'variant', arr: 'snpindels' },
+            annotations: { kind: 'ann', noun: 'annotation', arr: 'annotations' },
+            primers: { kind: 'amplicon', noun: 'primer or probe', arr: null }
+        };
+        const selCountOf = (what) => {
+            if (what === 'compounds') return selectedCompoundSet().size;
+            const k = SEL_KINDS[what];
+            return k ? lassoOf(k.kind).length : 0;
+        };
+
         const LAYER_SETS = await (async () => { try { return await exec('baja/data/layer-sets.js'); } catch (e) { return {}; } })();
         const LAYER_KEYS = Object.keys(LAYER_SETS || {});
 
@@ -409,8 +440,9 @@ function (graph, genegraph_panel_layout) {
             },
             {
                 name: 'select_compounds',
-                summary: 'Select the compounds (ASOs, siRNAs) matching a filter on score band, the '
-                    + "scorer's own flags, score, GC, Tm, length, modality or name.",
+                summary: 'Select the compounds (ASOs, siRNAs) matching a FILTER on score band, the '
+                    + "scorer's own flags, score, GC, Tm, length, modality or name. This describes "
+                    + 'compounds by their properties; it does not act on what is already selected.',
                 needs: 'compounds',
                 params: {
                     band: { type: 'enum', values: ['red', 'amber', 'notred', 'green'], about: 'red is flagged, amber is red or orange, green is best' },
@@ -437,7 +469,8 @@ function (graph, genegraph_panel_layout) {
             },
             {
                 name: 'remove_compounds',
-                summary: 'DELETE the compounds matching that same filter from the tracks.',
+                summary: 'DELETE the compounds matching that same FILTER from the tracks. For "delete '
+                    + 'the selected compounds", which names no filter, use remove_selected instead.',
                 needs: 'compounds', destructive: true,
                 params: null,     // filled below: the same params as select_compounds
                 count: (a) => chits(a).length,
@@ -588,6 +621,65 @@ function (graph, genegraph_panel_layout) {
                     return 'drop the selected sequence on ' + (s.length
                         ? s.map((t) => t.name || 'a track').join(', ') : 'any track that has one');
                 }
+            },
+            {
+                name: 'remove_selected',
+                summary: 'DELETE whatever is currently selected, of one kind: the compounds, the '
+                    + 'variants, the annotations or the primers. This is the one to use when the '
+                    + 'request says "the selected ones" or "these", rather than describing them by '
+                    + 'a filter.',
+                destructive: true,
+                params: {
+                    kind: {
+                        type: 'enum', values: ['compounds', 'variants', 'annotations', 'primers'],
+                        required: true,
+                        about: 'which kind of selected object to delete. compounds covers ASOs and '
+                            + 'siRNAs; primers covers primer-probe sets'
+                    }
+                },
+                count: (a) => selCountOf(a.kind),
+                run: (a) => {
+                    const k = SEL_KINDS[a.kind];
+                    if (!k) { result('No such kind: ' + a.kind); return; }
+                    const before = selCountOf(a.kind);
+                    if (!before) { result('Nothing of that kind is selected.'); return; }
+                    // The editor's own path first: it pushes history, keeps the rest of the
+                    // selection intact, tidies the selection panel and rescales. Duplicating
+                    // any of that here would be a second version of it to keep right.
+                    const hadLasso = lassoOf(k.kind).length > 0;
+                    if (hadLasso && typeof graph.removeSelectedByKind === 'function') {
+                        try { graph.removeSelectedByKind(k.kind); } catch (e) { }
+                    }
+                    // Compounds can also be held in the OTHER store, which that method does not
+                    // know about, so anything still on a track is removed here.
+                    if (a.kind === 'compounds') {
+                        const left = new Set();
+                        for (const s of (graph.selectedCompounds || [])) { if (s && s.o) left.add(s.o); }
+                        if (left.size) {
+                            if (!hadLasso) { try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { } }
+                            for (const t of tracks()) {
+                                if (!t.oligos) continue;
+                                t.oligos = t.oligos.filter((o) => !left.has(o));
+                            }
+                            try { graph.setSelectedCompounds([]); } catch (e) { }
+                            try { if (graph.rescale) graph.rescale(); } catch (e) { }
+                        }
+                    }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    const after = selCountOf(a.kind);
+                    const n = before - after;
+                    result('Removed ' + n + ' selected ' + k.noun + (n === 1 ? '' : 's')
+                        + '. Undo restores ' + (n === 1 ? 'it' : 'them') + '.');
+                },
+                preview: (a) => {
+                    const k = SEL_KINDS[a.kind];
+                    const n = selCountOf(a.kind);
+                    return 'delete the ' + n + ' selected ' + (k ? (k.noun + (n === 1 ? '' : 's')) : a.kind);
+                },
+                argBlocker: (a) => (selCountOf(a.kind)
+                    ? ''
+                    : ('nothing of that kind is selected: pick some on the canvas first, or describe '
+                        + 'them instead and they can be removed by filter'))
             },
             {
                 name: 'clear_compound_selection',
@@ -803,7 +895,7 @@ function (graph, genegraph_panel_layout) {
 
         return {
             list: LIST, byName: byName, validate: validate, preview: preview,
-            regionInfo: regionInfo, regionsOf: regionsOf,
+            regionInfo: regionInfo, regionsOf: regionsOf, selCountOf: selCountOf,
             blocker: blocker, catalogue: catalogue,
             vhits: vhits, vrows: vrows, crows: crows, selectVariants: selectVariants,
             selTracks: selTracks, oneSelTrack: oneSelTrack, tracks: tracks, rangeOf: rangeOf,

@@ -128,6 +128,15 @@ function (graph, genegraph_panel_layout, options) {
                 })).slice(0, 12),
                 has_selection: sel.length > 0,
                 tracks_with_a_selection: sel.length,
+                // What is picked out ON the canvas, which is a different thing from a marked
+                // stretch of sequence. "the selected compounds" means these, and without the
+                // counts a request about them reads as being about nothing.
+                selected_now: {
+                    compounds: CAP.selCountOf('compounds'),
+                    variants: CAP.selCountOf('variants'),
+                    annotations: CAP.selCountOf('annotations'),
+                    primers: CAP.selCountOf('primers')
+                },
                 variants_total: CAP.vrows().length,
                 variants_on_screen: visibleVariants().length,
                 compounds_total: cr.length,
@@ -182,8 +191,9 @@ function (graph, genegraph_panel_layout, options) {
                 + '<div style="min-width:0;"><div style="font:700 17px Arial;">Ask the editor</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
                 + CAP.list.length + ' operations · ' + ctx.variants_total + ' variants ('
-                + ctx.variants_on_screen + ' on screen) · ' + ctx.compounds_total + ' compounds · '
-                + H(selNote) + '</div></div>'
+                + ctx.variants_on_screen + ' on screen) · ' + ctx.compounds_total + ' compounds'
+                + (ctx.selected_now.compounds ? (' (' + ctx.selected_now.compounds + ' selected)') : '')
+                + ' · ' + H(selNote) + '</div></div>'
                 + '<div style="margin-left:auto;"><button id="ec-close" style="' + btn + '">Close</button></div>'
                 + '</div>'
                 + '<div style="padding:18px 20px 22px;">'
@@ -201,7 +211,7 @@ function (graph, genegraph_panel_layout, options) {
                 + '<b>Select a region:</b> select the 3\u2032 UTR · select exon 5 · select the CDS · '
                 + 'deselect the sequence<br>'
                 + '<b>Select or remove:</b> select all snps · select every red compound · '
-                + 'remove the benign ones · go to DNM3<br>'
+                + 'remove the benign ones · delete the selected compounds · go to DNM3<br>'
                 + '<b>Ask:</b> are any of these snps pathogenic · which of these hit a splice site<br>'
                 + '<b>Or open a shelf and pick:</b> show me the ML options · what data can I load · '
                 + 'what modalities are there<br>'
