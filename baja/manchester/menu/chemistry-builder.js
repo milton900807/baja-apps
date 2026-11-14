@@ -231,11 +231,27 @@ function (kind, preset) {
             };
             q('#cb-cancel').onclick = () => { close(); resolve(null); };
             q('#cb-ok').onclick = () => {
+                // THE TYPE DECIDES WHETHER THE TEMPLATE IS READ AT ALL.
+                //
+                // generateCompound branches on it, and the 'DNA' branch ignores chemObj
+                // .template completely: it builds its own `d(?).p.d(?).p.…`, every residue
+                // deoxy and every linkage a SEPARATE token. The renderer draws a bead per
+                // token, so a 20-mer came out as 39 beads reading T P T P C P…, with none of
+                // the chemistry chosen here anywhere in it.
+                //
+                // 'aso' and 'gapmer' are the template-driven branches: they pass this
+                // template through applySequenceToTemplate, where the linkage is a SUFFIX on
+                // its residue (moe(A)sp) rather than a token of its own, which is 20 tokens
+                // for a 20-mer. The type is also what the compound then says it is, so a
+                // gapmer says gapmer.
                 const chem = {
-                    type: 'DNA',
+                    type: (arch === 'gapmer') ? 'gapmer' : 'aso',
                     name: nameOf(),
                     length: len,
                     template: template(),
+                    // Some consumers read the strand off `antisense` instead; same string,
+                    // so neither can be the stale one.
+                    antisense: template(),
                     shapeFunction: 'baja/shapes/myshapefunction.js'
                 };
                 close();

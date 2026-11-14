@@ -216,6 +216,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "the hover handler does not take the first click" \
     "baja/manchester/menu/design-or-place.js:THE HOVER HANDLER WOULD TAKE THE FIRST CLICK" \
     "baja/manchester/menu/design-or-place.js:AND THE SELECTION WOULD TAKE IT BEFORE ANY LISTENER SAW IT"
+  install_group "the built chemistry is actually used" \
+    "baja/manchester/menu/chemistry-builder.js:THE TYPE DECIDES WHETHER THE TEMPLATE IS READ AT ALL"
   install_group "a chemistry editor, not two canned templates" \
     "baja/manchester/menu/chemistry-builder.js:BUILD A COMPOUND'S CHEMISTRY" \
     "baja/manchester/menu/design-or-place.js:Build a chemistry"
