@@ -750,14 +750,19 @@ function (graph, genegraph_panel_layout) {
                     let r = null;
                     try { r = await exec('baja/manchester/menu/export-compounds.js', graph, a); }
                     catch (e) { result('Could not export: ' + (e && e.message ? e.message : e)); return; }
+                    // THE SKIPPED ONES ARE NAMED. An order file short by sixteen rows and
+                    // saying nothing is the failure this exists to prevent -- and so is
+                    // "Nothing was exported." with no reason, which is what came back when
+                    // EVERY compound failed, because the reasons were only read on the path
+                    // where something had been written. The reasons are read first now, and
+                    // the all-failed case is the one that most needs them.
+                    const why = Object.keys(r && r.reasons || {})
+                        .map((k) => r.reasons[k] + ' ' + k).join('; ');
                     if (!r || !r.wrote) {
-                        result('Nothing was exported' + (r && r.note ? (': ' + r.note) : '.'));
+                        result('Nothing was exported'
+                            + (why ? (': ' + why + '.') : (r && r.note ? (': ' + r.note) : '.')));
                         return;
                     }
-                    // THE SKIPPED ONES ARE NAMED. An order file that is short by sixteen rows
-                    // and says nothing is the failure this exists to prevent.
-                    const why = Object.keys(r.reasons || {})
-                        .map((k) => r.reasons[k] + ' ' + k).join('; ');
                     result('Wrote ' + r.wrote + ' compound' + (r.wrote === 1 ? '' : 's') + ' to ' + r.file
                         + (r.skipped ? ('. ' + r.skipped + ' left out: ' + why + '.') : '.'));
                 },

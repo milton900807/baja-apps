@@ -241,16 +241,50 @@ function () {
                 return m ? m[1].toLowerCase() : null;
             }
 
+            // THE HELM ENVELOPE COMES OFF FIRST.
+            //
+            // A compound's structure is a full HELM string -- RNA1{moe(A)sp.moe(G)sp...}$$$$,
+            // or several chains joined by | for a duplex -- and not the bare dotted template.
+            // Splitting the whole string on '.' makes the first token "RNA1{moe(A)sp", which
+            // matches no residue pattern at all. That is why the first base of every oligo
+            // came out as /5A/: it was never a 5-prime convention, it was the wrapper eating
+            // the first residue, and every other residue in a single-chain oligo was fine
+            // only because the wrapper is at the front.
+            //
+            // Returns [{id, body}]. A bare template with no envelope is one unnamed chain, so
+            // a template and a HELM string both work through the same path.
+            helmChains(text) {
+                const out = [];
+                const re = /([A-Za-z0-9_]+)\s*\{([^}]*)\}/g;
+                let m;
+                while ((m = re.exec(text)) !== null) {
+                    if (('' + m[2]).trim()) out.push({ id: m[1], body: m[2] });
+                }
+                if (!out.length) out.push({ id: '', body: ('' + text).split('$')[0] });
+                return out;
+            }
+
             // Returns { idt, problems: [...] }. problems is empty when every residue mapped.
             formatStrict(chain) {
                 const text = '' + (chain || '');
                 if (!text.trim()) return { idt: '', problems: ['the compound has no chemistry'] };
-                if (text.indexOf('|') > 0) {
-                    // Multi-chain HELM keeps its existing route; this is a duplex or a
-                    // conjugate and is a different shape of answer.
-                    return { idt: this.format(text), problems: [] };
+                const chains = this.helmChains(text);
+                if (chains.length > 1) {
+                    // A duplex or a conjugate: each strand is ordered separately, so each gets
+                    // its own codes, labelled. A failure in one strand is still reported.
+                    const parts = [], probs = [];
+                    for (const c of chains) {
+                        const r = this.formatChain(c.body);
+                        for (const pr of r.problems) if (probs.indexOf(c.id + ': ' + pr) < 0) probs.push(c.id + ': ' + pr);
+                        if (r.idt) parts.push(c.id + ': ' + r.idt);
+                    }
+                    return { idt: probs.length ? '' : parts.join('; '), problems: probs };
                 }
-                const units = text.split('.').map((x) => x.trim()).filter((x) => x.length);
+                return this.formatChain(chains[0].body);
+            }
+
+            formatChain(body) {
+                const units = ('' + body).split('.').map((x) => x.trim()).filter((x) => x.length);
                 const out = [];
                 const problems = [];
                 const seen = new Set();
