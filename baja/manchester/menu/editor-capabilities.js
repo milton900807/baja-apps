@@ -781,6 +781,47 @@ function (graph, genegraph_panel_layout) {
                 }
             },
 
+            {
+                name: 'show_compound_locations',
+                summary: 'Mark where the compounds are with a down arrow over the track, so they can '
+                    + 'be seen at a view too wide to show the compounds themselves. Answers "where '
+                    + 'are the compounds", "show me the locations", "where do these sit". Marks the '
+                    + 'selected ones when any are selected, otherwise all of them.',
+                needs: 'compounds',
+                params: {
+                    scope: { type: 'enum', values: ['selected', 'all'], about: 'omit to mark the selection when there is one' },
+                    clear: { type: 'boolean', about: 'true to take the arrows off again' }
+                },
+                count: (a) => {
+                    if (a.clear) return null;
+                    const sel = selectedCompoundSet();
+                    const useSel = (a.scope === 'selected') || (a.scope !== 'all' && sel.size > 0);
+                    return useSel ? sel.size : crows().length;
+                },
+                run: async (a) => {
+                    let r = null;
+                    try { r = await exec('baja/manchester/menu/mark-compound-locations.js', graph, a); }
+                    catch (e) { result('Could not mark them: ' + (e && e.message ? e.message : e)); return; }
+                    if (a.clear) { result('Took off ' + ((r && r.cleared) || 0) + ' marker' + (((r && r.cleared) || 0) === 1 ? '' : 's') + '.'); return; }
+                    if (!r || !r.marked) {
+                        result('Nothing was marked'
+                            + (r && r.noPosition ? (': ' + r.noPosition + ' compounds have no position on the track.') : '.'));
+                        return;
+                    }
+                    result('Marked ' + r.marked + ' compound' + (r.marked === 1 ? '' : 's') + ' on '
+                        + r.tracks + ' track' + (r.tracks === 1 ? '' : 's')
+                        + (r.noPosition ? ('. ' + r.noPosition + ' have no position and could not be placed.') : '.'));
+                },
+                preview: (a) => {
+                    if (a.clear) return 'take the compound location arrows off';
+                    const sel = selectedCompoundSet();
+                    const useSel = (a.scope === 'selected') || (a.scope !== 'all' && sel.size > 0);
+                    const n = useSel ? sel.size : crows().length;
+                    return 'mark where ' + n + ' ' + (useSel ? 'selected ' : '') + 'compound'
+                        + (n === 1 ? '' : 's') + ' sit, with an arrow over the track';
+                }
+            },
+
             // ---------------------------------------------------------------- the view -----
             {
                 name: 'zoom_selection',

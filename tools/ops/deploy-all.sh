@@ -293,6 +293,13 @@ if [[ $DO_API -eq 1 ]]; then
   # Exporting compounds to a file: the exporter and the catalogue entry that reaches it.
   # The IDT code table. Ships with the exporter that calls formatStrict: an export-compounds
   # that calls it against an idt-format without it writes no codes at all.
+  # Down arrows marking where compounds sit. The shape lives in the draw registry, the
+  # module that creates the annotations calls it by type, and the catalogue reaches the
+  # module: an annotation of a type the registry does not know draws nothing at all.
+  install_group "show compound locations" \
+    "flexigraph/gene-draw.js:A DOWN ARROW OVER THE TRACK, marking where something sits" \
+    "baja/manchester/menu/mark-compound-locations.js:SHOW WHERE THE COMPOUNDS ARE" \
+    "baja/manchester/menu/editor-capabilities.js:show_compound_locations"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"

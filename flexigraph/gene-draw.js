@@ -560,6 +560,36 @@ function () {
             graph.drawLine(xs, y, xf, y, color, 13, 'butt')
 
         }),
+        // A DOWN ARROW OVER THE TRACK, marking where something sits.
+        //
+        // Used to show where compounds are when the view is too wide to see them: at 571 kb
+        // a 20-mer is a fraction of a pixel, so a design with 47 oligos on it looks empty.
+        // The arrow is drawn in SCREEN units, a fixed size however far out the view is,
+        // because a marker that scales with the axis disappears at exactly the zoom where it
+        // was needed.
+        'CompoundMark': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
+            const c = color || '#f59e0b';
+            let ctx = null;
+            try { ctx = graph.canvas.getCTX(); } catch (e) { ctx = null; }
+            if (!ctx) return;
+            const sx = graph.X((xs + xf) / 2);
+            const sy = graph.Y(y);
+            const TIP = 9, STEM = 13;        // pixels above the track line
+            ctx.save();
+            try {
+                ctx.setLineDash([]);
+                ctx.strokeStyle = c;
+                ctx.lineWidth = 1.4;
+                ctx.globalAlpha = 0.95;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy - TIP - STEM);
+                ctx.lineTo(sx, sy - TIP);
+                ctx.stroke();
+            } catch (e) { }
+            ctx.restore();
+            // Math.PI/2 turns the arrowhead, which is drawn pointing right, to point down.
+            try { graph.drawArrowhead(sx, sy - TIP, Math.PI / 2, 6, 7, c); } catch (e) { }
+        }),
         'PointOfInterest': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             const col = annotation.color || 'rgba(255,140,26,0.85)';
             graph.drawLine(xs, y, xf, y, col, 14, 'butt');
