@@ -2392,6 +2392,39 @@ function (path, config) {
                             panel.setText('');
                         }),
                         menus: [
+                            // A BUTTON ON THE TIMELINE'S OWN BAR.
+                            //
+                            // A leaf entry, so the component draws it as a button rather than a
+                            // dropdown: clicking it opens a box that says which timeline it is
+                            // talking to and the dates it covers, so "a milestone on the 3rd" has
+                            // something to be the 3rd of. Everything typed in it is read as a
+                            // request, the same rule as the box under the bar, because the field
+                            // that tests for commands is already there and this is not it.
+                            {
+                                label: 'Ask',
+                                icon: 'auto_awesome',
+                                color: '#ffd166',
+                                tooltip: 'Ask for something on this timeline',
+                                ionfunction: createIonFunction(async () => {
+                                    const tl = (pm.plateTrack && pm.plateTrack.selectedPlate) || null;
+                                    const name = ('' + ((tl && tl.name) || '')).trim();
+                                    const when = (d) => { try { return new Date(d).toDateString(); } catch (e) { return null; } };
+                                    const from = tl && when(tl.startDate), to = tl && when(tl.endDate);
+                                    const range = (from && to) ? ('It runs ' + from + ' to ' + to + '. ') : '';
+                                    let r = null;
+                                    try {
+                                        r = await exec('baja/lib/prompt-text.js', {
+                                            title: 'Ask about ' + (name || 'this timeline'),
+                                            message: range + 'Add a milestone on a date, or a phase between two dates.',
+                                            value: '',
+                                            actions: [{ key: 'go', label: 'GO' }]
+                                        });
+                                    } catch (e) { r = null; }
+                                    const t = ('' + ((r && r.text) || '')).trim();
+                                    if (!t) return;
+                                    await __askTimeline(t, null, __tlMenus);
+                                })
+                            },
                             {
                                 'label': 'File', 'items': file_items
                             },

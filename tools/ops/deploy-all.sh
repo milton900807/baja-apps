@@ -360,7 +360,7 @@ if [[ $DO_API -eq 1 ]]; then
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
-    "manchester/controls/navigation-panel-plates2.js:A BUTTON THAT ASKS, ON THE BAR ITSELF" \
+    "cpd/main-timeline.js:A BUTTON ON THE TIMELINE'S OWN BAR" \
     "baja/plate/menu/project-command.js:THE DATE OF TODAY GOES WITH EVERY REQUEST" \
     "baja/plate/menu/project-capabilities.js:timeline_add" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
