@@ -20,6 +20,30 @@ function () {
 
     const LIST = [
         {
+            // CONTENT FOR A TABLE WHOSE COLUMNS ALREADY EXIST. Making a new table from a
+            // sentence was covered; filling in the one in front of you was not, and that is
+            // the commoner job.
+            name: 'fill_table',
+            summary: 'put content into a table that already has its columns, worked out from '
+                + 'a description. THIS IS THE ANSWER whenever the request asks to add, fill '
+                + 'in, populate or generate ENTRIES, EXAMPLES or DATA for a table that is '
+                + 'already there ("add a bunch of employees and salaries to this", "fill in '
+                + 'some example parts"). The rows go into the empty rows at the bottom and '
+                + 'nothing already written is overwritten',
+            module: 'baja/plate/ops/fill-table.js',
+            params: {
+                what: { type: 'string', required: true,
+                    about: 'what should go in it, in the user\u2019s own words, with everything '
+                        + 'they said about the kind of thing it is: pass the request through '
+                        + 'rather than summarising it, since the detail is what makes the '
+                        + 'content fit' },
+                table: { type: 'string', default: 'the table the request was made from',
+                    about: 'the NAME of the table, if the request says it' },
+                rows: { type: 'number', default: '0, meaning as many as the request implies',
+                    about: 'how many rows, when the request says a number' }
+            }
+        },
+        {
             // ROWS ON A TABLE THAT IS ALREADY THERE. "Add 4 rows" offered three ways to make
             // a NEW table, in answer to a request about the one in front of the user.
             name: 'table_size',
@@ -419,6 +443,11 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'fill_table') {
+            const which = args.table ? ('"' + args.table + '"') : 'this table';
+            return 'fill ' + which + ' in' + (args.rows ? (' with ' + args.rows + ' rows') : '')
+                + ': ' + args.what;
         }
         if (name === 'table_size') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';
