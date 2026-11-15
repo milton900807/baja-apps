@@ -203,6 +203,15 @@ if [[ $DO_API -eq 1 ]]; then
       SERVED_CHECK+=("$f|$mk")
     done
   }
+  # The AI credit meter asked a marker directory, not Stripe, and an unset $LJLSUBSCRIPTIONS
+  # read as "not subscribed" -- so every paying user was metered against the free allowance,
+  # refused inside python before the server's own gate was consulted. Both files go together:
+  # the meter now asks the server and treats could-not-ask as "do not meter", which needs
+  # works.py able to SAY it cannot answer.
+  install_group "the AI credit meter asks the server, not a marker directory" \
+    "py/ion-lib/claude_usage.py:WHERE THE SUBSCRIPTION ANSWER COMES FROM" \
+    "py/ion-lib/ion/works.py:NONE IS NOT NO, and the difference is the whole point"
+
   install_group "timeline side panel" \
     "baja/plots/point-side-panel.js:baja-point-side-panel" \
     "baja/plate/plate-track.js:point-side-panel"

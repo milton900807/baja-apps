@@ -172,12 +172,74 @@ def free_credit_limit():
         return FREE_CREDIT_LIMIT
 
 
+# WHERE THE SUBSCRIPTION ANSWER COMES FROM.
+#
+# It used to come from ion.works.has_active_subscription alone, which never contacts Stripe:
+# it looks for a marker file under $LJLSUBSCRIPTIONS. Nothing in either repository sets that
+# variable, and an unset variable read as False, so this meter believed every user was on the
+# free plan and refused paying subscribers at the $10 allowance -- raising inside python,
+# before baja-server's own gate was ever consulted, which is why nothing about it appeared in
+# the server log.
+#
+# baja-server already holds the one rule that knows about subscriptions, the early-access
+# year and operator comps, and this meter runs on the same machine. So ask it, and keep the
+# marker file as the fallback for a box that cannot reach it.
+_ENT_CACHE = {}
+_ENT_TTL = 60.0
+
+
+def _server_base():
+    for name in ("SERVER_BASE_URL", "BAJA_SERVER_URL"):
+        v = (os.environ.get(name) or "").strip().rstrip("/")
+        if v:
+            return v
+    port = (os.environ.get("PORT") or "8080").strip() or "8080"
+    return "http://127.0.0.1:" + port
+
+
+def _server_entitlement(email):
+    """True or False as the server answered, or None when the question could not be asked.
+
+    The three are different and the difference matters: a definite no meters the user, and a
+    could-not-ask must not. Anything unexpected -- a non-200, a body without the field, a
+    timeout, no network -- is a could-not-ask.
+    """
+    import time
+    import urllib.parse
+    import urllib.request
+    now = time.time()
+    hit = _ENT_CACHE.get(email)
+    if hit and (now - hit[0]) < _ENT_TTL:
+        return hit[1]
+    url = (_server_base() + "/stripe/subscription-status?email="
+           + urllib.parse.quote(email, safe=""))
+    try:
+        with urllib.request.urlopen(url, timeout=4) as r:
+            if getattr(r, "status", 200) != 200:
+                return None
+            body = json.loads(r.read().decode("utf-8", "replace"))
+        if not isinstance(body, dict) or "active" not in body:
+            return None
+        ans = bool(body.get("active"))
+    except Exception:
+        return None
+    _ENT_CACHE[email] = (now, ans)
+    return ans
+
+
 def _subscribed(email):
     try:
+        ans = _server_entitlement(email)
+        if ans is not None:
+            return ans
         from ion import works as _w
-        return bool(_w.has_active_subscription(email))
+        marker = _w.subscription_marker(email)
+        if marker is None:
+            # NOTHING can answer: not the server, not the marker directory. A subscription
+            # check that cannot run must not turn a paying user away.
+            return True
+        return bool(marker)
     except Exception:
-        # A subscription check that cannot run must not turn a paying user away.
         return True
 
 
