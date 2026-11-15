@@ -28,6 +28,15 @@ declaration and replaced by matching braces, not by a line number, and the resul
 through `node --check` before anything is written: a broken edit never reaches the service.
 Idempotent -- running it twice is a no-op, and it says so.
 
+FOURTH REVISION patches the status route too, and the note in this file claiming the route
+needed no patching was wrong: on a deployed box the route carries its own copy of the rule,
+with its own single-customer lookup and no notion of a comp, so it answered from one
+implementation while every gate answered from another -- and reading it was therefore no
+test of the fix. It also fixes the same two defects there: refusing on a missing customer
+record before checking whether the answer was yes, and reporting a missing Stripe key before
+asking the question at all. Run tools/hotfix/verify-subscription-installer.py --build to
+check this installer against every server state it might meet.
+
 THIRD REVISION adds BAJA_ENTITLED, a comma-separated list of addresses the operator
 entitles without a payment, beside FUNDRAISE_ADMINS. Empty unless set, reported as "comp" so
 no revenue report mistakes it for a sale, and read per call. It also fixes two defects that
@@ -55,7 +64,7 @@ import tempfile
 # installed" and kept running the single-customer code, so the installer said it had done
 # its job while changing nothing. A marker shared by two versions cannot tell them apart.
 # This phrase exists only in the version below.
-MARK = 'COMPED ADDRESSES, NAMED BY THE OPERATOR'
+MARK = 'THE ENTITLEMENT QUESTION IS ASKED BEFORE ANY REASON TO REFUSE'
 
 # What to replace, in order of preference. A server may be in either state: never patched,
 # where subscriptionSource alone is there; or patched with the earlier version, where
@@ -459,26 +468,60 @@ def region_of(text, decls):
     return (spans[0][0], spans[-1][1])
 
 
-def patch_file(path_, decl_sets, new_body, check_syntax):
-    """Replace the entitlement functions in one file. Returns a status string."""
+def route_span(text):
+    """The route registration including the trailing `);`, or None.
+
+    span_of stops at the arrow function's closing brace; the registration is a CALL, so the
+    `);` after it belongs to the edit. Leaving it behind would strand a bare `);` in the file
+    -- which node --check would catch, but as a mystery rather than as this.
+    """
+    sp = span_of(text, ROUTE_DECL)
+    if not sp:
+        return None
+    end = sp[1]
+    while end < len(text) and text[end] in ');':
+        end += 1
+    if not text[sp[1]:end].strip().startswith(')'):
+        return None
+    return (sp[0], end)
+
+
+def patch_file(path_, decl_sets, new_body, route_body, check_syntax):
+    """Replace the entitlement functions, and the route, in one file.
+
+    BOTH EDITS, ONE WRITE, ONE SYNTAX CHECK. The fault being fixed is two implementations of
+    one question disagreeing, so installing half of the answer is its own version of the same
+    bug. The functions and the route go in together or neither does.
+
+    Returns (status, route_status).
+    """
     if not os.path.exists(path_):
-        return 'absent'
+        return 'absent', '-'
     with open(path_, 'r', encoding='utf-8') as fh:
         text = fh.read()
     if MARK in text:
-        return 'already'
+        return 'already', 'already'
+
     region = None
     for decls in decl_sets:
         region = region_of(text, decls)
         if region:
             break
     if not region:
-        return 'not-found'
+        return 'not-found', '-'
     out = text[:region[0]] + new_body + text[region[1]:]
+
+    # The route is found in the ALREADY-EDITED text, so its offsets are the real ones.
+    rstat = 'not-found'
+    rsp = route_span(out)
+    if rsp:
+        out = out[:rsp[0]] + route_body + out[rsp[1]:]
+        rstat = 'patched'
+
     if check_syntax:
         good, why = node_ok(out)
         if not good:
-            return 'syntax:' + why
+            return 'syntax:' + why, rstat
     bak = path_ + '.before-entitlement'
     if not os.path.exists(bak):
         with open(bak, 'w', encoding='utf-8') as fh:
@@ -487,16 +530,107 @@ def patch_file(path_, decl_sets, new_body, check_syntax):
     with open(tmp, 'w', encoding='utf-8') as fh:
         fh.write(out)
     os.replace(tmp, path_)         # so the service never reads half a file
-    return 'patched'
+    return 'patched', rstat
 
 
-# THE ROUTE IS DELIBERATELY NOT PATCHED HERE.
+# THE ROUTE IS PATCHED AFTER ALL, AND THE EARLIER NOTE HERE WAS WRONG.
 #
-# /stripe/subscription-status already grants the early-access year -- it is the function
-# that did NOT that was the bug -- so changing it on the server would be editing working
-# code to no benefit. Having both read one function is worth doing, and it is done in the
-# source, which is what the next real build of this server will carry. An installer's job
-# is the smallest change that fixes the fault.
+# It used to say that /stripe/subscription-status already granted the early-access year, so
+# changing it would be editing working code to no benefit. That was true of the source and
+# false of the server: on a box whose dist predates the unification, the route carries its
+# OWN copy of the rule -- with its own customers.list({ limit: 1 }), and no knowledge of a
+# comp. So the route answered from one implementation while every gate answered from
+# another, which is the exact fault this installer exists to remove. Worse, it made the
+# route useless as a check: someone could install the fix, read the route, and see the old
+# answer looking back at them.
+#
+# Replaced by brace matching like the functions, including the trailing `);` of the
+# registration, and only when the file does not already carry this version's marker.
+
+ROUTE_DECL = "app.get(['/stripe/subscription-status', '/api/stripe/subscription-status']"
+
+ROUTE_JS = r'''
+app.get(['/stripe/subscription-status', '/api/stripe/subscription-status'], async (req, res) => {
+    // THE ENTITLEMENT QUESTION IS ASKED BEFORE ANY REASON TO REFUSE, for the same two
+    // reasons it is in subscriptionSource. A comped address is entitled with no Stripe key
+    // at all, so stripeReady's 500 cannot come first; and a comp has no customer record,
+    // because no payment created one, so a missing customerId cannot mean "no".
+    try {
+        const email = String(req.query.email || '').trim();
+        if (!email)
+            return res.status(400).json({ error: 'missing_email' });
+        // The SAME entitlement rule the gates use. This route and subscriptionSource each
+        // used to work it out for themselves, and only this one knew about the early-access
+        // one-time purchase -- so the app said subscribed and the credit gate said no, about
+        // the same paying customer. One function now answers it for both.
+        const ent = await stripeEntitlement(email);
+        __logSubscriptionCheck('stripe', email, ent.active, 'via=stripe status=' + ent.status + ' customer=' + (ent.customerId || '(none)'));
+        if (!ent.active && !ent.customerId) {
+            if (!stripeClient) {
+                return res.status(500).json({
+                    error: 'stripe_not_configured',
+                    error_description: 'Set STRIPE_SECRET_KEY on the server.',
+                });
+            }
+            return res.json({ active: false, status: 'none', currentPeriodEnd: null, customerId: null, customers: 0 });
+        }
+        return res.json({
+            active: ent.active,
+            status: ent.status,
+            currentPeriodEnd: ent.expiry,
+            customerId: ent.customerId,
+            // How many customer records carry this address. More than one is normal and is
+            // the thing to know when an answer looks wrong. Zero means the answer did not
+            // come from a customer record at all, which today means a comp.
+            customers: ent.customers ?? 1,
+        });
+    }
+    catch (e) {
+        return res.status(500).json({ error: 'stripe_error', error_description: e?.message || String(e) });
+    }
+});
+'''.strip('\n')
+
+ROUTE_TS = r'''
+app.get(['/stripe/subscription-status', '/api/stripe/subscription-status'], async (req: any, res: any) => {
+    // THE ENTITLEMENT QUESTION IS ASKED BEFORE ANY REASON TO REFUSE, for the same two
+    // reasons it is in subscriptionSource. A comped address is entitled with no Stripe key
+    // at all, so stripeReady's 500 cannot come first; and a comp has no customer record,
+    // because no payment created one, so a missing customerId cannot mean "no".
+    try {
+        const email = String(req.query.email || '').trim();
+        if (!email) return res.status(400).json({ error: 'missing_email' });
+        // The SAME entitlement rule the gates use. This route and subscriptionSource each
+        // used to work it out for themselves, and only this one knew about the early-access
+        // one-time purchase -- so the app said subscribed and the credit gate said no, about
+        // the same paying customer. One function now answers it for both.
+        const ent = await stripeEntitlement(email);
+        __logSubscriptionCheck('stripe', email, ent.active,
+            'via=stripe status=' + ent.status + ' customer=' + (ent.customerId || '(none)'));
+        if (!ent.active && !ent.customerId) {
+            if (!stripeClient) {
+                return res.status(500).json({
+                    error: 'stripe_not_configured',
+                    error_description: 'Set STRIPE_SECRET_KEY on the server.',
+                });
+            }
+            return res.json({ active: false, status: 'none', currentPeriodEnd: null, customerId: null, customers: 0 });
+        }
+        return res.json({
+            active: ent.active,
+            status: ent.status,
+            currentPeriodEnd: ent.expiry,
+            customerId: ent.customerId,
+            // How many customer records carry this address. More than one is normal and is
+            // the thing to know when an answer looks wrong. Zero means the answer did not
+            // come from a customer record at all, which today means a comp.
+            customers: ent.customers ?? 1,
+        });
+    } catch (e: any) {
+        return res.status(500).json({ error: 'stripe_error', error_description: e?.message || String(e) });
+    }
+});
+'''.strip('\n')
 
 
 def main():
@@ -508,10 +642,16 @@ def main():
     dist = os.path.join(root, 'dist', 'index.js')
     src = os.path.join(root, 'src', 'index.ts')
 
-    r1 = patch_file(dist, DECL_SETS, JS_NEW, True)
-    print('  dist/index.js  : ' + r1)
-    r2 = patch_file(src, TS_DECL_SETS, TS_NEW, False)
-    print('  src/index.ts   : ' + r2)
+    r1, rr1 = patch_file(dist, DECL_SETS, JS_NEW, ROUTE_JS, True)
+    print('  dist/index.js  : %s   (status route: %s)' % (r1, rr1))
+    r2, rr2 = patch_file(src, TS_DECL_SETS, TS_NEW, ROUTE_TS, False)
+    print('  src/index.ts   : %s   (status route: %s)' % (r2, rr2))
+    if r1 == 'patched' and rr1 == 'not-found':
+        print('')
+        print('THE STATUS ROUTE WAS NOT FOUND and so was NOT changed. The gates are fixed,')
+        print('but /stripe/subscription-status may still answer from its own older copy of')
+        print('the rule, which means its answer is not a test of the gates. Read the')
+        print('[subscription] lines in journalctl instead.')
     if r1.startswith('syntax'):
         print('\nNOTHING WAS WRITTEN. The edit did not parse, which is the one outcome this')
         print('refuses to install. Nothing on the server changed.')
