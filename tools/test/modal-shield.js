@@ -81,6 +81,43 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
        'while the panel is up the canvas hears nothing, press or release');
     ok(heard.windowUp === before.windowUp, 'and neither does the window');
 
+    // A DIALOG THAT OPENS ON TOP OF THE PANEL STILL WORKS. This is the one that bit: the
+    // card asked "there is no table called Employees, make it?" through core's own prompt,
+    // which is appended to the body and so sits outside the card -- and its OK button did
+    // nothing, because the shield was swallowing every click that was not in the card.
+    const over = document.createElement('div');
+    over.id = 'baja-prompt-panel';
+    over.style.position = 'fixed';
+    over.style.zIndex = '2147483000';          // core's own prompt panel z-index
+    const okBtn = document.createElement('button');
+    let pressedOk = 0;
+    okBtn.addEventListener('click', () => pressedOk++);
+    over.appendChild(okBtn);
+    document.body.appendChild(over);
+
+    fire(okBtn, 'mousedown'); fire(okBtn, 'mouseup'); fire(okBtn, 'click');
+    ok(pressedOk === 1, 'OK on a dialog opened over the panel works');
+
+    // and one that is NOT above it is still stopped
+    const under = document.createElement('div');
+    under.style.position = 'fixed';
+    under.style.zIndex = '1';
+    const sneaky = document.createElement('button');
+    let pressedSneaky = 0;
+    sneaky.addEventListener('click', () => pressedSneaky++);
+    under.appendChild(sneaky);
+    document.body.appendChild(under);
+    fire(sneaky, 'click');
+    ok(pressedSneaky === 0,
+       'while a layer BELOW the panel is still stopped, even its own button: that is what '
+       + 'being under a modal means');
+    const beforeUnder = heard.click;
+    fire(canvas, 'click');
+    ok(heard.click === beforeUnder, 'and the canvas stays shielded');
+
+    document.body.removeChild(over);
+    document.body.removeChild(under);
+
     // THE TAIL OF THE CLOSING GESTURE. The panel goes; the release and click that follow the
     // press that closed it must not land on what was underneath.
     panel.parentNode.removeChild(panel);

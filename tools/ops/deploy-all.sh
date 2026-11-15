@@ -375,7 +375,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/project-capabilities.js:Choose count whenever the cell stands for the "
 
   install_group "a panel over the canvas keeps its clicks to itself" \
-    "baja/lib/modal-shield.js:NOTHING PRESSED ON A PANEL REACHES THE CANVAS UNDER IT" \
+    "baja/lib/modal-shield.js:A PANEL THAT OPENED ON TOP OF THIS ONE IS NOT BEHIND IT" \
     "baja/lib/prompt-text.js:NOTHING PRESSED IN HERE REACHES THE CANVAS"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \

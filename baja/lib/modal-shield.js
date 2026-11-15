@@ -25,12 +25,45 @@ function (el, opts) {
     // A panel's own pieces do not always live inside it: a type-ahead list, a native select's
     // dropdown and a menu overlay are all appended to the body. Anything matching one of
     // these selectors counts as part of the panel.
-    const ALLOW = Array.isArray(o.allow) ? o.allow.filter((x) => typeof x === 'string') : [];
+    const ALLOW = (Array.isArray(o.allow) ? o.allow.filter((x) => typeof x === 'string') : [])
+        // The dialogs core itself puts up (prompt, the info panel), which an operation
+        // started FROM a shielded panel opens on top of it.
+        .concat(['#baja-prompt-panel', '#baja-info-panel', '#baja-prompt-text']);
     const EVENTS = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick',
         'contextmenu', 'touchstart', 'touchend', 'wheel'];
 
     let dead = false;         // the panel is gone; swallow everything for a moment
     let released = false;     // listeners already removed
+
+    // A PANEL THAT OPENED ON TOP OF THIS ONE IS NOT BEHIND IT.
+    //
+    // A shield blocks what is UNDER the panel, and the canvas is under it. Another dialog --
+    // the one an operation opens while its card is still up, asking a question the card
+    // cannot -- is above it, and swallowing its clicks leaves the user with an OK button
+    // that does nothing. So anything inside a floating layer at least as high as this panel
+    // passes through: that is what "on top of" means, and it does not need a list of which
+    // dialogs exist.
+    const zOf = (node) => {
+        try {
+            const st = (typeof getComputedStyle === 'function') ? getComputedStyle(node) : null;
+            if (!st) return null;
+            if (st.position !== 'fixed' && st.position !== 'absolute' && st.position !== 'sticky') return null;
+            const z = parseInt(st.zIndex, 10);
+            return isFinite(z) ? z : null;
+        } catch (e) { return null; }
+    };
+    let baseZ = null;
+    try { baseZ = zOf(el); } catch (e) { baseZ = null; }
+
+    const onTop = (t) => {
+        let node = t, hops = 0;
+        while (node && node.nodeType === 1 && hops++ < 40) {
+            const z = zOf(node);
+            if (z != null && (baseZ == null ? z >= 1000 : z >= baseZ)) return true;
+            node = node.parentNode;
+        }
+        return false;
+    };
 
     const inside = (t) => {
         try {
@@ -40,7 +73,7 @@ function (el, opts) {
             if (ALLOW.length && t.closest) {
                 for (const sel of ALLOW) { if (t.closest(sel)) return true; }
             }
-            return false;
+            return onTop(t);
         } catch (e) { return false; }
     };
 
