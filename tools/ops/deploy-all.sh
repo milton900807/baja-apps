@@ -372,7 +372,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:SOMETHING ON THE CANVAS, ASKED FOR BY NAME"
+    "baja/plate/menu/project-capabilities.js:ROWS ON A TABLE THAT IS ALREADY THERE"
 
   install_group "a panel over the canvas keeps its clicks to itself" \
     "baja/lib/modal-shield.js:A PANEL THAT OPENED ON TOP OF THIS ONE IS NOT BEHIND IT" \
@@ -381,8 +381,9 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
-    "baja/plate/menu/project-command.js:WHAT IS ON THE CANVAS GOES WITH EVERY REQUEST" \
+    "baja/plate/menu/project-command.js:THE OBJECT THE REQUEST CAME FROM IS FILLED IN, NOT HOPED FOR" \
     "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
+    "baja/plate/ops/table-size.js:ROWS AND COLUMNS ON A TABLE THAT IS ALREADY THERE" \
     "baja/plate/menu/project-capabilities.js:A CELL THAT TOTALS ANOTHER TABLE" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \

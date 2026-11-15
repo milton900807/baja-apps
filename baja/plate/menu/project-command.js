@@ -234,6 +234,25 @@ function (o) {
             if (v.ok) op = v; else opProblem = v.problem;
         }
 
+        // THE OBJECT THE REQUEST CAME FROM IS FILLED IN, NOT HOPED FOR.
+        //
+        // Pressing Ask on a table and typing "add 4 rows" is a request about THAT table. The
+        // name is in the request's opening words and in the context, and the operation has a
+        // parameter for it -- but all three are things the model has to notice, and this one
+        // is not a guess: the button knows. So where the operation takes a parameter named
+        // for the kind of object the request came from and the model left it out, it is
+        // filled in here. The card then shows the name, which is the only way the user can
+        // see WHICH table is about to change.
+        if (op && asked && askedName) {
+            const pname = (askedKind === 'timeline') ? 'timeline' : (askedKind === 'table' ? 'table' : null);
+            try {
+                if (pname && op.capability && op.capability.params && op.capability.params[pname]
+                    && (op.args[pname] == null || ('' + op.args[pname]).trim() === '')) {
+                    op.args[pname] = askedName;
+                }
+            } catch (e) { }
+        }
+
         if (op) {
             // A REFUSAL IS SHOWN WHERE THE BUTTON WAS, NOT BEHIND THE CARD.
             //

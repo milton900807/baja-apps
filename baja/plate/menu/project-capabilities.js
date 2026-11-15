@@ -20,6 +20,32 @@ function () {
 
     const LIST = [
         {
+            // ROWS ON A TABLE THAT IS ALREADY THERE. "Add 4 rows" offered three ways to make
+            // a NEW table, in answer to a request about the one in front of the user.
+            name: 'table_size',
+            summary: 'add or remove rows, or add columns, on a table that is already on the '
+                + 'canvas. THIS IS THE ANSWER to "add 4 rows", "two more columns", "make it '
+                + 'longer" and the like, which are about the table the request came from and '
+                + 'never a reason to make a new one',
+            module: 'baja/plate/ops/table-size.js',
+            params: {
+                table: { type: 'string', default: 'the table the request was made from',
+                    about: 'the NAME of the table, if the request says it' },
+                rows: { type: 'number', default: '0, meaning leave the rows alone',
+                    about: 'how many rows to add; a negative number removes that many from '
+                        + 'the bottom' },
+                columns: { type: 'number', default: '0, meaning leave the columns alone',
+                    about: 'how many columns to add. Removing columns is not offered' },
+                names: { type: 'string', default: 'the new columns are left unnamed',
+                    about: 'names for the new columns, separated by commas, if the request '
+                        + 'gives them' },
+                force: { type: 'enum', values: ['yes'], default: 'not set, so rows holding '
+                        + 'something are kept',
+                    about: 'set to yes ONLY when the request plainly says to remove rows even '
+                        + 'though they have something in them' }
+            }
+        },
+        {
             // SOMETHING ON THE CANVAS, ASKED FOR BY NAME. "Show me assumptions" matched a
             // menu item that opens a dialog of the same name; what was wanted was the table
             // of that name, sitting on the canvas somewhere off screen.
@@ -393,6 +419,15 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'table_size') {
+            const which = args.table ? ('"' + args.table + '"') : 'this table';
+            const bits = [];
+            if (args.rows > 0) bits.push('add ' + args.rows + ' row' + (args.rows === 1 ? '' : 's'));
+            if (args.rows < 0) bits.push('remove ' + (-args.rows) + ' row' + (args.rows === -1 ? '' : 's'));
+            if (args.columns > 0) bits.push('add ' + args.columns + ' column' + (args.columns === 1 ? '' : 's')
+                + (args.names ? (' (' + args.names + ')') : ''));
+            return (bits.join(' and ') || 'change the size of') + ' on ' + which;
         }
         if (name === 'show_object') {
             return 'centre on "' + args.name + '"';
