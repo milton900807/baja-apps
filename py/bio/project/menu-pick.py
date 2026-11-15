@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Map a sentence onto ONE of the project app's own menu items.
+"""Carry a sentence out if an operation can, otherwise open the UI where it is done.
 
 "import a plate from a spreadsheet"  ->  File > Import
 
-THE CATALOGUE IS THE APP'S LIVE MENUS, flattened and sent in. Nothing is written here
+TWO CATALOGUES, IN THAT ORDER OF PREFERENCE. First a short list of OPERATIONS with
+declared parameters, which can carry a request out as stated. Then the app's LIVE MENUS,
+flattened and sent in, which open the place a thing is done.
+
+DOING IT BEATS OPENING THE DOOR TO IT, AND OPENING THE DOOR BEATS REFUSING. Nearly every
+menu item here opens a dialog that asks its own questions, so for most requests the right
+answer is a menu item: "import a plate from a spreadsheet" means open Import. But some
+requests arrive with the answer to that dialog's question already in them -- "a table with
+two rows and four columns" -- and the dialog cannot take it: Draw > Table asks for a name
+and then takes the size from how far the mouse is dragged. When an operation covers the
+request AND its required parameters are all present in the sentence, use it. Otherwise fall
+back to the menu item that opens the nearest place, which is a real answer and not a
+refusal.
+
+THE MENUS ARE THE LIVE MENUBAR. Nothing is written here
 and nothing is hard-coded: the project app's menubar is built fresh for whatever is
 selected, so the set of things that can be named is exactly the set that is on screen
 at the moment the user typed, and a menu item added anywhere becomes reachable by
@@ -28,9 +42,12 @@ param(1): the sentence
 param(2): JSON list of [{i, path, tooltip?}] -- the flattened menus
 param(3): optional JSON context (what is selected, what the app is showing)
 param(4): model id (default "claude-sonnet-4-5")
+param(5): JSON list of [{name, summary, params}] -- the declared operations
 
-Resolves {"status":"OK", "pick": <i|null>, "explain": "...", "alternatives": [i, ...],
-          "unsupported": "..."} or {"status":"ERROR","error":...}.
+Resolves {"status":"OK", "operation": <name|null>, "args": {...}, "pick": <i|null>,
+          "explain": "...", "alternatives": [i, ...], "unsupported": "..."}
+or {"status":"ERROR","error":...}. An operation and a pick can both be present: the pick
+is then the UI to fall back to if the operation turns out not to be runnable.
 """
 from __future__ import annotations
 import json
@@ -43,50 +60,71 @@ SYS = ("You map a request onto one item of a menu supplied to you. You never nam
        "that is not in the menu. Only output valid JSON.")
 
 INSTRUCTIONS = """
-You are given a request and the MENU of a laboratory project application, flattened. Each
-entry has an index `i` and the path it sits at, such as "File > Import". Choose the ONE
-menu item that carries out the request, or that opens the place where it is done.
+You are given a request, a short list of OPERATIONS this application can perform directly,
+and its MENU, flattened. Each menu entry has an index `i` and the path it sits at, such as
+"File > Import".
 
-  {"pick": <the i of that item, or null>,
-   "explain": "one short sentence saying what that item does",
-   "alternatives": [<up to three other plausible i, best first>],
-   "unsupported": "<if pick is null, what was asked for that this menu has no place for>"}
+Answer with an operation if one can carry the request out as stated. Otherwise answer with
+the menu item that opens the place where it is done.
+
+  {"operation": "<a name from the operations list, or null>",
+   "args": {...only that operation's declared parameters...},
+   "pick": <the i of a menu item, or null>,
+   "explain": "one short sentence saying what will happen",
+   "alternatives": [<up to three other plausible menu i, best first>],
+   "unsupported": "<if both are null, what was asked for that this app has no place for>"}
 
 Rules, in order of importance:
 
-1. ONLY AN INDEX FROM THE LIST. Never a path, a file, a function, or a menu item you
-   think ought to exist. If nothing fits, pick null.
+1. ONLY NAMES AND INDICES FROM THE LISTS. Never a path, a file, a function, or something
+   you think ought to exist. If nothing fits, use null for both.
 
-2. OPENING THE RIGHT PLACE IS THE JOB. Nearly every item here opens a dialog that asks
-   its own questions. The request will usually describe the END result ("make a plate
-   from this spreadsheet", "share this with my postdoc") while the menu names the DOOR
-   ("Import", "Share"). Pick the door. You are not expected to complete the task, only
-   to put the user in front of the thing that does it.
+2. AN OPERATION ONLY IF IT REALLY COVERS THE REQUEST AND YOU HAVE ITS REQUIRED
+   PARAMETERS. The sentence must actually say them; do not invent a size, a count or a
+   name that was not asked for. If an operation nearly fits but a required parameter is
+   missing, do NOT guess it: leave `operation` null and pick the menu item that opens the
+   place where the user can say it. Being asked the question is better than being given a
+   number nobody chose.
 
-3. DO NOT PICK A NEAR MISS AS IF IT WERE A MATCH. If nothing really does what was asked,
-   pick null and say so in `unsupported`. A wrong item runs and does something the user
-   did not ask for. Offering it under `alternatives` is the right place for a maybe:
-   those are shown as suggestions and nothing runs until the user chooses one.
+3. OTHERWISE, OPENING THE RIGHT PLACE IS THE JOB. Nearly every menu item opens a dialog
+   that asks its own questions. The request usually describes the END result ("make a
+   plate from this spreadsheet", "share this with my postdoc") while the menu names the
+   DOOR ("Import", "Share"). Pick the door. You are not expected to complete the task,
+   only to put the user in front of the thing that does.
 
-4. PREFER THE LEAST DESTRUCTIVE READING. If a request could mean "remove" or "show me
-   the ones that...", pick the one that shows. Deleting is only right when the request
+4. YOU MAY GIVE BOTH. If an operation fits, also pick the menu item that would be the
+   next best way to do it. The operation is what runs; the pick is only the fallback if
+   it cannot, and the user is shown both.
+
+5. DO NOT PICK A NEAR MISS AS IF IT WERE A MATCH. If nothing really does what was asked,
+   use null and say so in `unsupported`. A wrong item runs and does something the user
+   did not ask for. `alternatives` is the right place for a maybe: those are shown as
+   suggestions and nothing runs until the user chooses one.
+
+6. PREFER THE LEAST DESTRUCTIVE READING. If a request could mean "remove" or "show me the
+   ones that...", choose the one that shows. Deleting is only right when the request
    plainly asks for it.
 
-5. The context says what is selected and what is on screen. Use it to choose between
-   two items that differ only in what they act on. Do not invent a selection that the
-   context does not report.
+7. The context says what is selected and what is on screen. Use it to choose between two
+   items that differ only in what they act on. Do not invent a selection that the context
+   does not report.
+
+Operations:
+%s
 
 Menu:
 %s
 """
 
 
-def ask(model: str, request: str, menu: List[Dict[str, Any]], context: Any) -> Dict[str, Any]:
+def ask(model: str, request: str, menu: List[Dict[str, Any]], context: Any,
+        operations: List[Dict[str, Any]]) -> Dict[str, Any]:
     client = OpenAI()
     payload: Dict[str, Any] = {"request": request}
     if context:
         payload["app_now"] = context
-    prompt = (INSTRUCTIONS % json.dumps(menu, ensure_ascii=False, indent=1)) \
+    prompt = (INSTRUCTIONS % (json.dumps(operations, ensure_ascii=False, indent=1),
+                              json.dumps(menu, ensure_ascii=False, indent=1))) \
         + "\n\nRequest:\n" + json.dumps(payload, ensure_ascii=False)
     r = client.chat.completions.create(
         model=model,
@@ -113,7 +151,8 @@ def _index(value: Any, allowed: set) -> Any:
     return i if i in allowed else None
 
 
-def _clean(out: Dict[str, Any], menu: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _clean(out: Dict[str, Any], menu: List[Dict[str, Any]],
+           operations: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(out, dict):
         return {"status": "ERROR", "error": "the model did not return an object"}
     allowed = set()
@@ -126,6 +165,18 @@ def _clean(out: Dict[str, Any], menu: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     pick = _index(out.get("pick"), allowed)
 
+    # The operation NAME is checked against the list that was sent; the ARGUMENTS are only
+    # passed through. The editor validates them against the same declarations it supplied,
+    # which is the one place that knows a size's limits, so checking them loosely here as
+    # well would be a second opinion that can disagree with the one that counts.
+    op_names = {str(o.get("name")) for o in operations if isinstance(o, dict) and o.get("name")}
+    operation = str(out.get("operation") or "").strip() or None
+    if operation not in op_names:
+        operation = None
+    args = out.get("args")
+    if not isinstance(args, dict):
+        args = {}
+
     alts: List[int] = []
     raw_alts = out.get("alternatives")
     if isinstance(raw_alts, list):
@@ -135,6 +186,8 @@ def _clean(out: Dict[str, Any], menu: List[Dict[str, Any]]) -> Dict[str, Any]:
                 alts.append(i)
     return {
         "status": "OK",
+        "operation": operation,
+        "args": args if operation else {},
         "pick": pick,
         "explain": str(out.get("explain") or "").strip()[:300],
         "alternatives": alts[:3],
@@ -161,7 +214,15 @@ def _main() -> int:
             except Exception:
                 context = None
         model = str(works.param(4) or "claude-sonnet-4-5").strip() or "claude-sonnet-4-5"
-        works.resolve(_clean(ask(model, request[:2000], menu, context), menu))
+        ops_raw = works.param(5)
+        try:
+            operations = json.loads(ops_raw) if isinstance(ops_raw, str) else (ops_raw or [])
+        except Exception:
+            operations = []
+        if not isinstance(operations, list):
+            operations = []
+        works.resolve(_clean(ask(model, request[:2000], menu, context, operations),
+                             menu, operations))
     except Exception as exc:                     # noqa: BLE001
         import traceback
         traceback.print_exc()

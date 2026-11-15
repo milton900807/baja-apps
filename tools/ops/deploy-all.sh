@@ -343,10 +343,12 @@ if [[ $DO_API -eq 1 ]]; then
   # matched against the app's own live menubar and the item that does it is offered. Three
   # files, all or none: the router decides which path the text takes, the panel asks and
   # offers, and the python picks an index out of the menu it is given.
-  install_group "a sentence in the project command field finds the menu item" \
-    "manchester/controls/navigation-panel-plates2.js:a sentence, or a formula?" \
-    "baja/plate/menu/project-command.js:THE CATALOGUE IS THE LIVE MENUBAR" \
-    "py/bio/project/menu-pick.py:THE CATALOGUE IS THE APP'"'"'S LIVE MENUS"
+  install_group "a sentence in the project command field does it, or opens where it is done" \
+    "manchester/controls/navigation-panel-plates2.js:doing it beats opening the door" \
+    "baja/plate/menu/project-command.js:DO IT IF IT CAN BE DONE" \
+    "baja/plate/menu/project-capabilities.js:WHAT THE PROJECT CAN DO WITH ARGUMENTS IN HAND" \
+    "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \
+    "py/bio/project/menu-pick.py:DOING IT BEATS OPENING THE DOOR TO IT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"

@@ -42,7 +42,11 @@ function (o) {
                     continue;
                 }
                 if (m.header || !label) continue;
-                const act = m.ionFunction || m.click;
+                // BOTH SPELLINGS. The menu component reads ionfunction ?? ionFunction, and
+                // this app writes the lowercase one 24 times and the camelCase one 15 times.
+                // Checking only one of them quietly dropped most of Draw, Style and Ops out
+                // of the catalogue, so the model could not pick what it could not see.
+                const act = m.ionfunction || m.ionFunction || m.click;
                 if (!act) continue;
                 const path = prefix ? (prefix + ' > ' + label) : label;
                 const row = { i: out.length, path: path, __m: m };
@@ -109,7 +113,7 @@ function (o) {
     // and silently does nothing; getIonFunction is what turns it back into something
     // callable.
     const fire = async (m) => {
-        const ref = m.ionFunction || m.click;
+        const ref = m.ionfunction || m.ionFunction || m.click;
         let fn = null;
         try { fn = (typeof ref === 'function') ? ref : getIonFunction(ref); } catch (e) { fn = null; }
         if (!fn) return 'nothing is wired to that menu item';
@@ -131,6 +135,9 @@ function (o) {
                 + 'match that against.</div>');
             return;
         }
+        let CAP = null;
+        try { CAP = await exec('baja/plate/menu/project-capabilities.js'); } catch (e) { CAP = null; }
+
         let r = null;
         try {
             r = await exec('py/bio/project/menu-pick.py', text,
@@ -139,7 +146,9 @@ function (o) {
                     if (a.tooltip) c.tooltip = a.tooltip;
                     return c;
                 })),
-                context ? JSON.stringify(context) : '');
+                context ? JSON.stringify(context) : '',
+                '',
+                CAP ? JSON.stringify(CAP.catalogue()) : '[]');
         } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
 
         if (!r || r.status !== 'OK') {
@@ -152,10 +161,55 @@ function (o) {
         const pick = (r.pick == null) ? null : byIndex(r.pick);
         const alts = (r.alternatives || []).map(byIndex).filter((x) => !!x);
 
-        // NOTHING MATCHED is an answer, and the near misses are offered as choices rather
-        // than one of them being run as if it were the match.
-        if (!pick) {
-            say('<div style="font:700 13px Arial;color:#e8f0fb;">Nothing in this menu does that.</div>'
+        // DO IT IF IT CAN BE DONE; OTHERWISE OPEN THE PLACE IT IS DONE.
+        //
+        // The arguments are checked against the SAME declarations that were sent to the
+        // model, so a size outside what a table can be is refused here rather than trimmed
+        // into range and reported as what was asked for. A refused operation is not the end
+        // of the answer: the menu item falls through below, which is the UI where the user
+        // can say it properly, and the reason is shown with it.
+        let op = null, opProblem = null;
+        if (r.operation && CAP) {
+            const v = CAP.validate(r.operation, r.args || {});
+            if (v.ok) op = v; else opProblem = v.problem;
+        }
+
+        if (op) {
+            const runOp = async () => {
+                close();
+                let out = null;
+                try { out = await exec(op.capability.module, o.pm || null, op.args); }
+                catch (e) { out = { error: ('' + (e && e.message ? e.message : e)) }; }
+                if (out && out.error) {
+                    try { if (o && o.setError) o.setError(out.error); } catch (e) { }
+                }
+            };
+            say('<div style="font:700 13px Arial;color:#7fb0e8;">One operation</div>'
+                + '<div style="font:700 14px Arial;color:#e8f0fb;margin-top:7px;">'
+                + H(CAP.preview(op.capability.name, op.args)) + '</div>'
+                + '<div style="font:11px Arial;color:#6b8299;margin-top:3px;">'
+                + H(op.capability.name) + ' · '
+                + H(Object.keys(op.args).map((k) => k + '=' + op.args[k]).join(' ') || 'no arguments')
+                + '</div>'
+                + (r.explain ? ('<div style="font:12px Arial;color:#9fb3c8;margin-top:5px;">'
+                    + H(r.explain) + '</div>') : '')
+                + (op.dropped && op.dropped.length
+                    ? ('<div style="font:11.5px Arial;color:#fbbf24;margin-top:4px;">ignored: '
+                        + H(op.dropped.join(', ')) + '</div>') : '')
+                + '<div style="display:flex;gap:10px;margin-top:14px;align-items:center;">'
+                + '<button id="pc-op" style="' + green + '">Run it</button>'
+                + '<button id="pc-cancel" style="' + btn + '">Cancel</button></div>'
+                + (pick ? ('<div style="font:12px Arial;color:#6b8299;margin-top:14px;">Or do it '
+                    + 'yourself in <a href="#" class="pc-alt" data-i="' + pick.i
+                    + '" style="color:#7fb0e8;">' + H(pick.path) + '</a></div>') : ''));
+            try { q('#pc-op').onclick = runOp; } catch (e) { }
+        } else if (!pick) {
+
+            // NOTHING MATCHED is an answer, and the near misses are offered as choices
+            // rather than one of them being run as if it were the match.
+            say('<div style="font:700 13px Arial;color:#e8f0fb;">Nothing here does that.</div>'
+                + (opProblem ? ('<div style="font:12px Arial;color:#fbbf24;margin-top:6px;">'
+                    + H(opProblem) + '</div>') : '')
                 + (r.unsupported ? ('<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
                     + H(r.unsupported) + '</div>') : '')
                 + (alts.length ? ('<div style="font:12px Arial;color:#9fb3c8;margin-top:12px;">'
@@ -165,6 +219,8 @@ function (o) {
                 + '<div style="margin-top:14px;"><button id="pc-cancel" style="' + btn + '">Close</button></div>');
         } else {
             say('<div style="font:700 13px Arial;color:#7fb0e8;">One item</div>'
+                + (opProblem ? ('<div style="font:12px Arial;color:#fbbf24;margin-top:6px;">'
+                    + H(opProblem) + ' Opening where you can say it instead.</div>') : '')
                 + '<div style="font:700 14px Arial;color:#e8f0fb;margin-top:7px;">' + H(pick.path) + '</div>'
                 + (r.explain ? ('<div style="font:12px Arial;color:#9fb3c8;margin-top:5px;">'
                     + H(r.explain) + '</div>') : '')

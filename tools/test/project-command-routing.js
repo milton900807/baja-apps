@@ -51,7 +51,7 @@ window.env = { apiUrl: '' };
 const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
-let sentMenu = null, reply = null;
+let sentMenu = null, sentOps = null, reply = null;
 const ions = {};
 let fired = [];
 // Ions resolve through lion_engine, the way lib/core.js does it, not through a global of
@@ -59,8 +59,16 @@ let fired = [];
 const mkIon = (name) => { const ref = 'ion:' + name; ions[ref] = () => fired.push(name); return ref; };
 
 const load = async (p, ...a) => {
-    if (/menu-pick\.py$/.test(p)) { sentMenu = JSON.parse(a[1]); return reply; }
-    const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(p, 'utf8') + ')')(load, []);
+    if (/menu-pick\.py$/.test(p)) {
+        sentMenu = JSON.parse(a[1]);
+        sentOps = JSON.parse(a[4] || '[]');
+        return reply;
+    }
+    // The engine resolves a path with or without the extension; so does this, or modules
+    // that exec their dependencies by bare name fail here and not in the product.
+    const isFile = (x) => { try { return fs.statSync(x).isFile(); } catch (e) { return false; } };
+    const file = isFile(p) ? p : (isFile(p + '.js') ? p + '.js' : p);
+    const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(file, 'utf8') + ')')(load, []);
     return f(...a);
 };
 global.lion_engine = {
@@ -114,7 +122,7 @@ const body = () => document.body.textContent || '';
     await load('baja/plate/menu/project-command.js',
         { menus: menus, text: 'email a weekly report to the team' });
     await settle();
-    ok(body().indexOf('Nothing in this menu does that') >= 0, 'a miss says so plainly');
+    ok(body().indexOf('Nothing here does that') >= 0, 'a miss says so plainly');
     ok(body().indexOf('no place here to email a report') >= 0, 'and says what was missing');
     ok(fired.length === 0, 'and runs none of the near misses on its own');
     const alt = document.querySelectorAll('.pc-alt');
@@ -128,8 +136,57 @@ const body = () => document.body.textContent || '';
     reply = { status: 'OK', pick: 99, explain: 'x', alternatives: [], unsupported: '' };
     await load('baja/plate/menu/project-command.js', { menus: menus, text: 'do the thing' });
     await settle();
-    ok(fired.length === 0 && body().indexOf('Nothing in this menu does that') >= 0,
+    ok(fired.length === 0 && body().indexOf('Nothing here does that') >= 0,
        'an index that is not in the list runs nothing');
+
+    // ---- it does it when it can, and opens the UI when it cannot --------------------
+    //
+    // "draw a table with two rows and 4 cols" is the case that started this. Draw > Table
+    // cannot take a size: it asks for a name and then measures the drag.
+    let made = [];
+    const pm = { plateTrack: {
+        addPlateWithConsistentWellSize: (p) => made.push(p),
+        panToNextSpot: async () => { }, updateCalculations: () => { }, setMessage: () => { }
+    } };
+
+    fired = [];
+    reply = { status: 'OK', operation: 'new_table', args: { rows: 2, cols: 4 },
+              pick: 3, explain: 'Adds an empty 2 x 4 table', alternatives: [], unsupported: '' };
+    await load('baja/plate/menu/project-command.js',
+        { menus: menus, pm: pm, text: 'draw a table with two rows and 4 cols' });
+    await settle(10);
+    ok(Array.isArray(sentOps) && sentOps.some((o) => o.name === 'new_table'),
+       'the declared operations are offered to the model alongside the menu');
+    ok(sentOps.every((o) => !('module' in o)), 'but never the module path that would run them');
+    ok(body().indexOf('add a 2 x 4 table') >= 0, 'the operation is described in plain words');
+    ok(made.length === 0, 'and still nothing runs until it is pressed');
+    document.getElementById('pc-op').onclick();
+    await settle(10);
+    ok(made.length === 1, 'PRESSING IT MAKES THE TABLE');
+    ok(made[0].grid.xmax === 4 && made[0].grid.ymax === 2,
+       'with the size that was asked for: ' + made[0].grid.xmax + ' x ' + made[0].grid.ymax);
+
+    // a size beyond what a table can be is REFUSED, and the UI is offered instead
+    made = []; fired = [];
+    reply = { status: 'OK', operation: 'new_table', args: { rows: 2, cols: 4000 },
+              pick: 1, explain: 'x', alternatives: [], unsupported: '' };
+    await load('baja/plate/menu/project-command.js',
+        { menus: menus, pm: pm, text: 'make a table with 4000 columns' });
+    await settle(10);
+    ok(made.length === 0 && !document.getElementById('pc-op'),
+       'a size outside what a table can be does not run');
+    ok(body().indexOf('at most 200') >= 0, 'it says what the limit is');
+    ok(body().indexOf('File > Import') >= 0, 'AND IT OFFERS THE UI INSTEAD OF REFUSING');
+
+    // an operation name that is not declared is ignored, and the menu still answers
+    made = []; fired = [];
+    reply = { status: 'OK', operation: 'rm -rf', args: {}, pick: 1, explain: 'x',
+              alternatives: [], unsupported: '' };
+    await load('baja/plate/menu/project-command.js',
+        { menus: menus, pm: pm, text: 'something else entirely' });
+    await settle(10);
+    ok(made.length === 0, 'an operation name that was never declared runs nothing');
+    ok(body().indexOf('File > Import') >= 0, 'and the menu answer still stands');
 
     console.log('\n' + (fails ? fails + ' FAILED' : 'all assertions passed'));
     process.exit(fails ? 1 : 0);

@@ -653,7 +653,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
         // sentence.
         //
         // Nothing here changes what a formula does; it only decides which of two paths the
-        // text was headed down anyway.
+        // text was headed down anyway. Down the sentence path, an operation carries the
+        // request out when one can, and otherwise the menu item that opens the place it is
+        // done is offered: doing it beats opening the door, and the door beats a refusal.
         const looksLikeASentence = (str) => {
             const t = ('' + (str || '')).trim();
             if (t.length < 8) return false;
@@ -675,6 +677,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
             try {
                 await exec('baja/plate/menu/project-command.js', {
                     menus: menus,
+                    pm: pm,
                     text: t,
                     context: {
                         selected: (pm && pm.selectedPanel && (pm.selectedPanel.name
