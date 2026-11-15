@@ -41,6 +41,12 @@ function (pm, o) {
                 return;
             }
 
+            // WELL.JS FIRST. completeNullValues builds each cell with GenericWell, which
+            // only exists once well.js has been exec'd -- these modules share one scope, so a
+            // Plate made without it comes back the right SHAPE with nothing in it, and every
+            // reference into it reads an empty cell. The failure is invisible: the table draws,
+            // the grid is right, and only the numbers are missing.
+            try { await exec('baja/plate/well.js'); } catch (e) { }
             const Plate = await exec('baja/plate/plate.js');
             const name = ('' + ((o && o.name) || '')).trim();
             // new Plate(name, xmax, ymax): columns then rows. An empty name is filled in by

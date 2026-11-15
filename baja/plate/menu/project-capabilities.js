@@ -60,6 +60,19 @@ function () {
             }
         },
         {
+            name: 'derive_from_new_table',
+            summary: 'make a new table the shape of the SELECTED cells and point those cells at '
+                + 'it by formula, so their values come from it',
+            module: 'baja/plate/ops/derive-from-new-table.js',
+            params: {
+                name: { type: 'string', default: 'the user is asked for one',
+                    about: 'what to call the new table, if the request says it. Leave it out '
+                        + 'when it does not: the user is asked. Never invent a name' },
+                table: { type: 'string', default: 'the selected table',
+                    about: 'the table the selected cells are in, if the request names it' }
+            }
+        },
+        {
             name: 'format_cells',
             summary: 'change how the SELECTED cells are shown: as money, or as plain numbers',
             module: 'baja/plate/ops/format-cells.js',
@@ -238,6 +251,11 @@ function () {
     };
 
     const preview = (name, args) => {
+        if (name === 'derive_from_new_table') {
+            return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
+                + 'and have the selected cells read from it'
+                + (args.name ? '' : ' (it will ask for a name)');
+        }
         if (name === 'format_cells') {
             return args.style === 'dollar'
                 ? 'show the selected cells as money'

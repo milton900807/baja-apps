@@ -352,13 +352,14 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a table resizes from its edges; a cell can be told what to do" \
     "baja/plate/plate.js:DO IT IS ALWAYS LAST AND NEVER FIRST" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
+    "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \
     "baja/plate/menu/project-command.js:THE BUTTON SAYS GO" \
     "baja/plate/menu/project-capabilities.js:SAY THE DEFAULT OUT LOUD" \
-    "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \
+    "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
     "baja/plate/ops/set-column-values.js:const IO = await exec" \
