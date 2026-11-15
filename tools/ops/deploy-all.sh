@@ -327,9 +327,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-command.js:NO TRACK IS NOT A REASON TO REFUSE TO OPEN" \
     "manchester/editor.js:No track check here"
   install_group "show compound locations" \
-    "flexigraph/gene-draw.js:A DOWN ARROW OVER THE TRACK, marking where something sits" \
-    "baja/manchester/menu/mark-compound-locations.js:SHOW WHERE THE COMPOUNDS ARE" \
+    "flexigraph/gene-draw.js:BIG, OUTLINED, AND ONE" \
+    "baja/manchester/menu/mark-compound-locations.js:FRAME THE TRANSCRIPT, because" \
     "baja/manchester/menu/editor-capabilities.js:show_compound_locations"
+  # A request in flight has to look like one: the only sign was grey 12px text, so a slow
+  # answer read as a box that had ignored Enter -- and a second Enter execs a second copy of
+  # the module, which used to start a second request beside the first.
+  install_group "the command box shows that it is working" \
+    "baja/manchester/menu/editor-command.js:ONE REQUEST AT A TIME, ACROSS INSTANCES"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"

@@ -252,6 +252,61 @@ function (graph, genegraph_panel_layout, options) {
             }
 
             let busy = false;
+
+            // A REQUEST THAT IS STILL RUNNING HAS TO LOOK LIKE ONE.
+            //
+            // The only sign of work in flight was twelve-pixel grey text beside the button,
+            // which on a dark panel is easy to miss entirely -- so a request that took a few
+            // seconds looked like a box that had ignored the Enter key, and the natural
+            // response is to press it again. Now the button says it is working and stops
+            // accepting presses, the field goes quiet, and a spinner turns beside them.
+            //
+            // The elapsed seconds appear only after three, so a quick answer stays clean and
+            // a slow one visibly keeps going rather than looking stuck. What is working is
+            // nobody's business but ours: the wording stays "Working".
+            let busyTimer = null, busyAt = 0;
+            const BUSY_CSS = 'baja-ec-busy-css';
+            const ensureBusyCss = () => {
+                try {
+                    if (document.getElementById(BUSY_CSS)) return;
+                    const st = document.createElement('style');
+                    st.id = BUSY_CSS;
+                    st.textContent = '@keyframes bajaEcSpin{to{transform:rotate(360deg)}}'
+                        + '.baja-ec-spin{display:inline-block;width:13px;height:13px;border-radius:50%;'
+                        + 'border:2px solid rgba(255,255,255,0.25);border-top-color:#22c55e;'
+                        + 'animation:bajaEcSpin 0.7s linear infinite;vertical-align:-2px;}';
+                    document.head.appendChild(st);
+                } catch (e) { }
+            };
+            const paintBusy = (label) => {
+                const b = q('#ec-busy');
+                if (!b) return;
+                const secs = busyAt ? Math.floor((Date.now() - busyAt) / 1000) : 0;
+                b.innerHTML = '<span class="baja-ec-spin"></span>'
+                    + '<span style="margin-left:8px;font:700 12.5px Arial;color:#e2e8f0;">'
+                    + H(label) + (secs >= 3 ? (' · ' + secs + 's') : '') + '</span>';
+            };
+            const setBusy = (on, label) => {
+                const text = label || 'Working';
+                const go = q('#ec-run'), inpEl = q('#ec-q');
+                if (busyTimer) { try { clearInterval(busyTimer); } catch (e) { } busyTimer = null; }
+                if (on) {
+                    ensureBusyCss();
+                    busyAt = Date.now();
+                    paintBusy(text);
+                    try { busyTimer = setInterval(() => paintBusy(text), 1000); } catch (e) { }
+                    if (go) { go.disabled = true; go.textContent = 'Working…'; go.style.opacity = '0.6'; go.style.cursor = 'default'; }
+                    if (inpEl) { try { inpEl.disabled = true; inpEl.style.opacity = '0.65'; } catch (e) { } }
+                } else {
+                    busyAt = 0;
+                    const b = q('#ec-busy'); if (b) b.innerHTML = '';
+                    if (go) { go.disabled = false; go.textContent = 'Go'; go.style.opacity = ''; go.style.cursor = 'pointer'; }
+                    if (inpEl) {
+                        try { inpEl.disabled = false; inpEl.style.opacity = ''; } catch (e) { }
+                        try { inpEl.focus(); } catch (e) { }
+                    }
+                }
+            };
             const parse = (v, d) => {
                 if (v == null) return d;
                 if (typeof v !== 'string') return v;
@@ -320,20 +375,20 @@ function (graph, genegraph_panel_layout, options) {
                 let capped = 0;
                 if (rows.length > CAPN) { capped = rows.length - CAPN; rows = rows.slice(0, CAPN); }
 
-                q('#ec-busy').textContent = 'reading ' + rows.length + ' variant' + (rows.length === 1 ? '' : 's') + '…';
+                setBusy(true, 'Reading ' + rows.length + ' variant' + (rows.length === 1 ? '' : 's'));
                 let a = null;
                 try {
                     const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
                     a = await exec(window['env']['apiUrl'] + '/py/bio/editor/variant-question.py',
                         em, ask, JSON.stringify(rows.map(askRecord)), '');
                 } catch (e) {
-                    q('#ec-busy').textContent = '';
+                    setBusy(false);
                     out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that: '
                         + H(e && e.message ? e.message : e) + '</div>' + dismissRow('ec-x5');
                     wireDismiss('ec-x5');
                     return 0;
                 }
-                q('#ec-busy').textContent = '';
+                setBusy(false);
                 if (!a || a.status !== 'OK') {
                     out.innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not answer that'
                         + (a && a.error ? (': ' + H(a.error)) : '.') + '</div>' + dismissRow('ec-x6');
@@ -545,8 +600,18 @@ function (graph, genegraph_panel_layout, options) {
                 if (busy) return;
                 const ask = ('' + q('#ec-q').value).trim();
                 if (!ask) { try { q('#ec-q').focus(); } catch (e) { } return; }
+                // ONE REQUEST AT A TIME, ACROSS INSTANCES.
+                //
+                // `busy` only guards this one. The toolbar's input execs a fresh copy of this
+                // module on every Enter, each with its own busy=false, so pressing Enter twice
+                // -- the obvious thing to do when the first press seemed to do nothing -- used
+                // to start a second request alongside the first. The flag lives on the graph,
+                // where every copy can see it, and is cleared in a finally so a failure cannot
+                // wedge the box shut.
+                try { if (graph.__ecInFlight) { setBusy(true, 'Working'); return; } } catch (e) { }
+                try { graph.__ecInFlight = true; } catch (e) { }
                 busy = true;
-                q('#ec-busy').textContent = 'working out what to run…';
+                setBusy(true, 'Working');
                 q('#ec-out').innerHTML = '';
                 let r = null;
                 try {
@@ -554,13 +619,13 @@ function (graph, genegraph_panel_layout, options) {
                     r = await exec(window['env']['apiUrl'] + '/py/bio/editor/plan.py',
                         em, ask, JSON.stringify(CAP.catalogue()), JSON.stringify(context()), '');
                 } catch (e) {
-                    busy = false; q('#ec-busy').textContent = '';
+                    busy = false; try { graph.__ecInFlight = false; } catch (e2) { } setBusy(false);
                     q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that: '
                         + H(e && e.message ? e.message : e) + '</div>' + dismissRow('ec-x2');
                     wireDismiss('ec-x2');
                     return;
                 }
-                busy = false; q('#ec-busy').textContent = '';
+                busy = false; try { graph.__ecInFlight = false; } catch (e) { } setBusy(false);
                 if (!r || r.status !== 'OK') {
                     q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that'
                         + (r && r.error ? (': ' + H(r.error)) : '.') + '</div>' + dismissRow('ec-x3');
