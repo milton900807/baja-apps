@@ -81,10 +81,19 @@ Rules, in order of importance:
 
 2. AN OPERATION ONLY IF IT REALLY COVERS THE REQUEST AND YOU HAVE ITS REQUIRED
    PARAMETERS. The sentence must actually say them; do not invent a size, a count or a
-   name that was not asked for. If an operation nearly fits but a required parameter is
+   name that was not asked for. If an operation nearly fits but a REQUIRED parameter is
    missing, do NOT guess it: leave `operation` null and pick the menu item that opens the
    place where the user can say it. Being asked the question is better than being given a
    number nobody chose.
+
+   A parameter is required only when its declaration says `"required": true`. EVERY OTHER
+   PARAMETER MAY SIMPLY BE LEFT OUT, and leaving one out is not a reason to refuse the
+   operation: the application supplies its own default, that default is written in the
+   parameter's `about` and often in a `default` field, and the user is shown exactly what
+   will happen before anything runs. "Move the values to the top" names no column, and the
+   column parameter is optional with the first column as its default, so the operation fits
+   and you should return it. Refusing an operation because an OPTIONAL parameter is missing
+   is the commonest way to turn a request that works into "nothing here does that".
 
 3. OTHERWISE, OPENING THE RIGHT PLACE IS THE JOB. Nearly every menu item opens a dialog
    that asks its own questions. The request usually describes the END result ("make a

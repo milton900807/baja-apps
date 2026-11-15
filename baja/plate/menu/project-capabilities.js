@@ -28,7 +28,7 @@ function () {
                     about: 'how many rows of cells' },
                 cols: { type: 'number', min: 1, max: 200, required: true,
                     about: 'how many columns of cells' },
-                name: { type: 'string',
+                name: { type: 'string', default: 'a name the project picks',
                     about: 'what to call it, only if the request names it; otherwise leave it out '
                         + 'and the project names it' }
             }
@@ -48,14 +48,14 @@ function () {
                 // here, and is shown in the preview before anything runs -- so the user sees
                 // "column 0 (the first)" and presses GO or does not. A model filling in a
                 // column nobody mentioned would be the other thing, and is still refused.
-                column: { type: 'string',
+                column: { type: 'string', default: '0, the first column',
                     about: 'which column: its number counting from 0, or its letter (A, B, C). '
                         + 'Leave it out when the request does not name one: it means the first '
                         + 'column. Never guess a different column' },
-                table: { type: 'string',
+                table: { type: 'string', default: 'the selected table',
                     about: 'the table\u2019s name, if the request says it; leave it out for the '
                         + 'selected table' },
-                start_row: { type: 'number', min: 0, max: 5000,
+                start_row: { type: 'number', min: 0, max: 5000, default: '0, the top row',
                     about: 'the row to start at, counting from 0; leave it out for the top' }
             }
         },
@@ -73,10 +73,10 @@ function () {
                         + 'up so there are no gaps; dedupe keeps the first of each repeat; '
                         + 'fill_down copies each value into the empty cells under it; trim '
                         + 'tidies the spacing; clear empties the column' },
-                column: { type: 'string',
+                column: { type: 'string', default: '0, the first column',
                     about: 'which column: its number counting from 0, or its letter. Leave it '
                         + 'out when the request does not name one: it means the first column' },
-                table: { type: 'string',
+                table: { type: 'string', default: 'the selected table',
                     about: 'the table\u2019s name, if the request says it; leave it out for the '
                         + 'selected table' }
             }
@@ -94,7 +94,7 @@ function () {
                     about: 'the column to act on: its number counting from 0, or its letter' },
                 to: { type: 'string', required: true,
                     about: 'the other column, or for move the position it should end up at' },
-                table: { type: 'string',
+                table: { type: 'string', default: 'the selected table',
                     about: 'the table\u2019s name, if the request says it; leave it out for the '
                         + 'selected table' }
             }
@@ -108,10 +108,10 @@ function () {
                     about: 'how many rows to move them' },
                 direction: { type: 'enum', values: ['down', 'up'], required: true,
                     about: 'which way to move them' },
-                column: { type: 'string',
+                column: { type: 'string', default: '0, the first column',
                     about: 'which column: its number counting from 0, or its letter. Leave it '
                         + 'out when the request does not name one: it means the first column' },
-                table: { type: 'string',
+                table: { type: 'string', default: 'the selected table',
                     about: 'the table\u2019s name, if the request says it; leave it out for the '
                         + 'selected table' }
             }
@@ -124,7 +124,7 @@ function () {
                 to: { type: 'string', required: true,
                     about: 'the new name. Letters, digits and underscores, starting with a '
                         + 'letter, because formulas address a table by this name' },
-                from: { type: 'string',
+                from: { type: 'string', default: 'the selected table',
                     about: 'the table\u2019s current name, if the request says it; leave it out '
                         + 'to rename the selected table' }
             }
@@ -141,6 +141,12 @@ function () {
             const d = { type: p.type };
             if (p.about) d.about = p.about;
             if (p.required) d.required = true;
+            // SAY THE DEFAULT OUT LOUD. A parameter with no `required` flag is optional, but
+            // a model reading a catalogue of operations treats a missing value as a reason to
+            // refuse unless it can see what happens without one. "Move the values to the top"
+            // names no column and was refused for exactly that.
+            if (p.default != null) d.default = p.default;
+            if (p.values) d.values = p.values;
             if (p.min != null) d.min = p.min;
             if (p.max != null) d.max = p.max;
             out.params[k] = d;

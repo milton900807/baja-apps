@@ -353,7 +353,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \
     "baja/plate/menu/project-command.js:THE BUTTON SAYS GO" \
-    "baja/plate/menu/project-capabilities.js:rearrange_column" \
+    "baja/plate/menu/project-capabilities.js:SAY THE DEFAULT OUT LOUD" \
     "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
@@ -362,7 +362,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/column-io.js:READING AND WRITING A COLUMN, ONCE" \
     "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE; THE CELLS THEY SIT IN DO NOT MOVE" \
     "baja/plate/ops/move-column.js:WHOLE COLUMNS: COPY ONE ONTO ANOTHER" \
-    "py/bio/project/menu-pick.py:DOING IT BEATS OPENING THE DOOR TO IT"
+    "py/bio/project/menu-pick.py:EVERY OTHER PARAMETER MAY SIMPLY BE LEFT OUT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"
