@@ -23,3 +23,6 @@
 *.before-*
 *.pt
 py/bajasplice-lib/bajasplice/weights/snapshots/
+
+# Installed only to run tools/test (jsdom). Not part of the app or a deploy.
+node_modules/
