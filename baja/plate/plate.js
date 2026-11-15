@@ -674,6 +674,15 @@ function () {
                         highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
                     },
                     {
+                        // AN ASK BUTTON ON THE TABLE'S OWN BAR, beside maximize, the same one
+                        // the timeline carries. A request made from here is about THIS table:
+                        // table-ask.js sends its name, its shape and what is selected in it,
+                        // and leaves the object itself where the operations can find it.
+                        name: "ask", x: 0 + bsize, y: 10, width: 20, height: 20, letter: 'Ask',
+                        action: async (bx, by, x, y, pt) => { return await exec('baja/plate/ops/table-ask.js', this, pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('ask', pt) }, color: 'lightcyan', highlight_color: 'cyan'
+                    },
+                    {
                         // EVERY TABLE DOWNLOADS. A table's rows are the thing people take away
                         // to a spreadsheet, and asking for them used to mean finding the menu.
                         // baja/plate/table-xlsx.js does the work; /export-table builds the file.
@@ -744,6 +753,15 @@ function () {
                         name: "maximize", x: 0, y: 10, width: 20, height: 20,
                         action: async (bx, by, x, y, pt) => { if (pt && pt.maximizeObject) pt.maximizeObject(this); },
                         highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
+                    },
+                    {
+                        // AN ASK BUTTON ON THE TABLE'S OWN BAR, beside maximize, the same one
+                        // the timeline carries. A request made from here is about THIS table:
+                        // table-ask.js sends its name, its shape and what is selected in it,
+                        // and leaves the object itself where the operations can find it.
+                        name: "ask", x: 0 + bsize, y: 10, width: 20, height: 20, letter: 'Ask',
+                        action: async (bx, by, x, y, pt) => { return await exec('baja/plate/ops/table-ask.js', this, pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('ask', pt) }, color: 'lightcyan', highlight_color: 'cyan'
                     },
                     {
                         name: "download", x: 0 + bsize, y: 10, width: 20, height: 20,
@@ -3208,8 +3226,13 @@ function () {
                 // they read as controls against the table; the title-bar buttons stay quiet.
                 const isRow = (name === '+' || name === '-') || isCell;
                 const rowFill = isCell ? (isClose ? ORANGE : NAVY) : (name === '+' ? CYAN : ORANGE);
-                const fill = isRow ? (hover ? (isCell ? CYAN : NAVY) : rowFill) : (hover ? (isClose ? ORANGE : CYAN) : '#ffffff');
-                const ink = (hover || isRow) ? '#ffffff' : NAVY;
+                // The ask button is amber, the same as the one on a timeline's frame: it is
+                // the one button on the bar that is not a window control, and three quiet
+                // white discs is where a fourth would disappear.
+                const isAsk = name === 'ask';
+                const fill = isAsk ? (hover ? '#fde68a' : '#fef3c7')
+                    : (isRow ? (hover ? (isCell ? CYAN : NAVY) : rowFill) : (hover ? (isClose ? ORANGE : CYAN) : '#ffffff'));
+                const ink = isAsk ? '#92400e' : ((hover || isRow) ? '#ffffff' : NAVY);
                 ctx.save();
                 ctx.shadowColor = isRow ? 'rgba(10,37,64,0.35)' : 'rgba(0,0,0,0.18)';
                 ctx.shadowBlur = isRow ? 8 : 4; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = isRow ? 3 : 1;

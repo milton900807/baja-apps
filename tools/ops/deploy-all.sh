@@ -350,7 +350,7 @@ if [[ $DO_API -eq 1 ]]; then
   # Typing into a cell can now be read as an instruction instead of stored as a value, with
   # Save text still first so Ctrl+Enter is unchanged and nothing can run by accident.
   install_group "a table resizes from its edges; a cell can be told what to do" \
-    "baja/plate/plate.js:DO IT IS ALWAYS LAST AND NEVER FIRST" \
+    "baja/plate/plate.js:AN ASK BUTTON ON THE TABLE'S OWN BAR" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
     "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
@@ -365,6 +365,12 @@ if [[ $DO_API -eq 1 ]]; then
   # its own element but releases from the window, so a button pressed on a panel moved
   # what was underneath, and the click that dismissed it landed out there afterwards.
   # prompt-text.js has never been listed here, so until now a change to it never shipped.
+  # The table carries the same Ask button the timeline does, and the first thing asked
+  # through it -- a cell that totals another table -- had no operation behind it.
+  install_group "a table can be asked for things from its own bar" \
+    "baja/plate/ops/table-ask.js:ASKING A TABLE FOR SOMETHING, FROM ITS OWN TITLE BAR" \
+    "baja/plate/ops/cell-from-table.js:THE SELECTED CELL READS A WHOLE TABLE"
+
   install_group "a panel over the canvas keeps its clicks to itself" \
     "baja/lib/modal-shield.js:NOTHING PRESSED ON A PANEL REACHES THE CANVAS UNDER IT" \
     "baja/lib/prompt-text.js:NOTHING PRESSED IN HERE REACHES THE CANVAS"
@@ -373,13 +379,13 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
     "baja/plate/menu/project-command.js:THE CANVAS DOES NOT HEAR ANYTHING PRESSED ON THIS CARD" \
-    "baja/plate/menu/project-capabilities.js:THIS IS WHAT ZOOMING A TIMELINE MEANS" \
+    "baja/plate/menu/project-capabilities.js:A CELL THAT TOTALS ANOTHER TABLE" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
     "baja/plate/ops/set-column-values.js:const IO = await exec" \
     "baja/plate/ops/shift-column-values.js:MOVE WHAT IS ALREADY IN A COLUMN" \
-    "baja/plate/ops/column-io.js:READING AND WRITING A COLUMN, ONCE" \
+    "baja/plate/ops/column-io.js:THE TABLE WHOSE OWN ASK BUTTON WAS PRESSED" \
     "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE AND THE CELLS THEY SIT IN" \
     "baja/plate/ops/move-column.js:WHOLE COLUMNS, COPIED ONTO ANOTHER" \
     "py/bio/project/menu-pick.py:WAS MADE FROM THAT OBJECT"

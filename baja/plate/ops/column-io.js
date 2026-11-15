@@ -54,6 +54,10 @@ function () {
             const t = (typeof pt.getTableByName === 'function') ? pt.getTableByName(want) : null;
             return t ? { table: t } : { error: 'there is no table called ' + want };
         }
+        // THE TABLE WHOSE OWN ASK BUTTON WAS PRESSED comes before the selection. A request
+        // made from a table's title bar is about that table, and "selected" is whatever was
+        // last clicked, which is not the same thing and is not what the user pointed at.
+        if (pt.__askedTable && tables.indexOf(pt.__askedTable) >= 0) return { table: pt.__askedTable };
         const t = pt.selectedPlate || (tables.length === 1 ? tables[0] : null);
         return t ? { table: t } : { error: 'say which table, or select it first' };
     };

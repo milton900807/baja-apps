@@ -1,0 +1,137 @@
+function (pm, o) {
+
+    // THE SELECTED CELL READS A WHOLE TABLE: its sum, average, smallest, largest or count.
+    //
+    // "I want this value to be the sum of the Employees table", typed into a cell, had no
+    // operation behind it and came back as nothing matching -- with three menu items offered
+    // that do something else entirely. A cell that totals another table is one of the few
+    // things a spreadsheet is FOR.
+    //
+    // AND IF THAT TABLE IS NOT THERE YET, IT IS ASKED FOR RATHER THAN REFUSED. Being told
+    // "there is no table called Employees" when you have just said you want the Employees
+    // total is a dead end with the answer in plain sight: the shape and the numbers are
+    // asked for, the table is made, and the cell is then pointed at it. A request names what
+    // the user wants to exist, not only what already does.
+    //
+    // THE FORMULA IS THE ENGINE'S OWN: sum(Name[c0:c1][r0:r1]), the form
+    // excel-function-manager translates Excel's SUM into, over the table's real extent. It
+    // is not invented here, and the non-numeric cells in it (a column of names) are dropped
+    // by the function rather than by anything written here.
+
+    return new Promise(async (resolve) => {
+        try {
+            const pt = (pm && pm.plateTrack) ? pm.plateTrack : pm;
+            if (!pt || !Array.isArray(pt.root)) { resolve({ error: 'there is no project open' }); return; }
+
+            const IO = await exec('baja/plate/ops/column-io.js');
+            const host = IO.pickTable(pt, o && o.in_table);
+            if (host.error) { resolve({ error: host.error }); return; }
+            const into = host.table;
+
+            // The cells that are to read it.
+            let cells = [];
+            try {
+                if (typeof into.getSelectedWellsInOrder === 'function') cells = into.getSelectedWellsInOrder() || [];
+            } catch (e) { cells = []; }
+            if ((!cells || !cells.length) && pt.selected_well) cells = [pt.selected_well];
+            if (!cells || !cells.length) {
+                resolve({ error: 'select the cell that should hold it first' });
+                return;
+            }
+
+            const want = ('' + ((o && o.table) || '')).trim();
+            if (!want) { resolve({ error: 'which table should it read?' }); return; }
+
+            const HOW = { sum: 'sum', total: 'sum', average: 'average', mean: 'average',
+                min: 'min', max: 'max', count: 'count' };
+            const how = HOW[('' + ((o && o.how) || 'sum')).trim().toLowerCase()];
+            if (!how) { resolve({ error: 'sum, average, min, max or count?' }); return; }
+
+            // A name that cannot be written in a formula cannot be read by one either.
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(want)) {
+                resolve({ error: '"' + want + '" cannot be used in a formula: a table’s name has '
+                    + 'to start with a letter and hold only letters, numbers and underscores' });
+                return;
+            }
+
+            let table = (typeof pt.getTableByName === 'function') ? pt.getTableByName(want) : null;
+            let made = false;
+
+            if (!table) {
+                // ASKED FOR, NOT INVENTED. The numbers are the user's; nothing here guesses a
+                // shape or fills a table with zeroes to have something to point at.
+                let answer = null;
+                try {
+                    answer = await prompt('There is no table called ' + want + '. Make it?',
+                        ['Columns', 'Values'],
+                        { 'Columns': '1', 'Values': '' }, 420, 320);
+                } catch (e) { answer = null; }
+                if (!answer) { resolve({ cancelled: true }); return; }
+
+                const cols = Math.floor(Number(('' + (answer['Columns'] || '1')).trim()));
+                if (!isFinite(cols) || cols < 1) { resolve({ error: 'how many columns?' }); return; }
+
+                // One value per line, or several to a line separated by commas or tabs: all
+                // three are how people paste numbers, and guessing wrong loses them.
+                const values = ('' + (answer['Values'] || ''))
+                    .split(/[\n\r]+/).join(',').split(/[,\t]/)
+                    .map((v) => ('' + v).trim()).filter((v) => v !== '');
+
+                const rows = Math.max(1, Math.ceil(values.length / cols));
+                const built = await exec('baja/plate/ops/new-table.js', pt, { name: want, rows: rows, cols: cols });
+                if (!built || built.error) { resolve({ error: (built && built.error) || 'the table could not be made' }); return; }
+
+                table = (typeof pt.getTableByName === 'function') ? pt.getTableByName(want) : null;
+                if (!table) { resolve({ error: 'the table was made but cannot be found by name' }); return; }
+                made = true;
+
+                // ACROSS THEN DOWN, the way they were typed.
+                let put = 0;
+                for (let i = 0; i < values.length; i++) {
+                    const c = i % cols, r = Math.floor(i / cols);
+                    const w = table.wells && table.wells[c] && table.wells[c][r];
+                    if (!w) continue;
+                    try {
+                        if (typeof w.setValue === 'function') w.setValue(values[i]); else w.value = values[i];
+                        put++;
+                    } catch (e) { }
+                }
+                if (put < values.length) {
+                    resolve({ error: 'only ' + put + ' of ' + values.length + ' values would fit: '
+                        + 'the table is ' + cols + ' wide' });
+                    return;
+                }
+            }
+
+            // The table's real extent, so the formula covers what is there.
+            const nCols = (table.wells && table.wells.length) || 0;
+            const nRows = (nCols && table.wells[0] && table.wells[0].length) || 0;
+            if (!nCols || !nRows) { resolve({ error: want + ' has no cells to read' }); return; }
+            const f = '=' + how + '(' + want + '[0:' + (nCols - 1) + '][0:' + (nRows - 1) + '])';
+
+            let wired = 0;
+            for (const cell of cells) {
+                try {
+                    const wr = into.getWellRange([cell]);
+                    try { into.formula[wr] = f; } catch (e) { }
+                    try { pt.addFormula(into.name + '' + wr, f); } catch (e) { }
+                    try { cell.setValue(f); } catch (e) { }
+                    wired++;
+                } catch (e) { }
+            }
+            if (!wired) { resolve({ error: 'the formula could not be written into the cell' }); return; }
+
+            try { pt.updateCalculations(); } catch (e) { }
+            try { if (pt.wake) pt.wake(); } catch (e) { }
+            try {
+                pt.setMessage((made ? ('Made ' + want + ', and ') : '')
+                    + wired + ' cell' + (wired === 1 ? '' : 's') + ' now show the ' + how
+                    + ' of ' + want, 7);
+            } catch (e) { }
+
+            resolve({ table: want, how: how, made: made, wired: wired, formula: f });
+        } catch (e) {
+            resolve({ error: ('' + (e && e.message ? e.message : e)) });
+        }
+    });
+}

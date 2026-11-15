@@ -141,6 +141,25 @@ function () {
             }
         },
         {
+            // A CELL THAT TOTALS ANOTHER TABLE is most of what a spreadsheet is for, and
+            // there was no operation for it: "I want this value to be the sum of the
+            // Employees table" came back as nothing matching.
+            name: 'cell_from_table',
+            summary: 'put a formula in the SELECTED cells that reads a whole table: its sum, '
+                + 'average, smallest, largest, or how many numbers are in it. If no table of '
+                + 'that name exists yet, the user is asked for its columns and values and it '
+                + 'is made, so a request naming a table that is not there is still this',
+            module: 'baja/plate/ops/cell-from-table.js',
+            params: {
+                table: { type: 'string', required: true,
+                    about: 'the NAME of the table to read, as the request says it' },
+                how: { type: 'enum', values: ['sum', 'average', 'min', 'max', 'count'],
+                    default: 'sum', about: 'what to work out over that table' },
+                in_table: { type: 'string', default: 'the table the request was made from',
+                    about: 'the table the selected cells are in, if the request names it' }
+            }
+        },
+        {
             name: 'format_cells',
             summary: 'change how the SELECTED cells are shown: as money, or as plain numbers',
             module: 'baja/plate/ops/format-cells.js',
@@ -349,6 +368,12 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'cell_from_table') {
+            const how = args.how || 'sum';
+            const word = how === 'count' ? 'how many numbers are in' : ('the ' + how + ' of');
+            return 'make the selected cells show ' + word + ' "' + args.table + '"'
+                + ' (it will offer to make that table if it is not there)';
         }
         if (name === 'format_cells') {
             return args.style === 'dollar'
