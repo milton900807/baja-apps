@@ -719,6 +719,23 @@ function (plate_graph, selectedPlate, selectedPoint) {
             __name = selectedPlate.name;
         }
         let interpreter = await exec('baja/engine/interpreter.js', plate_graph.plateTrack)
+        // THE FIELD ON THE OBJECT ITSELF.
+        //
+        // This module is rebuilt every time the selection changes, which makes it the one
+        // place that always knows what is selected right now. So the on-object field is
+        // opened here for a selected timeline and closed for anything else -- including for
+        // nothing selected, which is what reaching here with no selectedPlate means.
+        //
+        // The toolbar field stays exactly as it is. This is the same request going to the
+        // same place; it is on the timeline because that is where it was asked for.
+        try {
+            if (selectedPlate && selectedPlate.type === 'timeline') {
+                await exec('baja/plate/menu/object-prompt.js', plate_graph.plateTrack, selectedPlate);
+            } else {
+                await exec('baja/plate/menu/object-prompt.js', plate_graph.plateTrack, null);
+            }
+        } catch (e) { }
+
         let timeline_interpreter = await exec('baja/engine/timeline-interpreter.js', plate_graph.plateTrack)
 
         if (selectedPlate && selectedPlate.getContextMenuItems) {

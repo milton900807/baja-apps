@@ -356,11 +356,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
     "baja/plate/ops/timeline-add.js:PUT SOMETHING ON A TIMELINE" \
     "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
+    "baja/plate/menu/object-prompt.js:A TEXT FIELD ON THE OBJECT ITSELF" \
     "cpd/main-timeline.js:A PROMPT BOX OF ITS OWN, UNDER THE BAR" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
-    "manchester/controls/navigation-panel-plates2.js:THE FIELD SAYS WHAT IT IS TALKING TO" \
+    "manchester/controls/navigation-panel-plates2.js:THE FIELD ON THE OBJECT ITSELF" \
     "baja/plate/menu/project-command.js:THE DATE OF TODAY GOES WITH EVERY REQUEST" \
     "baja/plate/menu/project-capabilities.js:timeline_add" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
