@@ -1,6 +1,71 @@
 function (plate_graph, selectedPlate, selectedPoint) {
     return new Promise(async (resolve, reject) => {
         const pt = plate_graph.plateTrack;
+
+        // ---- a sentence, or a formula? ---------------------------------------------
+        //
+        // The command field has always been a formula bar, and that has to keep working
+        // exactly as it did: a formula is a thing people have saved, pasted and typed from
+        // memory for a long time, and a guess that sends one to a language model instead is
+        // a regression no matter how good the guess is. So the test is deliberately lopsided.
+        //
+        // Formula syntax wins outright. Anything carrying [ ] ( ) | = : ; or a leading = is
+        // a formula and is not looked at again. Only text with NO formula punctuation at all
+        // and at least three plain words is treated as a sentence. "A1:H12" is a formula.
+        // "mean(ctrl[1])" is a formula. "ctrl" is a formula, because one bare word is far
+        // more likely to be a name than a request. "import a plate from a spreadsheet" is a
+        // sentence.
+        //
+        // Nothing here changes what a formula does; it only decides which of two paths the
+        // text was headed down anyway. Down the sentence path, an operation carries the
+        // request out when one can, and otherwise the menu item that opens the place it is
+        // done is offered: doing it beats opening the door, and the door beats a refusal.
+        const looksLikeASentence = (str) => {
+            const t = ('' + (str || '')).trim();
+            if (t.length < 8) return false;
+            if (/^=/.test(t)) return false;
+            if (/[\[\]()|=:;]/.test(t)) return false;
+            const words = t.split(/\s+/).filter((w) => /^[A-Za-z][A-Za-z'\u2019-]*$/.test(w));
+            return words.length >= 3;
+        };
+
+        // Every command field in this module goes through here, so there is one answer to
+        // "what happens when someone types into it" rather than four that drift apart.
+        const runCommandText = async (str, panel, legacy) => {
+            const t = ('' + (str || '')).trim();
+            if (!t) return;
+            if (!looksLikeASentence(t)) return legacy(t, panel);
+            try { if (panel && panel.setText) panel.setText(''); } catch (e) { }
+            let menus = [];
+            try { menus = __lastMenus || []; } catch (e) { menus = []; }
+            try {
+                await exec('baja/plate/menu/project-command.js', {
+                    menus: menus,
+                    // plate_graph is this module's own handle on the project, and it carries
+                    // plateTrack, which is what an operation needs. There is no `pm` in this
+                    // module: that name belongs to the apps that call it, and referring to it
+                    // here threw a ReferenceError the moment anyone pressed Enter.
+                    pm: plate_graph,
+                    text: t,
+                    context: {
+                        selected: (selectedPlate && (selectedPlate.name
+                            || (selectedPlate.shape && selectedPlate.shape.type))) || null,
+                        plates: (() => { try { return (pt.root || []).length; } catch (e) { return null; } })()
+                    },
+                    setError: (m) => { try { pt.setMessage(m, 8); } catch (e) { } }
+                });
+            } catch (e) {
+                // A FAILURE HERE USED TO BE INVISIBLE. The fallback quietly handed the
+                // sentence to the formula engine, which does nothing with it, so a missing
+                // module or a thrown error looked exactly like a key that had not been
+                // pressed. Now it says so, and then still tries the old path.
+                const why = ('' + (e && e.message ? e.message : e));
+                try { pt.setMessage('Could not read that: ' + why, 10); } catch (e2) { }
+                try { console.warn('project command', e); } catch (e2) { }
+                try { legacy(t, panel); } catch (e2) { }
+            }
+        };
+
         // Live co-editing: a Share menu on every menubar this panel builds, whatever is
         // selected, so it is always one click away in Analytics.
         // Menus the hosting app hands over (Analytics: Build and Draw), shown ahead of Share.
@@ -638,62 +703,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
             // plate_graph.plateTrack.setOptionsMenu(m)
 
-            // ---- a sentence, or a formula? ---------------------------------------------
-        //
-        // The command field has always been a formula bar, and that has to keep working
-        // exactly as it did: a formula is a thing people have saved, pasted and typed from
-        // memory for a long time, and a guess that sends one to a language model instead is
-        // a regression no matter how good the guess is. So the test is deliberately lopsided.
-        //
-        // Formula syntax wins outright. Anything carrying [ ] ( ) | = : ; or a leading = is
-        // a formula and is not looked at again. Only text with NO formula punctuation at all
-        // and at least three plain words is treated as a sentence. "A1:H12" is a formula.
-        // "mean(ctrl[1])" is a formula. "ctrl" is a formula, because one bare word is far
-        // more likely to be a name than a request. "import a plate from a spreadsheet" is a
-        // sentence.
-        //
-        // Nothing here changes what a formula does; it only decides which of two paths the
-        // text was headed down anyway. Down the sentence path, an operation carries the
-        // request out when one can, and otherwise the menu item that opens the place it is
-        // done is offered: doing it beats opening the door, and the door beats a refusal.
-        const looksLikeASentence = (str) => {
-            const t = ('' + (str || '')).trim();
-            if (t.length < 8) return false;
-            if (/^=/.test(t)) return false;
-            if (/[\[\]()|=:;]/.test(t)) return false;
-            const words = t.split(/\s+/).filter((w) => /^[A-Za-z][A-Za-z'\u2019-]*$/.test(w));
-            return words.length >= 3;
-        };
-
-        // Every command field in this module goes through here, so there is one answer to
-        // "what happens when someone types into it" rather than four that drift apart.
-        const runCommandText = async (str, panel, legacy) => {
-            const t = ('' + (str || '')).trim();
-            if (!t) return;
-            if (!looksLikeASentence(t)) return legacy(t, panel);
-            try { if (panel && panel.setText) panel.setText(''); } catch (e) { }
-            let menus = [];
-            try { menus = __lastMenus || []; } catch (e) { menus = []; }
-            try {
-                await exec('baja/plate/menu/project-command.js', {
-                    menus: menus,
-                    pm: pm,
-                    text: t,
-                    context: {
-                        selected: (pm && pm.selectedPanel && (pm.selectedPanel.name
-                            || (pm.selectedPanel.shape && pm.selectedPanel.shape.type))) || null,
-                        plates: (() => { try { return pt.getPlates().length; } catch (e) { return null; } })()
-                    },
-                    setError: (m) => { try { pt.setMessage(m, 8); } catch (e) { } }
-                });
-            } catch (e) {
-                // If the sentence path cannot run at all, the formula engine still gets it:
-                // better a formula error the user recognises than silence.
-                try { legacy(t, panel); } catch (e2) { }
-            }
-        };
-
-        const execCMD = async (str) => {
+            const execCMD = async (str) => {
 
                 if (str.startsWith('=')) {
                 }

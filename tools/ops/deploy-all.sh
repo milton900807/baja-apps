@@ -344,7 +344,7 @@ if [[ $DO_API -eq 1 ]]; then
   # files, all or none: the router decides which path the text takes, the panel asks and
   # offers, and the python picks an index out of the menu it is given.
   install_group "a sentence in the project command field does it, or opens where it is done" \
-    "manchester/controls/navigation-panel-plates2.js:doing it beats opening the door" \
+    "manchester/controls/navigation-panel-plates2.js:A FAILURE HERE USED TO BE INVISIBLE" \
     "baja/plate/menu/project-command.js:DO IT IF IT CAN BE DONE" \
     "baja/plate/menu/project-capabilities.js:WHAT THE PROJECT CAN DO WITH ARGUMENTS IN HAND" \
     "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \

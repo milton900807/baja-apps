@@ -44,6 +44,90 @@ console.log('sentences must be recognised:');
     'open the well editor please',
 ].forEach((t) => ok(isSentence(t) === true, '  "' + t + '"'));
 
+
+// ---- IS THE ROUTER ACTUALLY IN SCOPE WHERE THE COMMAND FIELDS ARE BUILT? -------------
+//
+// It was not, and nothing caught it. The helper sat inside a block that closed hundreds of
+// lines before the menubar that matters, so pressing Enter threw a ReferenceError that went
+// nowhere and looked exactly like a key that had not been pressed. Compiling proves nothing
+// here: the reference is only resolved when the handler runs, and the handler only runs in
+// the product.
+//
+// Parsed, not counted. A first attempt walked brace depth, which counts the braces inside
+// strings, regexes and comments and therefore lied in both directions -- it cleared a
+// reference that was out of scope and condemned one that was fine. This asks a real parser
+// which scope each declaration belongs to and whether every use sits inside it.
+//
+// What this does NOT prove: that the field is wired to this handler at all, or that the
+// panel opens. That needs the running app.
+(() => {
+    const acorn = require('acorn');
+    const ast = acorn.parse('(' + nav + ')', { ecmaVersion: 2022, locations: true });
+    const SCOPEY = new Set(['Program', 'FunctionDeclaration', 'FunctionExpression',
+        'ArrowFunctionExpression', 'BlockStatement', 'ForStatement', 'ForOfStatement',
+        'ForInStatement', 'CatchClause']);
+
+    // A PLAIN TRAVERSAL, NOT acorn-walk. Its base visitor treats the left side of an
+    // assignment as a pattern and never reports the identifier, so `__lastMenus = ...` was
+    // invisible: the check counted one reference where there are two. A walker that silently
+    // skips the write would also silently skip an out-of-scope write, which is the whole
+    // thing being looked for.
+    const visit = (node, parents, fn) => {
+        if (!node || typeof node.type !== 'string') return;
+        fn(node, parents);
+        const next = parents.concat([node]);
+        for (const key of Object.keys(node)) {
+            if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
+            const v = node[key];
+            if (Array.isArray(v)) { for (const k of v) visit(k, next, fn); }
+            else visit(v, next, fn);
+        }
+    };
+
+    const scopeOf = (parents) => {
+        for (let i = parents.length - 1; i >= 0; i--) if (SCOPEY.has(parents[i].type)) return parents[i];
+        return ast;
+    };
+
+    const check = (name, least) => {
+        let decl = null;
+        visit(ast, [], (n, parents) => {
+            if (n.type === 'VariableDeclarator' && n.id && n.id.type === 'Identifier'
+                && n.id.name === name && !decl) {
+                decl = { scope: scopeOf(parents), line: n.id.loc.start.line };
+            }
+        });
+        ok(!!decl, name + ' is declared in the panel module');
+        if (!decl) return;
+        let total = 0;
+        const out = [];
+        visit(ast, [], (n, parents) => {
+            if (n.type !== 'Identifier' || n.name !== name) return;
+            // a property name (o.runCommandText) is not a reference to the variable
+            const p = parents[parents.length - 1];
+            if (p && p.type === 'MemberExpression' && !p.computed && p.property === n) return;
+            if (p && p.type === 'Property' && p.key === n && !p.computed) return;
+            if (n.loc.start.line === decl.line) return;
+            total++;
+            if (!(decl.scope === ast || parents.indexOf(decl.scope) >= 0)) out.push(n.loc.start.line);
+        });
+        ok(total >= least, name + ' is used where it should be (' + total + ' references)');
+        ok(out.length === 0, out.length
+            ? (name + ' is OUT OF SCOPE at line(s) ' + out.join(', ') + ': the block it is '
+                + 'declared in has closed by then, so this throws when the handler runs')
+            : ('every use of ' + name + ' can actually see it'));
+    };
+
+    check('runCommandText', 7);
+    check('looksLikeASentence', 1);
+    check('__lastMenus', 2);
+
+    ok(nav.indexOf('pm: plate_graph') >= 0,
+       'the project handed to an operation is this module\'s own handle, not a name it lacks');
+    ok(!/\bpm\s*&&\s*pm\.selectedPanel/.test(nav),
+       'and no reference is left to a pm that does not exist in this module');
+})();
+
 // ---- the panel: flattening, and that nothing runs on its own -------------------------
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 global.window = dom.window; global.document = dom.window.document;
