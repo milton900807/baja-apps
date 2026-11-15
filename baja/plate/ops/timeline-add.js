@@ -8,10 +8,15 @@ function (pm, o) {
     // axis unit is an hour from startDate, and a second implementation of that would be one
     // more thing to keep in step.
     //
-    // A DATE OUTSIDE THE WINDOW IS REFUSED. The point would be placed off the end of the
-    // axis, where nothing draws it -- so the request would appear to have done nothing, and
-    // the user's next move is to type it again. Saying which window it has to fall in lets
-    // them move the window or pick another date.
+    // A DATE OUTSIDE THE WINDOW GROWS THE WINDOW. It used to be refused, on the grounds that
+    // a point off the end of the axis is drawn nowhere -- true, but the answer to "add a
+    // milestone next week" on a timeline that starts in December is not to tell the user
+    // their own timeline is the wrong shape. The window moves to take the date in, which is
+    // what dragging the timeline's edge does by hand, and the reply says it happened.
+    //
+    // The track's own __tlSetWindow does the moving: it re-stamps every existing point with
+    // its date first, so the points keep their dates while the axis changes under them. A
+    // second implementation of that is how points end up sliding off their dates.
 
     return new Promise(async (resolve) => {
         try {
@@ -56,6 +61,27 @@ function (pm, o) {
 
             const kind = ('' + ((o && o.kind) || 'milestone')).trim().toLowerCase();
             let added = null;
+            let grew = null;
+
+            // GROW THE WINDOW TO TAKE A DATE IN, by a day past it so the point is not drawn
+            // exactly on the edge where the axis label sits. Only the side that needs to move
+            // moves: a date before the start does not also push the end out.
+            const DAY = 24 * 60 * 60 * 1000;
+            const grow = (aMs, bMs) => {
+                if (typeof pt.__tlSetWindow !== 'function') {
+                    return { error: 'this timeline runs ' + fmt(win.startMs) + ' to ' + fmt(win.endMs)
+                        + ', and that falls outside it' };
+                }
+                const lo = Math.min(aMs, bMs), hi = Math.max(aMs, bMs);
+                const s = Math.min(win.startMs, lo - DAY);
+                const e = Math.max(win.endMs, hi + DAY);
+                pt.__tlSetWindow(tl, s, e);
+                // The window just moved, so everything measured from it is stale.
+                const w2 = pt.__tlWin(tl);
+                win.startMs = w2.startMs; win.endMs = w2.endMs;
+                win.xmin = w2.xmin; win.xmax = w2.xmax; win.range = w2.range; win.span = w2.span;
+                return { grew: { start: fmt(w2.startMs), end: fmt(w2.endMs) } };
+            };
 
             if (kind === 'interval') {
                 const a = asDate(o && o.start), b = asDate(o && o.end);
@@ -66,9 +92,9 @@ function (pm, o) {
                     return;
                 }
                 if (!inWindow(a) || !inWindow(b)) {
-                    resolve({ error: 'this timeline runs ' + fmt(win.startMs) + ' to '
-                        + fmt(win.endMs) + ', and that falls outside it' });
-                    return;
+                    const g = grow(a.getTime(), b.getTime());
+                    if (g.error) { resolve({ error: g.error }); return; }
+                    grew = g.grew;
                 }
                 added = {
                     x: pt.__tlMsToX(tl, b.getTime()), startX: pt.__tlMsToX(tl, a.getTime()),
@@ -79,9 +105,9 @@ function (pm, o) {
                 const d = asDate(o && o.date);
                 if (!d) { resolve({ error: 'what date is it on?' }); return; }
                 if (!inWindow(d)) {
-                    resolve({ error: 'this timeline runs ' + fmt(win.startMs) + ' to '
-                        + fmt(win.endMs) + ', and ' + fmt(d.getTime()) + ' falls outside it' });
-                    return;
+                    const g = grow(d.getTime(), d.getTime());
+                    if (g.error) { resolve({ error: g.error }); return; }
+                    grew = g.grew;
                 }
                 added = {
                     x: pt.__tlMsToX(tl, d.getTime()), y: 0.1, type: 'milestone',
@@ -92,11 +118,15 @@ function (pm, o) {
             tl.scatterData.points.push(added);
             try { if (pt.__collab && !pt.__collab.holds(tl)) pt.__collab.acquire(tl); } catch (e) { }
             try { if (tl.grid && tl.grid.rescale) tl.grid.rescale(); } catch (e) { }
-            try { pt.setMessage('Added ' + title + ' on ' + fmt(added.date.getTime()), 6); } catch (e) { }
+            try {
+                pt.setMessage('Added ' + title + ' on ' + fmt(added.date.getTime())
+                    + (grew ? ('  (timeline now runs ' + grew.start + ' to ' + grew.end + ')') : ''), 6);
+            } catch (e) { }
             try { if (pt.wake) pt.wake(); } catch (e) { }
 
             resolve({ timeline: tl.name, kind: kind, title: title,
-                date: added.date.toDateString(), points: tl.scatterData.points.length });
+                date: added.date.toDateString(), extended: grew || null,
+                points: tl.scatterData.points.length });
         } catch (e) {
             resolve({ error: ('' + (e && e.message ? e.message : e)) });
         }

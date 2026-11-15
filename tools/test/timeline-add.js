@@ -2,11 +2,14 @@
 //
 //     node tools/test/timeline-add.js
 //
-// The failure that matters is silent: a date outside the timeline's window places the point
-// off the end of the axis, where nothing draws it, so the request appears to have done
-// nothing. The axis conversion is the track's own (__tlMsToX) rather than a second
-// implementation of hours-since-start, and the test uses the REAL one out of plate-track.js
-// so the two cannot drift.
+// The failure that matters is silent: a date outside the timeline's window would place the
+// point off the end of the axis, where nothing draws it, so the request would appear to have
+// done nothing. Such a date now GROWS the window instead, and what has to be true after that
+// is that every point already on the timeline still sits on its own date.
+//
+// The window arithmetic is the track's own (__tlWin, __tlMsToX, __tlSetWindow) rather than a
+// second implementation of hours-since-start, and the test uses the REAL ones out of
+// plate-track.js so the two cannot drift.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://gene.clinic/' });
@@ -26,7 +29,12 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 // THE REAL WINDOW ARITHMETIC, lifted out of plate-track.js.
 const trackSrc = fs.readFileSync('baja/plate/plate-track.js', 'utf8');
 const method = (name) => {
-    const k = trackSrc.indexOf(name + '(');
+    // THE DEFINITION, NOT THE FIRST MENTION. indexOf(name + '(') finds whichever comes first
+    // in the file, and for __tlXToMs that is a CALL inside another method: the body lifted
+    // was somebody else's, and it quietly returned nonsense instead of failing.
+    const m = new RegExp('^\\s*(?:async\\s+)?' + name + '\\s*\\(', 'm').exec(trackSrc);
+    if (!m) throw new Error('no definition of ' + name + ' in plate-track.js');
+    const k = m.index;
     let i = trackSrc.indexOf('{', k), d = 0, j = i;
     for (;; j++) { const ch = trackSrc[j]; if (ch === '{') d++; else if (ch === '}') { d--; if (!d) break; } }
     return trackSrc.slice(i + 1, j);
@@ -47,6 +55,9 @@ const mkTrack = (tls, selected) => {
     };
     pt.__tlWin = new Function('o', method('__tlWin')).bind(pt);
     pt.__tlMsToX = new Function('o', 'ms', method('__tlMsToX')).bind(pt);
+    pt.__tlXToMs = new Function('o', 'xUnits', method('__tlXToMs')).bind(pt);
+    pt.__tlStampDates = new Function('o', method('__tlStampDates')).bind(pt);
+    pt.__tlSetWindow = new Function('o', 'startMs', 'endMs', method('__tlSetWindow')).bind(pt);
     return pt;
 };
 const run = (pt, args) => load('baja/plate/ops/timeline-add.js', pt, args);
@@ -69,19 +80,39 @@ const run = (pt, args) => load('baja/plate/ops/timeline-add.js', pt, args);
     const mid = pt.__tlMsToX(tl, halfway);
     ok(Math.abs(mid - 500) < 1, 'the middle of the window is the middle of the axis: ' + mid.toFixed(1));
 
-    // OUTSIDE THE WINDOW: refused, with the window, rather than drawn where nothing shows
+    // OUTSIDE THE WINDOW: the window grows to take it in, and the point already on the
+    // timeline keeps its own date while the axis moves under it.
+    const keptDate = p.date.getTime();
     r = await run(pt, { title: 'Next year', date: '2027-03-01' });
-    ok(!!r.error && /falls outside it/.test(r.error), 'a date past the end is refused');
-    ok(/Nov 15 2026/.test(r.error) && /Dec 31 2026/.test(r.error),
-       'and the message says what the window is: ' + r.error);
-    ok(tl.scatterData.points.length === 1, 'and nothing is added');
+    ok(!r.error, 'a date past the end is added, not refused: ' + JSON.stringify(r));
+    ok(!!r.extended, 'and the reply says the timeline grew: ' + JSON.stringify(r.extended));
+    ok(tl.endDate.getTime() > D('2027-03-01').getTime(),
+       'the end moved past the new date: ' + tl.endDate.toDateString());
+    ok(tl.startDate.getTime() === D('2026-11-15').getTime(),
+       'the start did not move: only the side that had to');
+    ok(p.date.getTime() === keptDate, 'the milestone already there keeps its date');
+    ok(Math.abs(pt.__tlXToMs(tl, p.x) - keptDate) < 60 * 60 * 1000,
+       'and its axis position was moved to match the new window');
+    const added = tl.scatterData.points[1];
+    ok(added.x > tl.grid.xmin && added.x < tl.grid.xmax,
+       'the new point is on the axis, not past the end: ' + added.x.toFixed(1));
 
     r = await run(pt, { title: 'Too early', date: '2026-01-01' });
-    ok(!!r.error, 'a date before the start is refused too');
+    ok(!r.error && tl.startDate.getTime() < D('2026-01-01').getTime(),
+       'a date before the start grows the other end: ' + tl.startDate.toDateString());
+
+    // A TRACK THAT CANNOT MOVE THE WINDOW still refuses rather than drawing off the axis.
+    const old = mkTimeline('Old', '2026-11-15', '2026-12-31');
+    const noGrow = mkTrack([old], old);
+    delete noGrow.__tlSetWindow;
+    r = await run(noGrow, { title: 'Next year', date: '2027-03-01' });
+    ok(!!r.error && /falls outside it/.test(r.error),
+       'without __tlSetWindow it says what the window is: ' + r.error);
+    ok(old.scatterData.points.length === 0, 'and adds nothing');
 
     // intervals
     r = await run(pt, { kind: 'interval', title: 'Build', start: '2026-11-20', end: '2026-12-10' });
-    const iv = tl.scatterData.points[1];
+    const iv = tl.scatterData.points[tl.scatterData.points.length - 1];
     ok(!r.error && iv && iv.type === 'interval', 'an interval is added');
     ok(iv.startX < iv.x, 'running left to right on the axis');
     ok(iv.__startDate instanceof Date && iv.date instanceof Date, 'with both dates on it');

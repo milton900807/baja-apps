@@ -35,11 +35,12 @@ ok(/b\.disabled = true/.test(run), 'the button says it is working, so GO is not 
 const cap = fs.readFileSync('baja/plate/menu/project-capabilities.js', 'utf8');
 const i = cap.indexOf("name: 'timeline_add'");
 const decl = cap.slice(i, i + 1600);
-ok(/EVERY DATE MUST FALL INSIDE THE TIMELINE/.test(decl),
-   'timeline_add states that dates must fall inside the timeline');
-ok(/context gives as start and end/.test(decl), 'and where to read the window');
-ok(/do \'\s*\+\s*\'not move the date to the nearest day that fits|not move the date to the nearest day that fits/.test(decl),
-   'and that a date outside it is NOT to be nudged into range');
+ok(/THE DATE DOES NOT HAVE TO FALL INSIDE THE/.test(decl),
+   'timeline_add says a date outside the window is allowed');
+ok(/grows the timeline to take it in/.test(decl), 'because the timeline grows to take it in');
+ok(/never moved to the nearest day that happens to fit/.test(decl),
+   'and the date is never nudged to one that fits');
+ok(/never refused for being outside it/.test(decl), 'nor refused for being outside');
 
 // the ask box is what puts that window in the context
 const ask = fs.readFileSync('baja/plate/ops/timeline-ask.js', 'utf8');
@@ -48,7 +49,9 @@ ok(/start: from \|\| null/.test(ask) && /end: to \|\| null/.test(ask),
 
 // the operation still refuses rather than drawing off the axis
 const add = fs.readFileSync('baja/plate/ops/timeline-add.js', 'utf8');
-ok(/falls outside it/.test(add), 'the operation refuses an out-of-window date');
+ok(/__tlSetWindow/.test(add), 'the operation grows the window with the track\u2019s own mover');
+ok(/falls outside it/.test(add),
+   'and still refuses where there is no mover, rather than drawing off the axis');
 ok(/inWindow\(a\) \|\| !inWindow\(b\)/.test(add), 'both ends of an interval included');
 
 console.log(fails ? '\n' + fails + ' assertion(s) failed' : '\nall assertions passed');
