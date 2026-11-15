@@ -4,48 +4,17 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
         // ---- a sentence, or a formula? ---------------------------------------------
         //
-        // The command field has always been a formula bar, and that has to keep working
-        // exactly as it did: a formula is a thing people have saved, pasted and typed from
-        // memory for a long time, and a guess that sends one to a language model instead is
-        // a regression no matter how good the guess is. So the test is deliberately lopsided.
+        // The test itself lives in baja/plate/menu/is-sentence.js, because a second command
+        // field (the timeline app's) has to make the same decision and two copies of it would
+        // drift apart invisibly: a field that routes a sentence the other way does nothing at
+        // all, which looks exactly like a key that was not pressed.
         //
-        // Formula syntax wins outright. Anything carrying [ ] ( ) | = : ; or a leading = is
-        // a formula and is not looked at again. Only text with NO formula punctuation at all
-        // and at least three plain words is treated as a sentence. "A1:H12" is a formula.
-        // "mean(ctrl[1])" is a formula. "ctrl" is a formula, because one bare word is far
-        // more likely to be a name than a request. "import a plate from a spreadsheet" is a
-        // sentence.
-        //
-        // Nothing here changes what a formula does; it only decides which of two paths the
-        // text was headed down anyway. Down the sentence path, an operation carries the
-        // request out when one can, and otherwise the menu item that opens the place it is
-        // done is offered: doing it beats opening the door, and the door beats a refusal.
+        // Loaded once here rather than per keystroke, and if it cannot be loaded every
+        // command goes down the formula path exactly as it did before any of this existed.
+        let __sentence = null;
+        try { __sentence = await exec('baja/plate/menu/is-sentence.js'); } catch (e) { __sentence = null; }
         const looksLikeASentence = (str) => {
-            const t = ('' + (str || '')).trim();
-            if (t.length < 8) return false;
-            if (/^=/.test(t)) return false;
-
-            // Brackets, parentheses, pipes, equals and semicolons belong to the formula
-            // language and to almost nothing anybody types as a request.
-            if (/[\[\]()|=;]/.test(t)) return false;
-
-            // A COLON IS NOT PROOF OF A FORMULA, and treating it as proof was a real bug:
-            // "first col: price, cog, pn" is how people write a list, and every sentence of
-            // that shape was silently handed to the formula engine, which does nothing with
-            // it, so Enter appeared to do nothing at all.
-            //
-            // What makes a colon formula-ish is being tight against what it joins, as a
-            // range is written: A1:H12. A colon with a space after it, or at the end of a
-            // word before a list, is punctuation.
-            if (/\S:\S/.test(t)) return false;
-
-            // Trailing punctuation does not stop a word being a word: in "price, cog and pn"
-            // two of the three would otherwise not count, and a short list would fall under
-            // the three-word floor and be sent to the formula engine.
-            const words = t.split(/\s+/)
-                .map((w) => w.replace(/^[^A-Za-z]+/, '').replace(/[^A-Za-z'\u2019-]+$/, ''))
-                .filter((w) => /^[A-Za-z][A-Za-z'\u2019-]*$/.test(w));
-            return words.length >= 3;
+            try { return !!(__sentence && __sentence.looksLikeASentence(str)); } catch (e) { return false; }
         };
 
         // Every command field in this module goes through here, so there is one answer to

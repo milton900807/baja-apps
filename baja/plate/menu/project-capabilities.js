@@ -60,6 +60,24 @@ function () {
             }
         },
         {
+            name: 'timeline_add',
+            summary: 'put a milestone on a date, or an interval between two dates, onto the '
+                + 'timeline that is open',
+            module: 'baja/plate/ops/timeline-add.js',
+            params: {
+                title: { type: 'string', required: true, about: 'what it is called' },
+                kind: { type: 'enum', values: ['milestone', 'interval'], default: 'milestone',
+                    about: 'a milestone sits on one date; an interval runs between two' },
+                date: { type: 'string', default: 'required for a milestone',
+                    about: 'the date of a milestone, as YYYY-MM-DD, worked out from today\u2019s '
+                        + 'date in the context' },
+                start: { type: 'string', default: 'required for an interval',
+                    about: 'the first date of an interval, as YYYY-MM-DD' },
+                end: { type: 'string', default: 'required for an interval',
+                    about: 'the last date of an interval, as YYYY-MM-DD' }
+            }
+        },
+        {
             name: 'new_timeline',
             summary: 'add a timeline covering a range of dates',
             module: 'baja/plate/ops/new-timeline.js',
@@ -265,6 +283,11 @@ function () {
     };
 
     const preview = (name, args) => {
+        if (name === 'timeline_add') {
+            return args.kind === 'interval'
+                ? ('add ' + args.title + ' from ' + args.start + ' to ' + args.end + ' to the timeline')
+                : ('add ' + args.title + ' on ' + args.date + ' to the timeline');
+        }
         if (name === 'new_timeline') {
             return 'add a timeline from ' + args.start + ' to ' + args.end
                 + ' (it will ask for a title)';

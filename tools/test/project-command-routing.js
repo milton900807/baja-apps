@@ -15,10 +15,9 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 
 // ---- the predicate, taken out of the module that ships ------------------------------
 const nav = fs.readFileSync('manchester/controls/navigation-panel-plates2.js', 'utf8');
-const k = nav.indexOf('const looksLikeASentence = (str) => {');
-const END = '\n        };';
-const end = nav.indexOf(END, k) + END.length;
-const isSentence = new Function(nav.slice(k, end) + '\n return looksLikeASentence;')();
+// The predicate is its own module now, shared with the timeline app's command field.
+const mod = fs.readFileSync('baja/plate/menu/is-sentence.js', 'utf8');
+const isSentence = new Function('return (' + mod + ')')()().looksLikeASentence;
 
 console.log('formulas must NOT be treated as sentences:');
 [
@@ -129,7 +128,6 @@ console.log('sentences must be recognised:');
     };
 
     check('runCommandText', 7);
-    check('looksLikeASentence', 1);
     check('__lastMenus', 2);
 
     ok(nav.indexOf('pm: plate_graph') >= 0,

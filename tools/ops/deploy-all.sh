@@ -354,12 +354,15 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
     "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
+    "baja/plate/ops/timeline-add.js:PUT SOMETHING ON A TIMELINE" \
+    "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
+    "cpd/main-timeline.js:THE SAME FIELD TAKES A SENTENCE NOW" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
-    "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \
+    "manchester/controls/navigation-panel-plates2.js:The test itself lives in baja/plate/menu/is-sentence.js" \
     "baja/plate/menu/project-command.js:THE DATE OF TODAY GOES WITH EVERY REQUEST" \
-    "baja/plate/menu/project-capabilities.js:new_timeline" \
+    "baja/plate/menu/project-capabilities.js:timeline_add" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
