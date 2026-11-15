@@ -362,7 +362,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/column-io.js:READING AND WRITING A COLUMN, ONCE" \
     "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE; THE CELLS THEY SIT IN DO NOT MOVE" \
     "baja/plate/ops/move-column.js:WHOLE COLUMNS: COPY ONE ONTO ANOTHER" \
-    "py/bio/project/menu-pick.py:EVERY OTHER PARAMETER MAY SIMPLY BE LEFT OUT"
+    "py/bio/project/menu-pick.py:PARAMETER MAY SIMPLY BE LEFT OUT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"
