@@ -348,7 +348,7 @@ if [[ $DO_API -eq 1 ]]; then
   # bottom-right corner, reaching 30px inside the table, so working in the last column or row
   # started a resize instead.
   install_group "a table resizes from its edges, not from inside it" \
-    "baja/plate/plate.js:RESIZING IS THE RIGHT EDGE AND THE BOTTOM EDGE"
+    "baja/plate/plate.js:RESIZING A COLUMN RESIZES THE COLUMN, NOT THE TABLE"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \

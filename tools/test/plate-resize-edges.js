@@ -48,5 +48,69 @@ ok(hit(500, 300), '  the top of the right edge IS a right-edge grab');
 ok(!hit(50, 400), '  outside the table altogether');
 ok(!hit(300, 600), '  well below it');
 
+// ---- DRAGGING A COLUMN BOUNDARY CHANGES THE COLUMNS, NOT THE TABLE -------------------
+//
+// The width used to come from nowhere: the dragged column grew and the table grew with it,
+// so a gesture about one column changed the size of the thing it sits in and pushed it into
+// its neighbours on a laid-out canvas. It now comes out of the next column, so the widths
+// always add up to what they did before.
+//
+// The arithmetic is lifted out of plate.js rather than restated here, because the arithmetic
+// is the behaviour.
+(() => {
+    const k = src.indexOf('const apply = (x) => {', src.indexOf('__colResizeStart(pt, col, sx) {'));
+    let i = src.indexOf('{', k + 20), d = 0, j = i;
+    for (;; j++) { const ch = src[j]; if (ch === '{') d++; else if (ch === '}') { d--; if (!d) break; } }
+    const applyBody = src.slice(i + 1, j);
+
+    // Everything apply() touches, stubbed only where it reaches outside the arithmetic.
+    const makeApply = (px0, col, sx) => {
+        const n = px0.length;
+        const plate = {
+            column_widths: [], wells: [], __colFontCache: null,
+            setWidth(w) { this.__width = w; },
+            grid: { rescale() { } }
+        };
+        const TOTAL = px0.reduce((a, c) => a + c, 0);
+        const fn = new Function('x', 'px0', 'col', 'sx', 'n', 'MIN_PX', 'TOTAL', 'worldPerPx',
+            'pushed', 'pushHistory', 'HM', applyBody);
+        return {
+            plate,
+            at: (x) => { fn.call(plate, x, px0, col, sx, n, 24, TOTAL, 1, true, () => {}, () => {}); return plate; },
+            TOTAL
+        };
+    };
+
+    console.log('dragging an inner column boundary:');
+    let a = makeApply([100, 100, 100], 0, 500);
+    let p = a.at(540);                       // 40px to the right
+    let widths = p.column_widths.map((v) => v / 3 * a.TOTAL);
+    ok(Math.abs(widths[0] - 140) < 0.01, '  the dragged column grows by the drag: ' + widths[0].toFixed(1));
+    ok(Math.abs(widths[1] - 60) < 0.01, '  THE NEXT COLUMN GIVES UP EXACTLY THAT: ' + widths[1].toFixed(1));
+    ok(Math.abs(widths[2] - 100) < 0.01, '  and the rest are untouched');
+    ok(p.__width === undefined, '  THE TABLE IS NOT RESIZED');
+
+    a = makeApply([100, 100, 100], 0, 500);
+    p = a.at(460);                           // 40px to the left
+    widths = p.column_widths.map((v) => v / 3 * a.TOTAL);
+    ok(Math.abs(widths[0] - 60) < 0.01 && Math.abs(widths[1] - 140) < 0.01,
+       '  dragging the other way gives the width back');
+    ok(p.__width === undefined, '  still no table resize');
+
+    // the neighbour cannot be squeezed past the minimum, and the sum still holds
+    a = makeApply([100, 40, 100], 0, 500);
+    p = a.at(5000);
+    widths = p.column_widths.map((v) => v / 3 * a.TOTAL);
+    ok(Math.abs(widths[1] - 24) < 0.01, '  the next column stops at the minimum: ' + widths[1].toFixed(1));
+    ok(Math.abs(widths[0] - 116) < 0.01, '  and the dragged one only gets what was actually given');
+    ok(Math.abs(widths.reduce((s, v) => s + v, 0) - a.TOTAL) < 0.01,
+       '  THE WIDTHS STILL ADD UP: ' + widths.reduce((s, v) => s + v, 0).toFixed(1));
+    ok(p.__width === undefined, '  and the table is still its original width');
+})();
+
+// The last column's right edge is not an inner boundary: it is the table's right edge.
+ok(/for \(let i = 0; i < n - 1; i\+\+\)/.test(src),
+   'the last column\'s right edge is left to the table resize, not claimed as a column edge');
+
 console.log('\n' + (fails ? fails + ' FAILED' : 'all assertions passed'));
 process.exit(fails ? 1 : 0);

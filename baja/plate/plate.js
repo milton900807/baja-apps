@@ -15875,7 +15875,11 @@ function () {
                     const top = G.Y(this.grid.yi + this.getHeight(pt)), bottom = G.Y(this.grid.yi);
                     if (sy < Math.min(top, bottom) - 2 || sy > Math.max(top, bottom) + 2) return -1;
                     const g = this.__colGeom(), x0 = Number(this.grid.xmin) || 0, TOL = 5;
-                    for (let i = 0; i < n; i++) {
+                    // INNER BOUNDARIES ONLY. The right edge of the LAST column is the table's
+                    // own right edge, and that belongs to the table resize: a drag there
+                    // armed both, so pulling the last column wider also pulled the table
+                    // wider and the two fought over the same pixels. One edge, one meaning.
+                    for (let i = 0; i < n - 1; i++) {
                         const rightUnit = g ? g.left[i] + g.w[i] : x0 + i + 1;
                         const px = G.X(this.grid.X(rightUnit)) - 2.5;                 // the middle of the gap beside the column
                         if (Math.abs(sx - px) <= TOL) return i;
@@ -15895,13 +15899,42 @@ function () {
                 const worldPerPx = this.grid.width / (unitPx * n);
                 const MIN_PX = 24;
                 let pushed = false;
+                // RESIZING A COLUMN RESIZES THE COLUMN, NOT THE TABLE.
+                //
+                // This used to widen the column and leave every other one alone, so the table
+                // grew at its right edge to make room. That is one spreadsheet convention and
+                // it was deliberate, but it means a gesture about one column silently changes
+                // the size of the thing it is in, and on a laid-out canvas that pushes the
+                // table into its neighbours.
+                //
+                // The width now comes out of the NEXT column, so the table's own width never
+                // changes. The next column cannot be squeezed below the same minimum the
+                // dragged one has, and when it reaches that floor the drag stops there rather
+                // than pretending: whatever the next column could give is what the dragged
+                // column gets, so the two always add up and nothing drifts.
+                //
+                // The last column's right edge is not an inner boundary at all (see
+                // __colEdgeAt) -- it is the table's right edge, and dragging it resizes the
+                // table, which is what it looks like it should do.
+                const TOTAL = px0.reduce((a, c) => a + c, 0);
                 const apply = (x) => {
                     const px = px0.slice();
-                    px[col] = Math.max(MIN_PX, px0[col] + (x - sx));
                     if (!pushed && Math.abs(x - sx) >= 2) { pushed = true; try { pushHistory(HM(this)); } catch (e) { } }
+                    const next = col + 1;
+                    if (next < n) {
+                        const wanted = Math.max(MIN_PX, px0[col] + (x - sx)) - px0[col];
+                        const given = px0[next] - Math.max(MIN_PX, px0[next] - wanted);
+                        px[col] = px0[col] + given;
+                        px[next] = px0[next] - given;
+                    } else {
+                        px[col] = Math.max(MIN_PX, px0[col] + (x - sx));
+                    }
                     const total = px.reduce((a, c) => a + c, 0);
                     this.column_widths = px.map(v => v / total * n);
-                    this.setWidth(total * worldPerPx);
+                    // Only when there was no next column to take it from does the table
+                    // change size; with one, total === TOTAL and this is a no-op kept so the
+                    // two paths cannot drift apart.
+                    if (Math.abs(total - TOTAL) > 0.5) this.setWidth(total * worldPerPx);
                     try { this.grid.rescale(); } catch (e) { }
                     this.__colFontCache = null;
                     for (const colCells of this.wells) for (const c of (colCells || [])) if (c) { c.__wrapKey = null; }   // wrapped text is laid out per width
