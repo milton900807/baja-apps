@@ -182,14 +182,33 @@ function (o) {
         }
 
         if (op) {
+            // A REFUSAL IS SHOWN WHERE THE BUTTON WAS, NOT BEHIND THE CARD.
+            //
+            // This used to close the card first and report a refused operation through
+            // setMessage, a toast on the canvas -- which lands under whatever the request
+            // opened, lasts a few seconds, and is gone by the time the eye gets back to the
+            // canvas. The operation had said exactly why it refused ("this timeline runs
+            // Nov 30 to Jan 15, and November 22 falls outside it") and the user saw a GO
+            // button that appeared to do nothing. The card stays up and says it, with the
+            // request still on it, so the next attempt can be typed knowing what was wrong.
             const runOp = async () => {
-                close();
+                try { const b = q('#pc-op'); if (b) { b.disabled = true; b.textContent = 'Working\u2026'; } } catch (e) { }
                 let out = null;
                 try { out = await exec(op.capability.module, o.pm || null, op.args); }
                 catch (e) { out = { error: ('' + (e && e.message ? e.message : e)) }; }
                 if (out && out.error) {
                     try { if (o && o.setError) o.setError(out.error); } catch (e) { }
+                    say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                        + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">'
+                        + H(out.error) + '</div>'
+                        + '<div style="font:11px Arial;color:#6b8299;margin-top:7px;">'
+                        + H(CAP.preview(op.capability.name, op.args)) + '</div>'
+                        + '<div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                        + '">Close</button></div>');
+                    try { q('#pc-cancel').onclick = close; } catch (e) { }
+                    return;
                 }
+                close();
             };
             // THE BUTTON SAYS GO. It is the same word as the field it sits under, and the
             // field is where the request was typed; "Run it" named the mechanism instead of

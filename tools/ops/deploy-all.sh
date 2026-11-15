@@ -362,8 +362,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:ASKING A TIMELINE FOR SOMETHING, FROM ITS OWN FRAME" \
-    "baja/plate/menu/project-command.js:THE DATE OF TODAY GOES WITH EVERY REQUEST" \
-    "baja/plate/menu/project-capabilities.js:timeline_add" \
+    "baja/plate/menu/project-command.js:A REFUSAL IS SHOWN WHERE THE BUTTON WAS" \
+    "baja/plate/menu/project-capabilities.js:EVERY DATE MUST FALL INSIDE THE TIMELINE" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \

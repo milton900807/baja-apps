@@ -62,7 +62,12 @@ function () {
         {
             name: 'timeline_add',
             summary: 'put a milestone on a date, or an interval between two dates, onto the '
-                + 'timeline that is open',
+                + 'timeline that is open. EVERY DATE MUST FALL INSIDE THE TIMELINE\u2019S OWN '
+                + 'WINDOW, which the context gives as start and end: a date outside it is '
+                + 'refused, because the point would be drawn off the end of the axis where '
+                + 'nothing shows it. If the request works out to a date outside that window '
+                + '(a timeline that starts in December cannot have something next week), do '
+                + 'not move the date to the nearest day that fits: say so instead',
             module: 'baja/plate/ops/timeline-add.js',
             params: {
                 title: { type: 'string', required: true, about: 'what it is called' },
