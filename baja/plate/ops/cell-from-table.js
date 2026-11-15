@@ -62,9 +62,10 @@ function (pm, o) {
                 // shape or fills a table with zeroes to have something to point at.
                 let answer = null;
                 try {
-                    answer = await prompt('There is no table called ' + want + '. Make it?',
-                        ['Columns', 'Values'],
-                        { 'Columns': '1', 'Values': '' }, 420, 320);
+                    answer = await prompt('There is no table called ' + want
+                        + '. Make it? (values are optional)',
+                        ['Columns', 'Values (optional)'],
+                        { 'Columns': '2', 'Values (optional)': '' }, 420, 320);
                 } catch (e) { answer = null; }
                 if (!answer) { resolve({ cancelled: true }); return; }
 
@@ -73,11 +74,16 @@ function (pm, o) {
 
                 // One value per line, or several to a line separated by commas or tabs: all
                 // three are how people paste numbers, and guessing wrong loses them.
-                const values = ('' + (answer['Values'] || ''))
+                const values = ('' + (answer['Values (optional)'] || answer['Values'] || ''))
                     .split(/[\n\r]+/).join(',').split(/[,\t]/)
                     .map((v) => ('' + v).trim()).filter((v) => v !== '');
 
-                const rows = Math.max(1, Math.ceil(values.length / cols));
+                // AN EMPTY TABLE IS A FINE ANSWER. Making the values compulsory meant the
+                // only way to get a table was to have its contents to hand, which is not how
+                // one gets made: the usual thing is to put it there and fill it in. With
+                // nothing typed it comes with two rows to type into, which is also what the
+                // count then reads -- zero until something is in them.
+                const rows = values.length ? Math.ceil(values.length / cols) : 2;
                 const built = await exec('baja/plate/ops/new-table.js', pt, { name: want, rows: rows, cols: cols });
                 if (!built || built.error) { resolve({ error: (built && built.error) || 'the table could not be made' }); return; }
 

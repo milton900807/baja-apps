@@ -83,7 +83,10 @@ ok(!/executeCommand/.test(ask), 'with no second interpreter of its own');
     ok(/getTableByName/.test(op), 'the operation looks for the table by name');
     ok(/There is no table called/.test(op) && /prompt\(/.test(op),
        'and when it is not there it ASKS for it rather than refusing');
-    ok(/'Columns', 'Values'/.test(op), 'for its columns and its values');
+    ok(/'Columns', 'Values \(optional\)'/.test(op), 'for its columns, and values if there are any');
+    ok(/values\.length \? Math\.ceil\(values\.length \/ cols\) : 2/.test(op),
+       'with nothing typed it is made with two rows to type into, not refused');
+    ok(/values are optional/.test(op), 'and the box says the values can be left out');
     ok(/new-table\.js/.test(op), 'making it with the operation that already makes tables');
     // The range is not the whole table any more: sum() throws on the first name it meets, so
     // it covers the rows under the headings and the columns that hold numbers. Counting has
