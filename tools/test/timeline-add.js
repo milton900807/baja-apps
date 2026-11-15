@@ -48,7 +48,11 @@ const mkTimeline = (name, start, end) => ({
 });
 const mkTrack = (tls, selected) => {
     const pt = {
-        root: tls, selectedPlate: selected || null,
+        // TIMELINES ARE PLOTS AND LIVE IN m_plots. This harness put them in root, which is
+        // where the TABLES are, so the operation read the one collection that never holds a
+        // timeline and the test agreed with it. Two timelines on the canvas, and the answer
+        // was "there is no timeline here to add to".
+        m_plots: tls, root: [], selectedPlate: selected || null,
         setMessage() { }, wake() { },
         __tlIs(o) { return !!(o && typeof o.drawPlot === 'function' && o.type === 'timeline' && o.startDate && o.endDate && o.grid); },
         __tlFmt(ms) { return new Date(ms).toDateString(); }
@@ -126,16 +130,50 @@ const run = (pt, args) => load('baja/plate/ops/timeline-add.js', pt, args);
     r = await run(pt, { title: 'x' });
     ok(!!r.error && /what date/.test(r.error), 'and one with no date');
 
-    // which timeline
-    const a = mkTimeline('A', '2026-01-01', '2026-12-31');
-    const b = mkTimeline('B', '2026-01-01', '2026-12-31');
-    r = await run(mkTrack([a, b]), { title: 'x', date: '2026-06-01' });
-    ok(!!r.error && /more than one timeline/.test(r.error),
-       'with two timelines and neither selected it asks which');
-    r = await run(mkTrack([a]), { title: 'x', date: '2026-06-01' });
+    // WHICH TIMELINE. The canvas usually has more than one, so the name comes with the
+    // request rather than being inferred from what is selected.
+    const a = mkTimeline('strehg', '2026-12-01', '2027-01-16');
+    const b = mkTimeline('adf', '2026-12-31', '2027-03-30');
+
+    let t2 = mkTrack([a, b]);
+    r = await run(t2, { timeline: 'adf', title: 'x', date: '2027-02-01' });
+    ok(!r.error, 'named, it goes on that one: ' + JSON.stringify(r));
+    ok(b.scatterData.points.length === 1 && a.scatterData.points.length === 0,
+       'and not on the other');
+    ok(r.timeline === 'adf', 'the reply says which one it was');
+
+    t2 = mkTrack([a, b]);
+    r = await run(t2, { timeline: 'STREHG ', title: 'x', date: '2026-12-20' });
+    ok(!r.error && a.scatterData.points.length === 1,
+       'the name is matched without case or stray spaces mattering');
+
+    t2 = mkTrack([a, b]);
+    r = await run(t2, { timeline: 'nothing called this', title: 'x', date: '2026-12-20' });
+    ok(!!r.error && /no timeline called/.test(r.error) && /strehg/.test(r.error),
+       'a name that is not here lists the ones that are: ' + r.error);
+
+    // the frame button leaves the object it was pressed on
+    t2 = mkTrack([a, b]);
+    t2.__askedTimeline = b;
+    r = await run(t2, { title: 'from the frame', date: '2027-02-02' });
+    ok(!r.error && b.scatterData.points.length === 2,
+       'with no name, the timeline the Ask button was pressed on is used');
+
+    t2 = mkTrack([a, b]);
+    r = await run(t2, { title: 'x', date: '2026-12-20' });
+    ok(!!r.error && /more than one timeline/.test(r.error) && /strehg/.test(r.error),
+       'with neither named nor asked-from it says which ones are here: ' + r.error);
+
+    r = await run(mkTrack([a]), { title: 'x', date: '2026-12-20' });
     ok(!r.error, 'with exactly one there is nothing to ask');
     r = await run(mkTrack([]), { title: 'x', date: '2026-06-01' });
     ok(!!r.error && /no timeline here/.test(r.error), 'and with none it says so');
+
+    // a timeline in another collection is still found
+    const c = mkTimeline('elsewhere', '2026-12-01', '2027-01-16');
+    const t3 = mkTrack([]); t3.plots = [c];
+    r = await run(t3, { title: 'x', date: '2026-12-20' });
+    ok(!r.error, 'every collection the track keeps is read, not just one');
 
     console.log('\n' + (fails ? fails + ' FAILED' : 'all assertions passed'));
     process.exit(fails ? 1 : 0);

@@ -26,14 +26,49 @@ function (pm, o) {
                 return;
             }
 
-            // The selected timeline, or the only one on the canvas.
+            // WHICH TIMELINE, NAMED RATHER THAN GUESSED.
+            //
+            // This looked in pt.root, which holds the TABLES. Timelines are plots and live in
+            // m_plots, so with two of them on the canvas the answer was "there is no timeline
+            // here to add to" while both were on screen. Every collection the track keeps is
+            // read now, and the name comes with the request: the button that asks sits on one
+            // timeline's frame, so the object is known before a word is typed and does not
+            // have to be inferred from what happens to be selected.
+            const everyTimeline = () => {
+                const out = [];
+                for (const list of [pt.m_plots, pt.plots, pt.root, pt.objects]) {
+                    if (!Array.isArray(list)) continue;
+                    for (const x of list) { if (pt.__tlIs(x) && out.indexOf(x) < 0) out.push(x); }
+                }
+                return out;
+            };
+            const all = everyTimeline();
+            const wanted = ('' + ((o && o.timeline) || '')).trim();
+
             let tl = null;
-            if (pt.selectedPlate && pt.__tlIs(pt.selectedPlate)) tl = pt.selectedPlate;
+            if (wanted) {
+                const same = (a) => ('' + ((a && a.name) || '')).trim().toLowerCase() === wanted.toLowerCase();
+                const hits = all.filter(same);
+                if (hits.length === 1) tl = hits[0];
+                else if (hits.length > 1) {
+                    // Two timelines of the same name: the one being asked about wins.
+                    tl = (pt.__askedTimeline && hits.indexOf(pt.__askedTimeline) >= 0)
+                        ? pt.__askedTimeline : hits[0];
+                } else if (all.length) {
+                    resolve({ error: 'there is no timeline called "' + wanted + '" here'
+                        + (all.length ? (': this canvas has ' + all.map((x) => '"' + (x.name || '?') + '"').join(', ')) : '') });
+                    return;
+                }
+            }
+            // The timeline the ask button was pressed on, when it is still here.
+            if (!tl && pt.__askedTimeline && all.indexOf(pt.__askedTimeline) >= 0) tl = pt.__askedTimeline;
+            if (!tl && pt.selectedPlate && pt.__tlIs(pt.selectedPlate)) tl = pt.selectedPlate;
             if (!tl) {
-                const all = (pt.root || []).filter((x) => pt.__tlIs(x));
                 if (all.length === 1) tl = all[0];
                 else if (all.length > 1) {
-                    resolve({ error: 'there is more than one timeline here: select the one you mean' });
+                    resolve({ error: 'there is more than one timeline here ('
+                        + all.map((x) => '"' + (x.name || '?') + '"').join(', ')
+                        + '): say which one, or ask from its own Ask button' });
                     return;
                 }
             }

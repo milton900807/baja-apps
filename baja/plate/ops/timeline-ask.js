@@ -50,6 +50,12 @@ function (plot, pt) {
             const text = ('' + ((r && r.text) || '')).trim();
             if (!text) { resolve({ cancelled: true }); return; }
 
+            // THE OBJECT THIS WAS ASKED FROM, left where the operation can find it. The name
+            // goes into the request as well, which is what the card shows and what the
+            // operation resolves by; this is the exact match behind it, for two timelines
+            // that happen to share a name.
+            try { if (track) track.__askedTimeline = plot; } catch (e) { }
+
             let menus = [];
             try { menus = (track && track.__lastMenubar) ? (track.__lastMenubar() || []) : []; } catch (e) { menus = []; }
 
@@ -58,7 +64,12 @@ function (plot, pt) {
                 pm: track,
                 text: text,
                 context: {
+                    // Named, not implied: the operation takes a timeline parameter and this is
+                    // where it comes from, so a canvas with several timelines changes the one
+                    // whose frame the button was pressed on.
                     timeline: name || null,
+                    timeline_is: 'the timeline this request is about; put its name in the '
+                        + 'operation\u2019s timeline parameter',
                     start: from || null,
                     end: to || null,
                     showing: 'a timeline'

@@ -354,16 +354,16 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
     "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
-    "baja/plate/ops/timeline-add.js:A DATE OUTSIDE THE WINDOW GROWS THE WINDOW" \
+    "baja/plate/ops/timeline-add.js:WHICH TIMELINE, NAMED RATHER THAN GUESSED" \
     "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
     "cpd/main-timeline.js:A PROMPT BOX OF ITS OWN, UNDER THE BAR" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
-    "baja/plate/ops/timeline-ask.js:ASKING A TIMELINE FOR SOMETHING, FROM ITS OWN FRAME" \
+    "baja/plate/ops/timeline-ask.js:THE OBJECT THIS WAS ASKED FROM" \
     "baja/plate/menu/project-command.js:A REFUSAL IS SHOWN WHERE THE BUTTON WAS" \
-    "baja/plate/menu/project-capabilities.js:THE DATE DOES NOT HAVE TO FALL INSIDE THE" \
+    "baja/plate/menu/project-capabilities.js:there can be several on the canvas" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \

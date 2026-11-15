@@ -70,6 +70,9 @@ function () {
                 + 'and never refused for being outside it',
             module: 'baja/plate/ops/timeline-add.js',
             params: {
+                timeline: { type: 'string', default: 'the one named in the context, or the only one here',
+                    about: 'the NAME of the timeline to put it on, copied from the context\u2019s '
+                        + 'timeline field when there is one: there can be several on the canvas' },
                 title: { type: 'string', required: true, about: 'what it is called' },
                 kind: { type: 'enum', values: ['milestone', 'interval'], default: 'milestone',
                     about: 'a milestone sits on one date; an interval runs between two' },
@@ -289,9 +292,12 @@ function () {
 
     const preview = (name, args) => {
         if (name === 'timeline_add') {
+            // The timeline is named on the card: with several on the canvas, "to the timeline"
+            // did not say which one was about to be changed.
+            const which = args.timeline ? ('"' + args.timeline + '"') : 'the timeline';
             return args.kind === 'interval'
-                ? ('add ' + args.title + ' from ' + args.start + ' to ' + args.end + ' to the timeline')
-                : ('add ' + args.title + ' on ' + args.date + ' to the timeline');
+                ? ('add ' + args.title + ' from ' + args.start + ' to ' + args.end + ' to ' + which)
+                : ('add ' + args.title + ' on ' + args.date + ' to ' + which);
         }
         if (name === 'new_timeline') {
             return 'add a timeline from ' + args.start + ' to ' + args.end
