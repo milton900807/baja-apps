@@ -51,9 +51,16 @@ function (pm, o) {
             try { await pt.panToNextSpot(100); } catch (e) { }
             pt.addPlateWithConsistentWellSize(p);
             try { pt.updateCalculations(); } catch (e) { }
+
+            // Centred, sized to read, and selected. A table dropped at the next free spot is
+            // usually off screen, and a creation the user cannot see is indistinguishable
+            // from one that did not happen.
+            let shown = null;
+            try { shown = await exec('baja/plate/ops/show-new-object.js', pt, p); } catch (e) { shown = null; }
+
             try { pt.setMessage('Added ' + p.name + ': ' + rows + ' x ' + cols, 6); } catch (e) { }
 
-            resolve({ name: p.name, rows: rows, cols: cols });
+            resolve({ name: p.name, rows: rows, cols: cols, shown: !!(shown && shown.moved) });
         } catch (e) {
             resolve({ error: ('' + (e && e.message ? e.message : e)) });
         }

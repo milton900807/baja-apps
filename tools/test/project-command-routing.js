@@ -227,10 +227,11 @@ const body = () => document.body.textContent || '';
     //
     // "draw a table with two rows and 4 cols" is the case that started this. Draw > Table
     // cannot take a size: it asks for a name and then measures the drag.
-    let made = [];
+    let made = [], fitted = [], selected = [];
     const pm = { plateTrack: {
         addPlateWithConsistentWellSize: (p) => made.push(p),
-        panToNextSpot: async () => { }, updateCalculations: () => { }, setMessage: () => { }
+        panToNextSpot: async () => { }, updateCalculations: () => { }, setMessage: () => { },
+        zoomToFitTable: async (p) => { fitted.push(p); }, setSelected: (p) => selected.push(p)
     } };
 
     fired = [];
@@ -249,6 +250,28 @@ const body = () => document.body.textContent || '';
     ok(made.length === 1, 'PRESSING IT MAKES THE TABLE');
     ok(made[0].grid.xmax === 4 && made[0].grid.ymax === 2,
        'with the size that was asked for: ' + made[0].grid.xmax + ' x ' + made[0].grid.ymax);
+    ok(fitted.length === 1 && fitted[0] === made[0],
+       'AND THE VIEW GOES TO IT: a table made off screen is one you cannot tell was made');
+
+    // the view failing to move must never make a successful creation look like a failure
+    made = []; fitted = [];
+    const blind = { plateTrack: Object.assign({}, pm.plateTrack, {
+        addPlateWithConsistentWellSize: (p) => made.push(p),
+        zoomToFitTable: async () => { throw new Error('no canvas'); },
+        zoomintoplate: async () => { throw new Error('no canvas'); },
+        setSelected: (p) => selected.push(p)
+    }) };
+    reply = { status: 'OK', operation: 'new_table', args: { rows: 3, cols: 3 },
+              pick: null, explain: 'x', alternatives: [], unsupported: '' };
+    selected = [];
+    await load('baja/plate/menu/project-command.js',
+        { menus: menus, pm: blind, text: 'add a 3 by 3 table' });
+    await settle(10);
+    document.getElementById('pc-op').onclick();
+    await settle(10);
+    ok(made.length === 1, 'the table is still made when the view cannot move');
+    ok(selected.length >= 1 && selected[selected.length - 1] === made[0],
+       'and it is at least selected, so it can be found');
 
     // a size beyond what a table can be is REFUSED, and the UI is offered instead
     made = []; fired = [];

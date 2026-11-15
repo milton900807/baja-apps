@@ -348,6 +348,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/project-command.js:DO IT IF IT CAN BE DONE" \
     "baja/plate/menu/project-capabilities.js:WHAT THE PROJECT CAN DO WITH ARGUMENTS IN HAND" \
     "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \
+    "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "py/bio/project/menu-pick.py:DOING IT BEATS OPENING THE DOOR TO IT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
