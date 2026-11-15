@@ -30,6 +30,9 @@ console.log('formulas must NOT be treated as sentences:');
     ['x = 3', 'an assignment'],
     ['dose[1];dose[2]', 'brackets and a semicolon'],
     ['Treated [nM] (mean)', 'words, but carrying formula punctuation'],
+    ['A1:H12 ', 'a range with a trailing space'],
+    ['Inputs[Phase_II_Success_Rate,Value]', 'a reference with tags'],
+    ['sum(a); sum(b)', 'a semicolon'],
     ['qpcr', 'a short token'],
     ['', 'nothing typed'],
     ['  ', 'only spaces'],
@@ -42,6 +45,13 @@ console.log('sentences must be recognised:');
     'make a new plate from the selection',
     'show me the qpcr analysis',
     'open the well editor please',
+    // THE COLON CASES. Every one of these was silently routed to the formula engine, which
+    // does nothing with a sentence, so Enter looked like a dead key. They are how anybody
+    // writes a list.
+    'hellowrold first col:  No of employees, average salary, rent, number of screens',
+    'seaarchbuoy add content to the first column that is the price, cog and pn',
+    'hellowrold insert from top to bottom: cogs, employees, product',
+    'first col: price, cog, pn',
 ].forEach((t) => ok(isSentence(t) === true, '  "' + t + '"'));
 
 

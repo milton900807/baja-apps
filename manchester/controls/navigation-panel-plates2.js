@@ -24,8 +24,27 @@ function (plate_graph, selectedPlate, selectedPoint) {
             const t = ('' + (str || '')).trim();
             if (t.length < 8) return false;
             if (/^=/.test(t)) return false;
-            if (/[\[\]()|=:;]/.test(t)) return false;
-            const words = t.split(/\s+/).filter((w) => /^[A-Za-z][A-Za-z'\u2019-]*$/.test(w));
+
+            // Brackets, parentheses, pipes, equals and semicolons belong to the formula
+            // language and to almost nothing anybody types as a request.
+            if (/[\[\]()|=;]/.test(t)) return false;
+
+            // A COLON IS NOT PROOF OF A FORMULA, and treating it as proof was a real bug:
+            // "first col: price, cog, pn" is how people write a list, and every sentence of
+            // that shape was silently handed to the formula engine, which does nothing with
+            // it, so Enter appeared to do nothing at all.
+            //
+            // What makes a colon formula-ish is being tight against what it joins, as a
+            // range is written: A1:H12. A colon with a space after it, or at the end of a
+            // word before a list, is punctuation.
+            if (/\S:\S/.test(t)) return false;
+
+            // Trailing punctuation does not stop a word being a word: in "price, cog and pn"
+            // two of the three would otherwise not count, and a short list would fall under
+            // the three-word floor and be sent to the formula engine.
+            const words = t.split(/\s+/)
+                .map((w) => w.replace(/^[^A-Za-z]+/, '').replace(/[^A-Za-z'\u2019-]+$/, ''))
+                .filter((w) => /^[A-Za-z][A-Za-z'\u2019-]*$/.test(w));
             return words.length >= 3;
         };
 
