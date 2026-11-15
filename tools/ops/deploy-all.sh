@@ -354,7 +354,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
     "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
-    "baja/plate/ops/timeline-add.js:WHICH TIMELINE, NAMED RATHER THAN GUESSED" \
+    "baja/plate/ops/timeline-add.js:One resolver, in timeline-pick.js" \
+    "baja/plate/ops/timeline-pick.js:WHICH TIMELINE A REQUEST IS ABOUT, WORKED OUT ONCE" \
+    "baja/plate/ops/timeline-range.js:MOVING A TIMELINE'S OWN RANGE" \
     "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
     "cpd/main-timeline.js:A PROMPT BOX OF ITS OWN, UNDER THE BAR" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
@@ -363,7 +365,7 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:THE OBJECT THIS WAS ASKED FROM" \
     "baja/plate/menu/project-command.js:A REFUSAL IS SHOWN WHERE THE BUTTON WAS" \
-    "baja/plate/menu/project-capabilities.js:there can be several on the canvas" \
+    "baja/plate/menu/project-capabilities.js:MOVING A TIMELINE'S RANGE IS A THING THAT CAN BE ASKED FOR" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \

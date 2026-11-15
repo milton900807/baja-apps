@@ -86,6 +86,32 @@ function () {
             }
         },
         {
+            // MOVING A TIMELINE'S RANGE IS A THING THAT CAN BE ASKED FOR. "Expand it by 10%
+            // on both ends" used to come back as nothing matching, about the very timeline
+            // the request was made from.
+            name: 'timeline_range',
+            summary: 'change the range of dates a timeline covers: widen it, narrow it, or '
+                + 'set it to two dates. A percentage or a number of days is applied to the '
+                + 'end or ends named by edge; a negative amount narrows it. Giving start or '
+                + 'end as dates sets that edge outright',
+            module: 'baja/plate/ops/timeline-range.js',
+            params: {
+                timeline: { type: 'string', default: 'the one named in the context, or the only one here',
+                    about: 'the NAME of the timeline, copied from the context\u2019s timeline field' },
+                by_percent: { type: 'number', default: '0, meaning no change by percentage',
+                    about: 'how much to widen each named edge by, as a percentage of the range '
+                        + 'it covers now; negative narrows it' },
+                by_days: { type: 'number', default: '0, meaning no change by days',
+                    about: 'how many days to widen each named edge by; negative narrows it' },
+                edge: { type: 'enum', values: ['start', 'end', 'both'], default: 'both',
+                    about: 'which end moves' },
+                start: { type: 'string', default: 'leave the start where it is',
+                    about: 'a new start date, as YYYY-MM-DD; this wins over an amount' },
+                end: { type: 'string', default: 'leave the end where it is',
+                    about: 'a new end date, as YYYY-MM-DD; this wins over an amount' }
+            }
+        },
+        {
             name: 'new_timeline',
             summary: 'add a timeline covering a range of dates',
             module: 'baja/plate/ops/new-timeline.js',
@@ -298,6 +324,20 @@ function () {
             return args.kind === 'interval'
                 ? ('add ' + args.title + ' from ' + args.start + ' to ' + args.end + ' to ' + which)
                 : ('add ' + args.title + ' on ' + args.date + ' to ' + which);
+        }
+        if (name === 'timeline_range') {
+            const which = args.timeline ? ('"' + args.timeline + '"') : 'the timeline';
+            if (args.start || args.end) {
+                return 'set ' + which + ' to run '
+                    + (args.start ? ('from ' + args.start) : 'from where it starts')
+                    + ' ' + (args.end ? ('to ' + args.end) : 'to where it ends');
+            }
+            const amt = args.by_percent ? (Math.abs(args.by_percent) + '%')
+                : (Math.abs(args.by_days || 0) + ' days');
+            const dir = ((args.by_percent || args.by_days || 0) < 0) ? 'narrow' : 'widen';
+            const where = args.edge === 'start' ? 'at the start'
+                : (args.edge === 'end' ? 'at the end' : 'at both ends');
+            return dir + ' ' + which + ' by ' + amt + ' ' + where;
         }
         if (name === 'new_timeline') {
             return 'add a timeline from ' + args.start + ' to ' + args.end
