@@ -184,6 +184,9 @@ function (o) {
                     try { if (o && o.setError) o.setError(out.error); } catch (e) { }
                 }
             };
+            // THE BUTTON SAYS GO. It is the same word as the field it sits under, and the
+            // field is where the request was typed; "Run it" named the mechanism instead of
+            // the act.
             say('<div style="font:700 13px Arial;color:#7fb0e8;">One operation</div>'
                 + '<div style="font:700 14px Arial;color:#e8f0fb;margin-top:7px;">'
                 + H(CAP.preview(op.capability.name, op.args)) + '</div>'
@@ -197,7 +200,7 @@ function (o) {
                     ? ('<div style="font:11.5px Arial;color:#fbbf24;margin-top:4px;">ignored: '
                         + H(op.dropped.join(', ')) + '</div>') : '')
                 + '<div style="display:flex;gap:10px;margin-top:14px;align-items:center;">'
-                + '<button id="pc-op" style="' + green + '">Run it</button>'
+                + '<button id="pc-op" style="' + green + '">GO</button>'
                 + '<button id="pc-cancel" style="' + btn + '">Cancel</button></div>'
                 + (pick ? ('<div style="font:12px Arial;color:#6b8299;margin-top:14px;">Or do it '
                     + 'yourself in <a href="#" class="pc-alt" data-i="' + pick.i

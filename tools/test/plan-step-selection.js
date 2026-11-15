@@ -77,10 +77,10 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     ok(!!el('ec-busy'), 'the row that is left is the one that shows it is working');
     ok(!!el('ec-s0') && !!el('ec-s1'), 'every step of a plan gets its own checkbox');
     ok(el('ec-s0').checked && el('ec-s1').checked, 'and both start ticked');
-    ok(goText() === 'Run 2 steps', 'the button counts what is ticked: ' + goText());
+    ok(goText() === 'GO \u00b7 2 steps', 'the button counts what is ticked: ' + goText());
 
     el('ec-s1').checked = false; el('ec-s1').onchange();
-    ok(goText() === 'Run it', 'unticking one leaves a single-step button: ' + goText());
+    ok(goText() === 'GO', 'unticking one leaves a single-step button: ' + goText());
 
     el('ec-s0').checked = false; el('ec-s0').onchange();
     ok(goText() === 'Nothing selected' && el('ec-go').disabled,
@@ -88,7 +88,7 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 
     // ticking just the SECOND step runs only that one
     el('ec-s1').checked = true; el('ec-s1').onchange();
-    ok(goText() === 'Run it' && !el('ec-go').disabled, 'ticking one re-enables it');
+    ok(goText() === 'GO' && !el('ec-go').disabled, 'ticking one re-enables it');
     el('ec-go').onclick();
     await settle(10);
     ok(graph.zoomed === 1, 'ONLY THE TICKED STEP RAN: the zoom happened');

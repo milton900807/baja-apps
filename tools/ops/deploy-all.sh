@@ -336,7 +336,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "the command box shows that it is working" \
     "baja/manchester/menu/editor-command.js:ONE REQUEST AT A TIME, ACROSS INSTANCES"
   install_group "pick which steps of a plan to run" \
-    "baja/manchester/menu/editor-command.js:EACH STEP IS ITS OWN DECISION"
+    "baja/manchester/menu/editor-command.js:THE BUTTON SAYS GO, and the step count rides along"
   install_group "the command box is a box you type in" \
     "baja/manchester/menu/editor-command.js:NO BUTTONS. Enter sends it"
   # The project's command field keeps taking formulas exactly as before; a SENTENCE is now
@@ -345,7 +345,7 @@ if [[ $DO_API -eq 1 ]]; then
   # offers, and the python picks an index out of the menu it is given.
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A FAILURE HERE USED TO BE INVISIBLE" \
-    "baja/plate/menu/project-command.js:DO IT IF IT CAN BE DONE" \
+    "baja/plate/menu/project-command.js:THE BUTTON SAYS GO" \
     "baja/plate/menu/project-capabilities.js:WHAT THE PROJECT CAN DO WITH ARGUMENTS IN HAND" \
     "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \

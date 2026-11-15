@@ -556,11 +556,12 @@ function (graph, genegraph_panel_layout, options) {
                         + '</div>';
                 };
 
-                const verb = danger ? 'Run it' : (runnable.length > 1 ? ('Run all ' + runnable.length) : 'Run it');
-                // What the button says depends on what is ticked, so it is written once here
-                // and recomputed on every change rather than baked into the markup.
+                const verb = danger ? 'GO' : (runnable.length > 1 ? ('GO · ' + runnable.length + ' steps') : 'GO');
+                // THE BUTTON SAYS GO, and the step count rides along after it when there is
+                // more than one. What it says depends on what is ticked, so it is written
+                // once here and recomputed on every change rather than baked into the markup.
                 const labelFor = (k) => (k === 0 ? 'Nothing selected'
-                    : (k === 1 ? 'Run it' : ('Run ' + k + ' steps')));
+                    : (k === 1 ? 'GO' : ('GO · ' + k + ' steps')));
                 const nShown = good.length;
                 out.innerHTML = card(
                     '<div style="font:700 13px Arial;color:' + (danger ? '#fca5a5' : '#7fb0e8') + ';">'
@@ -602,7 +603,7 @@ function (graph, genegraph_panel_layout, options) {
                 const syncGo = () => {
                     if (!go) return;
                     const k = chosen().length;
-                    go.textContent = danger && k ? 'Run it' : labelFor(k);
+                    go.textContent = danger && k ? 'GO' : labelFor(k);
                     go.disabled = (k === 0);
                     go.style.opacity = k ? '' : '0.5';
                     go.style.cursor = k ? 'pointer' : 'default';
