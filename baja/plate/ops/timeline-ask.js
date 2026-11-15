@@ -64,6 +64,13 @@ function (plot, pt) {
                 pm: track,
                 text: text,
                 context: {
+                    // WHAT THIS WAS ASKED FROM. project-command.js puts this in front of the
+                    // request itself ("On the timeline named ..."), so a word like "zoom out"
+                    // is read as being about this timeline and not about the whole project.
+                    asked_from: {
+                        type: 'timeline', name: name || null,
+                        about: (from && to) ? ('it runs ' + from + ' to ' + to) : null
+                    },
                     // Named, not implied: the operation takes a timeline parameter and this is
                     // where it comes from, so a canvas with several timelines changes the one
                     // whose frame the button was pressed on.

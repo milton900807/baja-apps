@@ -91,7 +91,9 @@ function () {
             // the request was made from.
             name: 'timeline_range',
             summary: 'change the range of dates a timeline covers: widen it, narrow it, or '
-                + 'set it to two dates. A percentage or a number of days is applied to the '
+                + 'set it to two dates. THIS IS WHAT ZOOMING A TIMELINE MEANS: zooming out, '
+                + 'or showing more, widens the range; zooming in, or showing less, narrows '
+                + 'it. A percentage or a number of days is applied to the '
                 + 'end or ends named by edge; a negative amount narrows it. Giving start or '
                 + 'end as dates sets that edge outright',
             module: 'baja/plate/ops/timeline-range.js',

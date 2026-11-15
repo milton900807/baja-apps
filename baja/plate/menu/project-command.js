@@ -138,9 +138,24 @@ function (o) {
         let CAP = null;
         try { CAP = await exec('baja/plate/menu/project-capabilities.js'); } catch (e) { CAP = null; }
 
+        // THE REQUEST SAYS WHICH WINDOW IT CAME FROM, in its first words.
+        //
+        // "Zoom out about 10%", typed into a timeline's own Ask button, matched the project's
+        // global Zoom out: true of the words, wrong about the request, because the user had
+        // just pressed a button on one object. The object is already in the context, but a
+        // context is a note beside the request and the request itself said nothing -- so it
+        // goes in front of the words, where it cannot be read past.
+        const asked = (context && context.asked_from) || null;
+        const askedName = asked ? ('' + (asked.name || '')).trim() : '';
+        const askedKind = asked ? ('' + (asked.type || 'object')).trim() : '';
+        const request = asked
+            ? ('On the ' + askedKind + (askedName ? (' named "' + askedName + '"') : '')
+                + (asked.about ? (' (' + asked.about + ')') : '') + ': ' + text)
+            : text;
+
         let r = null;
         try {
-            r = await exec('py/bio/project/menu-pick.py', text,
+            r = await exec('py/bio/project/menu-pick.py', request,
                 JSON.stringify(actions.map((a) => {
                     const c = { i: a.i, path: a.path };
                     if (a.tooltip) c.tooltip = a.tooltip;

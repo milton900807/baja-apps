@@ -118,6 +118,14 @@ Rules, in order of importance:
    items that differ only in what they act on. Do not invent a selection that the context
    does not report.
 
+8. A REQUEST THAT BEGINS "On the <kind> named ..." WAS MADE FROM THAT OBJECT, by pressing a
+   button on it. Everything in it is about that object. A menu item that does the same word
+   to the whole project or the whole view -- zoom, resize, delete, rename -- is NOT the
+   match: "zoom out" on a timeline means showing more of its own range, not magnifying the
+   canvas. Where an operation acts on that kind of object, prefer it over any menu item, and
+   copy the object's name into whichever parameter names it. If nothing acts on that object,
+   say nothing matched rather than offering the thing that acts on everything.
+
 Operations:
 %s
 

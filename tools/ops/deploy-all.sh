@@ -363,9 +363,9 @@ if [[ $DO_API -eq 1 ]]; then
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
-    "baja/plate/ops/timeline-ask.js:THE OBJECT THIS WAS ASKED FROM" \
-    "baja/plate/menu/project-command.js:A REFUSAL IS SHOWN WHERE THE BUTTON WAS" \
-    "baja/plate/menu/project-capabilities.js:MOVING A TIMELINE'S RANGE IS A THING THAT CAN BE ASKED FOR" \
+    "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
+    "baja/plate/menu/project-command.js:THE REQUEST SAYS WHICH WINDOW IT CAME FROM" \
+    "baja/plate/menu/project-capabilities.js:THIS IS WHAT ZOOMING A TIMELINE MEANS" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
@@ -374,7 +374,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/column-io.js:READING AND WRITING A COLUMN, ONCE" \
     "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE AND THE CELLS THEY SIT IN" \
     "baja/plate/ops/move-column.js:WHOLE COLUMNS, COPIED ONTO ANOTHER" \
-    "py/bio/project/menu-pick.py:PARAMETER MAY SIMPLY BE LEFT OUT"
+    "py/bio/project/menu-pick.py:WAS MADE FROM THAT OBJECT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"
