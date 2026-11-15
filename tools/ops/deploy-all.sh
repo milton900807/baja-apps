@@ -339,6 +339,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-command.js:EACH STEP IS ITS OWN DECISION"
   install_group "the command box is a box you type in" \
     "baja/manchester/menu/editor-command.js:NO BUTTONS. Enter sends it"
+  # The project's command field keeps taking formulas exactly as before; a SENTENCE is now
+  # matched against the app's own live menubar and the item that does it is offered. Three
+  # files, all or none: the router decides which path the text takes, the panel asks and
+  # offers, and the python picks an index out of the menu it is given.
+  install_group "a sentence in the project command field finds the menu item" \
+    "manchester/controls/navigation-panel-plates2.js:a sentence, or a formula?" \
+    "baja/plate/menu/project-command.js:THE CATALOGUE IS THE LIVE MENUBAR" \
+    "py/bio/project/menu-pick.py:THE CATALOGUE IS THE APP'"'"'S LIVE MENUS"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"

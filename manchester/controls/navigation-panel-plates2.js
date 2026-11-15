@@ -120,12 +120,19 @@ function (plate_graph, selectedPlate, selectedPoint) {
             } catch (e) { console.warn('go to reference', e); }
         };
 
+        // The menubar that was last built, kept so a typed sentence can be matched against
+        // the menu actually on screen. Captured HERE because every menubar in this module is
+        // returned through finishMenubar, and captured before it rewrites the top level into
+        // icons, which drops the labels a sentence would be matched against.
+        let __lastMenus = [];
+
         const finishMenubar = (menuItm) => {
             try {
                 const mobile = (typeof isMobile === 'function') && isMobile();
                 const data = menuItm && menuItm.data ? menuItm.data : null;
                 const menus = data && Array.isArray(data.menus) ? data.menus : null;
                 if (!menus || !menus.length) return menuItm;
+                try { __lastMenus = menus.slice(); } catch (e) { }
                 // Every menubar this module builds goes through here, so this is the one
                 // place the field needs to be handed the way to navigate.
                 try { if (data && !data.gotoRef) data.gotoRef = createIonFunction((t, tags) => { gotoReference(t, tags); }); } catch (e) { }
@@ -631,7 +638,59 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
             // plate_graph.plateTrack.setOptionsMenu(m)
 
-            const execCMD = async (str) => {
+            // ---- a sentence, or a formula? ---------------------------------------------
+        //
+        // The command field has always been a formula bar, and that has to keep working
+        // exactly as it did: a formula is a thing people have saved, pasted and typed from
+        // memory for a long time, and a guess that sends one to a language model instead is
+        // a regression no matter how good the guess is. So the test is deliberately lopsided.
+        //
+        // Formula syntax wins outright. Anything carrying [ ] ( ) | = : ; or a leading = is
+        // a formula and is not looked at again. Only text with NO formula punctuation at all
+        // and at least three plain words is treated as a sentence. "A1:H12" is a formula.
+        // "mean(ctrl[1])" is a formula. "ctrl" is a formula, because one bare word is far
+        // more likely to be a name than a request. "import a plate from a spreadsheet" is a
+        // sentence.
+        //
+        // Nothing here changes what a formula does; it only decides which of two paths the
+        // text was headed down anyway.
+        const looksLikeASentence = (str) => {
+            const t = ('' + (str || '')).trim();
+            if (t.length < 8) return false;
+            if (/^=/.test(t)) return false;
+            if (/[\[\]()|=:;]/.test(t)) return false;
+            const words = t.split(/\s+/).filter((w) => /^[A-Za-z][A-Za-z'\u2019-]*$/.test(w));
+            return words.length >= 3;
+        };
+
+        // Every command field in this module goes through here, so there is one answer to
+        // "what happens when someone types into it" rather than four that drift apart.
+        const runCommandText = async (str, panel, legacy) => {
+            const t = ('' + (str || '')).trim();
+            if (!t) return;
+            if (!looksLikeASentence(t)) return legacy(t, panel);
+            try { if (panel && panel.setText) panel.setText(''); } catch (e) { }
+            let menus = [];
+            try { menus = __lastMenus || []; } catch (e) { menus = []; }
+            try {
+                await exec('baja/plate/menu/project-command.js', {
+                    menus: menus,
+                    text: t,
+                    context: {
+                        selected: (pm && pm.selectedPanel && (pm.selectedPanel.name
+                            || (pm.selectedPanel.shape && pm.selectedPanel.shape.type))) || null,
+                        plates: (() => { try { return pt.getPlates().length; } catch (e) { return null; } })()
+                    },
+                    setError: (m) => { try { pt.setMessage(m, 8); } catch (e) { } }
+                });
+            } catch (e) {
+                // If the sentence path cannot run at all, the formula engine still gets it:
+                // better a formula error the user recognises than silence.
+                try { legacy(t, panel); } catch (e2) { }
+            }
+        };
+
+        const execCMD = async (str) => {
 
                 if (str.startsWith('=')) {
                 }
@@ -940,7 +999,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     setCompletions(null, 'tables');
                                 }
                             }),
-                            cmd: createIon(async (str, panel) => {
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 if (selectedPlate.type === 'timeline') {
                                     execCMD(str)
                                     return;
@@ -1047,7 +1106,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                                     plate_graph.plateTrack.updateCalculations();
                                 }, 100)
-                            }),
+                            })),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1073,9 +1132,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         wid: 'menu',
                         refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
-                            cmd: createIon(async (str, panel) => {
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 execCMD(str);
-                            }),
+                            })),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1122,7 +1181,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         data: {
                             text: tmc,
                             menu_button_color: 'alert',
-                            cmd: createIon(async (str, panel) => {
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 if (selectedPlate.type === 'timeline') {
                                     execCMD(str)
                                 } else {
@@ -1130,7 +1189,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     let fal = await interpreter.executeCommand(str);
                                     panel.setText('');
                                 }
-                            }),
+                            })),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1172,10 +1231,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         wid: 'menu',
                         refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
-                            cmd: createIon(async (str, panel) => {
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 execCMD(str);
 
-                            }),
+                            })),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1391,14 +1450,14 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 refCallback: select_display,
                 data: {
                     text: tmc,
-                    cmd: createIon(async (str, panel) => {
+                    cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                         if (selectedPlate.type === 'timeline') {
                             execCMD(str)
                             return;
                         } else {
                             panel.setText('');
                         }
-                    }),
+                    })),
                     menus: [
                         ...fileMenu(),
                         ...appMenus(),
@@ -1439,11 +1498,11 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     wid: 'menu',
                     refCallback: mb,     // loads its command list (it was built and never attached)
                     data: {
-                        cmd: createIon(async (str, panel) => {
+                        cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
 
                             execCMD(str);
 
-                        }),
+                        })),
                         menus: [
                             ...fileMenu(),
                             ...appMenus(),
@@ -1546,9 +1605,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
             wid: 'menu',
             refCallback: select_display2,
             data: {
-                cmd: createIon(async (str, panel) => {
+                cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                     pt.createPlateFromFormula(str)
-                }),
+                })),
                 menus: [
                     ...fileMenu(),
                     ...appMenus(),
