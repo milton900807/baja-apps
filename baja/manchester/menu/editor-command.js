@@ -203,28 +203,16 @@ function (graph, genegraph_panel_layout, options) {
                 + '</div>'
                 + '<div style="padding:18px 20px 22px;">'
                 + '<input id="ec-q" placeholder="load clinvar pathogenic snp indels into selected sequence" style="' + inp + '"/>'
-                + '<div style="display:flex;align-items:center;gap:10px;margin-top:11px;">'
-                + '<button id="ec-run" style="cursor:pointer;border-radius:8px;padding:10px 20px;font:700 13px Arial;'
-                + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Go</button>'
-                + '<button id="ec-what" style="' + btn + '">What can it do?</button>'
-                + '<div id="ec-busy" style="font:12.5px Arial;color:#9fb3c8;"></div></div>'
-                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:14px;line-height:1.8;">'
-                + '<b>Load:</b> load DNM1 · clinvar pathogenic snps and indels over the selection · '
-                + 'gnomad variants · put the known ASO and siRNA layer on<br>'
-                + '<b>Run a model:</b> which RBP binds this · splice site strength here · '
-                + 'microRNA sites in the selection<br>'
-                + '<b>Select a region:</b> select the 3\u2032 UTR · select exon 5 · select the CDS · '
-                + 'deselect the sequence<br>'
-                + '<b>Select or remove:</b> select all snps · select every red compound · '
-                + 'remove the benign ones · delete the selected compounds · go to DNM3<br>'
-                + '<b>Show:</b> show me where the compounds are · take the markers off<br>'
-                + '<b>Export:</b> export compounds in IDT format · export the design table as csv<br>'
-                + '<b>Ask:</b> are any of these snps pathogenic · which of these hit a splice site<br>'
-                + '<b>Or open a shelf and pick:</b> show me the ML options · what data can I load · '
-                + 'what modalities are there<br>'
-                + 'It picks from the operations the editor has, shows you which and with what, '
-                + 'and runs nothing until you say so.'
-                + '</div>'
+                // NO BUTTONS. Enter sends it, which is what anyone types into a box this
+                // shape already expects, and a Go button beside a box you have just typed
+                // into is a second thing to aim at for no decision. What took its place is
+                // the only thing the row was needed for: a visible sign that it is working.
+                //
+                // The examples that used to sit under it are gone too. Nine lines of prose
+                // under a text field is a manual, read once and then permanently in the way
+                // of the answers, which appear directly below. The placeholder carries one
+                // example, and the full list of operations is a request away.
+                + '<div id="ec-busy" style="min-height:18px;margin-top:12px;"></div>'
                 + '<div id="ec-out" style="margin-top:16px;"></div>'
                 + '</div></div>';
             document.body.appendChild(panel);
@@ -288,6 +276,9 @@ function (graph, genegraph_panel_layout, options) {
             };
             const setBusy = (on, label) => {
                 const text = label || 'Working';
+                // There is no Go button any more, so the spinner and the field ARE the
+                // signal. q('#ec-run') is kept rather than deleted because the hosted layout
+                // may still supply one; it is simply absent in the panel.
                 const go = q('#ec-run'), inpEl = q('#ec-q');
                 if (busyTimer) { try { clearInterval(busyTimer); } catch (e) { } busyTimer = null; }
                 if (on) {
@@ -333,7 +324,7 @@ function (graph, genegraph_panel_layout, options) {
             // Asked for by name, because "what can it do" is the first thing anyone wants
             // from a box like this, and a guess that comes back "not something this can do"
             // teaches nothing about what is.
-            if (q('#ec-what')) q('#ec-what').onclick = () => {
+            const showAll = () => {
                 q('#ec-out').innerHTML = card(
                     '<div style="font:700 13px Arial;color:#7fb0e8;margin-bottom:9px;">'
                     + CAP.list.length + ' operations</div>'
@@ -494,12 +485,13 @@ function (graph, genegraph_panel_layout, options) {
                             + '&#9888; refused: ' + H(x.p.text) + '</div>').join('')
                         + warn
                         + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
-                        + (HOST ? 'Ask for the full list of operations, '
-                            : 'Press “What can it do?” for the full list, ')
-                        + 'or ask to open a library \u2014 the models, the data, the modalities \u2014 '
+                        + '<a id="ec-all" href="#" style="color:#7fb0e8;">See everything it can do</a>'
+                        + ', or ask to open a library \u2014 the models, the data, the modalities \u2014 '
                         + 'and pick from there.</div>'
                         + dismissRow('ec-x1'));
                     wireDismiss('ec-x1');
+                    const all = q('#ec-all');
+                    if (all) all.onclick = (e) => { try { e.preventDefault(); } catch (e2) { } showAll(); };
                     return;
                 }
 
@@ -697,7 +689,6 @@ function (graph, genegraph_panel_layout, options) {
                 render(r, ask);
             };
 
-            if (q('#ec-run')) q('#ec-run').onclick = run;
             if (!HOST) {
                 q('#ec-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } };
                 try { q('#ec-q').focus(); } catch (e) { }

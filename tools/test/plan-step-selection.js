@@ -21,8 +21,9 @@ window.env = { apiUrl: '' };
 const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 let planReply = null;
+let stall = null;                       // when set, the planner hangs until it is resolved
 const load = async (p, ...a) => {
-    if (/editor\/plan\.py$/.test(p)) return planReply;
+    if (/editor\/plan\.py$/.test(p)) { if (stall) await stall; return planReply; }
     const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(p, 'utf8') + ')')(load, []);
     return f(...a);
 };
@@ -50,6 +51,8 @@ const mkGraph = (withSelection) => {
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const settle = async (n) => { for (let i = 0; i < (n || 6); i++) await tick(); };
 const el = (id) => document.getElementById(id);
+// Enter IS the send: there is no Go button, so the test uses the same path a person does.
+const send = () => el('ec-q').onkeydown({ key: 'Enter', preventDefault() { } });
 const goText = () => (el('ec-go') || {}).textContent;
 
 let fails = 0;
@@ -65,9 +68,13 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     load('baja/manchester/menu/editor-command.js', graph, {});
     await settle();
     el('ec-q').value = 'zoom into exon 14';
-    el('ec-run').onclick();
+    send();
     await settle(10);
 
+    ok(!el('ec-run') && !el('ec-what'), 'no Go and no What-can-it-do button: Enter sends it');
+    ok((document.body.textContent || '').indexOf('put the known ASO and siRNA layer on') < 0,
+       'and the block of examples is gone from under the field');
+    ok(!!el('ec-busy'), 'the row that is left is the one that shows it is working');
     ok(!!el('ec-s0') && !!el('ec-s1'), 'every step of a plan gets its own checkbox');
     ok(el('ec-s0').checked && el('ec-s1').checked, 'and both start ticked');
     ok(goText() === 'Run 2 steps', 'the button counts what is ticked: ' + goText());
@@ -95,12 +102,34 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     load('baja/manchester/menu/editor-command.js', graph, {});
     await settle();
     el('ec-q').value = 'frame the selection then show the compounds';
-    el('ec-run').onclick();
+    send();
     await settle(10);
     ok(el('ec-s0') && el('ec-s0').disabled, 'a first step that cannot run is not tickable');
     ok(el('ec-s0') && !el('ec-s0').checked, 'and is not ticked');
     ok(el('ec-s1') && el('ec-s1').checked && !el('ec-s1').disabled,
        'a later step stays tickable: the step before it is usually what provides what it needs');
+
+    // WITH NO BUTTON, THE SPINNER IS THE ONLY SIGN THE REQUEST IS ALIVE.
+    planReply = { status: 'OK', explain: 'x', unsupported: [], problems: [],
+        steps: [{ capability: 'zoom_selection', args: {} }] };
+    graph = mkGraph(true);
+    let release = null;
+    stall = new Promise((r) => { release = r; });
+    load('baja/manchester/menu/editor-command.js', graph, {});
+    await settle();
+    el('ec-q').value = 'frame the selection';
+    send();
+    await settle(4);
+    const busyHtml = () => (el('ec-busy') || {}).innerHTML || '';
+    ok(busyHtml().indexOf('baja-ec-spin') >= 0, 'while it is working, the spinner is showing');
+    ok((el('ec-busy').textContent || '').indexOf('Working') >= 0, 'with a word for it');
+    ok(el('ec-q').disabled, 'and the field is quiet so a second Enter cannot start a second one');
+    ok(!!graph.__ecInFlight, 'the in-flight flag is set where every copy of the module can see it');
+    release(); stall = null;
+    await settle(12);
+    ok(busyHtml() === '', 'when the answer lands the spinner goes');
+    ok(!el('ec-q').disabled, 'and the field takes typing again');
+    ok(!graph.__ecInFlight, 'and the flag is cleared, so the box is not wedged shut');
 
     console.log('\n' + (fails ? fails + ' FAILED' : 'all assertions passed'));
     process.exit(fails ? 1 : 0);

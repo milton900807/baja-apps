@@ -337,6 +337,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-command.js:ONE REQUEST AT A TIME, ACROSS INSTANCES"
   install_group "pick which steps of a plan to run" \
     "baja/manchester/menu/editor-command.js:EACH STEP IS ITS OWN DECISION"
+  install_group "the command box is a box you type in" \
+    "baja/manchester/menu/editor-command.js:NO BUTTONS. Enter sends it"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"
