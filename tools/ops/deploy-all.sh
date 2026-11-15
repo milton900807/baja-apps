@@ -361,10 +361,18 @@ if [[ $DO_API -eq 1 ]]; then
     "cpd/main-timeline.js:A PROMPT BOX OF ITS OWN, UNDER THE BAR" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
+  # A panel over the canvas used to let its clicks through: the canvas takes presses from
+  # its own element but releases from the window, so a button pressed on a panel moved
+  # what was underneath, and the click that dismissed it landed out there afterwards.
+  # prompt-text.js has never been listed here, so until now a change to it never shipped.
+  install_group "a panel over the canvas keeps its clicks to itself" \
+    "baja/lib/modal-shield.js:NOTHING PRESSED ON A PANEL REACHES THE CANVAS UNDER IT" \
+    "baja/lib/prompt-text.js:NOTHING PRESSED IN HERE REACHES THE CANVAS"
+
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
-    "baja/plate/menu/project-command.js:THE REQUEST SAYS WHICH WINDOW IT CAME FROM" \
+    "baja/plate/menu/project-command.js:THE CANVAS DOES NOT HEAR ANYTHING PRESSED ON THIS CARD" \
     "baja/plate/menu/project-capabilities.js:THIS IS WHAT ZOOMING A TIMELINE MEANS" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \

@@ -99,9 +99,27 @@ function (o) {
         + '</div>';
     document.body.appendChild(panel);
 
+    // THE CANVAS DOES NOT HEAR ANYTHING PRESSED ON THIS CARD. The canvas takes presses from
+    // its own element but releases from the window, so pressing a button here moved what was
+    // underneath, and the click that dismissed the card landed on the canvas afterwards.
+    // The module body is not async (this file is `function (o)`), so the shield is asked for
+    // and taken when it arrives. If the card is closed before then -- a fast Escape, a second
+    // request replacing this one -- `closed` is already true and it is dropped on arrival
+    // rather than left listening with nothing to protect.
+    let shield = null, closed = false;
+    try {
+        exec('baja/lib/modal-shield.js', panel).then(
+            (sh) => { shield = sh; if (closed) { try { sh.release(); } catch (e) { } } },
+            () => { shield = null; });
+    } catch (e) { shield = null; }
+
     const q = (sel) => panel.querySelector(sel);
     const close = () => {
         try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
+        // Released AFTER the card is gone: it holds a moment longer, so the release and the
+        // click that follow the press that closed this do not reach the canvas either.
+        closed = true;
+        try { if (shield) shield.release(); } catch (e) { }
         try { if (onDone) onDone(); } catch (e) { }
     };
     try { q('#pc-close').onclick = close; } catch (e) { }
