@@ -360,7 +360,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/set-column-values.js:const IO = await exec" \
     "baja/plate/ops/shift-column-values.js:MOVE WHAT IS ALREADY IN A COLUMN" \
     "baja/plate/ops/column-io.js:READING AND WRITING A COLUMN, ONCE" \
-    "baja/plate/ops/rearrange-column.js:REARRANGE WHAT IS ALREADY IN A COLUMN" \
+    "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE; THE CELLS THEY SIT IN DO NOT MOVE" \
     "baja/plate/ops/move-column.js:WHOLE COLUMNS: COPY ONE ONTO ANOTHER" \
     "py/bio/project/menu-pick.py:DOING IT BEATS OPENING THE DOOR TO IT"
   install_group "IDT codes: an explicit sugar table" \

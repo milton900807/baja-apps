@@ -43,8 +43,19 @@ const mv = (t, args) => load('baja/plate/ops/move-column.js', mkTrack([t]), args
     let t = mkTable('hellowrold', 2, 5); fill(t, 0, ['rent', 'employees', 'numbre of products']);
     let r = await run(t, { action: 'reverse' });
     ok(!r.error, 'reverse runs: ' + JSON.stringify(r));
-    ok(col(t, 0).join('|') === '||numbre of products|employees|rent',
-       'REVERSE turns the whole column upside down, gaps included: ' + JSON.stringify(col(t, 0)));
+    ok(col(t, 0).join('|') === 'numbre of products|employees|rent||',
+       'REVERSE reverses the VALUES and leaves them where they were: ' + JSON.stringify(col(t, 0)));
+    ok(col(t, 0)[0] !== '', 'they do not slide to the bottom of the table, which is a flip, not a reversal');
+
+    // a gap inside the list stays inside the list
+    t = mkTable('x', 1, 5); fill(t, 0, ['a', '', 'b', 'c']);
+    r = await run(t, { action: 'reverse' });
+    ok(col(t, 0).join('|') === 'c||b|a|', 'a gap in the middle stays in the middle: ' + JSON.stringify(col(t, 0)));
+
+    // one value is its own reverse
+    t = mkTable('x', 1, 3); fill(t, 0, ['only']);
+    r = await run(t, { action: 'reverse' });
+    ok(col(t, 0).join('|') === 'only||', 'one value stays put');
 
     // sorting
     t = mkTable('x', 1, 5); fill(t, 0, ['pear', 'apple', 'fig']);
@@ -96,8 +107,9 @@ const mv = (t, args) => load('baja/plate/ops/move-column.js', mkTrack([t]), args
     // a formula travels with its value through a reverse
     t = mkTable('x', 1, 3);
     t.wells[0][0].value = '5'; t.wells[0][0].formula = '=Inputs[B]';
+    t.wells[0][1].value = '6';
     r = await run(t, { action: 'reverse' });
-    ok(t.wells[0][2].value === '5' && t.wells[0][2].formula === '=Inputs[B]',
+    ok(t.wells[0][1].value === '5' && t.wells[0][1].formula === '=Inputs[B]',
        'a formula travels with its value');
 
     // an action that is not one

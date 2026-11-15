@@ -56,10 +56,22 @@ function (pm, o) {
 
             let next = null, note = '';
             if (action === 'reverse') {
-                // REVERSED IN PLACE, INCLUDING THE GAPS. Reversing only the values and
-                // leaving the blanks where they were is a different operation, and an empty
-                // cell in the middle of a column is usually there on purpose.
-                next = cells.slice().reverse();
+                // THE VALUES REVERSE; THE CELLS THEY SIT IN DO NOT MOVE.
+                //
+                // This used to reverse the whole column, blanks and all. On a column of three
+                // values in a table of forty rows that sends them to the BOTTOM of the table
+                // and leaves thirty-seven blanks on top -- a flip of the column, not a
+                // reversal of the list, and nobody asking to reverse an order means that.
+                //
+                // The occupied positions stay exactly as they are and the values are dealt
+                // back into them in the opposite order, so a gap in the middle of a list
+                // stays in the middle and the list still reads bottom-to-top.
+                const spots = [];
+                for (let r = 0; r < n; r++) if (cells[r].filled) spots.push(r);
+                next = cells.map((x) => (x.filled ? IO.blank() : x));
+                for (let k = 0; k < spots.length; k++) {
+                    next[spots[k]] = cells[spots[spots.length - 1 - k]];
+                }
                 note = 'reversed';
             } else if (action === 'sort_asc' || action === 'sort_desc') {
                 // The blanks go to the bottom either way: a sort that floats empty cells to
