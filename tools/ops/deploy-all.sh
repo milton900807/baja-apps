@@ -358,7 +358,7 @@ if [[ $DO_API -eq 1 ]]; then
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \
-    "baja/plate/menu/project-command.js:TODAY'"'"'S DATE GOES WITH EVERY REQUEST" \
+    "baja/plate/menu/project-command.js:THE DATE OF TODAY GOES WITH EVERY REQUEST" \
     "baja/plate/menu/project-capabilities.js:new_timeline" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
@@ -366,8 +366,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/set-column-values.js:const IO = await exec" \
     "baja/plate/ops/shift-column-values.js:MOVE WHAT IS ALREADY IN A COLUMN" \
     "baja/plate/ops/column-io.js:READING AND WRITING A COLUMN, ONCE" \
-    "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE; THE CELLS THEY SIT IN DO NOT MOVE" \
-    "baja/plate/ops/move-column.js:WHOLE COLUMNS: COPY ONE ONTO ANOTHER" \
+    "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE AND THE CELLS THEY SIT IN" \
+    "baja/plate/ops/move-column.js:WHOLE COLUMNS, COPIED ONTO ANOTHER" \
     "py/bio/project/menu-pick.py:PARAMETER MAY SIMPLY BE LEFT OUT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \

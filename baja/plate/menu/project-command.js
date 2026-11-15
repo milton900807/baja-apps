@@ -146,7 +146,7 @@ function (o) {
                     if (a.tooltip) c.tooltip = a.tooltip;
                     return c;
                 })),
-                // TODAY'S DATE GOES WITH EVERY REQUEST. "from now until the end of the year"
+                // THE DATE OF TODAY GOES WITH EVERY REQUEST. "from now until the end of the year"
                 // is a different pair of dates depending on when it is asked, and a model has
                 // no clock: without this it either refuses or invents a year.
                 JSON.stringify(Object.assign({ today: (() => {

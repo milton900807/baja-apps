@@ -20,8 +20,43 @@ SCRIPT="tools/ops/deploy-all.sh"
 bad=0; n=0
 while IFS= read -r line; do
   # the entries are the quoted "path:marker" arguments of install_group
-  [[ "$line" =~ ^[[:space:]]+\"([^\"]+)\"[[:space:]]*\\?$ ]] || continue
+  # A marker may contain an escaped quote -- "…:data-door=\"research\"" is valid bash and
+  # two markers rely on it -- so the pattern allows a backslash-escaped character as well as
+  # any character that is not a quote or a backslash.
+  if [[ ! "$line" =~ ^[[:space:]]+\"((\\.|[^\"\\])+)\"[[:space:]]*\\?$ ]]; then
+    # A LINE THAT LOOKS LIKE A MARKER AND CANNOT BE READ IS REPORTED, NOT SKIPPED.
+    #
+    # This is where the real bug got through. A marker written with an apostrophe escaped
+    # as though the quotes were single put four quotes on the line; the pattern above
+    # wants exactly two, so the line did not match and was quietly passed over. The check
+    # then said every marker matched -- it had simply stopped counting that one -- while
+    # the deploy skipped the group, and the broken quoting ran on into the next entry,
+    # whose semicolon bash took as a command separator.
+    #
+    # Skipping an unreadable line is the same silence the whole script exists to remove.
+    if [[ "$line" =~ ^[[:space:]]+\" ]]; then
+      echo "UNREADABLE     $line"
+      echo "               this looks like a marker entry but is not one quoted string."
+      bad=$((bad+1))
+    fi
+    continue
+  fi
   pair="${BASH_REMATCH[1]}"
+  # What bash hands install_group has the escapes resolved, so grep for that, not for the
+  # backslashes that were only there to survive the quoting.
+  pair="${pair//\\\"/\"}"
+
+  # A marker may not contain $, a backtick or a backslash: the shell expands those even
+  # inside double quotes. An apostrophe is NOT one of them -- inside double quotes it is an
+  # ordinary character, and several markers have carried one for a long time without
+  # trouble. The fault was escaping one as though the quotes were single.
+  case "$pair" in
+    *'$'*|*'`'*|*'\\'*)
+      echo "UNSAFE MARKER  ${pair%%:*}"
+      echo "               marker contains a character the shell expands inside quotes:"
+      echo "               ${pair#*:}"
+      bad=$((bad+1)); continue ;;
+  esac
   f="${pair%%:*}"; mk="${pair#*:}"
   [[ "$f" == *.js || "$f" == *.py || "$f" == *.sh ]] || continue
   n=$((n+1))

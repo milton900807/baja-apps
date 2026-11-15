@@ -56,7 +56,7 @@ function (pm, o) {
 
             let next = null, note = '';
             if (action === 'reverse') {
-                // THE VALUES REVERSE; THE CELLS THEY SIT IN DO NOT MOVE.
+                // THE VALUES REVERSE AND THE CELLS THEY SIT IN DO NOT MOVE.
                 //
                 // This used to reverse the whole column, blanks and all. On a column of three
                 // values in a table of forty rows that sends them to the BOTTOM of the table

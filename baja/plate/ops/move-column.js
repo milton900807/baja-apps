@@ -1,6 +1,6 @@
 function (pm, o) {
 
-    // WHOLE COLUMNS: COPY ONE ONTO ANOTHER, SWAP TWO, OR MOVE ONE TO A NEW POSITION.
+    // WHOLE COLUMNS, COPIED ONTO ANOTHER, SWAPPED, OR MOVED TO A NEW POSITION.
     //
     // Copy and swap are between two columns that both exist. MOVE is different and is the one
     // worth being careful about: moving column 3 to position 0 is not a swap, it is a
