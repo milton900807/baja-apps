@@ -33,6 +33,37 @@ function () {
                         + 'and the project names it' }
             }
         }
+        ,
+        {
+            name: 'set_column_values',
+            summary: 'write a list of values down one column of a table, from the top',
+            module: 'baja/plate/ops/set-column-values.js',
+            params: {
+                values: { type: 'string[]', required: true, max: 500,
+                    about: 'the values, in order, one per row' },
+                column: { type: 'string', required: true,
+                    about: 'which column: its number counting from 0, or its letter (A, B, C). '
+                        + '"the first column" is 0' },
+                table: { type: 'string',
+                    about: 'the table\u2019s name, if the request says it; leave it out for the '
+                        + 'selected table' },
+                start_row: { type: 'number', min: 0, max: 5000,
+                    about: 'the row to start at, counting from 0; leave it out for the top' }
+            }
+        },
+        {
+            name: 'rename_table',
+            summary: 'change a table\u2019s name, and every formula that refers to it',
+            module: 'baja/plate/ops/rename-table.js',
+            params: {
+                to: { type: 'string', required: true,
+                    about: 'the new name. Letters, digits and underscores, starting with a '
+                        + 'letter, because formulas address a table by this name' },
+                from: { type: 'string',
+                    about: 'the table\u2019s current name, if the request says it; leave it out '
+                        + 'to rename the selected table' }
+            }
+        }
     ];
 
     const byName = (n) => LIST.filter((c) => c.name === ('' + n).trim())[0] || null;
@@ -86,6 +117,19 @@ function () {
             } else if (spec.type === 'string') {
                 const t = ('' + v).trim();
                 if (t) args[k] = t.slice(0, 120);
+            } else if (spec.type === 'string[]') {
+                if (!Array.isArray(v)) {
+                    return { ok: false, problem: k + ' must be a list' };
+                }
+                const list = v.map((x) => (x == null ? '' : ('' + x)).trim()).filter((x) => x !== '');
+                if (!list.length) {
+                    return { ok: false, problem: k + ' is empty' };
+                }
+                if (spec.max != null && list.length > spec.max) {
+                    return { ok: false, problem: k + ' has ' + list.length + ' items and at most '
+                        + spec.max + ' can be set at once' };
+                }
+                args[k] = list.map((x) => x.slice(0, 400));
             } else {
                 return { ok: false, problem: 'unknown parameter type for ' + k };
             }
@@ -99,6 +143,17 @@ function () {
     };
 
     const preview = (name, args) => {
+        if (name === 'set_column_values') {
+            return 'put ' + args.values.length + ' value'
+                + (args.values.length === 1 ? '' : 's') + ' in column ' + args.column
+                + ' of ' + (args.table || 'the selected table')
+                + (args.start_row ? (', from row ' + args.start_row) : '')
+                + ': ' + args.values.slice(0, 6).join(', ')
+                + (args.values.length > 6 ? ', \u2026' : '');
+        }
+        if (name === 'rename_table') {
+            return 'rename ' + (args.from || 'the selected table') + ' to ' + args.to;
+        }
         if (name === 'new_table') {
             return 'add a ' + args.rows + ' x ' + args.cols + ' table'
                 + (args.name ? (' called ' + args.name) : '');
