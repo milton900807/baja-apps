@@ -43,7 +43,7 @@ function (pm, o) {
             if (!want) { resolve({ error: 'which table should it read?' }); return; }
 
             const HOW = { sum: 'sum', total: 'sum', average: 'average', mean: 'average',
-                min: 'min', max: 'max', count: 'count' };
+                min: 'min', max: 'max', count: 'count', count_rows: 'count', rows: 'count' };
             const how = HOW[('' + ((o && o.how) || 'sum')).trim().toLowerCase()];
             if (!how) { resolve({ error: 'sum, average, min, max or count?' }); return; }
 
@@ -103,11 +103,60 @@ function (pm, o) {
                 }
             }
 
-            // The table's real extent, so the formula covers what is there.
             const nCols = (table.wells && table.wells.length) || 0;
             const nRows = (nCols && table.wells[0] && table.wells[0].length) || 0;
             if (!nCols || !nRows) { resolve({ error: want + ' has no cells to read' }); return; }
-            const f = '=' + how + '(' + want + '[0:' + (nCols - 1) + '][0:' + (nRows - 1) + '])';
+
+            const isHeader = (w) => {
+                if (!w) return false;
+                if (w.skin_type === 'ColumnHeader') return true;
+                const g = w.group;
+                if (g && typeof g === 'object' && g['ColumnHeader'] != null) return true;
+                return (typeof g === 'string' && g === 'ColumnHeader');
+            };
+            const numeric = (w) => {
+                if (!w) return false;
+                const v = w.value;
+                if (v == null || ('' + v).trim() === '') return false;
+                return isFinite(Number(('' + v).replace(/[$,\s]/g, '')));
+            };
+
+            let f;
+            if (how === 'count') {
+                // COUNTING ROWS IS NOT COUNTING CELLS, so it is its own function rather than
+                // a range handed to one that adds things up. count_rows reads the table
+                // itself: it leaves out the header row and the empty rows a table was given
+                // room in, which no range written here could know to do.
+                // The table itself, with no range: a range here is noise (the function reads
+                // the table, not a block of cells) and [0:][0:] is rewritten to [0:0] by the
+                // engine's own preprocessing on the way in, which then counts nothing.
+                f = '=count_rows(' + want + ')';
+            } else {
+                // THE RANGE LEAVES OUT WHAT WOULD THROW. sum() over a whole table fails the
+                // moment it meets a name -- every cell in the range has to be a number -- and
+                // a table of people has a column of names and a row of headings by design.
+                // The cell went red and said nothing about why. So the range covers the rows
+                // under the headings and the columns that actually hold numbers.
+                let firstRow = 0;
+                for (let r = 0; r < nRows; r++) {
+                    let header = false;
+                    for (let c = 0; c < nCols; c++) { if (isHeader(table.wells[c] && table.wells[c][r])) { header = true; break; } }
+                    if (header) firstRow = r + 1; else break;
+                }
+                const numCols = [];
+                for (let c = 0; c < nCols; c++) {
+                    for (let r = firstRow; r < nRows; r++) {
+                        if (numeric(table.wells[c] && table.wells[c][r])) { numCols.push(c); break; }
+                    }
+                }
+                if (!numCols.length || firstRow >= nRows) {
+                    resolve({ error: 'nothing in ' + want + ' is a number, so there is no ' + how
+                        + ' to take. Did you mean how many rows it has?' });
+                    return;
+                }
+                f = '=' + how + '(' + want + '[' + numCols[0] + ':' + numCols[numCols.length - 1]
+                    + '][' + firstRow + ':' + (nRows - 1) + '])';
+            }
 
             let wired = 0;
             for (const cell of cells) {
@@ -125,8 +174,9 @@ function (pm, o) {
             try { if (pt.wake) pt.wake(); } catch (e) { }
             try {
                 pt.setMessage((made ? ('Made ' + want + ', and ') : '')
-                    + wired + ' cell' + (wired === 1 ? '' : 's') + ' now show the ' + how
-                    + ' of ' + want, 7);
+                    + wired + ' cell' + (wired === 1 ? '' : 's') + ' now show '
+                    + (how === 'count' ? ('how many rows ' + want + ' has')
+                        : ('the ' + how + ' of ' + want)), 7);
             } catch (e) { }
 
             resolve({ table: want, how: how, made: made, wired: wired, formula: f });

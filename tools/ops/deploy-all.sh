@@ -369,7 +369,10 @@ if [[ $DO_API -eq 1 ]]; then
   # through it -- a cell that totals another table -- had no operation behind it.
   install_group "a table can be asked for things from its own bar" \
     "baja/plate/ops/table-ask.js:ASKING A TABLE FOR SOMETHING, FROM ITS OWN TITLE BAR" \
-    "baja/plate/ops/cell-from-table.js:THE SELECTED CELL READS A WHOLE TABLE"
+    "baja/plate/ops/cell-from-table.js:COUNTING ROWS IS NOT COUNTING CELLS" \
+    "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
+    "baja/plate/ops/resolve-missing-references.js:count_rows" \
+    "baja/plate/menu/project-capabilities.js:COUNT IS HOW "
 
   install_group "a panel over the canvas keeps its clicks to itself" \
     "baja/lib/modal-shield.js:NOTHING PRESSED ON A PANEL REACHES THE CANVAS UNDER IT" \

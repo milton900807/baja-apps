@@ -90,7 +90,7 @@ function (pt, formula, options) {
             if (exact) return exact;
             return nearest(key, labels, key.length >= 6 ? 2 : 1);
         };
-        const FUNCS = ['abs', 'sum', 'min', 'max', 'average', 'mean', 'sqrt', 'round', 'log', 'log10', 'ceil', 'floor', 'if', 'sumproduct', 'geomean', 'median', 'count'];
+        const FUNCS = ['abs', 'sum', 'min', 'max', 'average', 'mean', 'sqrt', 'round', 'log', 'log10', 'ceil', 'floor', 'if', 'sumproduct', 'geomean', 'median', 'count', 'count_rows'];
 
         // ---- the tokens ------------------------------------------------------------------
         const TOKEN = /\b([A-Za-z_]\w*)\[([^\]]+)\]/g;

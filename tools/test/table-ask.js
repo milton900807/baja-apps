@@ -85,8 +85,13 @@ ok(!/executeCommand/.test(ask), 'with no second interpreter of its own');
        'and when it is not there it ASKS for it rather than refusing');
     ok(/'Columns', 'Values'/.test(op), 'for its columns and its values');
     ok(/new-table\.js/.test(op), 'making it with the operation that already makes tables');
-    ok(/\[0:' \+ \(nCols - 1\) \+ '\]\[0:' \+ \(nRows - 1\) \+ '\]/.test(op),
-       'the formula covers the table’s real extent');
+    // The range is not the whole table any more: sum() throws on the first name it meets, so
+    // it covers the rows under the headings and the columns that hold numbers. Counting has
+    // its own function and no range at all (see tools/test/count-rows.js).
+    ok(/numCols\[0\] \+ ':' \+ numCols\[numCols\.length - 1\]/.test(op),
+       'a sum covers the columns that hold numbers');
+    ok(/firstRow \+ ':' \+ \(nRows - 1\)/.test(op),
+       'and the rows under the headings, through to the last');
     ok(/A-Za-z_\]\[A-Za-z0-9_\]\*\$/.test(op),
        'and a name that cannot be written in a formula is refused before anything is built');
     ok(/only ' \+ put \+ ' of ' \+ values\.length/.test(op),

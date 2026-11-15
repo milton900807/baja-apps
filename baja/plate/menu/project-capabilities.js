@@ -154,7 +154,11 @@ function () {
                 table: { type: 'string', required: true,
                     about: 'the NAME of the table to read, as the request says it' },
                 how: { type: 'enum', values: ['sum', 'average', 'min', 'max', 'count'],
-                    default: 'sum', about: 'what to work out over that table' },
+                    default: 'sum', about: 'what to work out over that table. COUNT IS HOW '
+                        + 'MANY ROWS IT HAS, which is what "how many employees", "the number '
+                        + 'of X" and a cell whose row is labelled with the table\u2019s own name '
+                        + 'are asking for; the others add up, average or pick from the '
+                        + 'numbers in it' },
                 in_table: { type: 'string', default: 'the table the request was made from',
                     about: 'the table the selected cells are in, if the request names it' }
             }
