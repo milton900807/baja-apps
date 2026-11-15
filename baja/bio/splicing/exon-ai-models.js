@@ -102,6 +102,31 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
             },
 
             {
+                // BajaNMD (py/bajanmd-lib): the consequence of a cassette exon going in
+                // or out, and the oligos that switch it. A sibling model family to
+                // BajaSplice rather than one of its views, because the question is about
+                // the TRANSCRIPT's fate, not about where the splice sites are.
+                //
+                // Gene-level, like intron retention: the exons come from the annotation,
+                // so it does not take the selected range. It takes the track instead, and
+                // reads the gene symbol off it.
+                label: 'BajaNMD \u00b7 NMD consequence & ASOs',
+                click: async () => {
+                    if (!selectedTrack) {
+                        graph.setMessage(" No track selected ");
+                        return;
+                    }
+                    try { graph.showSideMenu(null); } catch (e) { }
+                    Promise.resolve(exec('baja/bio/splicing/bajanmd.js',
+                        graph, genegraph_panel_layout, selectedTrack))
+                        .catch((e) => {
+                            try { graph.setMessage(' BajaNMD: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                        });
+                },
+                move: () => log('')
+            },
+
+            {
                 label: 'Phylon',
 
                 click: async (xwc, ywc) => {
