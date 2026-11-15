@@ -135,8 +135,11 @@ def main():
     if not entitling:
         print('Every record above was read, so this is not the duplicate-customer defect.')
         print('There is no qualifying payment at this address under this key. Granting')
-        print('access anyway is a billing decision, not a bug fix: the honest routes are a')
-        print('comp subscription created in Stripe, or an explicit operator allowlist.')
+        print('access anyway is a billing decision, not a bug fix. Two honest routes:')
+        print('  - create a comp subscription on this customer in Stripe; nothing to deploy;')
+        print('  - or name the address in BAJA_ENTITLED on the server and restart, which')
+        print('    reports status "comp" so it is never counted as a sale.')
+        print('Neither invents a payment. Inventing one is the option that is not on offer.')
     return 0
 
 

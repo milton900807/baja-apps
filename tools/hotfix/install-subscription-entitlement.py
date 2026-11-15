@@ -28,6 +28,13 @@ declaration and replaced by matching braces, not by a line number, and the resul
 through `node --check` before anything is written: a broken edit never reaches the service.
 Idempotent -- running it twice is a no-op, and it says so.
 
+THIRD REVISION adds BAJA_ENTITLED, a comma-separated list of addresses the operator
+entitles without a payment, beside FUNDRAISE_ADMINS. Empty unless set, reported as "comp" so
+no revenue report mistakes it for a sale, and read per call. It also fixes two defects that
+made such a grant unreachable: the gate refused on a missing customer record before looking
+at whether the answer was yes (a comp has no customer, because no payment created one), and
+it returned stripe_not_configured before asking the entitlement question at all.
+
 SECOND REVISION. The first version of this read only the first Stripe customer record at an
 address. Stripe makes a new customer for a Checkout that was not told to reuse one, so one
 email routinely has several and the paid one need not be first; a customer with a payment on
@@ -48,7 +55,7 @@ import tempfile
 # installed" and kept running the single-customer code, so the installer said it had done
 # its job while changing nothing. A marker shared by two versions cannot tell them apart.
 # This phrase exists only in the version below.
-MARK = 'NOT THE FIRST ONE'
+MARK = 'COMPED ADDRESSES, NAMED BY THE OPERATOR'
 
 # What to replace, in order of preference. A server may be in either state: never patched,
 # where subscriptionSource alone is there; or patched with the earlier version, where
@@ -72,7 +79,27 @@ JS_NEW = r'''
 async function stripeEntitlement(email) {
     const key = ('' + (email || '')).trim().toLowerCase();
     const none = { active: false, status: 'none', expiry: null, customerId: null };
-    if (!stripeClient || !key)
+    if (!key)
+        return none;
+    // COMPED ADDRESSES, NAMED BY THE OPERATOR, NOT BY A PAYMENT.
+    //
+    // Some people are entitled without ever having paid: the person running the box, a
+    // collaborator, a clinician in a pilot. There are two honest ways to express that, and
+    // inventing a payment is neither of them. One is a comp subscription created in Stripe,
+    // which needs nothing here. This is the other: an explicit list the operator sets, in
+    // the environment, next to FUNDRAISE_ADMINS.
+    //
+    // Three properties make this a grant rather than a hole. It is empty unless it is set,
+    // so an unconfigured or mis-set variable entitles nobody. It reports 'comp', never
+    // 'paid' or 'active', so a revenue report can never mistake a favour for a sale and
+    // anyone reading the status route can see which it was. And it is read per call, so
+    // removing an address takes a restart, not a rebuild.
+    const comped = ('' + (process.env.BAJA_ENTITLED || ''))
+        .split(',').map((v) => v.trim().toLowerCase()).filter((v) => !!v);
+    if (comped.indexOf(key) >= 0) {
+        return { active: true, status: 'comp', expiry: null, customerId: null, customers: 0 };
+    }
+    if (!stripeClient)
         return none;
     // EVERY CUSTOMER AT THIS ADDRESS, NOT THE FIRST ONE.
     //
@@ -139,13 +166,28 @@ async function subscriptionSource(email) {
     if (hit && (Date.now() - hit.at) < SUB_CACHE_MS) {
         return { allowed: hit.active, via: 'stripe', detail: 'cached' };
     }
-    if (!stripeClient) {
-        // Stripe not configured. Fail CLOSED -- with Stripe as the only source, "cannot ask"
-        // cannot mean "yes", or the gate would open whenever the integration is misconfigured.
-        return { allowed: false, via: 'stripe', detail: 'stripe_not_configured' };
-    }
     try {
+        // ASKED BEFORE THE STRIPE GUARD, because stripeEntitlement also answers for an
+        // operator-comped address, which is true whether or not Stripe is configured. This
+        // used to return stripe_not_configured first, so a comp on a box with no key was
+        // refused by the one thing that was supposed to grant it.
         const ent = await stripeEntitlement(key);
+        // ENTITLED IS CHECKED BEFORE ANY REASON TO REFUSE.
+        //
+        // This used to refuse on !ent.customerId before looking at ent.active -- and a comp
+        // has no customer record by definition, because no payment created one. So the
+        // grant was computed correctly and then thrown away one line later. A positive
+        // answer is a positive answer regardless of which path produced it.
+        if (ent.active) {
+            __subCache.set(key, { active: true, at: Date.now() });
+            return { allowed: true, via: 'stripe', detail: ent.status };
+        }
+        if (!stripeClient) {
+            // Stripe not configured and not comped. Fail CLOSED -- with Stripe as the only
+            // source, "cannot ask" cannot mean "yes", or the gate would open whenever the
+            // integration is misconfigured. Not cached: a key may arrive at any restart.
+            return { allowed: false, via: 'stripe', detail: 'stripe_not_configured' };
+        }
         if (!ent.customerId) {
             __subCache.set(key, { active: false, at: Date.now() });
             // Names the address that was looked up. The commonest reason a paying customer
@@ -153,8 +195,8 @@ async function subscriptionSource(email) {
             // another, and "no_customer" alone never said which one was checked.
             return { allowed: false, via: 'stripe', detail: 'no_customer:' + key };
         }
-        __subCache.set(key, { active: ent.active, at: Date.now() });
-        return { allowed: ent.active, via: 'stripe', detail: ent.status };
+        __subCache.set(key, { active: false, at: Date.now() });
+        return { allowed: false, via: 'stripe', detail: ent.status };
     }
     catch (e) {
         // An API error is not proof of anything, but with one source there is nothing to fall
@@ -184,7 +226,28 @@ async function stripeEntitlement(email: string): Promise<{
     const key = ('' + (email || '')).trim().toLowerCase();
     const none: { active: boolean; status: string; expiry: number | null; customerId: string | null; customers?: number } =
         { active: false, status: 'none', expiry: null, customerId: null };
-    if (!stripeClient || !key) return none;
+    if (!key) return none;
+
+    // COMPED ADDRESSES, NAMED BY THE OPERATOR, NOT BY A PAYMENT.
+    //
+    // Some people are entitled without ever having paid: the person running the box, a
+    // collaborator, a clinician in a pilot. There are two honest ways to express that, and
+    // inventing a payment is neither of them. One is a comp subscription created in Stripe,
+    // which needs nothing here. This is the other: an explicit list the operator sets, in
+    // the environment, next to FUNDRAISE_ADMINS.
+    //
+    // Three properties make this a grant rather than a hole. It is empty unless it is set,
+    // so an unconfigured or mis-set variable entitles nobody. It reports 'comp', never
+    // 'paid' or 'active', so a revenue report can never mistake a favour for a sale and
+    // anyone reading the status route can see which it was. And it is read per call, so
+    // removing an address takes a restart, not a rebuild.
+    const comped = ('' + (process.env.BAJA_ENTITLED || ''))
+        .split(',').map((v) => v.trim().toLowerCase()).filter((v) => !!v);
+    if (comped.indexOf(key) >= 0) {
+        return { active: true, status: 'comp', expiry: null, customerId: null, customers: 0 };
+    }
+
+    if (!stripeClient) return none;
 
     // EVERY CUSTOMER AT THIS ADDRESS, NOT THE FIRST ONE.
     //
@@ -254,14 +317,31 @@ async function subscriptionSource(email: string): Promise<{ allowed: boolean; vi
         return { allowed: hit.active, via: 'stripe', detail: 'cached' };
     }
 
-    if (!stripeClient) {
-        // Stripe not configured. Fail CLOSED -- with Stripe as the only source, "cannot ask"
-        // cannot mean "yes", or the gate would open whenever the integration is misconfigured.
-        return { allowed: false, via: 'stripe', detail: 'stripe_not_configured' };
-    }
-
     try {
+        // ASKED BEFORE THE STRIPE GUARD, because stripeEntitlement also answers for an
+        // operator-comped address, which is true whether or not Stripe is configured. This
+        // used to return stripe_not_configured first, so a comp on a box with no key was
+        // refused by the one thing that was supposed to grant it.
         const ent = await stripeEntitlement(key);
+
+        // ENTITLED IS CHECKED BEFORE ANY REASON TO REFUSE.
+        //
+        // This used to refuse on !ent.customerId before looking at ent.active -- and a comp
+        // has no customer record by definition, because no payment created one. So the
+        // grant was computed correctly and then thrown away one line later. A positive
+        // answer is a positive answer regardless of which path produced it.
+        if (ent.active) {
+            __subCache.set(key, { active: true, at: Date.now() });
+            return { allowed: true, via: 'stripe', detail: ent.status };
+        }
+
+        if (!stripeClient) {
+            // Stripe not configured and not comped. Fail CLOSED -- with Stripe as the only
+            // source, "cannot ask" cannot mean "yes", or the gate would open whenever the
+            // integration is misconfigured. Not cached: a key may arrive at any restart.
+            return { allowed: false, via: 'stripe', detail: 'stripe_not_configured' };
+        }
+
         if (!ent.customerId) {
             __subCache.set(key, { active: false, at: Date.now() });
             // Names the address that was looked up. The commonest reason a paying customer
@@ -269,8 +349,8 @@ async function subscriptionSource(email: string): Promise<{ allowed: boolean; vi
             // another, and "no_customer" alone never said which one was checked.
             return { allowed: false, via: 'stripe', detail: 'no_customer:' + key };
         }
-        __subCache.set(key, { active: ent.active, at: Date.now() });
-        return { allowed: ent.active, via: 'stripe', detail: ent.status };
+        __subCache.set(key, { active: false, at: Date.now() });
+        return { allowed: false, via: 'stripe', detail: ent.status };
     } catch (e: any) {
         // An API error is not proof of anything, but with one source there is nothing to fall
         // back to. Fail closed and say why, rather than quietly granting.
@@ -449,6 +529,7 @@ def main():
     print('Then, with the address you sign in with:')
     print('  curl -s "localhost:8080/stripe/subscription-status?email=you@example.com"')
     print('A status of "paid" is the early-access year; "active" is a subscription.')
+    print('"comp" is an address named in BAJA_ENTITLED: a grant, not a payment.')
     print('{"active":false,"status":"none"} means Stripe has no customer at that address.')
     return 0
 
