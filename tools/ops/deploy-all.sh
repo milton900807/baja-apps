@@ -346,11 +346,12 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \
     "baja/plate/menu/project-command.js:THE BUTTON SAYS GO" \
-    "baja/plate/menu/project-capabilities.js:NOT REQUIRED, AND THAT IS NOT THE SAME" \
+    "baja/plate/menu/project-capabilities.js:shift_column_values" \
     "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
     "baja/plate/ops/set-column-values.js:No column named: the first one" \
+    "baja/plate/ops/shift-column-values.js:MOVE WHAT IS ALREADY IN A COLUMN" \
     "py/bio/project/menu-pick.py:DOING IT BEATS OPENING THE DOOR TO IT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \

@@ -60,6 +60,23 @@ function () {
             }
         },
         {
+            name: 'shift_column_values',
+            summary: 'move the values already in a column up or down by a number of rows',
+            module: 'baja/plate/ops/shift-column-values.js',
+            params: {
+                by: { type: 'number', min: 1, max: 5000, required: true,
+                    about: 'how many rows to move them' },
+                direction: { type: 'enum', values: ['down', 'up'], required: true,
+                    about: 'which way to move them' },
+                column: { type: 'string',
+                    about: 'which column: its number counting from 0, or its letter. Leave it '
+                        + 'out when the request does not name one: it means the first column' },
+                table: { type: 'string',
+                    about: 'the table\u2019s name, if the request says it; leave it out for the '
+                        + 'selected table' }
+            }
+        },
+        {
             name: 'rename_table',
             summary: 'change a table\u2019s name, and every formula that refers to it',
             module: 'baja/plate/ops/rename-table.js',
@@ -125,6 +142,17 @@ function () {
             } else if (spec.type === 'string') {
                 const t = ('' + v).trim();
                 if (t) args[k] = t.slice(0, 120);
+            } else if (spec.type === 'enum') {
+                // Case does not matter, but membership does: an unrecognised value is a
+                // refusal, never the first item in the list. "shift them leftward" quietly
+                // becoming "down" is the kind of help nobody wants.
+                const t = ('' + v).trim().toLowerCase();
+                const hit = (spec.values || []).filter((x) => ('' + x).toLowerCase() === t)[0];
+                if (!hit) {
+                    return { ok: false, problem: k + ' must be one of '
+                        + (spec.values || []).join(', ') + ', not ' + JSON.stringify(v) };
+                }
+                args[k] = hit;
             } else if (spec.type === 'string[]') {
                 if (!Array.isArray(v)) {
                     return { ok: false, problem: k + ' must be a list' };
@@ -151,6 +179,13 @@ function () {
     };
 
     const preview = (name, args) => {
+        if (name === 'shift_column_values') {
+            const where = (args.column == null || args.column === '')
+                ? 'column 0 (the first)' : ('column ' + args.column);
+            return 'move the values in ' + where + ' of '
+                + (args.table || 'the selected table') + ' ' + args.direction + ' by '
+                + args.by + ' row' + (args.by === 1 ? '' : 's');
+        }
         if (name === 'set_column_values') {
             const where = (args.column == null || args.column === '')
                 ? 'column 0 (the first)' : ('column ' + args.column);
