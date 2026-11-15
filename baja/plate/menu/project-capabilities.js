@@ -60,6 +60,46 @@ function () {
             }
         },
         {
+            name: 'rearrange_column',
+            summary: 'reverse, sort, close the gaps in, de-duplicate, fill down, tidy or clear '
+                + 'the values already in one column',
+            module: 'baja/plate/ops/rearrange-column.js',
+            params: {
+                action: { type: 'enum', required: true,
+                    values: ['reverse', 'sort_asc', 'sort_desc', 'compact', 'dedupe',
+                        'fill_down', 'trim', 'clear'],
+                    about: 'reverse turns the column upside down; sort_asc and sort_desc sort '
+                        + 'it (as numbers when every value is one); compact pulls the values '
+                        + 'up so there are no gaps; dedupe keeps the first of each repeat; '
+                        + 'fill_down copies each value into the empty cells under it; trim '
+                        + 'tidies the spacing; clear empties the column' },
+                column: { type: 'string',
+                    about: 'which column: its number counting from 0, or its letter. Leave it '
+                        + 'out when the request does not name one: it means the first column' },
+                table: { type: 'string',
+                    about: 'the table\u2019s name, if the request says it; leave it out for the '
+                        + 'selected table' }
+            }
+        },
+        {
+            name: 'move_column',
+            summary: 'copy one column onto another, swap two columns, or move a column to a '
+                + 'different position',
+            module: 'baja/plate/ops/move-column.js',
+            params: {
+                action: { type: 'enum', values: ['copy', 'swap', 'move'], required: true,
+                    about: 'copy writes it onto the other column; swap exchanges the two; move '
+                        + 'takes it out and puts it back at that position, sliding the rest over' },
+                column: { type: 'string', required: true,
+                    about: 'the column to act on: its number counting from 0, or its letter' },
+                to: { type: 'string', required: true,
+                    about: 'the other column, or for move the position it should end up at' },
+                table: { type: 'string',
+                    about: 'the table\u2019s name, if the request says it; leave it out for the '
+                        + 'selected table' }
+            }
+        },
+        {
             name: 'shift_column_values',
             summary: 'move the values already in a column up or down by a number of rows',
             module: 'baja/plate/ops/shift-column-values.js',
@@ -179,6 +219,23 @@ function () {
     };
 
     const preview = (name, args) => {
+        if (name === 'rearrange_column') {
+            const where = (args.column == null || args.column === '')
+                ? 'column 0 (the first)' : ('column ' + args.column);
+            const says = {
+                reverse: 'turn upside down', sort_asc: 'sort A to Z', sort_desc: 'sort Z to A',
+                compact: 'close the gaps in', dedupe: 'remove the repeats from',
+                fill_down: 'fill down', trim: 'tidy the spacing in', clear: 'empty'
+            };
+            return (says[args.action] || args.action) + ' ' + where + ' of '
+                + (args.table || 'the selected table');
+        }
+        if (name === 'move_column') {
+            const says = { copy: 'copy column ', swap: 'swap column ', move: 'move column ' };
+            const joins = { copy: ' onto column ', swap: ' with column ', move: ' to position ' };
+            return (says[args.action] || args.action) + args.column + joins[args.action]
+                + args.to + ' in ' + (args.table || 'the selected table');
+        }
         if (name === 'shift_column_values') {
             const where = (args.column == null || args.column === '')
                 ? 'column 0 (the first)' : ('column ' + args.column);

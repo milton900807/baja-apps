@@ -343,15 +343,25 @@ if [[ $DO_API -eq 1 ]]; then
   # matched against the app's own live menubar and the item that does it is offered. Three
   # files, all or none: the router decides which path the text takes, the panel asks and
   # offers, and the python picks an index out of the menu it is given.
+  # plate.js was in no install_group at all, so a change to it stayed in git. Resizing is
+  # now the right and bottom edges only: the old hit region was a 60px square on the
+  # bottom-right corner, reaching 30px inside the table, so working in the last column or row
+  # started a resize instead.
+  install_group "a table resizes from its edges, not from inside it" \
+    "baja/plate/plate.js:RESIZING IS THE RIGHT EDGE AND THE BOTTOM EDGE"
+
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \
     "baja/plate/menu/project-command.js:THE BUTTON SAYS GO" \
-    "baja/plate/menu/project-capabilities.js:shift_column_values" \
+    "baja/plate/menu/project-capabilities.js:rearrange_column" \
     "baja/plate/ops/new-table.js:A TABLE OF A SIZE THAT WAS ASKED FOR" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
-    "baja/plate/ops/set-column-values.js:No column named: the first one" \
+    "baja/plate/ops/set-column-values.js:const IO = await exec" \
     "baja/plate/ops/shift-column-values.js:MOVE WHAT IS ALREADY IN A COLUMN" \
+    "baja/plate/ops/column-io.js:READING AND WRITING A COLUMN, ONCE" \
+    "baja/plate/ops/rearrange-column.js:REARRANGE WHAT IS ALREADY IN A COLUMN" \
+    "baja/plate/ops/move-column.js:WHOLE COLUMNS: COPY ONE ONTO ANOTHER" \
     "py/bio/project/menu-pick.py:DOING IT BEATS OPENING THE DOOR TO IT"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \

@@ -20,64 +20,25 @@ function (pm, o) {
 
     return new Promise(async (resolve) => {
         try {
+            const IO = await exec('baja/plate/ops/column-io.js');
             const pt = (pm && pm.plateTrack) ? pm.plateTrack : pm;
-            if (!pt || !Array.isArray(pt.root)) { resolve({ error: 'there is no project open' }); return; }
 
             const by = Math.floor(Number((o && o.by) != null ? o.by : 1));
             if (!isFinite(by) || by < 1) { resolve({ error: 'how many rows should they move?' }); return; }
             const dir = ('' + ((o && o.direction) || '')).trim().toLowerCase();
-            if (dir !== 'up' && dir !== 'down') {
-                resolve({ error: 'up or down?' });
-                return;
-            }
+            if (dir !== 'up' && dir !== 'down') { resolve({ error: 'up or down?' }); return; }
 
-            const tables = pt.root.filter((p) => p && Array.isArray(p.wells));
-            const named = ('' + ((o && o.table) || '')).trim();
-            let table = null;
-            if (named) {
-                table = (typeof pt.getTableByName === 'function') ? pt.getTableByName(named) : null;
-                if (!table) { resolve({ error: 'there is no table called ' + named }); return; }
-            } else {
-                table = pt.selectedPlate || (tables.length === 1 ? tables[0] : null);
-                if (!table) { resolve({ error: 'say which table, or select it first' }); return; }
-            }
-            if (!Array.isArray(table.wells) || !table.wells.length) {
-                resolve({ error: table.name + ' has no cells' });
-                return;
-            }
+            const t = IO.pickTable(pt, o && o.table);
+            if (t.error) { resolve({ error: t.error }); return; }
+            const table = t.table;
 
-            const raw = ('' + ((o && o.column) != null ? o.column : '')).trim();
-            let col = 0;
-            if (raw) {
-                if (/^\d+$/.test(raw)) {
-                    col = parseInt(raw, 10);
-                } else if (/^[A-Za-z]{1,2}$/.test(raw)) {
-                    const up = raw.toUpperCase();
-                    col = 0;
-                    for (let i = 0; i < up.length; i++) col = col * 26 + (up.charCodeAt(i) - 64);
-                    col -= 1;
-                } else {
-                    resolve({ error: 'which column? Give its number (0 is the first) or its letter' });
-                    return;
-                }
-            }
-            if (col < 0 || col >= table.wells.length) {
-                resolve({ error: table.name + ' has ' + table.wells.length + ' column'
-                    + (table.wells.length === 1 ? '' : 's') + ', so there is no column ' + raw });
-                return;
-            }
+            const c = IO.pickColumn(table, o && o.column);
+            if (c.error) { resolve({ error: c.error }); return; }
+            const column = c.cells;
 
-            const column = table.wells[col] || [];
-            const n = column.length;
+            const snapshot = IO.readCells(column);
+            const n = snapshot.length;
             if (!n) { resolve({ error: 'that column has no cells' }); return; }
-
-            const has = (cell) => !!cell && ((cell.value != null && ('' + cell.value).trim() !== '')
-                || (typeof cell.formula === 'string' && cell.formula.trim() !== ''));
-            const snapshot = column.map((w) => ({
-                value: w ? w.value : '',
-                formula: (w && typeof w.formula === 'string') ? w.formula : null,
-                filled: has(w)
-            }));
 
             const step = (dir === 'down') ? by : -by;
             const lost = [];
@@ -94,32 +55,18 @@ function (pm, o) {
             }
 
             // Built whole, then written, so a cell is never read after it has been overwritten.
-            const next = snapshot.map(() => ({ value: '', formula: null, filled: false }));
+            const next = snapshot.map(() => IO.blank());
             for (let r = 0; r < n; r++) {
                 if (!snapshot[r].filled) continue;
                 next[r + step] = snapshot[r];
             }
 
-            let moved = 0;
-            for (let r = 0; r < n; r++) {
-                const well = column[r];
-                if (!well) continue;
-                const want = next[r];
-                try {
-                    if (typeof well.setValue === 'function') well.setValue(want.value == null ? '' : want.value);
-                    else well.value = (want.value == null ? '' : want.value);
-                    if (want.formula != null) well.formula = want.formula;
-                    else if (typeof well.formula === 'string') well.formula = '';
-                    if (want.filled) moved++;
-                } catch (e) { }
-            }
+            const moved = IO.writeCells(column, next);
 
-            try { pt.updateCalculations(); } catch (e) { }
-            try { if (pt.setSelected) pt.setSelected(table); } catch (e) { }
-            try { pt.setMessage('Moved ' + moved + ' value' + (moved === 1 ? '' : 's') + ' '
-                + dir + ' by ' + by, 6); } catch (e) { }
+            IO.finish(pt, table, 'Moved ' + moved + ' value' + (moved === 1 ? '' : 's') + ' '
+                + dir + ' by ' + by);
 
-            resolve({ table: table.name, column: col, direction: dir, by: by, moved: moved });
+            resolve({ table: table.name, column: c.index, direction: dir, by: by, moved: moved });
         } catch (e) {
             resolve({ error: ('' + (e && e.message ? e.message : e)) });
         }

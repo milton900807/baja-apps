@@ -4839,7 +4839,7 @@ function () {
             }
 
             handleMouseMoveTopRight(mx, my, pt) {
-                const r = this.getTopRightHandleRect(this, pt);
+                const r = this.getTopRightHandleRect(pt);
                 const over = this.pointInRect(mx, my, r);
                 this._trHover = over;
 
@@ -4876,7 +4876,7 @@ function () {
             }
 
             handleMouseDownTopRight(mx, my, pt) {
-                const r = this.getTopRightHandleRect(this, pt);
+                const r = this.getTopRightHandleRect(pt);
                 if (!pointInRect(mx, my, r)) return false;
 
                 this._trDrag = true;
@@ -4912,30 +4912,45 @@ function () {
             }
 
             isMouseInTopRightHandle(mx, my, pt) {
-                return pointInRect(mx, my, this.getTopRightHandleRect(this, pt));
+                return pointInRect(mx, my, this.getTopRightHandleRect(pt));
             }
 
+            // RESIZING IS THE RIGHT EDGE AND THE BOTTOM EDGE. NOTHING ELSE.
+            //
+            // This used to be a 60-pixel square centred on the bottom-right corner, which
+            // reaches THIRTY PIXELS INSIDE the table along both edges. On a table with narrow
+            // columns that is most of a column, so working in the last column or the last row
+            // -- selecting it, dragging it -- started a resize instead, and the table changed
+            // shape under a gesture that was not about its shape.
+            //
+            // It also fell back to an invisible top-right handle. Nothing draws that handle
+            // (drawResizeIconTopRight has no callers) and nothing drags it
+            // (handleMouseDownTopRight has none either), so all it could ever do was make
+            // this return true. Worse, it was asked for in the wrong coordinate space:
+            // getTopRightHandleRect takes (pt) and both callers passed (this, pt), so it
+            // measured the handle with the PLATE's grid instead of the track's and the
+            // rectangle landed wherever that arithmetic happened to put it. An invisible,
+            // undraggable, misplaced hotspot that silently armed a resize.
+            //
+            // A band of ten pixels either side of each edge is enough to grab and little
+            // enough to stay out of the way of the cells.
             inResize(mouseX, mouseY, pt) {
-                const rectWidth = pt.grid.screenWidth(this.grid.width);
-                const rectHeight = pt.grid.screenHeight(this.getHeight());
-                const rectX = pt.grid.X(this.grid.xi);
-                const rectY = pt.grid.Y(this.grid.yi);
-                const cornerSize = 60;
-                const cornerX = rectX + rectWidth - cornerSize / 2
-                const cornerY = rectY - cornerSize / 2
+                const EDGE = 10;
+                const width = pt.grid.screenWidth(this.grid.width);
+                const height = pt.grid.screenHeight(this.getHeight());
+                const left = pt.grid.X(this.grid.xi);
+                // Y(yi) is the BOTTOM of the table on screen: world y grows upward, screen y
+                // grows downward, and yi is its lower edge.
+                const bottom = pt.grid.Y(this.grid.yi);
+                const right = left + width;
+                const top = bottom - height;
 
-                let val = (
-                    mouseX + 5 >= cornerX &&
-                    mouseX - 5 <= cornerX + cornerSize &&
-                    mouseY + 5 >= cornerY &&
-                    mouseY - 5 <= cornerY + cornerSize
-                );
-                if (!val) {
-                    val = this.isMouseInTopRightHandle(mouseX, mouseY, pt)
-                }
+                const onRightEdge = mouseX >= right - EDGE && mouseX <= right + EDGE
+                    && mouseY >= top - EDGE && mouseY <= bottom + EDGE;
+                const onBottomEdge = mouseY >= bottom - EDGE && mouseY <= bottom + EDGE
+                    && mouseX >= left - EDGE && mouseX <= right + EDGE;
 
-                return val;
-
+                return onRightEdge || onBottomEdge;
             }
             onRightEdge(mouseX, mouseY, pt) {
                 const rectWidth = pt.grid.screenWidth(this.grid.width);
