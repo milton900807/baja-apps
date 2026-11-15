@@ -515,11 +515,36 @@ function (graph, genegraph_panel_layout, options) {
                 // and re-checked for real immediately before it runs.
                 const runnable = good.filter((x, i) => (i === 0 ? !x.p.blocker : true));
 
+                // EACH STEP IS ITS OWN DECISION.
+                //
+                // A plan used to be all of it or none of it, which is the wrong shape for a
+                // reading of a sentence: the second step is often right while the first is
+                // not, or the user wants the selection made without the view jumping. A
+                // checkbox per step costs nothing and turns one guess into a list to correct.
+                //
+                // A first step that cannot run is shown unticked and not tickable -- its
+                // blocker is a fact about the canvas, not a preference. Later steps stay
+                // tickable even when they say what they expect, because the step before them
+                // is usually what provides it; what they are checked against for real is the
+                // canvas as the earlier steps leave it, immediately before each one runs.
+                const pickable = good.length > 1;
                 const row = (x, i) => {
                     const p = x.p;
                     const n = (p.count == null) ? '' : (' · ' + p.count + ' match' + (p.count === 1 ? '' : 'es'));
                     const args = Object.keys(x.step.args || {});
-                    return '<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,0.08);">'
+                    const stuck = (i === 0 && !!p.blocker);
+                    const box = pickable
+                        ? ('<input type="checkbox" id="ec-s' + i + '" class="ec-step" data-i="' + i + '"'
+                            + (stuck ? '' : ' checked') + (stuck ? ' disabled' : '')
+                            + ' style="width:15px;height:15px;accent-color:' + (p.destructive ? '#ef4444' : '#22c55e')
+                            + ';margin:1px 10px 0 0;cursor:' + (stuck ? 'default' : 'pointer') + ';flex:0 0 auto;'
+                            + (stuck ? 'opacity:0.45;' : '') + '"/>')
+                        : '';
+                    return '<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,0.08);'
+                        + (pickable ? 'display:flex;align-items:flex-start;' : '') + '">'
+                        + box
+                        + (pickable ? '<label for="ec-s' + i + '" style="min-width:0;flex:1 1 auto;'
+                            + (stuck ? '' : 'cursor:pointer;') + '">' : '')
                         + '<div style="font:700 12.5px Arial;color:' + (p.destructive ? '#fca5a5' : '#e8f0fb') + ';">'
                         + (good.length > 1 ? ((i + 1) + '. ') : '') + H(p.text) + H(n)
                         + (p.opens ? ' <span style="font:400 11px Arial;color:#9fb3c8;">(opens a dialog)</span>' : '')
@@ -535,10 +560,15 @@ function (graph, genegraph_panel_layout, options) {
                                 + (i === 0 ? 'cannot run: ' : 'expects, from the step before it: ')
                                 + H(p.blocker) + '</div>')
                             : '')
+                        + (pickable ? '</label>' : '')
                         + '</div>';
                 };
 
                 const verb = danger ? 'Run it' : (runnable.length > 1 ? ('Run all ' + runnable.length) : 'Run it');
+                // What the button says depends on what is ticked, so it is written once here
+                // and recomputed on every change rather than baked into the markup.
+                const labelFor = (k) => (k === 0 ? 'Nothing selected'
+                    : (k === 1 ? 'Run it' : ('Run ' + k + ' steps')));
                 const nShown = good.length;
                 out.innerHTML = card(
                     '<div style="font:700 13px Arial;color:' + (danger ? '#fca5a5' : '#7fb0e8') + ';">'
@@ -565,7 +595,38 @@ function (graph, genegraph_panel_layout, options) {
                     out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { }
                 };
                 const go = q('#ec-go');
+
+                // The ticked steps, in plan order. Read from the DOM at the moment it matters
+                // rather than kept in a parallel array that can drift from what is on screen.
+                const chosen = () => {
+                    if (!pickable) return runnable.slice();
+                    const picked = [];
+                    for (let i = 0; i < good.length; i++) {
+                        const b = q('#ec-s' + i);
+                        if (b && b.checked && !b.disabled) picked.push(good[i]);
+                    }
+                    return picked;
+                };
+                const syncGo = () => {
+                    if (!go) return;
+                    const k = chosen().length;
+                    go.textContent = danger && k ? 'Run it' : labelFor(k);
+                    go.disabled = (k === 0);
+                    go.style.opacity = k ? '' : '0.5';
+                    go.style.cursor = k ? 'pointer' : 'default';
+                };
+                if (pickable) {
+                    for (let i = 0; i < good.length; i++) {
+                        const b = q('#ec-s' + i);
+                        if (b) b.onchange = syncGo;
+                    }
+                    syncGo();
+                }
+
                 if (go) go.onclick = async () => {
+                    // Read BEFORE the panel closes: the boxes go with it.
+                    const picked = chosen();
+                    if (!picked.length) return;
                     go.disabled = true;
                     // CLOSED BEFORE THE WORK, not after. A step that opens a dialog of its
                     // own -- the tiling designer, a library, a confirm -- was opening BEHIND
@@ -578,7 +639,7 @@ function (graph, genegraph_panel_layout, options) {
                     // failure runs the rest against a canvas that never reached the state
                     // they assume.
                     let ran = 0, failed = null;
-                    for (const x of runnable) {
+                    for (const x of picked) {
                         // Re-checked HERE, against the canvas as the previous steps left it.
                         // This is the only check that can be trusted for a later step, and it
                         // is what makes allowing them above safe rather than optimistic.
@@ -590,8 +651,9 @@ function (graph, genegraph_panel_layout, options) {
                     }
                     // Operations report their own outcome; only a multi-step plan or a
                     // failure needs a line of its own, or the roll-up buries what they said.
-                    if (failed) result('Stopped after ' + ran + ' of ' + runnable.length + ': ' + failed);
-                    else if (runnable.length > 1) result('Ran all ' + ran + ' steps.');
+                    if (failed) result('Stopped after ' + ran + ' of ' + picked.length + ': ' + failed);
+                    else if (picked.length > 1) result('Ran ' + ran + ' steps.');
+                    else if (picked.length < good.length) result('Ran the one step you picked.');
                     done(ran);
                 };
             };

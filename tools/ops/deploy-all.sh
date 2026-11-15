@@ -335,6 +335,8 @@ if [[ $DO_API -eq 1 ]]; then
   # the module, which used to start a second request beside the first.
   install_group "the command box shows that it is working" \
     "baja/manchester/menu/editor-command.js:ONE REQUEST AT A TIME, ACROSS INSTANCES"
+  install_group "pick which steps of a plan to run" \
+    "baja/manchester/menu/editor-command.js:EACH STEP IS ITS OWN DECISION"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"
