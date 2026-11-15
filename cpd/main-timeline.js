@@ -2352,6 +2352,31 @@ function (path, config) {
                 }
             };
 
+            // A PROMPT BOX OF ITS OWN, UNDER THE BAR.
+            //
+            // The menubar's field is the command interpreter's, and it has its own history
+            // and its own habits. This one is for the timeline in front of you: everything
+            // typed here is read as a request, with no test for whether it might have been a
+            // command, because that is the whole purpose of a second box. One field, one job.
+            //
+            // It carries the timeline's name into the request, so "move it to March" has
+            // something to mean.
+            const timeline_prompt_bar = {
+                'width': '100%',
+                'component': {
+                    wid: 'menu',
+                    data: {
+                        placeholder: 'Ask about this timeline: add a milestone on a date, add a phase between two dates\u2026',
+                        cmd: createIon(async (str, panel) => {
+                            const t = ('' + (str || '')).trim();
+                            if (!t) return;
+                            await __askTimeline(t, panel, __tlMenus);
+                        }),
+                        menus: []
+                    }
+                }
+            };
+
             const top_menubar = {
                 'width': '100%',
                 'component': {
@@ -2860,6 +2885,7 @@ function (path, config) {
                                 // typed into its field is matched against the menu that is
                                 // actually on screen rather than a list kept somewhere else.
                                 (() => { try { __tlMenus = top_menubar.component.data.menus || []; } catch (e) { } return top_menubar; })(),
+                                timeline_prompt_bar,
                                 {
                                     'width': '100%',
                                     'component': buttonMenuPanel

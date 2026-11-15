@@ -356,7 +356,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
     "baja/plate/ops/timeline-add.js:PUT SOMETHING ON A TIMELINE" \
     "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
-    "cpd/main-timeline.js:THE SAME FIELD TAKES A SENTENCE NOW" \
+    "cpd/main-timeline.js:A PROMPT BOX OF ITS OWN, UNDER THE BAR" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
