@@ -146,7 +146,14 @@ function (o) {
                     if (a.tooltip) c.tooltip = a.tooltip;
                     return c;
                 })),
-                context ? JSON.stringify(context) : '',
+                // TODAY'S DATE GOES WITH EVERY REQUEST. "from now until the end of the year"
+                // is a different pair of dates depending on when it is asked, and a model has
+                // no clock: without this it either refuses or invents a year.
+                JSON.stringify(Object.assign({ today: (() => {
+                    const d = new Date();
+                    const p2 = (v) => (v < 10 ? '0' : '') + v;
+                    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+                })() }, context || {})),
                 '',
                 CAP ? JSON.stringify(CAP.catalogue()) : '[]');
         } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }

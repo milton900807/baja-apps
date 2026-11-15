@@ -60,6 +60,20 @@ function () {
             }
         },
         {
+            name: 'new_timeline',
+            summary: 'add a timeline covering a range of dates',
+            module: 'baja/plate/ops/new-timeline.js',
+            params: {
+                start: { type: 'string', required: true,
+                    about: 'the first date, as YYYY-MM-DD. Work it out from today\u2019s date in '
+                        + 'the context: "now" and "today" mean that date' },
+                end: { type: 'string', required: true,
+                    about: 'the last date, as YYYY-MM-DD. Work it out from today\u2019s date in '
+                        + 'the context: "the end of the year" means 31 December of that year, '
+                        + '"the end of the month" the last day of that month' }
+            }
+        },
+        {
             name: 'derive_from_new_table',
             summary: 'make a new table the shape of the SELECTED cells and point those cells at '
                 + 'it by formula, so their values come from it',
@@ -251,6 +265,10 @@ function () {
     };
 
     const preview = (name, args) => {
+        if (name === 'new_timeline') {
+            return 'add a timeline from ' + args.start + ' to ' + args.end
+                + ' (it will ask for a title)';
+        }
         if (name === 'derive_from_new_table') {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
