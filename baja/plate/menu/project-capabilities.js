@@ -41,9 +41,17 @@ function () {
             params: {
                 values: { type: 'string[]', required: true, max: 500,
                     about: 'the values, in order, one per row' },
-                column: { type: 'string', required: true,
+                // NOT REQUIRED, AND THAT IS NOT THE SAME AS LETTING THE MODEL GUESS ONE.
+                // "insert from top to bottom: cogs, employees, product" says the direction
+                // and never names a column, and refusing that is pedantry: the first column
+                // is what it means. The default belongs to the operation, is written down
+                // here, and is shown in the preview before anything runs -- so the user sees
+                // "column 0 (the first)" and presses GO or does not. A model filling in a
+                // column nobody mentioned would be the other thing, and is still refused.
+                column: { type: 'string',
                     about: 'which column: its number counting from 0, or its letter (A, B, C). '
-                        + '"the first column" is 0' },
+                        + 'Leave it out when the request does not name one: it means the first '
+                        + 'column. Never guess a different column' },
                 table: { type: 'string',
                     about: 'the table\u2019s name, if the request says it; leave it out for the '
                         + 'selected table' },
@@ -144,8 +152,10 @@ function () {
 
     const preview = (name, args) => {
         if (name === 'set_column_values') {
+            const where = (args.column == null || args.column === '')
+                ? 'column 0 (the first)' : ('column ' + args.column);
             return 'put ' + args.values.length + ' value'
-                + (args.values.length === 1 ? '' : 's') + ' in column ' + args.column
+                + (args.values.length === 1 ? '' : 's') + ' in ' + where
                 + ' of ' + (args.table || 'the selected table')
                 + (args.start_row ? (', from row ' + args.start_row) : '')
                 + ': ' + args.values.slice(0, 6).join(', ')

@@ -43,7 +43,11 @@ function (pm, o) {
             // writes over cells that had something in them.
             const raw = ('' + ((o && o.column) != null ? o.column : '')).trim();
             let col = null;
-            if (/^\d+$/.test(raw)) {
+            if (!raw) {
+                // No column named: the first one. The panel has already shown the user that
+                // this is where the values are going.
+                col = 0;
+            } else if (/^\d+$/.test(raw)) {
                 col = parseInt(raw, 10);
             } else if (/^[A-Za-z]{1,2}$/.test(raw)) {
                 const up = raw.toUpperCase();

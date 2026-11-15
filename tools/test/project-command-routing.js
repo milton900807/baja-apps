@@ -273,6 +273,20 @@ const body = () => document.body.textContent || '';
     ok(selected.length >= 1 && selected[selected.length - 1] === made[0],
        'and it is at least selected, so it can be found');
 
+    // A DEFAULTED ARGUMENT HAS TO BE VISIBLE BEFORE IT RUNS. The operation supplies the
+    // first column when the sentence names none; the panel must say so, or the user is
+    // pressing GO on a choice nobody showed them.
+    made = [];
+    reply = { status: 'OK', operation: 'set_column_values',
+              args: { values: ['cogs', 'employees', 'product'], table: 'hellowrold' },
+              pick: null, explain: 'x', alternatives: [], unsupported: '' };
+    await load('baja/plate/menu/project-command.js',
+        { menus: menus, pm: pm, text: 'hellowrold insert from top to bottom: cogs, employees, product' });
+    await settle(10);
+    ok(body().indexOf('column 0 (the first)') >= 0,
+       'the panel names the column it will write to when the request did not');
+    ok(body().indexOf('cogs, employees, product') >= 0, 'and the values it will write');
+
     // a size beyond what a table can be is REFUSED, and the UI is offered instead
     made = []; fired = [];
     reply = { status: 'OK', operation: 'new_table', args: { rows: 2, cols: 4000 },

@@ -46,6 +46,16 @@ const at = (t, c, r) => t.wells[c][r].value;
     ok(at(t, 1, 0) === '' && at(t, 2, 0) === '',
        'and not across the first row, which is what [row][col] would have done');
 
+    // NO COLUMN NAMED AT ALL: the first one. "insert from top to bottom: a, b, c" says the
+    // direction and never names a column, and refusing that would be pedantry.
+    t = mkTable('hellowrold', 2, 40);
+    r = await load('baja/plate/ops/set-column-values.js', mkTrack([t]),
+        { table: 'hellowrold', values: ['cogs', 'employees', 'product'] });
+    ok(!r.error, 'with no column named it still runs: ' + JSON.stringify(r));
+    ok(at(t, 0, 0) === 'cogs' && at(t, 0, 1) === 'employees' && at(t, 0, 2) === 'product',
+       'and the values go down the FIRST column, from the top');
+    ok(at(t, 1, 0) === '', 'leaving the second column alone');
+
     // a letter names a column too, as the ruler shows it
     t = mkTable('x', 5, 3);
     r = await load('baja/plate/ops/set-column-values.js', mkTrack([t]),
