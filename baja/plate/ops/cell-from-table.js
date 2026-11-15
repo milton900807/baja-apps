@@ -44,7 +44,7 @@ function (pm, o) {
 
             const HOW = { sum: 'sum', total: 'sum', average: 'average', mean: 'average',
                 min: 'min', max: 'max', count: 'count', count_rows: 'count', rows: 'count' };
-            const how = HOW[('' + ((o && o.how) || 'sum')).trim().toLowerCase()];
+            let how = HOW[('' + ((o && o.how) || 'sum')).trim().toLowerCase()];
             if (!how) { resolve({ error: 'sum, average, min, max or count?' }); return; }
 
             // A name that cannot be written in a formula cannot be read by one either.
@@ -113,19 +113,37 @@ function (pm, o) {
             const nRows = (nCols && table.wells[0] && table.wells[0].length) || 0;
             if (!nCols || !nRows) { resolve({ error: want + ' has no cells to read' }); return; }
 
-            const isHeader = (w) => {
+            const isHeaderCell = (w) => {
                 if (!w) return false;
                 if (w.skin_type === 'ColumnHeader') return true;
                 const g = w.group;
                 if (g && typeof g === 'object' && g['ColumnHeader'] != null) return true;
                 return (typeof g === 'string' && g === 'ColumnHeader');
             };
-            const numeric = (w) => {
+            const numericCell = (w) => {
                 if (!w) return false;
                 const v = w.value;
                 if (v == null || ('' + v).trim() === '') return false;
                 return isFinite(Number(('' + v).replace(/[$,\s]/g, '')));
             };
+
+            // A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED.
+            //
+            // The table has usually just been made, two empty rows waiting to be typed into,
+            // and there is nothing to add up yet. Refusing with "nothing in Employees is a
+            // number" is true and useless: the cell beside a row labelled Employees is a
+            // count of them, which is the one thing that CAN be worked out from an empty
+            // table and the thing that was being asked for.
+            let fellBack = false;
+            if (how !== 'count') {
+                let anyNumber = false;
+                for (let c = 0; c < nCols && !anyNumber; c++) {
+                    for (let r = 0; r < nRows; r++) {
+                        if (numericCell(table.wells[c] && table.wells[c][r])) { anyNumber = true; break; }
+                    }
+                }
+                if (!anyNumber) { how = 'count'; fellBack = true; }
+            }
 
             let f;
             if (how === 'count') {
@@ -146,18 +164,19 @@ function (pm, o) {
                 let firstRow = 0;
                 for (let r = 0; r < nRows; r++) {
                     let header = false;
-                    for (let c = 0; c < nCols; c++) { if (isHeader(table.wells[c] && table.wells[c][r])) { header = true; break; } }
+                    for (let c = 0; c < nCols; c++) { if (isHeaderCell(table.wells[c] && table.wells[c][r])) { header = true; break; } }
                     if (header) firstRow = r + 1; else break;
                 }
                 const numCols = [];
                 for (let c = 0; c < nCols; c++) {
                     for (let r = firstRow; r < nRows; r++) {
-                        if (numeric(table.wells[c] && table.wells[c][r])) { numCols.push(c); break; }
+                        if (numericCell(table.wells[c] && table.wells[c][r])) { numCols.push(c); break; }
                     }
                 }
                 if (!numCols.length || firstRow >= nRows) {
-                    resolve({ error: 'nothing in ' + want + ' is a number, so there is no ' + how
-                        + ' to take. Did you mean how many rows it has?' });
+                    // Only a table whose numbers are all above the headings can reach this.
+                    resolve({ error: 'the numbers in ' + want + ' are all in its heading row, '
+                        + 'so there is no ' + how + ' to take under it' });
                     return;
                 }
                 f = '=' + how + '(' + want + '[' + numCols[0] + ':' + numCols[numCols.length - 1]
@@ -181,11 +200,13 @@ function (pm, o) {
             try {
                 pt.setMessage((made ? ('Made ' + want + ', and ') : '')
                     + wired + ' cell' + (wired === 1 ? '' : 's') + ' now show '
-                    + (how === 'count' ? ('how many rows ' + want + ' has')
-                        : ('the ' + how + ' of ' + want)), 7);
+                    + (how === 'count' ? ('how many rows ' + want + ' has') : ('the ' + how + ' of ' + want))
+                    + (fellBack ? (' (there are no numbers in ' + want + ' yet, so this counts '
+                        + 'its rows; ask again once it has some)') : ''), 9);
             } catch (e) { }
 
-            resolve({ table: want, how: how, made: made, wired: wired, formula: f });
+            resolve({ table: want, how: how, made: made, wired: wired, formula: f,
+                counted_instead: fellBack || undefined });
         } catch (e) {
             resolve({ error: ('' + (e && e.message ? e.message : e)) });
         }

@@ -80,6 +80,10 @@ ok(!/executeCommand/.test(ask), 'with no second interpreter of its own');
        'the card says which table and what of it: ' + cap.preview('cell_from_table', { table: 'Employees', how: 'sum' }));
 
     const op = fs.readFileSync('baja/plate/ops/cell-from-table.js', 'utf8');
+    ok(/A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED/.test(op),
+       'a table with nothing in it yet is counted rather than refused');
+    ok(/how = 'count'; fellBack = true;/.test(op), 'the count stands in for the sum that cannot be taken');
+    ok(/there are no numbers in ' \+ want \+ ' yet/.test(op), 'and the message says that is what happened');
     ok(/getTableByName/.test(op), 'the operation looks for the table by name');
     ok(/There is no table called/.test(op) && /prompt\(/.test(op),
        'and when it is not there it ASKS for it rather than refusing');

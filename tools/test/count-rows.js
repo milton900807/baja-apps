@@ -114,8 +114,8 @@ const mkTable = (name, rowsOfValues, withHeader) => {
     ok(/'=count_rows\(' \+ want \+ '\)'/.test(op), 'count writes count_rows naming the table');
     ok(/firstRow = r \+ 1/.test(op), 'and a sum starts under the heading rows');
     ok(/numCols\.push\(c\)/.test(op), 'over the columns that hold numbers');
-    ok(/nothing in ' \+ want \+ ' is a number/.test(op),
-       'with a table that has no numbers in it said plainly, not written as a formula that throws');
+    ok(/the numbers in ' \+ want \+ ' are all in its heading row/.test(op),
+       'and a table whose only numbers are headings is said plainly rather than summed');
     ok(/count_rows: count_rows|count_rows: 'count'|count_rows: 'count',/.test(op.replace(/\s+/g, ' ')),
        'and "count_rows" said in the request means the same as count');
 
@@ -123,6 +123,32 @@ const mkTable = (name, rowsOfValues, withHeader) => {
     ok(/COUNT IS HOW MANY ROWS IT HAS/.test(JSON.stringify(cap.catalogue())),
        'the catalogue says what count means, so "how many employees" picks it');
     ok(cap.validate('cell_from_table', { table: 'Employees', how: 'count' }).ok, 'count validates');
+
+    // ---- the whole path: a table that does not exist yet, made empty, then counted ------
+    //
+    // This is the case that kept not working. The cell says "the Employees value", the table
+    // is not there, it is made with no values at all, and the formula that lands in the cell
+    // has to be one that MEANS something over an empty table.
+    const made = [];
+    const empty = mkTable('Made', [['', ''], ['', '']], false);
+    const host = mkTable('Assumptions', [['Name', 'Value'], ['Employees', '']], true);
+    const cellToWire = host.wells[1][1];
+    host.getSelectedWellsInOrder = () => [cellToWire];
+    host.getWellRange = () => '[1:1][1:1]';
+    host.formula = {};
+    const track = {
+        root: [host], selectedPlate: host, selected_well: cellToWire,
+        setMessage: (m) => made.push('' + m), wake: () => { }, addFormula: () => { },
+        updateCalculations: () => { },
+        getTableByName: (n) => (n === 'Made' ? empty : (n === 'Assumptions' ? host : null))
+    };
+    // the user types nothing into the values box
+    global.prompt = async () => ({ 'Columns': '2', 'Values (optional)': '' });
+    const r2 = await load('baja/plate/ops/cell-from-table.js', track, { table: 'Made', how: 'sum' });
+    ok(!r2.error, 'asking for a sum of an empty table does not fail: ' + JSON.stringify(r2));
+    ok(r2.how === 'count' && r2.counted_instead, 'it counts the rows instead, and says so');
+    ok(r2.formula === '=count_rows(Made)', 'the cell gets count_rows: ' + r2.formula);
+    ok(/no numbers in Made yet/.test(made.join(' ')), 'and the message explains why: ' + made.join(' '));
 
     const known = fs.readFileSync('baja/plate/ops/resolve-missing-references.js', 'utf8');
     ok(/'count_rows'\]/.test(known), 'count_rows is a known function name, so it is not read as a reference');

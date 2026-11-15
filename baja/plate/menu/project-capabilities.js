@@ -155,10 +155,14 @@ function () {
                     about: 'the NAME of the table to read, as the request says it' },
                 how: { type: 'enum', values: ['sum', 'average', 'min', 'max', 'count'],
                     default: 'sum', about: 'what to work out over that table. COUNT IS HOW '
-                        + 'MANY ROWS IT HAS, which is what "how many employees", "the number '
-                        + 'of X" and a cell whose row is labelled with the table\u2019s own name '
-                        + 'are asking for; the others add up, average or pick from the '
-                        + 'numbers in it' },
+                        + 'MANY ROWS IT HAS. Choose count whenever the cell stands for the '
+                        + 'table itself rather than for a number in it: "how many employees", '
+                        + '"the number of X", "the employees value", and a cell whose own row '
+                        + 'is labelled with the table\u2019s name. A table of people, parts or '
+                        + 'anything else that is not money is almost always a count. The '
+                        + 'others add up, average, or pick the smallest or largest of the '
+                        + 'NUMBERS in the table, and are right only when the request names a '
+                        + 'quantity those numbers hold, such as total salary' },
                 in_table: { type: 'string', default: 'the table the request was made from',
                     about: 'the table the selected cells are in, if the request names it' }
             }
