@@ -19,10 +19,41 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
         // Every command field in this module goes through here, so there is one answer to
         // "what happens when someone types into it" rather than four that drift apart.
-        const runCommandText = async (str, panel, legacy) => {
+        // THE FIELD SAYS WHAT IT IS TALKING TO.
+        //
+        // It is the same box in the same place whatever is selected, so nothing on screen
+        // told you that what you type now goes to the TIMELINE in front of you rather than to
+        // the project in general. That is exactly what it looked like, and the feature was
+        // reported missing twice while it was sitting there.
+        const __fieldHint = () => {
+            try {
+                if (selectedPlate && selectedPlate.type === 'timeline') {
+                    return 'This timeline' + (selectedPlate.name ? (' (' + selectedPlate.name + ')') : '')
+                        + ': add a milestone on a date, a phase between two dates\u2026';
+                }
+                if (selectedPlate && selectedPlate.name) {
+                    return selectedPlate.name + ': say what you want done, or type a formula';
+                }
+            } catch (e) { }
+            return 'Say what you want done, or type a formula';
+        };
+
+        // `legacyFirst` is for the fields whose legacy is the INTERPRETER, which reads plain
+        // language for a timeline already. There the interpreter goes first and the panel
+        // only sees what it did not take; the panel is a wider net, not a replacement, and
+        // putting it in front silently removed a feature that worked.
+        //
+        // The field whose legacy is the formula engine does NOT do this: a sentence run
+        // through it first would make a junk plate before anything else got a say.
+        const runCommandText = async (str, panel, legacy, legacyFirst) => {
             const t = ('' + (str || '')).trim();
             if (!t) return;
             if (!looksLikeASentence(t)) return legacy(t, panel);
+            if (legacyFirst) {
+                let handled = false;
+                try { handled = !!(await legacy(t, panel)); } catch (e) { handled = false; }
+                if (handled) return;
+            }
             try { if (panel && panel.setText) panel.setText(''); } catch (e) { }
             let menus = [];
             try { menus = __lastMenus || []; } catch (e) { menus = []; }
@@ -701,6 +732,12 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 if (str.startsWith('=')) {
                 }
 
+                // WHETHER IT HANDLED THE TEXT IS THE ANSWER THE CALLER NEEDS.
+                //
+                // This interpreter already reads plain language for a timeline -- "kickoff on
+                // December 1st" becomes a milestone, with an icon fetched for it. Routing
+                // sentences past it to the newer panel took that away. It gets first refusal
+                // now, so it has to say whether it took the request.
                 let r = await timeline_interpreter.executeCommand(str)
                 if (r && r.type === 'rgx') {
 
@@ -772,8 +809,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     let rect_y = pt.grid.Ywc(screen_y + pt.grid.yinset) - small_height / 2;
                     await pt.zoomto(rect_x, rect_y, small_width, small_height);
 
+                    return true;
                 }
-
+                return false;
             }
 
             if (selectedPlate.getSelectedWellsInOrder && selectedPlate.getSelectedWellsInOrder()) {
@@ -1005,6 +1043,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     setCompletions(null, 'tables');
                                 }
                             }),
+                            placeholder: __fieldHint(),
                             cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 if (selectedPlate.type === 'timeline') {
                                     execCMD(str)
@@ -1112,7 +1151,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                                     plate_graph.plateTrack.updateCalculations();
                                 }, 100)
-                            })),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1138,9 +1177,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         wid: 'menu',
                         refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
+                            placeholder: __fieldHint(),
                             cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 execCMD(str);
-                            })),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1187,6 +1227,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         data: {
                             text: tmc,
                             menu_button_color: 'alert',
+                            placeholder: __fieldHint(),
                             cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 if (selectedPlate.type === 'timeline') {
                                     execCMD(str)
@@ -1195,7 +1236,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     let fal = await interpreter.executeCommand(str);
                                     panel.setText('');
                                 }
-                            })),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1237,10 +1278,11 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         wid: 'menu',
                         refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
+                            placeholder: __fieldHint(),
                             cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 execCMD(str);
 
-                            })),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1456,6 +1498,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 refCallback: select_display,
                 data: {
                     text: tmc,
+                    placeholder: __fieldHint(),
                     cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                         if (selectedPlate.type === 'timeline') {
                             execCMD(str)
@@ -1463,7 +1506,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         } else {
                             panel.setText('');
                         }
-                    })),
+                    }, true)),
                     menus: [
                         ...fileMenu(),
                         ...appMenus(),
@@ -1504,11 +1547,12 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     wid: 'menu',
                     refCallback: mb,     // loads its command list (it was built and never attached)
                     data: {
+                        placeholder: __fieldHint(),
                         cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
 
                             execCMD(str);
 
-                        })),
+                        }, true)),
                         menus: [
                             ...fileMenu(),
                             ...appMenus(),
@@ -1611,6 +1655,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
             wid: 'menu',
             refCallback: select_display2,
             data: {
+                placeholder: __fieldHint(),
                 cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                     pt.createPlateFromFormula(str)
                 })),
