@@ -96,6 +96,34 @@ const run = (pt, args) => load('baja/plate/ops/timeline-range.js', pt, args);
        'narrowing past a milestone is refused, and says which one: ' + r.error);
     ok(p.date.getTime() === when.getTime(), 'and nothing moved');
 
+    // WIDENING NEVER REFUSES. A timeline carries labels from how it was built, and some of
+    // them sit outside the window already; a wider window can only help them, and the first
+    // version of this refused "10% at both ends" on their account.
+    tl = mkTimeline('leftovers', '2026-11-21', '2027-01-16'); pt = mkTrack([tl], tl);
+    const outside = D('2026-11-15');
+    tl.scatterData.points.push({ x: pt.__tlMsToX(tl, outside.getTime()), y: 0.1,
+        type: 'milestone', name: 'November 15, 2026', date: outside });
+    tl.scatterData.points.push({ x: pt.__tlMsToX(tl, D('2027-03-01').getTime()), y: 0.1,
+        type: 'milestone', name: 'center the time', date: D('2027-03-01') });
+    r = await run(pt, { by_percent: 10, edge: 'both' });
+    ok(!r.error, 'points that are ALREADY outside do not block a widening: ' + (r.error || 'widened'));
+    ok(tl.startDate.getTime() < D('2026-11-21').getTime(), 'and it really widened');
+
+    // and a narrowing is answerable only for what IT takes away
+    const stillOut = tl.scatterData.points[1];
+    r = await run(pt, { by_days: -1, edge: 'start' });
+    ok(!r.error, 'a narrowing that takes away nothing visible is allowed, even with a point '
+       + 'outside already: ' + (r.error || 'narrowed'));
+    ok(stillOut.date.getTime() === D('2027-03-01').getTime(), 'and that point is untouched');
+
+    // a point with no date of its own is judged by where it is drawn, not skipped
+    tl = mkTimeline('stamped', '2026-12-01', '2027-01-01'); pt = mkTrack([tl], tl);
+    tl.scatterData.points.push({ x: pt.__tlMsToX(tl, D('2026-12-15').getTime()), y: 0.1,
+        type: 'milestone', name: 'no date on it' });
+    r = await run(pt, { start: '2026-12-20', end: '2026-12-30' });
+    ok(!!r.error && /no date on it/.test(r.error),
+       'a point with only an axis position is stamped and counted: ' + r.error);
+
     // narrowing that hides nothing is allowed
     tl = mkTimeline('roomy', '2026-01-01', '2026-12-31'); pt = mkTrack([tl], tl);
     r = await run(pt, { by_percent: -10, edge: 'both' });

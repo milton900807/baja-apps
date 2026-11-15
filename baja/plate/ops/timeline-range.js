@@ -85,13 +85,26 @@ function (pm, o) {
                 return;
             }
 
-            const hidden = ((tl.scatterData && tl.scatterData.points) || []).filter((p) => {
+            // ONLY WHAT IS VISIBLE NOW CAN BE HIDDEN BY THIS.
+            //
+            // The first version asked which points would fall outside the NEW range, and
+            // refused a widening of 10% because three points were outside the range already
+            // -- labels left over from how the timeline was built, which a wider window can
+            // only help. A change is answerable for what IT takes away: a point that cannot
+            // be seen now and still cannot be seen afterwards is not this request's doing.
+            //
+            // Dates are stamped first, from the axis positions, so a point that never had
+            // one is compared as the date it is drawn on rather than skipped.
+            try { if (typeof pt.__tlStampDates === 'function') pt.__tlStampDates(tl); } catch (e2) { }
+            const span = (p, lo, hi) => {
                 if (!p) return false;
-                const t = p.date != null ? new Date(p.date).getTime() : null;
+                const t = p.date != null ? new Date(p.date).getTime() : NaN;
                 const t0 = p.__startDate != null ? new Date(p.__startDate).getTime() : t;
-                if (!isFinite(t) || !isFinite(t0)) return false;
-                return t < s || t > e || t0 < s || t0 > e;
-            });
+                if (!isFinite(t) || !isFinite(t0)) return false;   // no date: nothing to judge
+                return t >= lo && t <= hi && t0 >= lo && t0 <= hi;
+            };
+            const hidden = ((tl.scatterData && tl.scatterData.points) || []).filter(
+                (p) => span(p, win.startMs, win.endMs) && !span(p, s, e));
             if (hidden.length) {
                 resolve({ error: 'that would put ' + hidden.length + ' of what is already on this '
                     + 'timeline outside the range, where it cannot be seen: '

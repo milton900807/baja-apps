@@ -356,7 +356,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
     "baja/plate/ops/timeline-add.js:One resolver, in timeline-pick.js" \
     "baja/plate/ops/timeline-pick.js:WHICH TIMELINE A REQUEST IS ABOUT, WORKED OUT ONCE" \
-    "baja/plate/ops/timeline-range.js:MOVING A TIMELINE'S OWN RANGE" \
+    "baja/plate/ops/timeline-range.js:ONLY WHAT IS VISIBLE NOW CAN BE HIDDEN BY THIS" \
     "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
     "cpd/main-timeline.js:A PROMPT BOX OF ITS OWN, UNDER THE BAR" \
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
