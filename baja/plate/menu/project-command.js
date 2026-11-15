@@ -163,6 +163,26 @@ function (o) {
         // just pressed a button on one object. The object is already in the context, but a
         // context is a note beside the request and the request itself said nothing -- so it
         // goes in front of the words, where it cannot be read past.
+        // WHAT IS ON THE CANVAS GOES WITH EVERY REQUEST. A name the user can see is a name
+        // they will use, and without this list the model cannot tell "show me assumptions"
+        // (a table that is here) from a menu item that happens to share the word. Read from
+        // the track itself rather than asked of each caller, so every path gets it.
+        const onCanvas = (() => {
+            try {
+                const track = (o && o.pm) ? ((o.pm.plateTrack) ? o.pm.plateTrack : o.pm) : null;
+                if (!track) return null;
+                const out = [];
+                for (const list of [track.root, track.m_plots, track.plots, track.objects]) {
+                    if (!Array.isArray(list)) continue;
+                    for (const x of list) {
+                        const n = x && x.name != null ? ('' + x.name).trim() : '';
+                        if (n && out.indexOf(n) < 0) out.push(n);
+                    }
+                }
+                return out.length ? out.slice(0, 60) : null;
+            } catch (e) { return null; }
+        })();
+
         const asked = (context && context.asked_from) || null;
         const askedName = asked ? ('' + (asked.name || '')).trim() : '';
         const askedKind = asked ? ('' + (asked.type || 'object')).trim() : '';
@@ -182,7 +202,7 @@ function (o) {
                 // THE DATE OF TODAY GOES WITH EVERY REQUEST. "from now until the end of the year"
                 // is a different pair of dates depending on when it is asked, and a model has
                 // no clock: without this it either refuses or invents a year.
-                JSON.stringify(Object.assign({ today: (() => {
+                JSON.stringify(Object.assign({ on_canvas: onCanvas, today: (() => {
                     const d = new Date();
                     const p2 = (v) => (v < 10 ? '0' : '') + v;
                     return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());

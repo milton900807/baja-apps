@@ -118,7 +118,14 @@ Rules, in order of importance:
    items that differ only in what they act on. Do not invent a selection that the context
    does not report.
 
-8. A REQUEST THAT BEGINS "On the <kind> named ..." WAS MADE FROM THAT OBJECT, by pressing a
+8. THE NAMES IN on_canvas ARE THINGS THE USER CAN SEE. When the request asks to see, show,
+   find, go to or open something, and the name it gives is one of those (or plainly part of
+   one), the answer is the operation that centres the canvas on it. A menu item carrying the
+   same word opens a dialog ABOUT that subject, which is not what was asked: somebody who
+   says "show me assumptions" while a table called Assumptions is on the canvas wants to
+   look at the table. The menu item belongs in alternatives, not as the pick.
+
+9. A REQUEST THAT BEGINS "On the <kind> named ..." WAS MADE FROM THAT OBJECT, by pressing a
    button on it. Everything in it is about that object. A menu item that does the same word
    to the whole project or the whole view -- zoom, resize, delete, rename -- is NOT the
    match: "zoom out" on a timeline means showing more of its own range, not magnifying the

@@ -372,7 +372,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:Choose count whenever the cell stands for the "
+    "baja/plate/menu/project-capabilities.js:SOMETHING ON THE CANVAS, ASKED FOR BY NAME"
 
   install_group "a panel over the canvas keeps its clicks to itself" \
     "baja/lib/modal-shield.js:A PANEL THAT OPENED ON TOP OF THIS ONE IS NOT BEHIND IT" \
@@ -381,7 +381,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
-    "baja/plate/menu/project-command.js:THE CANVAS DOES NOT HEAR ANYTHING PRESSED ON THIS CARD" \
+    "baja/plate/menu/project-command.js:WHAT IS ON THE CANVAS GOES WITH EVERY REQUEST" \
+    "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
     "baja/plate/menu/project-capabilities.js:A CELL THAT TOTALS ANOTHER TABLE" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
@@ -391,7 +392,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/column-io.js:THE TABLE WHOSE OWN ASK BUTTON WAS PRESSED" \
     "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE AND THE CELLS THEY SIT IN" \
     "baja/plate/ops/move-column.js:WHOLE COLUMNS, COPIED ONTO ANOTHER" \
-    "py/bio/project/menu-pick.py:WAS MADE FROM THAT OBJECT"
+    "py/bio/project/menu-pick.py:ARE THINGS THE USER CAN SEE"
   install_group "IDT codes: an explicit sugar table" \
     "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
     "baja/manchester/menu/export-compounds.js:formatStrict, not format"

@@ -20,6 +20,23 @@ function () {
 
     const LIST = [
         {
+            // SOMETHING ON THE CANVAS, ASKED FOR BY NAME. "Show me assumptions" matched a
+            // menu item that opens a dialog of the same name; what was wanted was the table
+            // of that name, sitting on the canvas somewhere off screen.
+            name: 'show_object',
+            summary: 'centre the canvas on an object that is already there and select it, '
+                + 'named: a table, a chart, a timeline. THIS IS THE ANSWER whenever the '
+                + 'request asks to see, show, find, go to or open something whose name is in '
+                + 'the context\u2019s on_canvas list, and it beats any menu item that happens to '
+                + 'carry the same word, because the user is asking for the thing they can '
+                + 'see the name of rather than for a dialog about it',
+            module: 'baja/plate/ops/focus-object.js',
+            params: {
+                name: { type: 'string', required: true,
+                    about: 'the name of the object to show, as the request says it' }
+            }
+        },
+        {
             name: 'new_table',
             summary: 'add a new empty table of a given size to the project',
             module: 'baja/plate/ops/new-table.js',
@@ -376,6 +393,9 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'show_object') {
+            return 'centre on "' + args.name + '"';
         }
         if (name === 'cell_from_table') {
             const how = args.how || 'sum';
