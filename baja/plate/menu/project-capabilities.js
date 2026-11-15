@@ -60,6 +60,19 @@ function () {
             }
         },
         {
+            name: 'format_cells',
+            summary: 'change how the SELECTED cells are shown: as money, or as plain numbers',
+            module: 'baja/plate/ops/format-cells.js',
+            params: {
+                style: { type: 'enum', values: ['dollar', 'plain'], required: true,
+                    about: 'dollar shows the number as money ($1,200.00); plain takes that '
+                        + 'off. It changes how the number is shown, never the number' },
+                table: { type: 'string', default: 'the selected table',
+                    about: 'the table\u2019s name, if the request says it; leave it out for the '
+                        + 'selected table' }
+            }
+        },
+        {
             name: 'rearrange_column',
             summary: 'reverse, sort, close the gaps in, de-duplicate, fill down, tidy or clear '
                 + 'the values already in one column',
@@ -225,6 +238,11 @@ function () {
     };
 
     const preview = (name, args) => {
+        if (name === 'format_cells') {
+            return args.style === 'dollar'
+                ? 'show the selected cells as money'
+                : 'show the selected cells as plain numbers';
+        }
         if (name === 'rearrange_column') {
             const where = (args.column == null || args.column === '')
                 ? 'column 0 (the first)' : ('column ' + args.column);

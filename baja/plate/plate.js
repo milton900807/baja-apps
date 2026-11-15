@@ -1243,7 +1243,7 @@ function () {
                             ? 'This formula comes out as NaN. Trace NaN follows its references back to the cell where it starts, and jumps there.'
                             : hasFormula
                             ? 'A formula. Add to each puts it on every selected cell, one per cell; Save text stores the text as typed. Ctrl+Enter does the first button.'
-                            : 'Save text stores what you type in the selected cells. Add to each adds it to what each already holds, or sets a formula on each when it starts with =. Ctrl+Enter does the first button.',
+                            : 'Save text stores what you type in the selected cells. Add to each adds it to what each already holds, or sets a formula on each when it starts with =. Do it reads what you typed as an instruction instead and shows what it would do before doing it. Ctrl+Enter does the first button.',
                         value: '' + (__value == null ? '' : __value),
                         mono: true,
                         // ORDER MATTERS: Ctrl+Enter fires the FIRST of these (prompt-text
@@ -1254,17 +1254,52 @@ function () {
                         // formula used to do there; a cell with no formula still leads with
                         // Save text, so Ctrl+Enter on plain text cannot silently add to it.
                         // Delete formula is never first: nothing destructive on Ctrl+Enter.
+                        // DO IT IS ALWAYS LAST AND NEVER FIRST. What someone types into a
+                        // cell is a value until they say otherwise, so Save text keeps the
+                        // lead and Ctrl+Enter still stores the text exactly as typed. "Do
+                        // it…" reads the same text as an instruction instead, shows what it
+                        // would do, and runs nothing until that is confirmed -- so a cell
+                        // whose contents happen to read like a sentence can never be acted
+                        // on by accident.
                         actions: isNaNResult
-                            ? [{ key: 'each', label: 'Add to each' }, { key: 'trace', label: 'Trace NaN' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            ? [{ key: 'each', label: 'Add to each' }, { key: 'trace', label: 'Trace NaN' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }]
                             : hasFormula
-                            ? [{ key: 'each', label: 'Add to each' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
-                            : [{ key: 'text', label: 'Save text' }, { key: 'each', label: 'Add to each' }, { key: 'tag', label: 'Tag…' }],
+                            ? [{ key: 'each', label: 'Add to each' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }]
+                            : [{ key: 'text', label: 'Save text' }, { key: 'each', label: 'Add to each' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }],
                         completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
                     });
                 } catch (e) { r = null; }
                 if (!r) return;
                 const code = '' + (r.text == null ? '' : r.text);
                 if (r.action === 'tag') { setTimeout(() => { try { this.goTag(null, pt); } catch (e) { } }, 100); return; }
+                // READ WHAT WAS TYPED AS AN INSTRUCTION. The same panel the command field
+                // uses, so there is one set of operations and one set of rules about what may
+                // run, and it still shows what it will do before doing it. Nothing is written
+                // to the cells on this path: if the user wanted the text in the cell they had
+                // Save text, which is the button in front of this one.
+                if (r.action === 'ask') {
+                    const ask = code.trim();
+                    if (!ask) { try { pt.setMessage('Type what you want done first.', 2); } catch (e) { } return; }
+                    let menus = [];
+                    try { menus = (pt.__lastMenubar && pt.__lastMenubar()) || []; } catch (e) { menus = []; }
+                    try {
+                        await exec('baja/plate/menu/project-command.js', {
+                            menus: menus,
+                            pm: pt,
+                            text: ask,
+                            context: {
+                                table: this.name,
+                                selected_cells: w.length,
+                                where: cellName
+                            },
+                            setError: (m) => { try { pt.setMessage(m, 8); } catch (e) { } }
+                        });
+                    } catch (e) {
+                        try { pt.setMessage('Could not read that: '
+                            + ('' + (e && e.message ? e.message : e)), 8); } catch (e2) { }
+                    }
+                    return;
+                }
                 if (r.action === 'trace') { try { await pt.traceNaN(this, first); } catch (e) { console.warn('trace NaN', e); } return; }
                 if (r.action === 'delete') {
                     try { pushHistory(HM(this)); } catch (e) { }

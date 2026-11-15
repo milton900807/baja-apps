@@ -347,8 +347,12 @@ if [[ $DO_API -eq 1 ]]; then
   # now the right and bottom edges only: the old hit region was a 60px square on the
   # bottom-right corner, reaching 30px inside the table, so working in the last column or row
   # started a resize instead.
-  install_group "a table resizes from its edges, not from inside it" \
-    "baja/plate/plate.js:RESIZING A COLUMN RESIZES THE COLUMN, NOT THE TABLE"
+  # Typing into a cell can now be read as an instruction instead of stored as a value, with
+  # Save text still first so Ctrl+Enter is unchanged and nothing can run by accident.
+  install_group "a table resizes from its edges; a cell can be told what to do" \
+    "baja/plate/plate.js:DO IT IS ALWAYS LAST AND NEVER FIRST" \
+    "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
+    "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "manchester/controls/navigation-panel-plates2.js:A COLON IS NOT PROOF OF A FORMULA" \

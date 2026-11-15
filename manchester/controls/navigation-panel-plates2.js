@@ -217,6 +217,11 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 const menus = data && Array.isArray(data.menus) ? data.menus : null;
                 if (!menus || !menus.length) return menuItm;
                 try { __lastMenus = menus.slice(); } catch (e) { }
+                // PUBLISHED ON THE TRACK, so anything else that wants to match a sentence
+                // against the menu on screen can reach it. The cell editor's "Do it…" does:
+                // one menubar, read from the one place that builds it, rather than a second
+                // copy kept somewhere else and drifting.
+                try { pt.__lastMenubar = () => __lastMenus; } catch (e) { }
                 // Every menubar this module builds goes through here, so this is the one
                 // place the field needs to be handed the way to navigate.
                 try { if (data && !data.gotoRef) data.gotoRef = createIonFunction((t, tags) => { gotoReference(t, tags); }); } catch (e) { }
