@@ -19,6 +19,70 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
         // Every command field in this module goes through here, so there is one answer to
         // "what happens when someone types into it" rather than four that drift apart.
+        // A BUTTON THAT ASKS, ON THE BAR ITSELF.
+        //
+        // Two attempts at putting a field on the object failed: the canvas cannot hold one,
+        // and an HTML input positioned over it did not appear. This is the machinery that
+        // certainly renders, a toolbar button like every other one up there, and it opens a
+        // dialog whose question names the thing it is about.
+        //
+        // Only there when something is selected, because "about this" needs a this.
+        const askButton = () => {
+            if (!selectedPlate) return [];
+            const isTimeline = selectedPlate.type === 'timeline';
+            const what = ('' + (selectedPlate.name || '')).trim();
+            const title = isTimeline
+                ? ('Ask about this timeline' + (what ? ' (' + what + ')' : ''))
+                : ('Ask about ' + (what || 'this'));
+            return [{
+                label: title,
+                icon: 'auto_awesome',
+                tooltip: title,
+                color: '#ffd166',
+                ionfunction: createIonFunction(async () => {
+                    const pt2 = plate_graph.plateTrack;
+                    const when = (d) => { try { return new Date(d).toDateString(); } catch (e) { return '?'; } };
+                    let r = null;
+                    try {
+                        r = await exec('baja/lib/prompt-text.js', {
+                            title: title,
+                            message: isTimeline
+                                ? ('This timeline runs ' + when(selectedPlate.startDate) + ' to '
+                                    + when(selectedPlate.endDate)
+                                    + '. Add a milestone on a date, or a phase between two dates.')
+                                : 'Say what you want done with it.',
+                            value: '',
+                            actions: [{ key: 'go', label: 'GO' }]
+                        });
+                    } catch (e) { r = null; }
+                    const t = ('' + ((r && r.text) || '')).trim();
+                    if (!t) return;
+
+                    // The interpreter reads plain language for a timeline already, so it gets
+                    // first refusal here exactly as it does from the command field.
+                    let handled = false;
+                    if (isTimeline) {
+                        try { handled = !!(await execCMD(t)); } catch (e) { handled = false; }
+                    }
+                    if (handled) return;
+                    try {
+                        await exec('baja/plate/menu/project-command.js', {
+                            menus: __lastMenus || [],
+                            pm: pt2,
+                            text: t,
+                            context: {
+                                selected: what || null,
+                                showing: isTimeline ? 'a timeline' : 'an object on the canvas'
+                            },
+                            setError: (m) => { try { pt2.setMessage(m, 8); } catch (e) { } }
+                        });
+                    } catch (e) {
+                        try { pt2.setMessage('Could not read that: '
+                            + ('' + (e && e.message ? e.message : e)), 8); } catch (e2) { }
+                    }
+                })
+            }];
+        };
         // THE FIELD SAYS WHAT IT IS TALKING TO.
         //
         // It is the same box in the same place whatever is selected, so nothing on screen
@@ -719,23 +783,6 @@ function (plate_graph, selectedPlate, selectedPoint) {
             __name = selectedPlate.name;
         }
         let interpreter = await exec('baja/engine/interpreter.js', plate_graph.plateTrack)
-        // THE FIELD ON THE OBJECT ITSELF.
-        //
-        // This module is rebuilt every time the selection changes, which makes it the one
-        // place that always knows what is selected right now. So the on-object field is
-        // opened here for a selected timeline and closed for anything else -- including for
-        // nothing selected, which is what reaching here with no selectedPlate means.
-        //
-        // The toolbar field stays exactly as it is. This is the same request going to the
-        // same place; it is on the timeline because that is where it was asked for.
-        try {
-            if (selectedPlate && selectedPlate.type === 'timeline') {
-                await exec('baja/plate/menu/object-prompt.js', plate_graph.plateTrack, selectedPlate);
-            } else {
-                await exec('baja/plate/menu/object-prompt.js', plate_graph.plateTrack, null);
-            }
-        } catch (e) { }
-
         let timeline_interpreter = await exec('baja/engine/timeline-interpreter.js', plate_graph.plateTrack)
 
         if (selectedPlate && selectedPlate.getContextMenuItems) {
@@ -1173,6 +1220,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
+                                ...askButton(),
                                 {
                                     'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
@@ -1202,6 +1250,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
+                                ...askButton(),
                                 {
                                     'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
@@ -1258,6 +1307,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
+                                ...askButton(),
                                 {
                                     'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
@@ -1304,6 +1354,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
+                                ...askButton(),
                                 {
                                     'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
@@ -1528,6 +1579,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         ...fileMenu(),
                         ...appMenus(),
                         ...shareMenu(),
+                        ...askButton(),
                         {
                             'label': `${menu_title}`, 'items': m, __ctx: 'table'
                         },
@@ -1574,6 +1626,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                             ...fileMenu(),
                             ...appMenus(),
                             ...shareMenu(),
+                            ...askButton(),
                             {
                                 'label': `${menu_title}`, 'items': m, __ctx: 'table'
                             },
@@ -1680,6 +1733,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     ...fileMenu(),
                     ...appMenus(),
                     ...shareMenu(),
+                    ...askButton(),
                     // "Main menu" was these same items; File carries them now. Kept only for
                     // a visitor who is not signed in, whose list is different.
                     ...(MSGraph.isLoggedIn() ? [] : [{ 'label': `Main menu`, 'items': mm }]),
