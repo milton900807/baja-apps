@@ -27,6 +27,13 @@ present so a later rebuild on this box does not drop it. The function is found b
 declaration and replaced by matching braces, not by a line number, and the result is passed
 through `node --check` before anything is written: a broken edit never reaches the service.
 Idempotent -- running it twice is a no-op, and it says so.
+
+SECOND REVISION. The first version of this read only the first Stripe customer record at an
+address. Stripe makes a new customer for a Checkout that was not told to reuse one, so one
+email routinely has several and the paid one need not be first; a customer with a payment on
+a second record was indistinguishable from one who had never paid. This walks every record
+at the address. It also replaces a server already carrying the first version, which the
+first version's own marker would have reported as "already installed".
 """
 import os
 import re
@@ -34,47 +41,95 @@ import subprocess
 import sys
 import tempfile
 
-MARK = 'stripeEntitlement'
+# THE MARKER IS THE VERSION, NOT THE FEATURE.
+#
+# This used to test for 'stripeEntitlement' and skip a file that already had it. That is the
+# stale-marker trap: a server carrying the FIRST version of this fix reported "already
+# installed" and kept running the single-customer code, so the installer said it had done
+# its job while changing nothing. A marker shared by two versions cannot tell them apart.
+# This phrase exists only in the version below.
+MARK = 'NOT THE FIRST ONE'
+
+# What to replace, in order of preference. A server may be in either state: never patched,
+# where subscriptionSource alone is there; or patched with the earlier version, where
+# stripeEntitlement sits immediately before it and BOTH must go, or the old
+# subscriptionSource would survive after the new one and win by being declared last.
+DECL_SETS = [
+    ['async function stripeEntitlement(', 'async function subscriptionSource('],
+    ['async function subscriptionSource('],
+]
+TS_DECL_SETS = [
+    ['async function stripeEntitlement(', 'async function subscriptionSource('],
+    ['async function subscriptionSource('],
+]
 
 # ---------------------------------------------------------------- the replacement bodies
 
 JS_NEW = r'''
 // WHAT ENTITLES SOMEONE, IN ONE PLACE. Installed by install-subscription-entitlement.py.
+// Taken verbatim from the project's own tsc output, not transcribed: a hand copy that
+// drifts from the build is how a server ends up running something nobody tested.
 async function stripeEntitlement(email) {
     const key = ('' + (email || '')).trim().toLowerCase();
     const none = { active: false, status: 'none', expiry: null, customerId: null };
     if (!stripeClient || !key)
         return none;
-    const customers = await stripeClient.customers.list({ email: key, limit: 1 });
-    const cust = customers.data[0];
-    if (!cust)
+    // EVERY CUSTOMER AT THIS ADDRESS, NOT THE FIRST ONE.
+    //
+    // Stripe makes a NEW customer record for a Checkout that was not told to reuse one, so
+    // one person's email routinely has several. Asking for limit: 1 and reading data[0]
+    // therefore checked an arbitrary one of them -- and someone whose payment landed on the
+    // second record looked, to this code, exactly like someone who had never paid: a
+    // customer exists, with nothing on it.
+    const customers = await stripeClient.customers.list({ email: key, limit: 10 });
+    const list = customers.data || [];
+    if (!list.length)
         return none;
-    const subs = await stripeClient.subscriptions.list({ customer: cust.id, status: 'all', limit: 10 });
-    const good = subs.data.find((x) => x.status === 'active' || x.status === 'trialing');
-    if (good) {
-        return {
-            active: true, status: good.status,
-            expiry: good.current_period_end ?? null, customerId: cust.id,
-        };
-    }
-    let oneTimeExpiry = null;
-    try {
-        const sessions = await stripeClient.checkout.sessions.list({ customer: cust.id, limit: 100 });
-        const ONE_YEAR = 365 * 24 * 3600;
-        const nowSec = Math.floor(Date.now() / 1000);
-        for (const ss of sessions.data) {
-            if (ss.mode === 'payment' && ss.status === 'complete' && ss.payment_status === 'paid' && ss.created) {
-                const exp = ss.created + ONE_YEAR;
-                if (exp > nowSec && (oneTimeExpiry == null || exp > oneTimeExpiry))
-                    oneTimeExpiry = exp;
+    let fallbackStatus = 'none';
+    let bestExpiry = null;
+    let bestCustomer = null;
+    for (const cust of list) {
+        const subs = await stripeClient.subscriptions.list({ customer: cust.id, status: 'all', limit: 10 });
+        // 'active' and 'trialing' entitle. past_due / incomplete / incomplete_expired /
+        // canceled do not.
+        const good = subs.data.find((x) => x.status === 'active' || x.status === 'trialing');
+        if (good) {
+            return {
+                active: true, status: good.status,
+                expiry: good.current_period_end ?? null,
+                customerId: cust.id, customers: list.length,
+            };
+        }
+        if (fallbackStatus === 'none' && subs.data[0] && subs.data[0].status) {
+            fallbackStatus = subs.data[0].status;
+        }
+        // The early-access one-time purchase: no subscription object exists, so entitlement
+        // comes from the most recent completed, paid Checkout in payment mode, and lasts one
+        // year from it.
+        try {
+            const sessions = await stripeClient.checkout.sessions.list({ customer: cust.id, limit: 100 });
+            const ONE_YEAR = 365 * 24 * 3600;
+            const nowSec = Math.floor(Date.now() / 1000);
+            for (const ss of sessions.data) {
+                if (ss.mode === 'payment' && ss.status === 'complete' && ss.payment_status === 'paid' && ss.created) {
+                    const exp = ss.created + ONE_YEAR;
+                    if (exp > nowSec && (bestExpiry == null || exp > bestExpiry)) {
+                        bestExpiry = exp;
+                        bestCustomer = cust.id;
+                    }
+                }
             }
         }
+        catch (e) { /* no one-time entitlement readable here; keep looking */ }
     }
-    catch (e) { }
-    if (oneTimeExpiry != null) {
-        return { active: true, status: 'paid', expiry: oneTimeExpiry, customerId: cust.id };
+    if (bestExpiry != null) {
+        return { active: true, status: 'paid', expiry: bestExpiry,
+            customerId: bestCustomer, customers: list.length };
     }
-    return { active: false, status: (subs.data[0] && subs.data[0].status) || 'none', expiry: null, customerId: cust.id };
+    // Reports how many records were searched, so "not entitled" can be told apart from
+    // "looked in the wrong place".
+    return { active: false, status: fallbackStatus, expiry: null,
+        customerId: list[0].id, customers: list.length };
 }
 async function subscriptionSource(email) {
     const key = ('' + (email || '')).trim().toLowerCase();
@@ -85,18 +140,25 @@ async function subscriptionSource(email) {
         return { allowed: hit.active, via: 'stripe', detail: 'cached' };
     }
     if (!stripeClient) {
+        // Stripe not configured. Fail CLOSED -- with Stripe as the only source, "cannot ask"
+        // cannot mean "yes", or the gate would open whenever the integration is misconfigured.
         return { allowed: false, via: 'stripe', detail: 'stripe_not_configured' };
     }
     try {
         const ent = await stripeEntitlement(key);
         if (!ent.customerId) {
             __subCache.set(key, { active: false, at: Date.now() });
+            // Names the address that was looked up. The commonest reason a paying customer
+            // is refused is that they are signed in with one address and bought with
+            // another, and "no_customer" alone never said which one was checked.
             return { allowed: false, via: 'stripe', detail: 'no_customer:' + key };
         }
         __subCache.set(key, { active: ent.active, at: Date.now() });
         return { allowed: ent.active, via: 'stripe', detail: ent.status };
     }
     catch (e) {
+        // An API error is not proof of anything, but with one source there is nothing to fall
+        // back to. Fail closed and say why, rather than quietly granting.
         return { allowed: false, via: 'stripe', detail: 'error:' + String(e && e.message || e).slice(0, 40) };
     }
 }
@@ -114,49 +176,73 @@ TS_NEW = r'''
 // So someone who bought the beta year was told by the app that they were subscribed, and
 // refused by the AI credit gate, which is a worse state than either answer on its own: the
 // product disagreed with itself about a customer who had paid. Both now read this.
+//
+// Returns the facts; the callers decide what to say about them.
 async function stripeEntitlement(email: string): Promise<{
-    active: boolean; status: string; expiry: number | null; customerId: string | null;
+    active: boolean; status: string; expiry: number | null; customerId: string | null; customers?: number;
 }> {
     const key = ('' + (email || '')).trim().toLowerCase();
-    const none: { active: boolean; status: string; expiry: number | null; customerId: string | null } =
+    const none: { active: boolean; status: string; expiry: number | null; customerId: string | null; customers?: number } =
         { active: false, status: 'none', expiry: null, customerId: null };
     if (!stripeClient || !key) return none;
 
-    const customers = await stripeClient.customers.list({ email: key, limit: 1 });
-    const cust = customers.data[0];
-    if (!cust) return none;
+    // EVERY CUSTOMER AT THIS ADDRESS, NOT THE FIRST ONE.
+    //
+    // Stripe makes a NEW customer record for a Checkout that was not told to reuse one, so
+    // one person's email routinely has several. Asking for limit: 1 and reading data[0]
+    // therefore checked an arbitrary one of them -- and someone whose payment landed on the
+    // second record looked, to this code, exactly like someone who had never paid: a
+    // customer exists, with nothing on it.
+    const customers = await stripeClient.customers.list({ email: key, limit: 10 });
+    const list = customers.data || [];
+    if (!list.length) return none;
 
-    const subs = await stripeClient.subscriptions.list({ customer: cust.id, status: 'all', limit: 10 });
-    // 'active' and 'trialing' entitle. past_due / incomplete / incomplete_expired /
-    // canceled do not.
-    const good = subs.data.find((x: any) => x.status === 'active' || x.status === 'trialing');
-    if (good) {
-        return {
-            active: true, status: good.status,
-            expiry: (good as any).current_period_end ?? null, customerId: cust.id,
-        };
-    }
+    let fallbackStatus = 'none';
+    let bestExpiry: number | null = null;
+    let bestCustomer: string | null = null;
 
-    // The early-access one-time purchase: no subscription object exists, so entitlement
-    // comes from the most recent completed, paid Checkout in payment mode, and lasts one
-    // year from it.
-    let oneTimeExpiry: number | null = null;
-    try {
-        const sessions = await stripeClient.checkout.sessions.list({ customer: cust.id, limit: 100 });
-        const ONE_YEAR = 365 * 24 * 3600;
-        const nowSec = Math.floor(Date.now() / 1000);
-        for (const ss of sessions.data as any[]) {
-            if (ss.mode === 'payment' && ss.status === 'complete' && ss.payment_status === 'paid' && ss.created) {
-                const exp = ss.created + ONE_YEAR;
-                if (exp > nowSec && (oneTimeExpiry == null || exp > oneTimeExpiry)) oneTimeExpiry = exp;
-            }
+    for (const cust of list) {
+        const subs = await stripeClient.subscriptions.list({ customer: cust.id, status: 'all', limit: 10 });
+        // 'active' and 'trialing' entitle. past_due / incomplete / incomplete_expired /
+        // canceled do not.
+        const good = subs.data.find((x: any) => x.status === 'active' || x.status === 'trialing');
+        if (good) {
+            return {
+                active: true, status: good.status,
+                expiry: (good as any).current_period_end ?? null,
+                customerId: cust.id, customers: list.length,
+            };
         }
-    } catch (e) { /* no one-time entitlement readable; the subscription answer stands */ }
+        if (fallbackStatus === 'none' && subs.data[0] && subs.data[0].status) {
+            fallbackStatus = subs.data[0].status;
+        }
 
-    if (oneTimeExpiry != null) {
-        return { active: true, status: 'paid', expiry: oneTimeExpiry, customerId: cust.id };
+        // The early-access one-time purchase: no subscription object exists, so entitlement
+        // comes from the most recent completed, paid Checkout in payment mode, and lasts one
+        // year from it.
+        try {
+            const sessions = await stripeClient.checkout.sessions.list({ customer: cust.id, limit: 100 });
+            const ONE_YEAR = 365 * 24 * 3600;
+            const nowSec = Math.floor(Date.now() / 1000);
+            for (const ss of sessions.data as any[]) {
+                if (ss.mode === 'payment' && ss.status === 'complete' && ss.payment_status === 'paid' && ss.created) {
+                    const exp = ss.created + ONE_YEAR;
+                    if (exp > nowSec && (bestExpiry == null || exp > bestExpiry)) {
+                        bestExpiry = exp; bestCustomer = cust.id;
+                    }
+                }
+            }
+        } catch (e) { /* no one-time entitlement readable here; keep looking */ }
     }
-    return { active: false, status: (subs.data[0] && subs.data[0].status) || 'none', expiry: null, customerId: cust.id };
+
+    if (bestExpiry != null) {
+        return { active: true, status: 'paid', expiry: bestExpiry,
+                 customerId: bestCustomer, customers: list.length };
+    }
+    // Reports how many records were searched, so "not entitled" can be told apart from
+    // "looked in the wrong place".
+    return { active: false, status: fallbackStatus, expiry: null,
+             customerId: list[0].id, customers: list.length };
 }
 
 async function subscriptionSource(email: string): Promise<{ allowed: boolean; via: string; detail: string }> {
@@ -196,7 +282,7 @@ async function subscriptionSource(email: string): Promise<{ allowed: boolean; vi
 
 # ---------------------------------------------------------------- finding the function
 
-def span_of(text, decl):
+def span_of(text, decl, at=0):
     """Where `decl` starts and where its closing brace is, by MATCHING BRACES.
 
     Not by a line count and not by a regex over the body: this replaces a function in a file
@@ -206,7 +292,7 @@ def span_of(text, decl):
     Braces inside strings, template literals, regexes and comments are skipped, because this
     function's body contains all of them and a naive counter stops at the wrong place.
     """
-    i = text.find(decl)
+    i = text.find(decl, at)
     if i < 0:
         return None
     j = text.find('{', i)
@@ -267,18 +353,48 @@ def node_ok(text, suffix='.js'):
             pass
 
 
-def patch_file(path_, decl, new_body, check_syntax):
-    """Replace the subscriptionSource declaration in one file. Returns a status string."""
+def region_of(text, decls):
+    """The single span covering every declaration in `decls`, or None.
+
+    All of them must be present, in the order given, each one's body closing before the next
+    one starts, with nothing but whitespace and comments between -- anything else means this
+    file is not the shape this installer understands, and it declines rather than guessing.
+    """
+    spans = []
+    at = 0
+    for decl in decls:
+        sp = span_of(text, decl, at)
+        if not sp:
+            return None
+        if spans and sp[0] < spans[-1][1]:
+            return None
+        if spans:
+            between = text[spans[-1][1]:sp[0]]
+            stripped = re.sub(r'/\*.*?\*/', '', between, flags=re.S)
+            stripped = re.sub(r'(?m)^\s*//.*$', '', stripped)
+            if stripped.strip():
+                return None
+        spans.append(sp)
+        at = sp[1]
+    return (spans[0][0], spans[-1][1])
+
+
+def patch_file(path_, decl_sets, new_body, check_syntax):
+    """Replace the entitlement functions in one file. Returns a status string."""
     if not os.path.exists(path_):
         return 'absent'
     with open(path_, 'r', encoding='utf-8') as fh:
         text = fh.read()
     if MARK in text:
         return 'already'
-    sp = span_of(text, decl)
-    if not sp:
+    region = None
+    for decls in decl_sets:
+        region = region_of(text, decls)
+        if region:
+            break
+    if not region:
         return 'not-found'
-    out = text[:sp[0]] + new_body + text[sp[1]:]
+    out = text[:region[0]] + new_body + text[region[1]:]
     if check_syntax:
         good, why = node_ok(out)
         if not good:
@@ -312,20 +428,22 @@ def main():
     dist = os.path.join(root, 'dist', 'index.js')
     src = os.path.join(root, 'src', 'index.ts')
 
-    r1 = patch_file(dist, 'async function subscriptionSource(', JS_NEW, True)
+    r1 = patch_file(dist, DECL_SETS, JS_NEW, True)
     print('  dist/index.js  : ' + r1)
-    r2 = patch_file(src, 'async function subscriptionSource(', TS_NEW, False)
+    r2 = patch_file(src, TS_DECL_SETS, TS_NEW, False)
     print('  src/index.ts   : ' + r2)
     if r1.startswith('syntax'):
         print('\nNOTHING WAS WRITTEN. The edit did not parse, which is the one outcome this')
         print('refuses to install. Nothing on the server changed.')
         return 1
     if r1 == 'not-found':
-        print('\nsubscriptionSource was not found in dist/index.js. This server is either')
-        print('older or newer than this installer expects; nothing was changed.')
+        print('\nThe entitlement functions were not found in the shape this installer')
+        print('understands. This server is either older or newer than it expects, or has')
+        print('been edited by hand; nothing was changed.')
         return 1
     if r1 == 'already':
-        print('\nAlready installed. Nothing to do.')
+        print('\nAlready installed -- this exact version, checked by a phrase that only')
+        print('this version contains. Nothing to do.')
         return 0
     print('\nInstalled. Now:  sudo systemctl restart baja-server')
     print('Then, with the address you sign in with:')

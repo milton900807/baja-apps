@@ -113,6 +113,19 @@ if [[ $DO_API -eq 1 ]]; then
     || die "Could not download install-donation-endpoint.py"
   python3 "$TMP/a.py" "$SERVER_DIR"
 
+  # The credit gate and the status route used to answer "is this person entitled" with two
+  # different implementations, and only one of them knew about the early-access year. One
+  # function answers it now, and it reads EVERY Stripe customer record at the address: Stripe
+  # makes a new record per Checkout unless told to reuse one, so a payment can sit on a record
+  # that is not the first one returned. A patch rather than a copy, because /opt/baja-server
+  # is not a git checkout. It refuses to write anything that does not parse.
+  step "The credit gate honours the early-access year, across duplicate Stripe customers"
+  if curl -fsSL "$RAW/$REF/tools/hotfix/install-subscription-entitlement.py" -o "$TMP/sub.py" 2>/dev/null; then
+    python3 "$TMP/sub.py" "$SERVER_DIR" || say "  Not applied (see above). Everything else carries on."
+  else
+    say "  install-subscription-entitlement.py is not at ${REF:0:12}; skipped."
+  fi
+
   step "The lionscript modules"
   curl -fsSL "$RAW/$REF/tools/hotfix/install-fundraise-app.py" -o "$TMP/b.py" \
     || die "Could not download install-fundraise-app.py"
