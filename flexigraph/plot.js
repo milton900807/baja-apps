@@ -11465,20 +11465,16 @@ function (MGrid) {
                 this.grid.rescale();
                 let x = scx;
                 let y = scy;
+                // HOVER OFF THE SAME GEOMETRY AS THE DRAWING. This worked the row out from
+                // the grid alone, which ignores the title bar the buttons are actually drawn
+                // in, so the button that lit up was not always the button under the pointer.
+                const __g = this.__btnRowGeom();
                 let b = this.buttons;
-                let tw = (((30 * b.length)))
-                let init = (this.grid.xi + this.grid.width - this.buttons.length * bsize);
-                if (init < 0) {
-                    init = (0)
-                }
+                let init = __g.init;
                 let index = 0;
                 for (let button of b) {
                     let buttonX = init + index * bsize;
-                    let buttonY = (this.grid.yi - (this.margin.top));
-                    let screen_height = (this.getHeight());
-                    if (buttonY < 0 && (buttonY + screen_height) > 0) {
-                        buttonY = 10;
-                    }
+                    let buttonY = __g.y;
 
                     let bbw = bsize;
                     index++;
@@ -16444,10 +16440,14 @@ function (MGrid) {
                     const centerX = buttonX + bsize / 2;
                     const centerY = buttonY + buttonHeight / 2;
                     const isClose = button.name === "close";
+                    const isAsk = button.name === "ask";
 
-                    const fill = hovered ? (isClose ? '#fee2e2' : '#e2e8f0') : 'rgba(248,250,252,0.97)';
-                    const border = hovered ? (isClose ? '#ef4444' : '#64748b') : 'rgba(148,163,184,0.9)';
-                    const ink = hovered ? (isClose ? '#b91c1c' : '#1f2937') : '#475569';
+                    const fill = isAsk ? (hovered ? '#fde68a' : '#fef3c7')
+                        : (hovered ? (isClose ? '#fee2e2' : '#e2e8f0') : 'rgba(248,250,252,0.97)');
+                    const border = isAsk ? '#d97706'
+                        : (hovered ? (isClose ? '#ef4444' : '#64748b') : 'rgba(148,163,184,0.9)');
+                    const ink = isAsk ? '#92400e'
+                        : (hovered ? (isClose ? '#b91c1c' : '#1f2937') : '#475569');
 
                     ctx.save();
                     ctx.shadowColor = 'rgba(15,23,42,0.12)';
@@ -16529,10 +16529,14 @@ function (MGrid) {
                         ctx.lineWidth = 1;
                         ctx.stroke();
                         ctx.fillStyle = ink;
+                        // A LABEL, NOT A GLYPH. The three window controls are glyph circles
+                        // and a fourth would be one more small round thing to decode; this
+                        // one says what it is. Falls back to the name, which is what every
+                        // button drawn down here used to show.
                         ctx.font = '9px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillText(button.name, centerX, centerY);
+                        ctx.fillText(button.label || button.name, centerX, centerY);
                     }
                     ctx.restore();
 
@@ -17853,7 +17857,37 @@ function (MGrid) {
             // each worked the row's position out for themselves, from the same two lines.
             // They ask here now: the row cannot be drawn in one place and clicked in another,
             // and the title bar moves it in one edit rather than five.
+            // A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE.
+            //
+            // Only a timeline gets it, and only once: the row is drawn, hit-tested, fired and
+            // called out from this one geometry, so inserting the button here means the five
+            // of them cannot disagree about how many buttons there are. Spliced INTO the
+            // existing array rather than replacing it, because the callers that already hold
+            // a reference to it read its length afterwards.
+            //
+            // Done at draw time rather than in the constructor because a plot's type is set
+            // after it is built, and a plot read back from JSON is built the same way: there
+            // is no moment during construction when this object knows it is a timeline.
+            __ensureAskButton() {
+                try {
+                    if (('' + (this.type || '')) !== 'timeline') return;
+                    const b = this.buttons;
+                    if (!Array.isArray(b)) return;
+                    for (const x of b) { if (x && x.name === 'ask') return; }
+                    let at = 0;
+                    for (let i = 0; i < b.length; i++) { if (b[i] && b[i].name === 'maximize') { at = i + 1; break; } }
+                    b.splice(at, 0, {
+                        name: 'ask', label: 'Ask', x: 0 + bsize, y: 10, width: 20, height: 20,
+                        action: async (bx, by, x, y, pt) => {
+                            return await exec('baja/plate/ops/timeline-ask.js', this, pt);
+                        },
+                        highlight: async () => { try { return await this.highlightButton('ask'); } catch (e) { } },
+                        color: 'lightcyan'
+                    });
+                } catch (e) { }
+            }
             __btnRowGeom() {
+                this.__ensureAskButton();
                 try { this.grid.rescale(); } catch (e) { }
                 const n = Math.max(1, (this.buttons || []).length);
                 let init = (this.grid.xi + this.grid.width - n * bsize);

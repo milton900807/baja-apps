@@ -360,7 +360,8 @@ if [[ $DO_API -eq 1 ]]; then
     "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
 
   install_group "a sentence in the project command field does it, or opens where it is done" \
-    "cpd/main-timeline.js:A BUTTON ON THE TIMELINE'S OWN BAR" \
+    "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
+    "baja/plate/ops/timeline-ask.js:ASKING A TIMELINE FOR SOMETHING, FROM ITS OWN FRAME" \
     "baja/plate/menu/project-command.js:THE DATE OF TODAY GOES WITH EVERY REQUEST" \
     "baja/plate/menu/project-capabilities.js:timeline_add" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
