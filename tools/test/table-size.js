@@ -136,15 +136,18 @@ const shape = (t) => t.wells[0].length + 'x' + t.wells.length;
     ok(!!r.error && /select the row to insert after/.test(r.error) && ins.wells[0].length === 2,
        'with nothing selected it asks rather than guessing: ' + r.error);
 
-    // the formulas that are now pointing at the wrong rows are named
-    ins = mkTable('T', [['a'], ['b'], ['c']]);
+    // THE FORMULAS MOVE WITH THE ROWS, end to end through the operation.
+    ins = mkTable('T', [['a'], ['b'], ['=sum(T[0:0][0:1])']]);
     ins.formula = { '[0:0][2:2]': '=sum(T[0:0][0:1])' };
     ptI = mkTrack([ins]);
+    ptI.formulas = { 'T[0:0][2:2]': '=sum(T[0:0][0:1])' };
     ins.__sel = [ins.wells[0][0]];
     r = await run(ptI, { rows: 1, where: 'after_selection' });
-    ok(r.formulas_to_check === 1,
-       'a formula below the insertion is reported, since inserting moves the cells and not '
-       + 'what refers to them: ' + JSON.stringify(r));
+    ok(ins.wells[0][3].value === '=sum(T[0:0][0:2])',
+       'the total moved down AND grew to cover the inserted row: ' + ins.wells[0][3].value);
+    ok(ins.formula['[0:0][3:3]'] === '=sum(T[0:0][0:2])',
+       'held against the row it is now on: ' + JSON.stringify(Object.keys(ins.formula)));
+    ok(r.formulas_moved >= 1, 'and the operation says so: ' + JSON.stringify(r));
 
     // and the end is still the end
     ins = mkTable('T', [['a'], ['b']]);

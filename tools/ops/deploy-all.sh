@@ -404,7 +404,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
     "baja/plate/menu/project-command.js:THE VALUES CAN BE CHANGED BEFORE IT RUNS" \
     "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
-    "baja/plate/ops/table-size.js:WHERE THE ROWS GO" \
+    "baja/plate/ops/table-size.js:THE FORMULAS MOVE WITH THE ROWS" \
+    "baja/plate/ops/shift-formulas.js:ROWS MOVED, SO THE FORMULAS MOVE WITH THEM" \
     "baja/plate/ops/fill-table.js:FILLING A TABLE THAT ALREADY HAS ITS COLUMNS" \
     "baja/plate/ops/change-values.js:ARITHMETIC ON THE CELLS THAT ARE SELECTED" \
     "baja/plate/ops/calendar-import.js:A CALENDAR ON A TIMELINE" \

@@ -137,21 +137,17 @@ function (pm, o) {
             try { pt.updateCalculations(); } catch (e) { }
             try { if (pt.wake) pt.wake(); } catch (e) { }
 
-            // A FORMULA BELOW THE INSERTION IS NOW POINTING ONE ROW TOO HIGH.
-            //
-            // Formulas are held against cell positions -- Name[c:c][r:r] -- and inserting a
-            // row moves the cells without moving what refers to them. The plate's own insert
-            // row menu has always had this. It is not fixed here, because rewriting every
-            // formula in a project is its own piece of work and a half-done version of it is
-            // worse than none; it is SAID, which is the part that was missing.
-            let shifted = 0;
-            if (insertedAt != null) {
+            // THE FORMULAS MOVE WITH THE ROWS. Inserting shifts cells down and leaves
+            // everything that refers to them pointing at what used to be there: a total
+            // stops counting the row it was built to count, and a figure on another sheet
+            // reads its neighbour's number. shift-formulas.js moves both the places formulas
+            // LIVE and everything that POINTS at this table, anywhere in the project.
+            let shifted = { keys: 0, refs: 0, cells: 0 };
+            if (insertedAt != null && addedRows > 0) {
                 try {
-                    for (const k of Object.keys(t.formula || {})) {
-                        const m = ('' + k).match(/\[(\d+)(?::\d+)?\]\[(\d+)(?::\d+)?\]/);
-                        if (m && parseInt(m[2], 10) >= insertedAt) shifted++;
-                    }
-                } catch (e) { shifted = 0; }
+                    shifted = await exec('baja/plate/ops/shift-formulas.js', pt, t.name,
+                        insertedAt, addedRows) || shifted;
+                } catch (e) { shifted = { keys: 0, refs: 0, cells: 0 }; }
             }
 
             const bits = [];
@@ -163,14 +159,15 @@ function (pm, o) {
             if (addedCols) bits.push('added ' + addedCols + ' column' + (addedCols === 1 ? '' : 's'));
             if (!bits.length) { resolve({ error: 'nothing changed: ' + t.name + ' is as it was' }); return; }
             try {
+                const moved = (shifted.refs || 0) + (shifted.keys || 0);
                 pt.setMessage(t.name + ': ' + bits.join(', ') + ' (now ' + nRows() + ' x ' + nCols() + ')'
-                    + (shifted ? ('. ' + shifted + ' formula' + (shifted === 1 ? '' : 's')
-                        + ' below that point still point at the old rows: check them') : ''), 8);
+                    + (moved ? ('. ' + moved + ' formula reference'
+                        + (moved === 1 ? '' : 's') + ' moved with the rows') : ''), 8);
             } catch (e) { }
 
             resolve({ table: t.name, added_rows: addedRows || undefined,
                 inserted_at: (insertedAt == null) ? undefined : insertedAt,
-                formulas_to_check: shifted || undefined,
+                formulas_moved: ((shifted.refs || 0) + (shifted.keys || 0)) || undefined,
                 removed_rows: removedRows || undefined, added_columns: addedCols || undefined,
                 rows: nRows(), columns: nCols() });
         } catch (e) {
