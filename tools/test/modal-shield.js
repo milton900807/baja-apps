@@ -53,10 +53,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const fire = (el, type) => el.dispatchEvent(new dom.window.MouseEvent(type,
         { bubbles: true, cancelable: true, view: dom.window }));
 
+    // The canvas hovers, highlights and drags from the MOVE, through a listener on the
+    // window, which a panel in front of it does not interrupt: those count as mouse events
+    // passing through to the canvas just as much as a click does.
+    const moved = { canvas: 0, window: 0 };
+    canvas.addEventListener('mousemove', () => moved.canvas++);
+    window.addEventListener('mousemove', () => moved.window++);
+
     // WITHOUT the shield: the canvas hears its own events, which is the normal state
-    fire(canvas, 'mousedown'); fire(canvas, 'mouseup'); fire(canvas, 'click');
+    fire(canvas, 'mousedown'); fire(canvas, 'mouseup'); fire(canvas, 'click'); fire(canvas, 'mousemove');
     ok(heard.down === 1 && heard.up === 1 && heard.click === 1,
        'with no panel up, the canvas hears presses as it always did');
+    ok(moved.canvas === 1, 'and moves, which is how it hovers and drags');
+    moved.canvas = 0; moved.window = 0;
 
     const shield = await load('baja/lib/modal-shield.js', panel, { allow: ['.ls-sug'] });
 
@@ -73,6 +82,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // its list, which lives outside the panel, works too
     fire(sug, 'mousedown');
     ok(pressedSug === 1, 'a list the panel owns outside itself still works');
+
+    // MOVING OVER THE CANVAS IS STOPPED TOO, which is the half that was missed: a press is
+    // not the only thing a canvas listens to.
+    fire(canvas, 'mousemove');
+    ok(moved.canvas === 0 && moved.window === 0,
+       'a move over the canvas under the panel reaches neither it nor the window');
+    fire(button, 'mousemove');
+    ok(moved.window === 1, 'while a move inside the panel is left alone');
 
     // anything on the canvas is swallowed while the panel is up
     const before = { ...heard };
@@ -128,6 +145,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     // and then it really comes down
     await sleep(500);
+    fire(canvas, 'mousemove');
+    ok(moved.canvas === 1, 'moves reach the canvas again once the shield is down');
     fire(canvas, 'mousedown'); fire(canvas, 'mouseup'); fire(canvas, 'click');
     ok(heard.down === before.down + 1 && heard.up === before.up + 1 && heard.click === before.click + 1,
        'a moment later the canvas is live again: the shield does not outstay the panel');

@@ -29,8 +29,15 @@ function (el, opts) {
         // The dialogs core itself puts up (prompt, the info panel), which an operation
         // started FROM a shielded panel opens on top of it.
         .concat(['#baja-prompt-panel', '#baja-info-panel', '#baja-prompt-text']);
-    const EVENTS = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick',
-        'contextmenu', 'touchstart', 'touchend', 'wheel'];
+    // MOVING THE MOUSE IS A MOUSE EVENT TOO. The first version stopped presses, releases and
+    // clicks, which is what "clicks" means to a person and not what a canvas listens to: it
+    // hovers, highlights, resizes columns and drags from the MOVE, through a window listener
+    // that a panel in front of it does not interrupt. So the canvas under an open panel went
+    // on reacting to a pointer that was never meant for it -- buttons lighting up under the
+    // box, the cursor changing, a drag following the mouse behind the panel.
+    const EVENTS = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel',
+        'mousedown', 'mousemove', 'mouseup', 'mouseover', 'mouseout', 'click', 'dblclick',
+        'contextmenu', 'touchstart', 'touchmove', 'touchend', 'wheel', 'dragover', 'drop'];
 
     let dead = false;         // the panel is gone; swallow everything for a moment
     let released = false;     // listeners already removed
