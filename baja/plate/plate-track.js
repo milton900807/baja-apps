@@ -12688,7 +12688,7 @@ function (progress) {
             // Share ONE object (table, chart, timeline, note) with a person: the same
             // co-editing share as the workbook, narrowed to this object. The recipient sees
             // only it, maximized, and edits it under the usual per-object lock.
-            shareObject(obj) {
+            shareObject(obj, prefill) {
                 if (!obj) return;
                 const kind = (typeof obj.drawPlot === 'function') ? 'plot' : (obj.shape ? 'glyph' : 'plate');
                 const id = '' + (obj.uid || obj.id || '');
@@ -12696,7 +12696,8 @@ function (progress) {
                 const label = ('' + (obj.name || obj.comment || (kind === 'plot' ? (obj.type === 'timeline' ? 'Timeline' : 'Chart') : kind === 'glyph' ? 'Note' : 'Table'))).slice(0, 80);
                 const graph = CurrentLayout.getStashed('graph');
                 const pm = CurrentLayout.getStashed('plate-track');
-                return exec('baja/plate/collab/share-for-coediting.js', this, graph, pm, { kind, id, label });
+                return exec('baja/plate/collab/share-for-coediting.js', this, graph, pm,
+                    { kind, id, label, prefill: prefill || null });
             }
             // The recipient's side of a single-object share: only this object, maximized,
             // with no way out of the maximized view (there is nothing else to see).

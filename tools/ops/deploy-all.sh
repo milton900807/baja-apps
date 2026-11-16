@@ -380,7 +380,7 @@ if [[ $DO_API -eq 1 ]]; then
   # and look at it. And the canvas behind a maximized object was still taking presses
   # through the backdrop, at its own world coordinates.
   install_group "zoom into a table from its bar; a maximized object keeps the clicks" \
-    "baja/plate/plate-track.js:WHILE MAXIMIZED, THE PRESS BELONGS TO THE MAXIMIZED OBJECT"
+    "baja/plate/plate-track.js:prefill: prefill || null"
 
   # prompt() and infoPrompt() live in core.js, which has never been listed here: their
   # Cancel and Close were clicks the canvas got as well.
@@ -404,7 +404,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
     "baja/plate/menu/project-command.js:A FORMULA IS NOT A REQUEST TO BE INTERPRETED" \
     "baja/plate/ops/set-formula.js:A FORMULA TYPED AS A REQUEST IS A FORMULA" \
-    "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
+    "baja/plate/ops/focus-object.js:pick-canvas-object.js, which every operation" \
+    "baja/plate/ops/pick-canvas-object.js:ONE ANSWER TO \"WHICH ONE?\", FOR ANYTHING ON THE CANVAS" \
+    "baja/plate/ops/share-object.js:SHARE THIS\" OPENS THE SHARE DIALOG. IT DOES NOT SHARE ANYTHING" \
+    "baja/plate/collab/share-for-coediting.js:FILLED IN, NEVER SENT" \
     "baja/plate/ops/table-size.js:WHAT POINTS AT THE ROWS THAT ARE GOING" \
     "baja/plate/ops/shift-formulas.js:DELETING ROWS IS THE SAME MOVE BACKWARDS" \
     "baja/plate/ops/fill-table.js:FILLING A TABLE THAT ALREADY HAS ITS COLUMNS" \
@@ -416,7 +419,7 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/project/text-events.py:each event resolves against ITS" \
     "py/bio/project/ical-read.py:WHY ICS AND NOT A GOOGLE SIGN-IN" \
     "py/bio/project/table-fill.py:THE TABLE'S OWN COLUMNS ARE THE SHAPE" \
-    "baja/plate/menu/project-capabilities.js:A CELL THAT TOTALS ANOTHER TABLE" \
+    "baja/plate/menu/project-capabilities.js:SHARING IS A DIALOG, NOT AN ACT" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
     "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
     "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \

@@ -20,26 +20,12 @@ function (pm, o) {
             if (!want) { resolve({ error: 'which one?' }); return; }
 
             // EVERYTHING ON THE CANVAS, not just the tables: a timeline and a chart are
-            // objects somebody can ask to see, and they live in a different list.
-            const all = [];
-            for (const list of [pt.root, pt.m_plots, pt.plots, pt.objects]) {
-                if (!Array.isArray(list)) continue;
-                for (const x of list) { if (x && x.name != null && all.indexOf(x) < 0) all.push(x); }
-            }
-            if (!all.length) { resolve({ error: 'there is nothing on the canvas yet' }); return; }
-
-            const norm = (s) => ('' + (s == null ? '' : s)).trim().toLowerCase();
-            const w = norm(want);
-            let hit = all.filter((x) => norm(x.name) === w)[0] || null;
-            // A near miss is still the thing: "assumptions" for "Product Assumptions", and
-            // the other way round. An exact name wins first, so a table called Assumptions
-            // beside one called Assumptions_2026 is not a coin toss.
-            if (!hit) hit = all.filter((x) => norm(x.name).indexOf(w) >= 0 || w.indexOf(norm(x.name)) >= 0)[0] || null;
-            if (!hit) {
-                resolve({ error: 'there is nothing called "' + want + '" on the canvas: this one has '
-                    + all.map((x) => '"' + x.name + '"').join(', ') });
-                return;
-            }
+            // objects somebody can ask to see, and they live in a different list. The search
+            // itself is pick-canvas-object.js, which every operation that has to work out
+            // which object a request means now shares, so they cannot disagree about it.
+            const pick = await exec('baja/plate/ops/pick-canvas-object.js', pt, want);
+            if (!pick || pick.error) { resolve({ error: (pick && pick.error) || 'which one?' }); return; }
+            const hit = pick.object;
 
             let shown = null;
             try { shown = await exec('baja/plate/ops/show-new-object.js', pt, hit); } catch (e) { shown = null; }

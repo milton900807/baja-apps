@@ -202,6 +202,38 @@ function () {
             }
         },
         {
+            // SHARING IS A DIALOG, NOT AN ACT. "Share this with ana@lab.org" opens the share
+            // dialog for that object with the address filled in; the owner presses Share.
+            name: 'share_object',
+            summary: 'open the share dialog for one object (a table, a chart, a timeline, a '
+                + 'note) so it can be shared with a named person. THIS IS THE ANSWER whenever '
+                + 'the request asks to share, send, give access to, invite someone to, or '
+                + 'publish a link to something on the canvas. It only OPENS the dialog with '
+                + 'whatever the request named filled in: nothing is sent and nobody is given '
+                + 'anything until the user presses Share in that dialog, so it is safe to '
+                + 'choose even when the request is vague about who',
+            module: 'baja/plate/ops/share-object.js',
+            params: {
+                name: { type: 'string', default: 'the object the request was asked from, '
+                        + 'or the selected one',
+                    about: 'the name of the object to share, only if the request names one' },
+                emails: { type: 'string', default: 'the address field is left empty for the '
+                        + 'user to type',
+                    about: 'the email address or addresses the request names, separated by '
+                        + 'commas; leave it out if the request names nobody' },
+                // Deliberately a free string rather than an enum: the operation reads
+                // "view only", "read only" and "anyone with the link" as well as the three
+                // bare words, and anything it cannot read is left on the dialog's own
+                // default for the user to set, which is better than a refusal over wording.
+                access: { type: 'string', default: 'the dialog opens on can edit',
+                    about: 'edit for working on it together, view for look but do not change, '
+                        + 'public for a link anyone can open without signing in; leave it out '
+                        + 'unless the request says which' },
+                message: { type: 'string', default: 'no note',
+                    about: 'a note to go with it, only if the request dictates one' }
+            }
+        },
+        {
             name: 'new_table',
             summary: 'add a new empty table of a given size to the project',
             module: 'baja/plate/ops/new-table.js',

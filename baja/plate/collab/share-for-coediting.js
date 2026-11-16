@@ -150,6 +150,24 @@ function (pt, graph, pm, objectRef) {
             $('ce-send').style.borderColor = pub ? '#FD5E53' : '#1aa3bd';
         };
         panel.querySelectorAll('input[name="ce-access"]').forEach((r) => { r.onchange = syncAccess; });
+
+        // FILLED IN, NEVER SENT. When the share was asked for in words -- "share employees
+        // with ana@lab.org, view only" -- the address and the access the request named are
+        // put in the fields and the dialog is left sitting there. Nothing goes out until the
+        // owner presses Share, because who gets a document is not a thing to infer from a
+        // sentence and act on, and the request may have had the name slightly wrong.
+        try {
+            const pre = (objectRef && objectRef.prefill) || null;
+            if (pre) {
+                if (pre.emails) { const to = $('ce-to'); if (to) to.value = '' + pre.emails; }
+                if (pre.message) { const ms = $('ce-msg'); if (ms) ms.value = '' + pre.message; }
+                if (pre.access) {
+                    const r = panel.querySelector('input[name="ce-access"][value="' + pre.access + '"]');
+                    if (r) { r.checked = true; }
+                }
+            }
+        } catch (e) { }
+        syncAccess();
         // The author is asked before anything is published. Resolves true only on "Publish".
         const confirmPublic = () => new Promise((resolve) => {
             const veil = document.createElement('div');
