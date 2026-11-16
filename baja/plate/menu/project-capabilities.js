@@ -20,6 +20,26 @@ function () {
 
     const LIST = [
         {
+            // A CALENDAR ON A TIMELINE. "Integrate my calendar" had nothing behind it.
+            name: 'import_calendar',
+            summary: 'put the events from a calendar onto a timeline. THIS IS THE ANSWER to '
+                + '"integrate my calendar", "put my calendar on this", "import my calendar". '
+                + 'It reads a calendar by its private iCal (.ics) address, which every '
+                + 'calendar publishes and which needs no sign-in; if the request does not '
+                + 'give one, the user is asked for it. An email address is NOT a calendar '
+                + 'address, so never pass one as address: leave it out and let the user be '
+                + 'asked',
+            module: 'baja/plate/ops/calendar-import.js',
+            params: {
+                address: { type: 'string', default: 'the user is asked for it',
+                    about: 'the calendar\u2019s iCal address, only if the request actually '
+                        + 'contains an https:// or webcal:// link. Never an email address' },
+                timeline: { type: 'string', default: 'the timeline the request was made from, '
+                        + 'or the only one here',
+                    about: 'the NAME of the timeline to put the events on' }
+            }
+        },
+        {
             // ARITHMETIC ON WHAT IS SELECTED. "Increase these values by 10%" had nothing
             // behind it, and the only way was to retype eight numbers.
             name: 'change_values',
@@ -471,6 +491,11 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'import_calendar') {
+            return 'put a calendar\u2019s events on '
+                + (args.timeline ? ('"' + args.timeline + '"') : 'the timeline')
+                + (args.address ? '' : ' (it will ask which calendar)');
         }
         if (name === 'change_values') {
             const bits = [];

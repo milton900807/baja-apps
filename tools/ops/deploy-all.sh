@@ -372,7 +372,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:ARITHMETIC ON WHAT IS SELECTED"
+    "baja/plate/menu/project-capabilities.js:A CALENDAR ON A TIMELINE"
 
   # Far out, a table is a bar with a name on it and its menu offered no way to simply go
   # and look at it. And the canvas behind a maximized object was still taking presses
@@ -392,6 +392,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/table-size.js:ROWS AND COLUMNS ON A TABLE THAT IS ALREADY THERE" \
     "baja/plate/ops/fill-table.js:FILLING A TABLE THAT ALREADY HAS ITS COLUMNS" \
     "baja/plate/ops/change-values.js:ARITHMETIC ON THE CELLS THAT ARE SELECTED" \
+    "baja/plate/ops/calendar-import.js:A CALENDAR ON A TIMELINE" \
+    "py/bio/project/ical-read.py:WHY ICS AND NOT A GOOGLE SIGN-IN" \
     "py/bio/project/table-fill.py:THE TABLE'S OWN COLUMNS ARE THE SHAPE" \
     "baja/plate/menu/project-capabilities.js:A CELL THAT TOTALS ANOTHER TABLE" \
     "baja/plate/ops/new-table.js:WELL.JS FIRST" \
