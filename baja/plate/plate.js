@@ -936,7 +936,12 @@ function () {
                     let selected_wells = this.selectWellsByString(key)
 
 
-                    let v = await exec('baja/plate/ops/frun-object.js', _form, pt);
+                    // THE CELLS THIS FORMULA IS WRITTEN IN GO WITH IT: a total over an open
+                    // range reaches its own row, and without knowing which cell that is the
+                    // engine can only recognise itself by its own text, which stops being
+                    // true the moment the answer is written back.
+                    let v = await exec('baja/plate/ops/frun-object.js', _form, pt,
+                        { wells: selected_wells, table: this.name, key: key });
 
 
 

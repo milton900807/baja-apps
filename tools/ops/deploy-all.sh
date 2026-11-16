@@ -350,7 +350,7 @@ if [[ $DO_API -eq 1 ]]; then
   # Typing into a cell can now be read as an instruction instead of stored as a value, with
   # Save text still first so Ctrl+Enter is unchanged and nothing can run by accident.
   install_group "a table resizes from its edges; a cell can be told what to do" \
-    "baja/plate/plate.js:THE ROW GOES AND THE FORMULAS GO WITH IT" \
+    "baja/plate/plate.js:THE CELLS THIS FORMULA IS WRITTEN IN GO WITH IT" \
     "baja/plate/ops/diagnose-formula.js:WHY A CELL IS RED, AND WHAT WOULD FIX IT" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:OPEN AT THE BOTTOM" \
@@ -372,7 +372,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a table can be asked for things from its own bar" \
     "baja/plate/ops/table-ask.js:ASKING A TABLE FOR SOMETHING, FROM ITS OWN TITLE BAR" \
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
-    "baja/plate/ops/frun-object.js:A SUM DOES NOT COUNT THE CELL IT IS WRITTEN IN" \
+    "baja/plate/ops/frun-object.js:WHICH CELL THIS FORMULA IS WRITTEN IN" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
     "baja/plate/menu/project-capabilities.js:WHERE THE ROWS GO"
 

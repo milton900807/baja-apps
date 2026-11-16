@@ -1,4 +1,19 @@
-function (expression, pt) {
+function (expression, pt, owner) {
+
+    // WHICH CELL THIS FORMULA IS WRITTEN IN.
+    //
+    // The engine was handed an expression and a project and nothing else, so a sum had no
+    // way to know which cell it was being worked out for and had to recognise itself by its
+    // own text. That works exactly once. The moment the total is written back, the cell
+    // holds a NUMBER, the text no longer matches, and the next recalculation adds the total
+    // into itself: 2,380,202 becomes 4,760,404 becomes 49,084,684, climbing every pass with
+    // nothing to say it is wrong. Identity does not go stale, so the owner's own wells are
+    // passed in and left out by reference.
+    const __ownWells = new Set();
+    try {
+        const ow = owner && (Array.isArray(owner) ? owner : owner.wells);
+        if (Array.isArray(ow)) for (const w of ow) { if (w) __ownWells.add(w); }
+    } catch (e) { }
 
     return new Promise(async (resolve, reject) => {
 
@@ -2141,6 +2156,12 @@ function (expression, pt) {
 
                         const out = [];
                         for (const item of flat) {
+                            // THE CELL THIS TOTAL IS WRITTEN IN IS NOT ONE OF THE FIGURES.
+                            // By reference, so it holds on every pass after the first, when
+                            // the cell has stopped holding its own text and holds last
+                            // pass's answer instead. Skipping it there is what stops a total
+                            // over an open range from growing by itself forever.
+                            if (__ownWells.size && __ownWells.has(item)) continue;
                             const value = (typeof item === 'object' && item !== null && 'value' in item)
                                 ? Number(item.value)
                                 : Number(item);
