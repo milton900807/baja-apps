@@ -350,7 +350,7 @@ if [[ $DO_API -eq 1 ]]; then
   # Typing into a cell can now be read as an instruction instead of stored as a value, with
   # Save text still first so Ctrl+Enter is unchanged and nothing can run by accident.
   install_group "a table resizes from its edges; a cell can be told what to do" \
-    "baja/plate/plate.js:THE CELLS THIS FORMULA IS WRITTEN IN GO WITH IT" \
+    "baja/plate/plate.js:NO DEBUG PRINTING FROM A ROW DELETE" \
     "baja/plate/ops/diagnose-formula.js:WHY A CELL IS RED, AND WHAT WOULD FIX IT" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:OPEN AT THE BOTTOM" \
@@ -407,7 +407,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/focus-object.js:pick-canvas-object.js, which every operation" \
     "baja/plate/ops/pick-canvas-object.js:ONE ANSWER TO \"WHICH ONE?\", FOR ANYTHING ON THE CANVAS" \
     "baja/plate/ops/share-object.js:SHARE THIS\" OPENS THE SHARE DIALOG. IT DOES NOT SHARE ANYTHING" \
-    "baja/plate/collab/share-for-coediting.js:FILLED IN, NEVER SENT" \
+    "baja/plate/collab/share-for-coediting.js:THE SAME SERIALIZER AS EVERY OTHER SAVE" \
+    "baja/plate/collab/workbook-json.js:A REPEATED REFERENCE IS NOT A CYCLE" \
+    "baja/plate/collab/collab-session.js:AN EMPTY WORKBOOK IS NEVER SENT OVER A FULL ONE" \
     "baja/plate/ops/table-size.js:WHAT POINTS AT THE ROWS THAT ARE GOING" \
     "baja/plate/ops/shift-formulas.js:DELETING ROWS IS THE SAME MOVE BACKWARDS" \
     "baja/plate/ops/fill-table.js:FILLING A TABLE THAT ALREADY HAS ITS COLUMNS" \

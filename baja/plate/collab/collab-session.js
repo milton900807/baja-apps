@@ -28,6 +28,9 @@ function (pt, opts) {
         // out, or the save in destroy() then wrote that empty canvas over this file (sptlc2.bjb,
         // 2026-09-18). The track's id at join time is remembered; a save is only ever made
         // while the page still shows that track, and otherwise the session shuts itself down.
+        // The one workbook serializer, fetched once so the save on the way out can use it
+        // from a pagehide handler, where nothing can be awaited.
+        const WB = await exec('baja/plate/collab/workbook-json.js');
         const joinedUid = (() => { try { return pt && pt.uid ? '' + pt.uid : ''; } catch (e) { return ''; } })();
         // The track itself was cleared or replaced in place (File > New): definitely not ours.
         const trackReset = () => { try { return !!joinedUid && !!pt && ('' + pt.uid) !== joinedUid; } catch (e) { return true; } };
@@ -247,18 +250,19 @@ function (pt, opts) {
             const quiet = !!(opts && opts.quiet);
             const target = g || graph;
             if (!target) throw new Error('nothing to save');
-            const seen = new WeakSet();
-            const value = JSON.stringify(target, function (key, v) {
-                if (key === 'canvas') return;
-                if (key != null && ('' + key).toLowerCase().startsWith('_')) return null;
-                if (typeof v === 'object' && v !== null) {
-                    if (Array.isArray(v) && v.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return v;
-                    if (v.x != null && v.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return v;
-                    if (seen.has(v)) return '[a_c]';
-                    seen.add(v);
-                }
-                return v;
-            });
+            const made = WB.write(target, { track: pt });
+            const value = made.json;
+
+            // AN EMPTY WORKBOOK IS NEVER SENT OVER A FULL ONE. The server refuses it, which
+            // is the only reason the canvas survived the serializer bug above; but a client
+            // that keeps posting a save it knows will be refused just fails quietly every
+            // twenty seconds. Checked here, it is said once and the document is left alone.
+            if (made.wouldBeRefused) {
+                throw new Error('Not saved: this canvas has ' + made.live + ' table'
+                    + (made.live === 1 ? '' : 's') + ', charts and notes, but came out empty '
+                    + 'when written. Nothing was sent, so the saved document is untouched.');
+            }
+
             const r = await POSTJSON({ user: me, path: docPath, value }, host + '/collab/save');
             if (!r || r.status !== 'saved') throw new Error((r && r.error) || 'save failed');
             session.dirty = false;
@@ -289,7 +293,16 @@ function (pt, opts) {
                 if (session.saving || !session.dirty) return;
                 session.saving = true;
                 try { await session.save(graph, { quiet: true }); }
-                catch (e) { session.__autosaveFails = (session.__autosaveFails || 0) + 1; if (session.__autosaveFails === 3) { try { pt.setMessage('The shared document could not be saved in the background. Use Save shared document.', 3); } catch (x) { } } }
+                catch (e) {
+                    session.__autosaveFails = (session.__autosaveFails || 0) + 1;
+                    // SAY WHY, NOT JUST THAT. "could not be saved" sent people looking at the
+                    // network; the reason the save guard gives names the file and the count,
+                    // which is what tells them whether their work is at risk.
+                    const why = ('' + ((e && e.message) || e)).trim();
+                    if (session.__autosaveFails === 3) {
+                        try { pt.setMessage(why || 'The shared document could not be saved in the background. Use Save shared document.', 3); } catch (x) { }
+                    }
+                }
                 finally { session.saving = false; }
             };
             if (typeof requestIdleCallback === 'function') requestIdleCallback(() => { run(); }, { timeout: 5000 });
@@ -301,14 +314,12 @@ function (pt, opts) {
             try {
                 if (!session.dirty || !docPath) return;
                 if (!stillOurs()) return;   // never the leaving page's other document over this one
-                const seen = new WeakSet();
-                const value = JSON.stringify(graph, function (key, v) {
-                    if (key === 'canvas') return;
-                    if (key != null && ('' + key).toLowerCase().startsWith('_')) return null;
-                    if (typeof v === 'object' && v !== null) { if (seen.has(v)) return '[a_c]'; seen.add(v); }
-                    return v;
-                });
-                if (!session.viewOnly) navigator.sendBeacon(host + '/collab/save', new Blob([JSON.stringify({ user: me, path: docPath, value })], { type: 'application/json' }));
+                // The same serializer as every other save, and the same refusal to write an
+                // empty workbook over a full one: a beacon on the way out cannot be told it
+                // failed, so it is the last place to send one that would be.
+                const made = WB.write(graph, { track: pt });
+                if (!made || made.wouldBeRefused) return;
+                if (!session.viewOnly) navigator.sendBeacon(host + '/collab/save', new Blob([JSON.stringify({ user: me, path: docPath, value: made.json })], { type: 'application/json' }));
             } catch (e) { }
         };
         try { window.addEventListener('pagehide', session.__onLeave); } catch (e) { }

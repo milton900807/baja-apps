@@ -18,20 +18,12 @@ function (pt, graph, pm, objectRef) {
         const docName = rawName + '.bjb';
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const body = (r) => (r && r.error && typeof r.error === 'object') ? r.error : r;
-        const serialize = () => {
-            const seen = new WeakSet();
-            return JSON.stringify(graph, function (key, value) {
-                if (key === 'canvas') return;
-                if (key != null && ('' + key).toLowerCase().startsWith('_')) return null;
-                if (typeof value === 'object' && value !== null) {
-                    if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
-                    if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
-                    if (seen.has(value)) return '[a_c]';
-                    seen.add(value);
-                }
-                return value;
-            });
-        };
+        // THE SAME SERIALIZER AS EVERY OTHER SAVE. There were three copies of this, and the
+        // one that treated any repeated reference as a cycle turned plateTrack.root into a
+        // string, which is a workbook that counts as empty. Sharing one is how they stop
+        // disagreeing about what a workbook is.
+        const WB = await exec('baja/plate/collab/workbook-json.js');
+        const serialize = () => WB.write(graph, { track: pt }).json;
 
         try { const old = document.getElementById('baja-coedit-dialog'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
         try { const old = document.getElementById('baja-coedit-backdrop'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }

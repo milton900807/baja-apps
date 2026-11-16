@@ -6158,8 +6158,9 @@ function () {
                 this.grid.xmax = this.wells.length;
                 this.grid.rescale();
             }
+            // NO DEBUG PRINTING FROM A ROW DELETE. Four lines of "debubg" per delete made the
+            // console unreadable at exactly the moment anyone would be looking at it.
             removeRow = (_rowIndex) => {
-                console.log('debubg');
                 for (let colIndex = 0; colIndex < this.wells.length; colIndex++) {
                     if (_rowIndex >= 0 && _rowIndex < this.wells[colIndex].length) {
                         this.wells[colIndex].splice(_rowIndex, 1);
@@ -13034,7 +13035,6 @@ function () {
                     },
                 })
                 setTimeout(() => {
-                    console.log('debubg');
                     const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(0, 87, 163)', 'white', 2)
                     pt.setMenu(smenu)
                 }, 1000)
@@ -14826,7 +14826,6 @@ function () {
             }
             renameTableInFormula(oldName, newName) {
                 const regex = new RegExp(`\\b${oldName}\\s*\\[`, 'g');
-                console.log('debubg');
 
                 for (let rowIndex = 0; rowIndex < this.wells.length; rowIndex++) {
                     for (let colIndex = 0; colIndex < this.wells[rowIndex].length; colIndex++) {
