@@ -54,16 +54,24 @@ function (graph, genegraph_panel_layout) {
                 if (!g || !g.editable || !(g.n > 0) || !(g.per > 0)) return null;
                 const dy = sy - g.sy;
                 if (dy > g.R + 6 || dy < -(g.R * 2.4 + 8)) return null;
+                // SLOT -> MONOMER. chem-draw draws a compound in genomic order, so on a
+                // mirrored (antisense) compound the leftmost bead is the LAST residue. The
+                // slot is what was clicked; the index everything downstream wants is the
+                // monomer, because __chemGeom.monos and the compound's own HELM are both in
+                // the compound's order. A linkage spans two slots and is recorded on the 5'
+                // partner, which after mirroring is the right-hand one of the pair.
+                const __slotToMono = (kind, k) => !g.flipped ? k
+                    : (kind === 'linkage' ? (g.n - 2 - k) : (g.n - 1 - k));
                 const fx = (sx - g.x0) / g.per;
                 if (fx < -0.5 || fx > g.n + 0.5) return null;
                 let i = Math.floor(fx);
                 if (i < 0) i = 0;
                 if (i > g.n - 1) i = g.n - 1;
                 const cx = g.x0 + (i + 0.5) * g.per;
-                if (Math.abs(sx - cx) <= g.R * 1.05) return { kind: 'monomer', i: i };
+                if (Math.abs(sx - cx) <= g.R * 1.05) return { kind: 'monomer', i: __slotToMono('monomer', i) };
                 const j = (sx > cx) ? i : i - 1;
-                if (j < 0 || j >= g.n - 1) return { kind: 'monomer', i: Math.max(0, Math.min(g.n - 1, i)) };
-                return { kind: 'linkage', i: j };
+                if (j < 0 || j >= g.n - 1) return { kind: 'monomer', i: __slotToMono('monomer', Math.max(0, Math.min(g.n - 1, i))) };
+                return { kind: 'linkage', i: __slotToMono('linkage', j) };
             } catch (e) { return null; }
         };
         // The monomers as drawn when the renderer recorded them, otherwise parsed from the

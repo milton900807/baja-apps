@@ -1,6 +1,90 @@
 function (plate_graph, selectedPlate, selectedPoint) {
     return new Promise(async (resolve, reject) => {
         const pt = plate_graph.plateTrack;
+
+        // ---- a sentence, or a formula? ---------------------------------------------
+        //
+        // The test itself lives in baja/plate/menu/is-sentence.js, because a second command
+        // field (the timeline app's) has to make the same decision and two copies of it would
+        // drift apart invisibly: a field that routes a sentence the other way does nothing at
+        // all, which looks exactly like a key that was not pressed.
+        //
+        // Loaded once here rather than per keystroke, and if it cannot be loaded every
+        // command goes down the formula path exactly as it did before any of this existed.
+        let __sentence = null;
+        try { __sentence = await exec('baja/plate/menu/is-sentence.js'); } catch (e) { __sentence = null; }
+        const looksLikeASentence = (str) => {
+            try { return !!(__sentence && __sentence.looksLikeASentence(str)); } catch (e) { return false; }
+        };
+
+        // Every command field in this module goes through here, so there is one answer to
+        // "what happens when someone types into it" rather than four that drift apart.
+        // THE FIELD SAYS WHAT IT IS TALKING TO.
+        //
+        // It is the same box in the same place whatever is selected, so nothing on screen
+        // told you that what you type now goes to the TIMELINE in front of you rather than to
+        // the project in general. That is exactly what it looked like, and the feature was
+        // reported missing twice while it was sitting there.
+        const __fieldHint = () => {
+            try {
+                if (selectedPlate && selectedPlate.type === 'timeline') {
+                    return 'This timeline' + (selectedPlate.name ? (' (' + selectedPlate.name + ')') : '')
+                        + ': add a milestone on a date, a phase between two dates\u2026';
+                }
+                if (selectedPlate && selectedPlate.name) {
+                    return selectedPlate.name + ': say what you want done, or type a formula';
+                }
+            } catch (e) { }
+            return 'Say what you want done, or type a formula';
+        };
+
+        // `legacyFirst` is for the fields whose legacy is the INTERPRETER, which reads plain
+        // language for a timeline already. There the interpreter goes first and the panel
+        // only sees what it did not take; the panel is a wider net, not a replacement, and
+        // putting it in front silently removed a feature that worked.
+        //
+        // The field whose legacy is the formula engine does NOT do this: a sentence run
+        // through it first would make a junk plate before anything else got a say.
+        const runCommandText = async (str, panel, legacy, legacyFirst) => {
+            const t = ('' + (str || '')).trim();
+            if (!t) return;
+            if (!looksLikeASentence(t)) return legacy(t, panel);
+            if (legacyFirst) {
+                let handled = false;
+                try { handled = !!(await legacy(t, panel)); } catch (e) { handled = false; }
+                if (handled) return;
+            }
+            try { if (panel && panel.setText) panel.setText(''); } catch (e) { }
+            let menus = [];
+            try { menus = __lastMenus || []; } catch (e) { menus = []; }
+            try {
+                await exec('baja/plate/menu/project-command.js', {
+                    menus: menus,
+                    // plate_graph is this module's own handle on the project, and it carries
+                    // plateTrack, which is what an operation needs. There is no `pm` in this
+                    // module: that name belongs to the apps that call it, and referring to it
+                    // here threw a ReferenceError the moment anyone pressed Enter.
+                    pm: plate_graph,
+                    text: t,
+                    context: {
+                        selected: (selectedPlate && (selectedPlate.name
+                            || (selectedPlate.shape && selectedPlate.shape.type))) || null,
+                        plates: (() => { try { return (pt.root || []).length; } catch (e) { return null; } })()
+                    },
+                    setError: (m) => { try { pt.setMessage(m, 8); } catch (e) { } }
+                });
+            } catch (e) {
+                // A FAILURE HERE USED TO BE INVISIBLE. The fallback quietly handed the
+                // sentence to the formula engine, which does nothing with it, so a missing
+                // module or a thrown error looked exactly like a key that had not been
+                // pressed. Now it says so, and then still tries the old path.
+                const why = ('' + (e && e.message ? e.message : e));
+                try { pt.setMessage('Could not read that: ' + why, 10); } catch (e2) { }
+                try { console.warn('project command', e); } catch (e2) { }
+                try { legacy(t, panel); } catch (e2) { }
+            }
+        };
+
         // Live co-editing: a Share menu on every menubar this panel builds, whatever is
         // selected, so it is always one click away in Analytics.
         // Menus the hosting app hands over (Analytics: Build and Draw), shown ahead of Share.
@@ -120,12 +204,24 @@ function (plate_graph, selectedPlate, selectedPoint) {
             } catch (e) { console.warn('go to reference', e); }
         };
 
+        // The menubar that was last built, kept so a typed sentence can be matched against
+        // the menu actually on screen. Captured HERE because every menubar in this module is
+        // returned through finishMenubar, and captured before it rewrites the top level into
+        // icons, which drops the labels a sentence would be matched against.
+        let __lastMenus = [];
+
         const finishMenubar = (menuItm) => {
             try {
                 const mobile = (typeof isMobile === 'function') && isMobile();
                 const data = menuItm && menuItm.data ? menuItm.data : null;
                 const menus = data && Array.isArray(data.menus) ? data.menus : null;
                 if (!menus || !menus.length) return menuItm;
+                try { __lastMenus = menus.slice(); } catch (e) { }
+                // PUBLISHED ON THE TRACK, so anything else that wants to match a sentence
+                // against the menu on screen can reach it. The cell editor's "Do it…" does:
+                // one menubar, read from the one place that builds it, rather than a second
+                // copy kept somewhere else and drifting.
+                try { pt.__lastMenubar = () => __lastMenus; } catch (e) { }
                 // Every menubar this module builds goes through here, so this is the one
                 // place the field needs to be handed the way to navigate.
                 try { if (data && !data.gotoRef) data.gotoRef = createIonFunction((t, tags) => { gotoReference(t, tags); }); } catch (e) { }
@@ -636,6 +732,12 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 if (str.startsWith('=')) {
                 }
 
+                // WHETHER IT HANDLED THE TEXT IS THE ANSWER THE CALLER NEEDS.
+                //
+                // This interpreter already reads plain language for a timeline -- "kickoff on
+                // December 1st" becomes a milestone, with an icon fetched for it. Routing
+                // sentences past it to the newer panel took that away. It gets first refusal
+                // now, so it has to say whether it took the request.
                 let r = await timeline_interpreter.executeCommand(str)
                 if (r && r.type === 'rgx') {
 
@@ -707,8 +809,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     let rect_y = pt.grid.Ywc(screen_y + pt.grid.yinset) - small_height / 2;
                     await pt.zoomto(rect_x, rect_y, small_width, small_height);
 
+                    return true;
                 }
-
+                return false;
             }
 
             if (selectedPlate.getSelectedWellsInOrder && selectedPlate.getSelectedWellsInOrder()) {
@@ -940,7 +1043,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     setCompletions(null, 'tables');
                                 }
                             }),
-                            cmd: createIon(async (str, panel) => {
+                            placeholder: __fieldHint(),
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 if (selectedPlate.type === 'timeline') {
                                     execCMD(str)
                                     return;
@@ -1047,7 +1151,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                                     plate_graph.plateTrack.updateCalculations();
                                 }, 100)
-                            }),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1073,9 +1177,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         wid: 'menu',
                         refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
-                            cmd: createIon(async (str, panel) => {
+                            placeholder: __fieldHint(),
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 execCMD(str);
-                            }),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1122,7 +1227,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         data: {
                             text: tmc,
                             menu_button_color: 'alert',
-                            cmd: createIon(async (str, panel) => {
+                            placeholder: __fieldHint(),
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 if (selectedPlate.type === 'timeline') {
                                     execCMD(str)
                                 } else {
@@ -1130,7 +1236,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                     let fal = await interpreter.executeCommand(str);
                                     panel.setText('');
                                 }
-                            }),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1172,10 +1278,11 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         wid: 'menu',
                         refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
-                            cmd: createIon(async (str, panel) => {
+                            placeholder: __fieldHint(),
+                            cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                                 execCMD(str);
 
-                            }),
+                            }, true)),
                             menus: [
                                 ...fileMenu(),
                                 ...appMenus(),
@@ -1391,14 +1498,15 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 refCallback: select_display,
                 data: {
                     text: tmc,
-                    cmd: createIon(async (str, panel) => {
+                    placeholder: __fieldHint(),
+                    cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                         if (selectedPlate.type === 'timeline') {
                             execCMD(str)
                             return;
                         } else {
                             panel.setText('');
                         }
-                    }),
+                    }, true)),
                     menus: [
                         ...fileMenu(),
                         ...appMenus(),
@@ -1439,11 +1547,12 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     wid: 'menu',
                     refCallback: mb,     // loads its command list (it was built and never attached)
                     data: {
-                        cmd: createIon(async (str, panel) => {
+                        placeholder: __fieldHint(),
+                        cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
 
                             execCMD(str);
 
-                        }),
+                        }, true)),
                         menus: [
                             ...fileMenu(),
                             ...appMenus(),
@@ -1546,9 +1655,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
             wid: 'menu',
             refCallback: select_display2,
             data: {
-                cmd: createIon(async (str, panel) => {
+                placeholder: __fieldHint(),
+                cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
                     pt.createPlateFromFormula(str)
-                }),
+                })),
                 menus: [
                     ...fileMenu(),
                     ...appMenus(),

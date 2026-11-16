@@ -2,6 +2,16 @@ function (graph) {
 
     graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
 
+    // THIS TOOL OWNS THE CANVAS. Its preview IS a track highlight -- the window the compound
+    // would occupy, repainted on every mouse move -- and gene.js's mouseDown treats a press
+    // inside a highlight as a press on a selection: it opens the selected-sequence menu and
+    // returns before this tool's own listener runs, so nothing is ever placed. Declaring the
+    // tool makes those shortcuts stand down; clearMouseListeners releases it again, so the
+    // flag cannot outlive the tool even though this tool has no exit path of its own.
+    //
+    // Set AFTER the clear above, which is what releases any previous tool's claim.
+    try { graph.__canvasTool = 'draw-oligos'; } catch (e) { }
+
     graph.selectOff();
     let ed;
     const nameHook = createIonFunction((editor) => {
@@ -57,12 +67,15 @@ function (graph) {
             }
         })
 
-        graph.addMouseDownListener((x, y) => {
-            if (graph.menuVisible()) {
-                return;
-            }
+        // THE PRESS LOCKS THE WINDOW; THE RELEASE ASKS WHAT TO DO WITH IT.
+        //
+        // The menu used to open on the press, which put it under the cursor before the
+        // button came back up and made a click-and-drag impossible: the drag was over by the
+        // time anything could be aimed. Pressing now only fixes the window the preview is
+        // showing, so the gesture reads the way it looks -- press where it goes, release to
+        // say what to do -- and a drag positions the compound before anything is decided.
+        const applyWindow = (x, y) => {
             let trackIndex = graph.getTrack(x, y);
-
             if (trackIndex >= 0) {
                 selectedTrack = graph.track[trackIndex]
                 if (selectedTrack) {
@@ -75,6 +88,26 @@ function (graph) {
                 }
             }
             ywc = y;
+        };
+
+        graph.addMouseDownListener((x, y) => {
+            if (graph.menuVisible()) {
+                return;
+            }
+            applyWindow(x, y);
+        });
+
+        // A release that came from clicking an item in this menu is not a release on the
+        // canvas: gene.js runs a menu item's action on mouse-UP, so without this the menu
+        // would close and immediately reopen under the cursor. Same guard, same reason, as
+        // baja/manchester/annotation/isoform-capture.js.
+        let menuClick = false;
+        graph.addMouseUpListener((x, y) => {
+            if (menuClick) { menuClick = false; return; }
+            if (graph.menuVisible()) {
+                return;
+            }
+            applyWindow(x, y);
             let menuList = [
             ]
 
@@ -82,6 +115,7 @@ function (graph) {
                 menuList.push({
                     label: `Draw oligo`,
                     click: async (x, y) => {
+                        menuClick = true;      // this release belongs to the menu, not the canvas
                         currentSequence = selectedTrack.getHighlightedSequence();
 
                         paused = true;
@@ -115,6 +149,7 @@ function (graph) {
                 menuList.push({
                     label: 'Show sequence',
                     click: (xwc, ywc) => {
+                        menuClick = true;
                         let slice = '';
 
                         let editor_;
@@ -140,6 +175,7 @@ function (graph) {
                 menuList.push({
                     label: 'Track from seq',
                     click: (xwc, ywc) => {
+                        menuClick = true;
                         let slice = '';
                         let seq = selectedTrack.sequence;
                         if (!seq) {

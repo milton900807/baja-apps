@@ -560,6 +560,116 @@ function () {
             graph.drawLine(xs, y, xf, y, color, 13, 'butt')
 
         }),
+        // A DOWN ARROW OVER THE TRACK, marking where something sits.
+        //
+        // Used to show where compounds are when the view is too wide to see them: at 571 kb
+        // a 20-mer is a fraction of a pixel, so a design with 47 oligos on it looks empty.
+        // The arrow is drawn in SCREEN units, a fixed size however far out the view is,
+        // because a marker that scales with the axis disappears at exactly the zoom where it
+        // was needed.
+        // A DOWN ARROW OVER THE TRACK, marking where something sits. BIG, OUTLINED, AND ONE
+        // PER PLACE.
+        //
+        // The first version drew a 13px amber tick at the compound's midpoint. On a track
+        // carrying RBP curves, exon cylinders and splice arcs that is invisible, and at 571 kb
+        // all 47 of a design's compounds land inside the same few pixels and overdraw each
+        // other into a single smudge. Both failures answer "where are they" with nothing.
+        //
+        // So: tall, thick, drawn with a dark outline under the colour so it reads over
+        // anything; and marks that fall in the same bin on screen become ONE arrow with a
+        // count, which is the true answer -- 47 compounds really are all in one place at this
+        // zoom, and saying "47" is more use than 47 arrows drawn on top of one another.
+        'CompoundMark': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
+            const c = color || '#f59e0b';
+            let ctx = null;
+            try { ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null; } catch (e) { ctx = null; }
+            if (!ctx) return;
+            const sx = (graph.X(xs) + graph.X(xf)) / 2;
+            const sy = graph.Y(y);
+            if (!isFinite(sx) || !isFinite(sy)) return;
+
+            // ONE ARROW PER PLACE. The registry lives on the track's graph and resets itself:
+            // seeing an annotation twice means a new frame has started, because every mark is
+            // drawn exactly once per pass. Without that reset the counts would climb on every
+            // repaint and a cluster of 47 would read 4,700 after a few seconds.
+            let reg = null;
+            try {
+                if (!tgraph.__cmReg) tgraph.__cmReg = { bins: {}, seen: new Set() };
+                reg = tgraph.__cmReg;
+                if (reg.seen.has(annotation)) { reg.bins = {}; reg.seen = new Set(); }
+                reg.seen.add(annotation);
+            } catch (e) { reg = null; }
+            const BIN = 20;
+            const bin = Math.round(sx / BIN);
+            let n = 1;
+            if (reg) { n = reg.bins[bin] = (reg.bins[bin] || 0) + 1; }
+
+            const TIP = 10, STEM = 30, HW = 15, HH = 17;
+            if (n === 1) {
+                ctx.save();
+                try {
+                    ctx.setLineDash([]);
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.lineCap = 'round';
+                    // The dark pass first and wider, so the arrow keeps its edge over a pale
+                    // exon and over a dark splice arc alike.
+                    ctx.strokeStyle = 'rgba(15,23,42,0.85)';
+                    ctx.lineWidth = 6;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy - TIP - STEM);
+                    ctx.lineTo(sx, sy - TIP);
+                    ctx.stroke();
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy - TIP - STEM);
+                    ctx.lineTo(sx, sy - TIP);
+                    ctx.stroke();
+                } catch (e) { }
+                ctx.restore();
+                // Math.PI/2 turns the arrowhead, which is drawn pointing right, to point down.
+                try { graph.drawArrowhead(sx, sy - TIP, Math.PI / 2, HW, HH, c); } catch (e) { }
+            }
+
+            // The count, redrawn as the cluster grows so the last value standing is the total.
+            // Opaque, because it is drawn over itself once per mark in the bin.
+            if (n > 1) {
+                const label = '' + n;
+                const w = 14 + label.length * 7, h = 16;
+                const bx = sx - w / 2, by = sy - TIP - STEM - h - 4;
+                ctx.save();
+                try {
+                    ctx.setLineDash([]);
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = 'rgba(15,23,42,0.92)';
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    const r = 5;
+                    ctx.moveTo(bx + r, by);
+                    ctx.lineTo(bx + w - r, by);
+                    ctx.arcTo(bx + w, by, bx + w, by + r, r);
+                    ctx.lineTo(bx + w, by + h - r);
+                    ctx.arcTo(bx + w, by + h, bx + w - r, by + h, r);
+                    ctx.lineTo(bx + r, by + h);
+                    ctx.arcTo(bx, by + h, bx, by + h - r, r);
+                    ctx.lineTo(bx, by + r);
+                    ctx.arcTo(bx, by, bx + r, by, r);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 11px system-ui, -apple-system, Roboto, Arial, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, sx, by + h / 2 + 0.5);
+                } catch (e) { }
+                ctx.restore();
+            }
+        }),
         'PointOfInterest': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             const col = annotation.color || 'rgba(255,140,26,0.85)';
             graph.drawLine(xs, y, xf, y, col, 14, 'butt');

@@ -709,8 +709,16 @@ function (opts) {
                     // ctrl/shift and its own scrollbar, and Select all / Clear are there
                     // because ctrl-clicking 48 rows is not a reasonable way to ask for all.
                     + (choice.multi ? ('<div style="display:flex;gap:12px;align-items:center;margin-bottom:7px;">'
-                        + '<a href="javascript:void(0)" id="shelf-choice-all" style="font:12px Arial;color:#4fd0e6;">Select all</a>'
-                        + '<a href="javascript:void(0)" id="shelf-choice-none" style="font:12px Arial;color:#4fd0e6;">Clear</a>'
+                        // BUTTONS, NOT ANCHORS. An <a> carries a default navigation whatever its
+                        // href says, and this pane lives inside the routed app: a click that
+                        // reached the default left the library and landed on /campaigns. A button
+                        // with type="button" has no default action to reach, so the failure cannot
+                        // happen again by a different route. Styled as links because that is what
+                        // they are for.
+                        + '<button type="button" id="shelf-choice-all" style="font:12px Arial;color:#4fd0e6;'
+                        + 'background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;">Select all</button>'
+                        + '<button type="button" id="shelf-choice-none" style="font:12px Arial;color:#4fd0e6;'
+                        + 'background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;">Clear</button>'
                         + '<span id="shelf-choice-count" style="font:12px Arial;color:#9fb3c8;"></span>'
                         + '</div>') : '')
                     + '<select id="shelf-choice"' + (choice.multi ? ' multiple size="12"' : '')
@@ -754,6 +762,28 @@ function (opts) {
                 const sel = pane.querySelector('#shelf-choice');
                 const noteEl = pane.querySelector('#shelf-choice-note');
                 if (loadBtn) { loadBtn.disabled = true; loadBtn.style.opacity = '0.55'; }
+                // WIRED BEFORE THE OPTIONS ARRIVE. The handlers used to be attached inside
+                // the async block below, after choice.options() resolved -- so while the list
+                // still said "Loading…" there was nothing listening, and a click on Select all
+                // fell through to the anchor's default. The list is a network read of 170
+                // proteins, which is exactly long enough to click into.
+                //
+                // Delegated from the pane rather than bound to the two elements, so it holds
+                // whatever the pane re-renders, and it toggles whatever options exist at the
+                // time: before they load that is none, which is a no-op rather than a fault.
+                let __sayChoice = null;
+                if (choice.multi) {
+                    pane.addEventListener('click', (e) => {
+                        let el = null;
+                        try { el = e.target && e.target.closest && e.target.closest('#shelf-choice-all,#shelf-choice-none'); } catch (e2) { el = null; }
+                        if (!el) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const on = (el.id === 'shelf-choice-all');
+                        try { if (sel) for (const op of sel.options) op.selected = on; } catch (e2) { }
+                        try { if (__sayChoice) __sayChoice(); } catch (e2) { }
+                    });
+                }
                 (async () => {
                     let opts = [];
                     try {
@@ -798,14 +828,9 @@ function (opts) {
                         if (noteEl) { noteEl.textContent = (o && o.note) ? o.note : (choice.note || ''); }
                     };
                     sel.onchange = say;
-                    if (choice.multi) {
-                        const setAll = (on) => {
-                            for (const op of sel.options) op.selected = on;
-                            say();
-                        };
-                        try { pane.querySelector('#shelf-choice-all').onclick = () => setAll(true); } catch (e) { }
-                        try { pane.querySelector('#shelf-choice-none').onclick = () => setAll(false); } catch (e) { }
-                    }
+                    // Hand the count/note update to the listener above, which has been live
+                    // since the pane was built.
+                    __sayChoice = say;
                     say();
                     if (loadBtn) { loadBtn.disabled = false; loadBtn.style.opacity = ''; }
                 })();

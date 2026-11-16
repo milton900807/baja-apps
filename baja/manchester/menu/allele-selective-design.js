@@ -447,6 +447,10 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             tell('The track reads ' + (alleleFrame.track_reads || '?') + ' where ' + (snp.name || 'the variant')
                 + ' says ' + (storedRef || '?') + ', on either strand. Designing against the track; '
                 + 'check the variant is on this assembly before ordering anything.');
+        } else if (alleleFrame.carries === 'alt') {
+            tell('This track already carries ' + (snp.name || 'the variant') + ': it reads '
+                + storedAlt + ' where the reference reads ' + storedRef + '. Designing against the '
+                + 'track as the mutant copy, and scoring discrimination against the reference allele.');
         } else if (/complemented/.test(alleleFrame.source)) {
             tell('That variant is recorded on the opposite strand to this track, so its alleles were '
                 + 'complemented to match: ' + storedRef + '>' + storedAlt + ' as the track reads them.');
@@ -481,7 +485,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 + ((v.reference0 || v.reference || '?') + '>' + (v.alternate0 || v.alternate || '?'))).join(', ');
             const askPhase = () => new Promise((resolve) => {
                 (graph.openMenuAtPointer || graph.showSideMenu).call(graph, [
-                    { label: 'Variants sit on BOTH copies here \u2014 choose the one to design against', move: () => { }, click: () => { } },
+                    { label: 'Variants sit on BOTH copies here \u2014 choose the one to design against', header: true },
                     { label: (phaseOf(snp) === 1 ? '\u2713 ' : '') + 'Copy 1 (above): ' + (listFor(1) || 'nothing else'),
                         move: () => { }, click: () => { graph.showSideMenu(null); resolve(1); } },
                     { label: (phaseOf(snp) === 0 ? '\u2713 ' : '') + 'Copy 2 (below): ' + (listFor(0) || 'nothing else'),
@@ -547,10 +551,66 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // The change as it reads in transcript orientation, for the labels and the scoring: the
         // span the allele covers in the transcript window, which on a minus-strand track is the
         // reverse complement of the track-frame allele.
+        // ---- WHEN THE TRACK IS THE MUTANT, THE WILD TYPE IS THE THING TO BUILD -------------
+        //
+        // Everything above assumes the track holds the reference and the alternate allele is
+        // written in to make the mutant. A track built from a sample is the other way round:
+        // it already reads the alt, so writing the alt in changes nothing, the two copies
+        // come out identical, and every register scores as discriminating nothing. The fix
+        // is the same arithmetic run the other way -- the track IS the target, and the copy
+        // that must survive is the track with the reference allele put back.
+        if (alleleFrame.carries === 'alt') {
+            const arr = wt.split('');
+            for (let k = 0; k < storedRef.length; k++) {
+                const j = xs.indexOf(vX + k);
+                if (j < 0) continue;
+                const b = storedRef[k];
+                arr[j] = (minus && orient === 'plus') ? (COMPL[b] || 'N') : b;
+            }
+            wt = arr.join('');
+        }
         const viEnd = Math.max(xs.indexOf(vX), xs.indexOf(vEnd));
         const viStart = Math.min(xs.indexOf(vX), xs.indexOf(vEnd));
+        // ---- THE SEQUENCE CONTEXT THAT DECIDES HOW MANY REGISTERS CAN EXIST ---------------
+        // See baja/bio/repeat-context.js: a variant in a tandem repeat is discriminated by the
+        // LENGTH of the run, so most registers cannot tell the copies apart however the walk
+        // is built. Shared with the register walk so the two paths say it the same way.
+        let __repeat = null, __RC = null;
+        try {
+            __RC = await exec('baja/bio/repeat-context.js');
+            __repeat = __RC.repeatAround(wt, viStart, viEnd);
+        } catch (e) { __repeat = null; }
+        const __repeatSaid = () => { try { return __RC ? __RC.sentence(snp.name, __repeat) : ''; } catch (e) { return ''; } };
+
         const refTx = wt.slice(viStart, viEnd + 1);
         const altTx = mut.slice(viStart, viEnd + 1);
+
+        // ---- NOTHING WAS CHANGED, SO NOTHING CAN DISCRIMINATE ------------------------------
+        //
+        // Writing the alternate allele into the window is the whole basis of this design: the
+        // oligo is built against the mutant copy and scored against the copy that must
+        // survive. If the window comes out the same either way, the alternate allele is
+        // already what the track reads there, and every candidate below is a verbatim slice
+        // of the reference. They still tile, they still rank, and they still arrive labelled
+        // allele-selective -- twenty registers that discriminate nothing, and nothing on the
+        // screen says so. That is worse than a failure, because it is a failure that looks
+        // like a result.
+        //
+        // The usual cause is that the variant's recorded position and its alleles disagree
+        // with the sequence: the track already carries the variant, the record is on another
+        // assembly, or the position is off by a base or two. All three are things to go and
+        // check, so they are named rather than guessed at.
+        if (refTx === altTx) {
+            warn((snp.name || 'That variant') + ': the track already reads ' + refTx
+                + ' at this position, which is the alternate allele as this track stores it ('
+                + storedRef + '>' + storedAlt
+                + (/complemented/.test('' + (alleleFrame.source || '')) ? ', complemented to match the track' : '')
+                + '). Writing it in changes nothing, so every candidate would be a verbatim slice of '
+                + 'the reference and none of them would discriminate. Nothing was designed. '
+                + 'Check whether this track already carries the variant, and whether its position '
+                + 'and assembly match the record.');
+            restoreHover(); return false;
+        }
 
         // Every variant on the track that falls inside the window, so an oligo can mark all of
         // them and not only the one it was designed against.
@@ -587,10 +647,29 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         if (!r || r.error) { warn('Design failed: ' + ((r && r.error) || 'no answer from the server') + '.'); restoreHover(); return false; }
         let cands = [];
         try { cands = JSON.parse(r.candidates || '[]'); } catch (e) { cands = []; }
+        // HOW MANY REGISTERS WERE POSSIBLE, AND WHY THESE. A short answer to a design is
+        // either the shape of the variant or a bug, and from the drawing alone the two are
+        // indistinguishable. The designer already counts both; it was simply never asked.
+        const __why = () => {
+            const bits = [];
+            const considered = +(r.considered || 0);
+            if (considered && cands.length) bits.push(cands.length + ' of ' + considered + ' registers');
+            let rej = {}; try { rej = JSON.parse(r.rejected || '{}'); } catch (e) { rej = {}; }
+            const names = { no_overlap: 'did not cover the variant', edge: 'ran off the window',
+                geometry: 'could not hold the named gapmer geometry',
+                position: 'do not discriminate the wild-type allele',
+                variant_out_of_window: 'variants fell outside the window' };
+            for (const k of Object.keys(names)) {
+                const n = +(rej[k] || 0);
+                if (n > 0) bits.push(n + ' ' + names[k]);
+            }
+            return bits.length ? (' ' + bits.join('; ') + '.') : '';
+        };
         if (!cands.length) {
             let rej = {}; try { rej = JSON.parse(r.rejected || '{}'); } catch (e) { }
             tell('No allele-selective ' + mode.label + ' candidate covers ' + (snp.name || 'that variant') + ' with the mismatch in a discriminating position'
-                + (rej.position ? ' (' + rej.position + ' covered it but in a position that does not discriminate)' : '') + '.');
+                + (rej.position ? ' (' + rej.position + ' covered it but in a position that does not discriminate)' : '') + '.'
+                + __why() + __repeatSaid());
             restoreHover(); return false;
         }
 
@@ -855,10 +934,14 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // produced, so the two are named separately.
         const nSel = made.filter((c) => c && c.alleleSelective && c.alleleSelective.discriminates !== false).length;
         const msg = ' Placed ' + placed + ' ' + mode.label + ' candidate' + (placed === 1 ? '' : 's')
-            + ' across ' + (snp.name || 'the variant') + ' (' + refTx + '>' + altTx + ') — one per register — '
+            + ' across ' + (snp.name || 'the variant') + ' (' + refTx + '>' + altTx + '), one per register, '
             + nSel + ' of them allele-selective'
             + ((placed - nSel) > 0 ? (', ' + (placed - nSel) + ' shown in red because the mismatch lands where it cannot discriminate') : '')
-            + '. ' + (best.chemistry_label || chem.label) + '. Best: ' + best.discrimination + ', score ' + best.score + '. ';
+            + '. ' + (best.chemistry_label || chem.label) + '. Best: ' + best.discrimination + ', score ' + best.score + '.'
+            // WHY THIS MANY. A run that comes back short is either the shape of the variant or
+            // a fault, and the picture cannot tell them apart. The counts and the repeat
+            // context can, so they go in the same sentence as the result.
+            + __why() + __repeatSaid() + ' ';
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();
         return true;

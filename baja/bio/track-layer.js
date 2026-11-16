@@ -173,6 +173,13 @@ return new Promise(async (resolve, reject) => {
         // Optional: the world-y gap between stacked lanes, so a fixed-pixel bar can be kept
         // from overlapping the lane above it on a short band.
         laneStep = null;
+        // Optional: let two intervals share a span. The default identity for an interval is
+        // its span alone, which is right for one bar per region and wrong for a layer that
+        // packs overlapping features into lanes: there, a second feature covering the same
+        // residues is a DIFFERENT bar on a different lane, and dropping it loses both the
+        // bar and whatever the caller registered against it. With this set, the identity is
+        // the whole bar: span, lane and label.
+        allowStackedIntervals = false;
         polygonpts = [];
         polygon_type = 'fill'
         scaley = -3.;
@@ -390,7 +397,9 @@ return new Promise(async (resolve, reject) => {
         }
 
         addInterval(x1, x2, y, t, color) {
-            const alreadyExists = this.intervals.some(interval => interval.x1 === x1 && interval.x2 === x2)
+            const __stack = !!this.allowStackedIntervals;
+            const alreadyExists = this.intervals.some(interval => interval.x1 === x1 && interval.x2 === x2
+                && (!__stack || (interval.y === y && interval.t === t)))
             if (!alreadyExists) {
 
                 // The two branches used to be inverted: a caller that PASSED a color got an

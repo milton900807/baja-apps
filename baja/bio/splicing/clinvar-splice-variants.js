@@ -491,7 +491,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
             // openMenuAtPointer, not showSideMenu: this level must appear where the level
             // above it did, in the same style. Reached from the tier menu, which leaves a
             // floating session behind it, so it lands on the same point.
-            const __pick = [{ label: 'Score which track?', move: () => { }, click: () => { } }].concat(
+            const __pick = [{ label: 'Score which track?', header: true }].concat(
                 tracks.map((t) => ({
                     label: '  ' + (t.name || geneOf(t) || 'track'),
                     move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } run(t); },
@@ -505,8 +505,8 @@ function (graph, genegraph_panel_layout, presetTrack) {
         // it at the pointer (or the middle of the canvas) in the floating style rather than
         // sending it to the top-left side panel.
         const __tiers = [
-            { label: 'ClinVar variants that change splicing', move: () => { }, click: () => { } },
-            { label: '  within 300 nt of a splice site', move: () => { }, click: () => { } },
+            { label: 'ClinVar variants that change splicing', header: true },
+            { label: '  within 300 nt of a splice site', header: true },
         ].concat(TIERS.map((t) => ({
             label: '  ' + t.label,
             move: () => { },

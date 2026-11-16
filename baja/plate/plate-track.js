@@ -9211,6 +9211,7 @@ function (progress) {
                     if (this.wbid === null || !this.wbid.startsWith('glyph')) {
                         let gfs = this.getGlyph(x, y)
                         if (gfs && !this.__glyphOnTop(gfs, x, y)) gfs = null;
+                        if (gfs && this.__maximized) gfs = null;   // it is behind the backdrop
                         if (gfs) {
                             // PRESS AND DRAG, LIKE A FOLDER CARD. Selecting a drawing used
                             // to put a menu under the pointer and arm the move 100 ms later,
@@ -9227,6 +9228,15 @@ function (progress) {
 
 
                     let new_selected = this.getPlate(this.grid.Xwc(x), this.grid.Ywc(y))
+                    // WHILE MAXIMIZED, THE PRESS BELONGS TO THE MAXIMIZED OBJECT AND NOTHING
+                    // ELSE. The canvas is still there behind the backdrop, at its own world
+                    // coordinates, so a press inside the maximized table was also landing on
+                    // whatever happened to lie under that point -- picking it up, selecting
+                    // it, and taking the selection away from the thing on screen. The press
+                    // that reaches here has already been through the maximized object's own
+                    // routing above; anything it did not want is dropped rather than passed
+                    // down to a canvas the user cannot see.
+                    if (this.__maximized && new_selected !== this.__maximized) return;
                     if (!new_selected && !this.selectedPlate) {
                         this.deselectAll()
                         return;
@@ -12346,6 +12356,24 @@ function (progress) {
             __solidOpenMenu(o, x, y) {
                 const close = () => { this.menu = null; this.menu_vis = false; };
                 const ml = [
+                    {
+                        // ZOOMING IN IS WHY THE TABLE WAS CLICKED. At this distance a table is
+                        // a bar with a name on it and nothing can be read, let alone edited,
+                        // so the first thing wanted of it is a closer look. Maximize fills the
+                        // window and takes over the canvas; this just goes there, which is the
+                        // smaller and commoner of the two and had no way of being asked for.
+                        label: 'Zoom in',
+                        click: async () => {
+                            close();
+                            this.__solidArmed = null;
+                            try { this.setSelected(o); } catch (e) { }
+                            // show-new-object.js is what every operation that makes something
+                            // uses to put it in front of the user: one answer to one question.
+                            try { await exec('baja/plate/ops/show-new-object.js', this, o); } catch (e) { }
+                            try { if (this.wake) this.wake(); } catch (e) { }
+                        },
+                        bg: 'rgba(26,163,189,0.26)', fg: '#0a2540'
+                    },
                     {
                         label: 'Move',
                         click: () => {

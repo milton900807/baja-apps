@@ -702,6 +702,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         return "red";
                     }
                     function buildSirnaArray(resultJson, options = {}) {
+                        // THE DESIGNER'S OWN REASON, SHOWN. The scripts resolve {error: "..."}
+                        // when they refuse a request -- a length outside the allowed range, a
+                        // backbone they do not know -- and nothing here read it, so a refusal
+                        // with a perfectly clear reason surfaced as "invalid result JSON" and a
+                        // silent empty design.
+                        if (resultJson && resultJson.error) {
+                            try { graph.setError(' siRNA design: ' + resultJson.error + ' '); } catch (e) { }
+                            return [];
+                        }
                         if (!resultJson || !Array.isArray(resultJson.top_candidates)) {
                             console.warn("Invalid siRNA result JSON");
                             return [];
@@ -716,13 +725,17 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         const sirnas = [];
 
+                        // This path does not rebuild the target, so designed coordinates are the track's.
+                        const __back = (q) => q;
                         resultJson.top_candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
                                 // selection when there is one, so without this every result lands at the start
                                 // of the track instead of on the selection.
-                                const xi = c.start + __designOffset();
-                                const xf = c.end + __designOffset();
+                                // Through __back first: when that sequence was rebuilt with
+                                // indels applied, its coordinates are not the track's.
+                                const xi = __back(c.start) + __designOffset();
+                                const xf = __back(c.end) + __designOffset();
 
                                 const sequence = c.target_site_input_alphabet || c.sense_strand || "";
                                 const sense = c.sense_strand || "";
@@ -868,6 +881,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         });
                         __muts = (__probe && __probe.mutations) || [];
                     } catch (e) { __muts = []; }
+                    // PLACE IT, OR DESIGN IT. The dialog below answers "where should this go"
+                    // by scoring every start position, which is the wrong question when the
+                    // site is already decided: a published compound, a site a collaborator
+                    // named, a window off a splicing profile. Asked here rather than in a
+                    // menu somewhere else, because this is the point the choice is made.
+                    const __howG = await exec('baja/manchester/menu/design-or-place.js',
+                        graph, selectedTrack, 'gapmer');
+                    if (__howG !== 'design') return;   // placed by hand, or cancelled
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer', __targetLen, {
                         mutations: __muts.length,
                         mutationsAll: ((selectedTrack && selectedTrack.snpindels) || []).length,
@@ -908,11 +929,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         }
                     }
 
+                    // The mRNA, on a minus-strand track; the identity on a plus-strand one.
+                    const __mv = __mRnaView(_sequence);
                     let json_input = {
-                        "sequence": _sequence,
+                        "sequence": __mv.seq,
                         // Index ranges of that sequence no candidate may overlap (empty unless
                         // the workbench options above asked for some).
-                        "exclude_regions": (__scope && __scope.exclude_regions) || [],
+                        "exclude_regions": (((__scope && __scope.exclude_regions) || [])
+                            .map((sp) => __mv.span(sp))),
                         // Sense mRNA — the ASO is the reverse-complement of the target regardless of
                         // the gene's genomic strand (same fix as siRNA; minus-strand genes otherwise
                         // got complement(target), which is wrong and finds no off-targets).
@@ -927,12 +951,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "po_link_positions": [],
 
                         "output_alphabet": __p.output_alphabet || "DNA",
-                        // Default TRUE. Sent as false, this asked design.py for the global top N
-                        // with overlaps allowed, which is not the best N ASOs: every start is
-                        // generated at five lengths and three gap sizes, so the variants of one
-                        // good site fill the top of the list. The dialog's Advanced tab can still
-                        // ask for those variants explicitly.
-                        "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
+                        // Default FALSE now: overlapping layouts of a site are included unless
+                        // the dialog asks otherwise. Every layout of a site is a real candidate
+                        // and which one suits is a chemistry decision, so hiding the others is
+                        // not the designer's call to make.
+                        //
+                        // The cost is still real and is why this used to default the other way:
+                        // one site is generated at five lengths and three gap sizes, so with a
+                        // short top_n the variants of one good site can crowd out other sites.
+                        // The dialog's checkbox turns it off, and says that in as many words.
+                        "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : false),
 
                         // RULE-BASED or TILED. The first ranks every candidate and returns the
                         // best sites anywhere in the target; the second walks the target and
@@ -1009,13 +1037,44 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             try { if (progress && progress.stop) progress.stop(); } catch (e) { }
                             return;
                         }
-                        json_input.cover_spans = __muts2.map((m) => m.span);
+                        // FURTHEST FROM THE REFERENCE FIRST. The designer finishes one
+                        // mutation before starting the next, so when the cap cuts the run
+                        // short it is this order that decides which mutations got designed
+                        // against at all. Position is not a property of the mutation; edit
+                        // distance is, and the mutation with the most changed sequence is
+                        // the one an allele-selective oligo can discriminate most
+                        // confidently -- an ASO over a five-base deletion mismatches the
+                        // other allele five times, one over a single substitution once.
+                        //
+                        // Ties keep positional order, so the list stays readable and two
+                        // runs over the same track order their oligos the same way.
+                        __muts2 = __muts2.slice().sort((a, b) =>
+                            ((+b.edits || 0) - (+a.edits || 0)) || ((+a.pos || 0) - (+b.pos || 0)));
+                        json_input.cover_spans = __muts2.map((m) => __mv.span(m.span));
+                        // ---- AND THE COPY THAT HAS TO SURVIVE --------------------------
+                        //
+                        // Covering a mutation's span is not the same as telling the two
+                        // copies apart, and until now the design assumed it was. A register
+                        // inside a repeat, a deletion that shortens a homopolymer, and a
+                        // mutation that silently failed to apply all produce a target the
+                        // wild-type copy also presents. The designer can only rule those out
+                        // if it is given the untouched window to compare against, in the
+                        // same frame as the sequence it is designing on. This is the test
+                        // the per-variant register walk already makes.
+                        try {
+                            const __wt = '' + ((__scope && __scope.wildType) || '');
+                            if (__wt && __wt.length) json_input.wild_type = __mRnaView(__wt).seq;
+                        } catch (e) { }
                         const __byType = __muts2.reduce((a, m) => { a[m.type] = (a[m.type] || 0) + 1; return a; }, {});
                         const __what = Object.keys(__byType).map((k) => __byType[k] + ' ' + k).join(', ');
                         try {
+                            const __far = __muts2.filter((m) => (+m.edits || 0) > 1).length;
                             graph.setResultMessage(' Allele-selective: designing around ' + __muts2.length
                                 + ' mutation' + (__muts2.length === 1 ? '' : 's') + ' (' + __what + ') on '
-                                + (selectedTrack.name || 'this track') + '. ');
+                                + (selectedTrack.name || 'this track') + ', furthest from the reference first, '
+                                + 'each walked in full before the next is started'
+                                + (__far ? (' \u2014 ' + __far + ' of them change more than one base') : '')
+                                + '. ');
                         } catch (e) { }
                     }
 
@@ -1027,6 +1086,56 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
+
+                    // WHAT THE CAP ACTUALLY DID. A count of ASOs cannot tell "every mutation
+                    // got a few" from "the first two got everything", and now that the walk
+                    // finishes one mutation before starting the next, that is the whole
+                    // behaviour. The designer reports it; saying nothing would leave the
+                    // user to infer from a number which mutations were never designed
+                    // against at all.
+                    // WHAT THE REPEAT RULE REMOVED. A walk over a site inside a poly-T
+                    // tract or a tandem repeat has no usable register at all, and silence
+                    // there reads as "the designer found nothing", which is a different
+                    // claim from "every register here was a repeat".
+                    try {
+                        const rf = (r && (r.repeat_filter || (r.result && r.result.repeat_filter))) || null;
+                        if (rf && +rf.excluded_low_complexity > 0) {
+                            const eg = (rf.low_complexity_examples || []).slice(0, 2).join(', ');
+                            graph.setResultMessage(' ' + rf.excluded_low_complexity
+                                + ' candidate' + (+rf.excluded_low_complexity === 1 ? '' : 's')
+                                + ' dropped as low-complexity (homopolymer runs, tandem repeats)'
+                                + (eg ? (': ' + eg) : '') + '. ');
+                        }
+                        // AND THE ONES THAT BIND BOTH COPIES. Said separately from the
+                        // low-complexity count because it means something different: those
+                        // were poor oligos, these are oligos against the wrong allele. When
+                        // EVERY candidate goes this way the mutations did not reach the
+                        // designed sequence at all, which is worth saying outright rather
+                        // than leaving as an empty result.
+                        if (rf && rf.wild_type_given && +rf.not_selective > 0) {
+                            const eg2 = (rf.not_selective_examples || []).slice(0, 2).join(', ');
+                            graph.setResultMessage(' ' + rf.not_selective
+                                + ' candidate' + (+rf.not_selective === 1 ? '' : 's')
+                                + ' dropped: their target also occurs on the wild-type copy, so they '
+                                + 'would bind the allele the design is meant to spare'
+                                + (eg2 ? (': ' + eg2) : '') + '. ');
+                        }
+                    } catch (e) { }
+
+                    if (__p.design_mode === 'allele') {
+                        try {
+                            const aw = (r && (r.allele_walk || (r.result && r.result.allele_walk))) || null;
+                            if (aw && +aw.mutations_given > 0 && +aw.mutations_untouched > 0) {
+                                graph.setError(' Allele-selective: the maximum was reached after '
+                                    + aw.mutations_covered + ' of ' + aw.mutations_given + ' mutations'
+                                    + (aw.partial ? ' (the last one only partly walked)' : '')
+                                    + '. ' + aw.mutations_untouched + ' mutation'
+                                    + (+aw.mutations_untouched === 1 ? ' was' : 's were')
+                                    + ' not designed against at all \u2014 raise Maximum ASOs, or widen the '
+                                    + 'register step, to reach them. ');
+                            }
+                        } catch (e) { }
+                    }
 
                     // Clear the menus before tiling. No camera move.
                     __clearMenusForDesign();
@@ -1050,6 +1159,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     }
 
                     function buildGapmerArray(resultJson, options = {}) {
+                        // THE DESIGNER'S OWN REASON, SHOWN. The scripts resolve {error: "..."}
+                        // when they refuse a request -- a length outside the allowed range, a
+                        // backbone they do not know -- and nothing here read it, so a refusal
+                        // with a perfectly clear reason surfaced as "invalid result JSON" and a
+                        // silent empty design.
+                        if (resultJson && resultJson.error) {
+                            try { graph.setError(' Gapmer design: ' + resultJson.error + ' '); } catch (e) { }
+                            return [];
+                        }
                         const candidates = Array.isArray(resultJson?.hits)
                             ? resultJson.hits
                             : Array.isArray(resultJson?.top_candidates)
@@ -1070,17 +1188,66 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         const oligos = [];
 
+                        // Counted across the whole run; see the check inside the loop.
+                        let __alleleSame = 0, __alleleDiff = 0;
+                        const __back = __backMapper(__scope);
+                        // Two mappings, in order: out of the mRNA view, then out of the rebuilt
+                        // sequence. Both are the identity on a plus-strand track with no indels.
+                        const __place = (cs, ce) => { const q = __mv.back(cs, ce); return [__back(q[0]), __back(q[1])]; };
                         candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
                                 // selection when there is one, so without this every result lands at the start
                                 // of the track instead of on the selection.
-                                const xi = c.start + __designOffset();
-                                const xf = c.end + __designOffset();
+                                // Through __back first: when that sequence was rebuilt with
+                                // indels applied, its coordinates are not the track's.
+                                const __xy = __place(c.start, c.end);
+                                const xi = __xy[0] + __designOffset();
+                                const xf = __xy[1] + __designOffset();
 
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
                                 const name = antisense || target || `gapmer_${xi}_${xf}`;
+
+                                // DOES THIS ONE ACTUALLY DIFFER FROM THE REFERENCE?
+                                //
+                                // An allele-selective oligo that reads the same as the reference at its
+                                // own site cannot tell the two alleles apart. It is a tiling candidate
+                                // wearing the label, and nothing downstream notices: it draws, exports
+                                // and scores like any other.
+                                //
+                                // Every link before this one can fail quietly and produce exactly that --
+                                // a variant whose reference allele does not match the track is skipped, a
+                                // span can map to the wrong place, an indel can fail to apply -- and each
+                                // failure looks like a successful run with slightly dull oligos. So the
+                                // question is asked at the end, of the thing itself: the designed site
+                                // against the track's own sequence where this candidate was placed. One
+                                // comparison, and a mistake in any earlier step cannot hide from it.
+                                let __alleleCols = null;
+                                if (__p.design_mode === 'allele' && target) {
+                                    try {
+                                        const refHere = ('' + (selectedTrack.getSequenceRange(xi, xi + target.length) || '')).toUpperCase();
+                                        const tgtUp = ('' + target).toUpperCase().replace(/U/g, 'T');
+                                        if (refHere.length === tgtUp.length && refHere.length) {
+                                            // BOTH ORIENTATIONS, because the designed sequence is not always in
+                                            // the track's. On a minus-strand track the designer was handed the
+                                            // mRNA, so the site it reports runs the other way; comparing it to a
+                                            // genomic slice without checking would call every column different
+                                            // and report the whole run as discriminating -- the same wrong answer
+                                            // as reporting none.
+                                            const RCV = { A: 'T', C: 'G', G: 'C', T: 'A', N: 'N' };
+                                            const rev = tgtUp.split('').reverse().map((b) => RCV[b] || b).join('');
+                                            const diffs = (a) => { const out = [];
+                                                for (let i = 0; i < refHere.length; i++) if (refHere[i] !== a[i]) out.push(i);
+                                                return out; };
+                                            const dFwd = diffs(tgtUp), dRev = diffs(rev);
+                                            // Fewer differences is the right reading: an allele-selective oligo
+                                            // differs in one or two places, not in fifteen.
+                                            __alleleCols = (dRev.length < dFwd.length) ? dRev : dFwd;
+                                            if (__alleleCols.length === 0) __alleleSame++; else __alleleDiff++;
+                                        }
+                                    } catch (e) { __alleleCols = null; }
+                                }
 
                                 const structure =
                                     (typeof c.structure === "string" && c.structure.trim().length > 0)
@@ -1104,6 +1271,18 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 oligo.synthesisSequence = antisense;
                                 oligo.targetSequence = target;
                                 oligo.targetSite = target;
+                                // WHICH RESIDUES DO THE DISCRIMINATING, recorded now rather than re-derived
+                                // when drawing. At this moment both sides are in hand and unambiguous: the
+                                // site this candidate was designed from, and the track's own sequence where
+                                // it was placed. A renderer working it out later has neither, and has to
+                                // guess an orientation to compare them.
+                                //
+                                // Column indices in the track's own left-to-right order, so a mirrored
+                                // compound needs no second convention.
+                                if (__alleleCols && __alleleCols.length) {
+                                    oligo.alleleCols = __alleleCols.slice();
+                                    oligo.alleleSelective = true;
+                                }
                                 oligo.targetSiteRna = c.target_site_rna || null;
                                 oligo.antisense = antisense;
                                 oligo.antisenseCoreRna = c.antisense_core_rna || null;
@@ -1167,6 +1346,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 console.error("Failed to build gapmer:", c, e);
                             }
                         });
+
+                        // SAY IT IF THE RUN IS NOT ALLELE-SELECTIVE. Silence here would be the worst
+                        // outcome: a drawer of oligos that look designed and discriminate nothing.
+                        if (__p.design_mode === 'allele' && __alleleSame > 0) {
+                            graph.setError(' Allele-selective: ' + __alleleSame + ' of ' + (__alleleSame + __alleleDiff) + ' oligos read the SAME as the reference at their own site, so they cannot tell the'
+                                + ' alleles apart. The mutation they were meant to cover was not applied to the'
+                                + ' designed sequence \u2014 check the line above for variants that did not match'
+                                + ' this track. '); }
 
                         if (track && typeof track.addOligo === "function") {
                             // Rows BEFORE they land: once added, they would count as occupants
@@ -1261,6 +1448,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // step costs in compounds before the run (see the gapmer call above).
                     let __targetLenS = 0;
                     try { __targetLenS = (__wholeTrackSequence() || '').length; } catch (e) { __targetLenS = 0; }
+                    // PLACE IT, OR DESIGN IT. The dialog below answers "where should this go"
+                    // by scoring every start position, which is the wrong question when the
+                    // site is already decided: a published compound, a site a collaborator
+                    // named, a window off a splicing profile. Asked here rather than in a
+                    // menu somewhere else, because this is the point the choice is made.
+                    const __howS = await exec('baja/manchester/menu/design-or-place.js',
+                        graph, selectedTrack, 'steric');
+                    if (__howS !== 'design') return;   // placed by hand, or cancelled
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric', __targetLenS);
                     if (!__p) return;   // cancelled
                     await __zoomToDesignScope();
@@ -1620,6 +1815,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // a form that can be read and exported.
 
                     function buildStericBlockingArray(resultJson, options = {}) {
+                        // THE DESIGNER'S OWN REASON, SHOWN. The scripts resolve {error: "..."}
+                        // when they refuse a request -- a length outside the allowed range, a
+                        // backbone they do not know -- and nothing here read it, so a refusal
+                        // with a perfectly clear reason surfaced as "invalid result JSON" and a
+                        // silent empty design.
+                        if (resultJson && resultJson.error) {
+                            try { graph.setError(' Steric-blocking design: ' + resultJson.error + ' '); } catch (e) { }
+                            return [];
+                        }
                         if (!resultJson || !Array.isArray(resultJson.top_candidates)) {
                             console.warn("Invalid steric-blocking result JSON");
                             return [];
@@ -1642,13 +1846,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         const __maxAso = Math.max(1, parseInt(json_input.top_n) || 100);
                         const __candidates = resultJson.top_candidates.slice(0, __maxAso);
 
+                        const __back = __backMapper(__scope);
                         __candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
                                 // selection when there is one, so without this every result lands at the start
                                 // of the track instead of on the selection.
-                                const xi = c.start + __designOffset();
-                                const xf = c.end + __designOffset();
+                                // Through __back first: when that sequence was rebuilt with
+                                // indels applied, its coordinates are not the track's.
+                                const xi = __back(c.start) + __designOffset();
+                                const xf = __back(c.end) + __designOffset();
 
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
@@ -2100,6 +2307,91 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         // The progress bar belongs to the caller; each designer makes its own before running.
         let __activeProgress = null;
         const progressOf = () => __activeProgress;
+
+        // BACK FROM THE DESIGNED SEQUENCE TO THE TRACK.
+        //
+        // When the workbench rebuilds the target -- which the Allele-selective strategy
+        // always does, because an ASO that discriminates a deletion has to span a join that
+        // only exists once the deletion is made -- the sequence handed to the designer is
+        // NOT the track's sequence. Every applied insertion or deletion moves every base
+        // after it, so a candidate's start indexes a string whose coordinates stopped
+        // agreeing with the track's the moment the first indel was applied.
+        //
+        // Adding the design offset alone places those candidates as if nothing had moved.
+        // On a track carrying a hundred and thirty variants the drift accumulates until the
+        // oligos sit visibly off the mutations they were built to cover, which is the one
+        // thing an allele-selective design cannot get wrong.
+        //
+        // design-scope-from-workbench.js already reports what moved, as `shifts`: every
+        // reference index at or after `from` moved by `by`. This walks that list to invert
+        // it. With no shifts -- no indels applied, or no rebuild at all -- it is the
+        // identity, so every other design path is untouched.
+        const __backMapper = (scope) => {
+            const sh = ((scope && scope.shifts) || []).slice()
+                .filter((x) => x && isFinite(+x.from) && isFinite(+x.by) && +x.by !== 0)
+                .sort((a, b) => a.from - b.from);
+            if (!sh.length) return (q) => q;
+            return (q) => {
+                let cum = 0;
+                for (const x of sh) {
+                    // Where this edit sits in the REBUILT string: its reference position
+                    // plus everything that moved before it.
+                    const at = x.from + cum;
+                    if (q < at) break;
+                    // INSERTED BASES HAVE NO REFERENCE POSITION OF THEIR OWN. They occupy
+                    // [at, at + by) in the rebuilt string and came from nowhere in the
+                    // track, so a candidate starting inside one starts at the point the
+                    // insertion was made. Walking past them instead -- which is what
+                    // subtracting the whole shift does -- puts the oligo `by` bases to the
+                    // LEFT of where it belongs, in the one direction nothing else drifts.
+                    if (x.by > 0 && q < at + x.by) return x.from;
+                    cum += x.by;
+                }
+                // A deleted reference base has no rebuilt position either, so the rebuilt
+                // index at a deletion is the first base that SURVIVED it, which is what
+                // falls out here without a special case.
+                return q - cum;
+            };
+        };
+
+        // THE DESIGNER IS HANDED THE mRNA, NOT WHICHEVER STRAND THE TRACK STORES.
+        //
+        // design.py builds every oligo as reverse_complement(target_site) and the request
+        // hardcodes strand 1, which says "what I am sending you is the sense mRNA". For a
+        // track whose sequence is the genomic plus strand that is true only of a plus-strand
+        // gene. On a minus-strand gene the mRNA is the reverse complement of what the track
+        // holds, so reverse-complementing it again hands back the mRNA itself -- a SENSE
+        // oligo, which will not recruit RNase H to anything. Antisense is the entire point
+        // of an allele-selective design, so this is not a detail.
+        //
+        // Passing strand -1 instead does NOT fix it: that branch takes the plain complement,
+        // which is a third wrong answer, and is why someone hardcoded 1 in the first place.
+        // The sequence itself has to be the mRNA.
+        //
+        // Reversing the sequence reverses its coordinates, so the spans going in and the
+        // candidate positions coming back are mapped with it. On a plus-strand track every
+        // one of these is the identity and nothing changes.
+        const __rcSeq = (q) => ('' + q).toUpperCase().split('').reverse()
+            .map((c) => ({ A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' }[c] || c)).join('');
+        const __mRnaView = (seq) => {
+            const L = ('' + (seq || '')).length;
+            const minus = (+(selectedTrack && selectedTrack.strand) || 0) < 0;
+            if (!minus || !L) {
+                return { seq: seq, minus: false, L: L, span: (sp) => sp, back: (a, b) => [a, b] };
+            }
+            return {
+                seq: __rcSeq(seq), minus: true, L: L,
+                // [a, b) in track order becomes [L-b, L-a) once the sequence is reversed.
+                span: (sp) => {
+                    const a = Math.max(0, Math.min(L, +sp[0] || 0));
+                    const b = Math.max(0, Math.min(L, +sp[1] || 0));
+                    return [L - Math.max(a, b), L - Math.min(a, b)];
+                },
+                // A candidate occupying [s, e] in the reversed sequence occupies
+                // [L-1-e, L-1-s] in the track's own order; the ends swap with it.
+                back: (s, e) => [L - 1 - e, L - 1 - s]
+            };
+        };
 
         const __designOffset = () => {
             const t = selectedTrack;
@@ -2655,6 +2947,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 + 'highlight on a busy track does not.')
                             : 'Nothing on this track to highlight.',
                         open: () => highlightCompounds()
+                    },
+                    {
+                        title: 'Filter by description', badge: 'AI',
+                        ready: __oligoCount.here > 0,
+                        readyNote: 'no compounds on this track',
+                        blurb: 'Say which compounds you mean and pick them out: "the '
+                            + 'self-complementary ones", "anything under 40% GC", "gapmers with a '
+                            + 'Tm over 55". The model reads the sentence into the same fields the '
+                            + 'Select-by-criteria dialog has; the editor does the matching itself, '
+                            + 'so the same words give the same compounds every time. It shows what '
+                            + 'it understood and how many match before anything is selected or '
+                            + 'removed, and says so when part of the request is not something '
+                            + 'these fields can measure.',
+                        open: () => exec('baja/manchester/menu/compound-ai-filter.js', graph, selectedTrack)
                     },
                     {
                         title: 'Filter by off-target count', badge: 'Remove',

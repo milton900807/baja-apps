@@ -129,6 +129,24 @@ function () {
                 }
             }
         }
+        // THE TRACK MAY HOLD THE VARIANT RATHER THAN THE REFERENCE. A track built from a
+        // sample carries that sample's alleles, so the base under a variant is the ALT and
+        // no reading's ref will ever agree with it. Reported rather than treated as a
+        // disagreement, because the two are opposite situations: one is a record that does
+        // not belong to this sequence, the other is a record that has already been applied
+        // to it, and a design can be built on the second. Tested after the reference, so a
+        // reading whose ref agrees still wins.
+        // ONLY THE READING THAT BELONGS IN THIS FRAME is offered for this test. Across all
+        // four readings of a substitution the refs cover two bases and the alts the other
+        // two, so SOME reading matches whatever the track holds and 'the record does not
+        // belong to this sequence' would stop being detectable at all. Asking it of the
+        // frame's own reading keeps the claim worth making: this track reads the alt of the
+        // change as it is written for this frame.
+        const own = tries[0];
+        if (usable(have) && usable(own.alt) && own.alt !== own.ref
+            && own.alt.length === have.length && own.alt === have) {
+            return { ref: own.ref, alt: own.alt, source: own.source, checked: true, carries: 'alt', track_reads: have };
+        }
         // Nothing agreed with the track: hand back the frame's own reading and say it is
         // unverified, so the caller can warn instead of pretending.
         return { ref: tries[0].ref, alt: tries[0].alt, source: tries[0].source, checked: false, track_reads: have };

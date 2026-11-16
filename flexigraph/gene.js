@@ -2471,6 +2471,13 @@ function (progress, options) {
                 this.mouseMoveListeners = [];
                 this.mouseUpListeners = [];
                 this.highlightmethod = null;
+                // A TOOL OWNS THE CANVAS ONLY WHILE ITS LISTENERS DO. __canvasTool is set by
+                // a tool that draws its own preview out of track marks (draw-oligos.js) and
+                // is what tells the selection shortcuts in mouseDown to stand down. Released
+                // here rather than by the tool, because this is the one place that is
+                // guaranteed to run when a tool stops: every tool ends by having its
+                // listeners cleared, and several never get to run a line of their own again.
+                this.__canvasTool = null;
                 if (mo != null) {
                     exec(mo, this, this.genegraph_panel_layout)
                 } else {
@@ -5297,7 +5304,17 @@ function (progress, options) {
                         // because it sits inside the selection and would otherwise be swallowed
                         // by the "click inside a selection opens its menu" branch below.
                         try {
-                            const __clr = this.__hitSelectionClear(this.graph.X(xwc), this.graph.Y(ywc));
+                            // ...unless a TOOL owns the canvas. A tool that previews with
+                            // track marks (draw-oligos.js highlights the window the compound
+                            // would occupy) paints a selection, arrow heads and clear button
+                            // included, on every mouse move. These three branches then claim
+                            // the press and RETURN before this.mouseDownListeners is reached,
+                            // so the tool's own handler never sees a click: the compound is
+                            // never placed and the selected-sequence menu opens instead. The
+                            // preview is not a selection the user made, so the shortcuts for
+                            // acting on one do not apply to it.
+                            const __clr = this.__canvasTool ? null
+                                : this.__hitSelectionClear(this.graph.X(xwc), this.graph.Y(ywc));
                             if (__clr) {
                                 this.__downMenuHandled = true;
                                 __clr.markstart = null;
@@ -5319,7 +5336,8 @@ function (progress, options) {
                         // of the selection window (updated in mouseMove, cleared in mouseUp). Consume
                         // the press so it doesn't also start a new lasso/selection.
                         try {
-                            const __hit = this.__hitSelectionArrow(this.graph.X(xwc), this.graph.Y(ywc));
+                            const __hit = this.__canvasTool ? null
+                                : this.__hitSelectionArrow(this.graph.X(xwc), this.graph.Y(ywc));
                             if (__hit) {
                                 this.__dragMark = __hit;
                                 this.__downMenuHandled = true;
@@ -5332,7 +5350,7 @@ function (progress, options) {
                         // already claimed those) opens the Selected Sequence side menu: the same
                         // shape as the track menu, scoped to markstart..markend.
                         try {
-                            const __selT = this.__trackAtSelection(xwc, ywc);
+                            const __selT = this.__canvasTool ? null : this.__trackAtSelection(xwc, ywc);
                             if (__selT) {
                                 this.__downMenuHandled = true;
                                 exec('baja/manchester/menu/selected-sequence-menu.js', this, __selT, this.genegraph_panel_layout);
@@ -11047,7 +11065,24 @@ pattern, GGGG | Required`
                 if (!isFinite(per) || per <= 0) return false;
                 const rows = bottom ? 2 : 1;
                 const rowH = 12;
-                const yTop = Math.round(o.y - (rows === 2 ? 30 : 26));
+                // CLEARANCE IS THIS FUNCTION'S ALONE, and it is small on purpose. Callers
+                // were subtracting their own gap before calling, so two clearances stacked
+                // and the label floated about forty pixels above the residues it describes
+                // -- which on a tiling walk, where rows sit seventy pixels apart, puts it
+                // nearer the compound ABOVE than the one it belongs to. It reads as a label
+                // attached to the wrong oligo, because that is what it looks like.
+                //
+                // Enough to clear a bead (radius up to 10) and no more: a single row sits
+                // 16px above the backbone, and a stacked pair puts its lower row there and
+                // the upper row above that.
+                // ABOVE BY DEFAULT, BELOW ON REQUEST. A compound's own strand belongs next
+                // to the compound; the strand it BINDS reads better underneath, because
+                // then the drawing is a duplex -- oligo over target, columns lining up --
+                // and a mismatch is a column you can see rather than two strings to compare.
+                // The clearance is the same either way, measured from the backbone.
+                const yTop = o.below
+                    ? Math.round(o.y + 20)
+                    : Math.round(o.y - (rows === 2 ? 28 : 16));
                 const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
                 // WHAT COUNTS AS PAIRED DEPENDS ON WHICH STRAND THE BOTTOM ROW IS.
                 //
@@ -12659,6 +12694,34 @@ pattern, GGGG | Required`
                         // { label: 'Compounds  (' + items.length + ')', header: true, click: () => { }, move: () => { } },
                         { label: 'Choose a compound…', click: () => { pickOne(); }, move: () => { } },
                         { label: 'Run off-targets…', click: () => { startOffTargets('oligo'); }, move: () => { } },
+                        // WHAT THE SCREEN FOUND, once it has been run. Running it was already
+                        // here; reading the result was not, so a screen's whole output was a
+                        // count on a badge. Analyse opens the genes as tables and downloads
+                        // them; Map opens the off-target gene itself and marks where the
+                        // compound lands on it, which is the question a count cannot answer:
+                        // whether the hit is in an exon or somewhere nobody keeps.
+                        {
+                            label: 'Analyse off-targets\u2026', move: () => { },
+                            click: () => {
+                                const refs = refsOf();
+                                if (!refs.length) { this.setMessage(' No compounds selected. '); return; }
+                                closeHandoff();
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/selected-off-target-genes.js', this, refs)).catch(() => { });
+                                } catch (e) { this.setMessage(' Could not open the off-target tables: ' + e + ' '); }
+                            }
+                        },
+                        {
+                            label: 'Map onto off-target genes\u2026', move: () => { },
+                            click: () => {
+                                const refs = refsOf();
+                                if (!refs.length) { this.setMessage(' No compounds selected. '); return; }
+                                closeHandoff();
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/map-off-targets.js', this, refs)).catch(() => { });
+                                } catch (e) { this.setMessage(' Could not open the off-target map: ' + e + ' '); }
+                            }
+                        },
                         { label: 'Zoom into', click: () => { close(); zoomToAll(); }, move: () => { } },
                         {
                             label: 'Modify chemistry', click: () => {
@@ -12809,6 +12872,21 @@ pattern, GGGG | Required`
                         // a second entry for the same set would just be two doors to one room.
                         if (kc.k === 'ann' || kc.k === 'oligo' || kc.k === 'amplicon') continue;
                         if (kc.n > 1) menu.push({ label: 'All ' + (kindLabels[kc.k] || kc.k) + ' (' + kc.n + ') ▸', click: () => { openTypeMenu(kc.k); }, move: () => { } });
+                    }
+
+                    // ASK ABOUT THE SELECTED VARIANTS. Offered only when some are selected,
+                    // because the question it asks is about variants and an empty set has
+                    // nothing to ask about. See baja/data/variant-association.js: what is
+                    // known about a GENE comes back separately from what is known about
+                    // these particular changes, and only the latter is marked on the track.
+                    const __selSnps = sel.filter((e) => e && e.kind === 'snp' && e.ref).map((e) => e.ref);
+                    if (__selSnps.length) {
+                        menu.push({
+                            label: 'Ask about these ' + __selSnps.length + ' variant'
+                                + (__selSnps.length === 1 ? '' : 's') + '… (AI)',
+                            click: () => { close(); exec('baja/data/variant-association.js', this, __selSnps); },
+                            move: () => { }
+                        });
                     }
 
                     // Whole-selection actions below the per-object roots.

@@ -2323,13 +2323,71 @@ function (path, config) {
             ]
 
             let interpreter = await exec('baja/engine/interpreter.js', pm.plateTrack)
+
+            // THE SAME FIELD TAKES A SENTENCE NOW. A command goes to the interpreter exactly
+            // as it did; a sentence is matched against this app's own menus and the operations
+            // the project knows, so a milestone can be added by saying so. The test for which
+            // is which is the one module both command fields share, not a copy.
+            let __sentence = null;
+            try { __sentence = await exec('baja/plate/menu/is-sentence.js'); } catch (e) { __sentence = null; }
+            let __tlMenus = [];
+            const __askTimeline = async (str, panel, menus) => {
+                try { if (panel && panel.setText) panel.setText(''); } catch (e) { }
+                try {
+                    await exec('baja/plate/menu/project-command.js', {
+                        menus: menus || [],
+                        pm: pm.plateTrack,
+                        text: str,
+                        context: {
+                            timeline: (pm.plateTrack.selectedPlate && pm.plateTrack.selectedPlate.name) || null,
+                            showing: 'a timeline'
+                        },
+                        setError: (m) => { try { pm.plateTrack.setMessage(m, 8); } catch (e) { } }
+                    });
+                } catch (e) {
+                    // Said, not swallowed: a sentence handed to the interpreter does nothing,
+                    // so a failure here would look like a key that was not pressed.
+                    try { pm.plateTrack.setMessage('Could not read that: '
+                        + ('' + (e && e.message ? e.message : e)), 8); } catch (e2) { }
+                }
+            };
+
+            // A PROMPT BOX OF ITS OWN, UNDER THE BAR.
+            //
+            // The menubar's field is the command interpreter's, and it has its own history
+            // and its own habits. This one is for the timeline in front of you: everything
+            // typed here is read as a request, with no test for whether it might have been a
+            // command, because that is the whole purpose of a second box. One field, one job.
+            //
+            // It carries the timeline's name into the request, so "move it to March" has
+            // something to mean.
+            const timeline_prompt_bar = {
+                'width': '100%',
+                'component': {
+                    wid: 'menu',
+                    data: {
+                        placeholder: 'Ask about this timeline: add a milestone on a date, add a phase between two dates\u2026',
+                        cmd: createIon(async (str, panel) => {
+                            const t = ('' + (str || '')).trim();
+                            if (!t) return;
+                            await __askTimeline(t, panel, __tlMenus);
+                        }),
+                        menus: []
+                    }
+                }
+            };
+
             const top_menubar = {
                 'width': '100%',
                 'component': {
                     wid: 'menu',
                     data: {
                         cmd: createIon(async (str, panel) => {
-
+                            const t = ('' + (str || '')).trim();
+                            if (!t) return;
+                            let isSentence = false;
+                            try { isSentence = !!(__sentence && __sentence.looksLikeASentence(t)); } catch (e) { isSentence = false; }
+                            if (isSentence) { await __askTimeline(t, panel, __tlMenus); return; }
                             let fal = await interpreter.executeCommand(str);
                             panel.setText('');
                         }),
@@ -2823,7 +2881,11 @@ function (path, config) {
                     data: {
                         cards: [
                             [
-                                top_menubar,
+                                // Captured here, where the menubar is finished, so a sentence
+                                // typed into its field is matched against the menu that is
+                                // actually on screen rather than a list kept somewhere else.
+                                (() => { try { __tlMenus = top_menubar.component.data.menus || []; } catch (e) { } return top_menubar; })(),
+                                timeline_prompt_bar,
                                 {
                                     'width': '100%',
                                     'component': buttonMenuPanel
