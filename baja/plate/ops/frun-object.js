@@ -1,5 +1,19 @@
 function (expression, pt, owner) {
 
+    // THE LEADING '=' IS NOT PART OF THE EXPRESSION.
+    //
+    // An "=" is how a person says "this cell is a formula"; the parser below has no notion of
+    // it and recurses on it until the stack gives out -- "Maximum call stack size exceeded",
+    // thrown into a catch, so the cell simply kept showing the text that was typed into it
+    // and the total that summed that column went red for finding a word where a number
+    // should be. Nothing said why.
+    //
+    // The plate strips it on its way through getFormula(), and addFormula does not, and the
+    // track's formula map is never cleared, so whichever of the two wrote last decided
+    // whether a formula worked. It is stripped HERE instead, at the one door all fifteen
+    // callers come through, so it cannot matter again.
+    expression = ('' + (expression == null ? '' : expression)).trim().replace(/^=+\s*/, '');
+
     // WHICH CELL THIS FORMULA IS WRITTEN IN.
     //
     // The engine was handed an expression and a project and nothing else, so a sum had no

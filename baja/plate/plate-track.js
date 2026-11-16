@@ -3908,8 +3908,10 @@ function (progress) {
             }
 
             addFormula(wellselections, formula) {
-
-                this.formulas[wellselections] = formula;
+                // STORED THE WAY THE ENGINE READS IT. The plate's own map is stripped of the
+                // leading '=' by getFormula(); this one was not, and the two write to the
+                // same key, so a formula worked or did not depending on which ran last.
+                this.formulas[wellselections] = ('' + (formula == null ? '' : formula)).replace(/^=+\s*/, '');
             }
 
             async capturePlateState() {
