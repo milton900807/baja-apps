@@ -29,7 +29,28 @@ function (list, screenX, screenY, graph, opts) {
         const rows = (Array.isArray(list) ? list : []).filter((it) => it && (it.type === 'separator' || it.label != null));
         if (!rows.length) return null;
         const esc = (t) => ('' + t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const isHeading = (it) => it.type !== 'separator' && it.type !== 'text' && /^[—–-]{1,2}\s.+\s[—–-]{1,2}$/.test(('' + it.label).trim());
+        // WHAT IS A CAPTION RATHER THAN A BUTTON. Three things, and only the first was
+        // recognised here before:
+        //
+        //   — text —        the dash convention some menus are written in
+        //   header: true    the convention everything else in the app uses, and which this
+        //                   renderer silently ignored -- so a row the author had explicitly
+        //                   marked as a caption was drawn as a button, in a menu whose other
+        //                   rows did things. That is the worst of both: it looks like an
+        //                   action, and clicking it just closes the menu.
+        //   no click        a row with no handler. Clicking is `it.click && it.click(...)`,
+        //                   so it closes the menu and does nothing, while looking exactly
+        //                   like the rows that work. Either it was meant as a caption, or it
+        //                   is an action that was never wired; drawn as a caption, the first
+        //                   reads correctly and the second stops advertising what it has not
+        //                   got.
+        //
+        // `disabled` is not in this list: a disabled row is an action that is unavailable
+        // right now and says so by being greyed, which is a different statement.
+        const isHeading = (it) => it.type !== 'separator' && it.type !== 'text' && it.type !== 'html'
+            && (it.header === true
+                || /^[—–-]{1,2}\s.+\s[—–-]{1,2}$/.test(('' + it.label).trim())
+                || (typeof it.click !== 'function' && it.disabled !== true && it.enabled !== false));
 
         const pop = { el: null, destroy: null };
         const el = document.createElement('div');
@@ -56,7 +77,13 @@ function (list, screenX, screenY, graph, opts) {
             // e.g. the exon-removal prediction). `html` is trusted markup built by the caller, which escapes
             // any data in it; `label` is the plain-text form for menus that cannot draw markup.
             if (it.type === 'html') { html += '<div style="padding:6px 10px;font-size:12.5px;line-height:1.45;color:#eaf6f9;user-select:text;">' + (it.html || esc(label)) + '</div>'; return; }
-            if (isHeading(it)) { html += '<div style="padding:8px 10px 3px 10px;color:#9fc4d4;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;">' + esc(label.replace(/^[—–-]+\s*|\s*[—–-]+$/g, '')) + '</div>'; return; }
+            if (isHeading(it)) {
+                html += '<div style="padding:8px 10px 3px 10px;color:#9fc4d4;font-size:11px;'
+                    + 'letter-spacing:0.4px;text-transform:uppercase;">'
+                    + esc(label.replace(/^[—–-]+\s*|\s*[—–-]+$/g, '').replace(/\s*[▸►›>]\s*$/, ''))
+                    + '</div>';
+                return;
+            }
             const off = it.disabled === true || it.enabled === false;
             const danger = it.emphasis === 'danger' || /^delete\b/i.test(label);
             const sub = /[▸►›]\s*$/.test(label);

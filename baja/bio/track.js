@@ -4430,6 +4430,28 @@ return new Promise(async (resolve, reject) => {
       try { return this.getSequenceRange(r.start, r.end) || ''; } catch (e) { return ''; }
     }
 
+    // The reference sequence under one compound, for the polymer renderer. A METHOD,
+    // because compounds go through draw() at one zoom and drawDetail() at another, in
+    // separate loops: stashing this beside only one of them made the row appear at one
+    // zoom and silently not at the other. End-exclusive accessor, inclusive compound end,
+    // so ask wide and let the renderer take the n it has. Cached on the span.
+    __stashGenomicSite(o) {
+      try {
+        if (!o) return;
+        const k = o.xi + ':' + o.xf;
+        if (o.__genomicSiteKey === k) return;
+        o.__genomicSite = ('' + (this.getSequenceRange(o.xi, o.xf + 2) || '')).toUpperCase();
+        // HOW MANY TRACK BASES THIS COMPOUND COVERS. A compound built against a sequence
+        // with a deletion applied is SHORTER than its own genomic footprint by exactly the
+        // bases that were removed, and that difference is a fact rather than something to
+        // infer from how badly the sequences line up. The renderer uses it to align across
+        // the join instead of guessing whether a run of disagreement is a deletion or a
+        // genuinely mismatched compound.
+        o.__genomicSpan = (o.xf - o.xi) + 1;
+        o.__genomicSiteKey = k;
+      } catch (e) { o.__genomicSite = ''; }
+    }
+
     getSequenceRange(start, end) {
       let seq_index_start = Math.floor(start) - this.xi;
       let seq_index_end = Math.floor(end) - this.xi;
@@ -4643,6 +4665,9 @@ return new Promise(async (resolve, reject) => {
     }
     addsnpindel(snpindel) {
       this.snpindels.push(snpindel);
+      // THE ONE PLACE EVERY ARRIVAL PASSES THROUGH. See baja/data/variant-arrival.js; not
+      // awaited, and it debounces so a loop of adds becomes one pulse over all of them.
+      try { exec('baja/data/variant-arrival.js', snpindel); } catch (e) { }
     }
 
     removesnp(snpindel) {
@@ -7367,7 +7392,7 @@ return new Promise(async (resolve, reject) => {
             for (let o of visOligos) {
               try {
                 o.showOfftargets = this.showOfftargets;
-
+                this.__stashGenomicSite(o);
                 o.draw(graph, this.tgraph, y);
               } catch (e) {
                 // NOT silent. This is the call that draws every compound on the board, and
@@ -7584,7 +7609,7 @@ return new Promise(async (resolve, reject) => {
               }
               for (let o of visOligos) {
                 o.showOfftargets = this.showOfftargets;
-                o.drawDetail(graph, this.tgraph, index, y + 0.15);
+                (this.__stashGenomicSite(o), o.drawDetail(graph, this.tgraph, index, y + 0.15));
               }
             }
             // Draw each visible SNP/indel ONCE — not once per visible base. The old loop

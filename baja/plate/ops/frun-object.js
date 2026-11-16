@@ -2044,6 +2044,78 @@ function (expression, pt) {
                     let values = flatArray[parseIndexValue(args[0])]
                     computedResult = [sqrt(values)]
                 }
+                else if (functionName === 'count_rows' || functionName === 'countrows'
+                    || functionName === 'countrow') {
+
+                    // HOW MANY ROWS A TABLE ACTUALLY HOLDS.
+                    //
+                    // "The number of Employees" is a count of rows, and the only thing that
+                    // could be written for it was sum() over the whole table -- which throws
+                    // the moment it meets a name, because every cell in the range has to be a
+                    // number. The cell went red and said nothing useful.
+                    //
+                    // The HEADER ROW IS NOT A ROW. A table of five people with Type and
+                    // Salary across the top has five rows, not six, and a count that says six
+                    // is wrong in the way that is hardest to notice.
+                    //
+                    // An empty row is not a row either: a table is made with the shape it was
+                    // asked for and filled afterwards, so the blank rows at the bottom are
+                    // room rather than content.
+                    //
+                    // The TABLE NAME is read from the reference as it was written, which is
+                    // what args carries here (results is keyed by that same token). Counting
+                    // rows cannot be done from the flat list of cells the other functions
+                    // take: the rows are gone by then.
+                    // THE NAME IS FOLLOWED BACK TO WHERE IT WAS WRITTEN. An argument reaches
+                    // here either as the text that was typed (Employees[0:1][0:3]) or as the
+                    // id of an earlier call that resolved it (access_Employees_0), because a
+                    // bare table name is read as an access. Both lead to the name: the id is
+                    // looked up in the call stack and its own first argument asked instead.
+                    // Reading the id's text would work today and break the day the id's shape
+                    // changes.
+                    const nameOf = (tok, depth) => {
+                        const t0 = ('' + (tok == null ? '' : tok)).trim();
+                        if (!t0 || (depth || 0) > 4) return null;
+                        const m = t0.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(\[|$)/);
+                        if (m && pt && typeof pt.getTableByName === 'function' && pt.getTableByName(m[1])) {
+                            return m[1];
+                        }
+                        for (const e of callStack) {
+                            if (e && e.result === t0) return nameOf(e.args && e.args[0], (depth || 0) + 1);
+                        }
+                        return m ? m[1] : null;
+                    };
+                    const tableName = nameOf(args && args[0], 0);
+                    const t = (tableName && pt && typeof pt.getTableByName === 'function')
+                        ? pt.getTableByName(tableName) : null;
+                    if (!t || !Array.isArray(t.wells)) {
+                        throw new Error('count_rows: there is no table called \''
+                            + (tableName || ('' + (args && args[0]))) + '\'');
+                    }
+                    const isHeader = (w) => {
+                        if (!w) return false;
+                        if (w.skin_type === 'ColumnHeader') return true;
+                        const g = w.group;
+                        if (g && typeof g === 'object' && g['ColumnHeader'] != null) return true;
+                        if (typeof g === 'string' && g === 'ColumnHeader') return true;
+                        return false;
+                    };
+                    const nCols = t.wells.length;
+                    const nRows = nCols ? ((t.wells[0] && t.wells[0].length) || 0) : 0;
+                    let counted = 0;
+                    for (let rI = 0; rI < nRows; rI++) {
+                        let header = false, filled = false;
+                        for (let cI = 0; cI < nCols; cI++) {
+                            const w = t.wells[cI] && t.wells[cI][rI];
+                            if (!w) continue;
+                            if (isHeader(w)) { header = true; break; }
+                            const v = w.value;
+                            if (v != null && ('' + v).trim() !== '') filled = true;
+                        }
+                        if (!header && filled) counted++;
+                    }
+                    computedResult = [counted];
+                }
                 else if (functionName === 'sum') {
 
                     const extractNumbers = (input) => {

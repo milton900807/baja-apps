@@ -952,7 +952,9 @@ function () {
                 // siRNA, the GUIDE (antisense) strand -- drawn as a pill above the duplex so a
                 // whole set can be read at once. Drawn on demand, not behind an oligo-label
                 // toggle. For an siRNA "synthesis" means the guide strand, set in the menu.
-                if (this.__seqDisp && graph.canvas) {
+                // See oligo.js: silent while the duplex itself carries the letters.
+                const __lettersOnBeads = !!(this.__chemGeom && this.__chemGeom.letters);
+                if (this.__seqDisp && graph.canvas && !__lettersOnBeads) {
                     try {
                         const _c = graph.canvas.getCTX();
                         const _t = '' + this.__seqDisp;
@@ -962,10 +964,19 @@ function () {
                         let _aligned = false;
                         try {
                             if (_c && this.__seqDisp2 && graph.drawAlignedSeqLabel) {
-                                const _x0 = graph.X(tgraph.X(this.xi));
-                                const _per = graph.X(tgraph.X(this.xi + 1)) - _x0;
+                                // Same geometry the duplex is drawn with, and the gap above
+                                // it belongs to drawAlignedSeqLabel: a clearance subtracted
+                                // here too stacks with that one and floats the label between
+                                // this compound and the one above it.
+                                const _sxi = graph.X(tgraph.X(this.xi));
+                                const _sxf = graph.X(tgraph.X(this.xf));
+                                const _nLet = Math.max(1, Math.max(
+                                    ('' + (this.__seqDisp || '')).length,
+                                    ('' + (this.__seqDisp2 || '')).length));
+                                const _x0 = Math.min(_sxi, _sxf);
+                                const _per = Math.abs(_sxf - _sxi) / _nLet;
                                 _aligned = graph.drawAlignedSeqLabel(_c, {
-                                    x0: _x0, perBase: _per, y: graph.Y(tgraph.Y(y)) - 10,
+                                    x0: _x0, perBase: _per, y: graph.Y(tgraph.Y(y)),
                                     top: this.__seqDisp, bottom: this.__seqDisp2, pair: this.__seqDisp2Pair || 'complement',
                                     colorTop: this.__seqDispColor || '#0b7285',
                                     colorBottom: this.__seqDisp2Color || '#7c2d12',

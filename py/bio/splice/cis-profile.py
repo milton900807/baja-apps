@@ -84,7 +84,19 @@ max_dist = _int(works.param(6), 500)
 orientation = str(works.param(7) or "plus").strip().lower()
 if orientation not in ("plus", "coding"):
     orientation = "plus"
-bin_size = max(4, _int(works.param(8), 50))
+# The smallest bin that measures anything. The perturbation is a dinucleotide-preserving
+# shuffle, and dinuc_shuffle returns a window of fewer than four bases UNCHANGED, so the
+# model scores the identical sequence and every bar is exactly zero. The old floor of 4 was
+# barely better: measured over random windows, the share with no alternative arrangement is
+# 98% at 4 nt, 68% at 5, 48% at 6, 2% at 8 and 0% from 10 up, so a 4 nt bin returns a flat
+# profile of zeros for almost every window. Clamped here as well as in the caller, because
+# this script is also reached from the command line, and said rather than applied silently.
+CIS_BIN_MIN = 8
+_bin_requested = _int(works.param(8), 50)
+bin_size = max(CIS_BIN_MIN, _bin_requested)
+if 0 < _bin_requested < CIS_BIN_MIN:
+    works.msg("A %d nt bin has no dinucleotide-preserving rearrangement; profiling at %d nt"
+              % (_bin_requested, bin_size))
 step = max(1, _int(works.param(9), 25))
 n_shuffle = max(2, _int(works.param(10), 6))
 

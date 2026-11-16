@@ -280,10 +280,24 @@ def param(index: int) -> Any:
 # =============================================================================
 # Subscription helper
 # =============================================================================
-def has_active_subscription(email: str) -> bool:
+def subscription_marker(email: str):
+    """Does the marker directory grant this address? True, False, or None.
+
+    NONE IS NOT NO, and the difference is the whole point of this function. The convention
+    here is a file named <email>_d<YYYY-MM-DD> under $LJLSUBSCRIPTIONS whose date is in the
+    future. When that variable is unset, or names something that is not a directory, this
+    cannot answer -- and has_active_subscription used to report that as False, so every user
+    on a box where nobody had set the variable looked unsubscribed. The AI credit meter
+    believed it and metered paying subscribers against the free allowance. The meter's own
+    comment promises that a check which cannot run will not turn a paying user away, and it
+    implements that by catching exceptions; this returned a clean False instead, so there was
+    nothing to catch.
+
+    Callers that must decide something treat None as "ask someone else", not as "no".
+    """
     root = os.getenv("LJLSUBSCRIPTIONS")
     if not root or not os.path.isdir(root):
-        return False
+        return None
 
     pattern = re.compile(rf"{re.escape(email)}_d(\d{{4}}-\d{{2}}-\d{{2}})", flags=re.IGNORECASE)
     today: date = datetime.now(_LA_TZ).date() if _LA_TZ else date.today()
@@ -300,6 +314,12 @@ def has_active_subscription(email: str) -> bool:
             if dt > today:
                 return True
     return False
+
+
+def has_active_subscription(email: str) -> bool:
+    """Kept for callers that want a plain bool. None (cannot answer) reads as False here, so
+    anything making an access decision should use subscription_marker and handle None."""
+    return subscription_marker(email) is True
 
 
 # =============================================================================

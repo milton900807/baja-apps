@@ -2489,6 +2489,52 @@ function (path, config) {
                     }
                 ];
 
+                // THE FILE OPERATIONS, DECLARED ONCE. Saving, opening, starting fresh: these are
+                // what Files means, and they were one level down inside a button that opened a
+                // menu of them. The Files menu on the toolbar lists them directly, and the
+                // older center menu is built from the same list, so there is one definition of
+                // what Save does rather than two that agree until one is changed.
+                const __fileActions = [
+                    {
+                        label: 'New', icon: 'note_add',
+                        tooltip: 'Clear everything and start a fresh editor',
+                        run: async () => {
+                            // Clear everything and relaunch a fresh editor, and reset the URL to
+                            // the bare editor (no ?path=...) -- the same pattern used to launch a
+                            // brand-new editor elsewhere.
+                            const __fresh = () => {
+                                try { window.history.pushState({ 'yak': '/' + getUser() }, 'editor', '/app/manchester/editor'); } catch (e) { }
+                                exec('manchester/editor');
+                            };
+                            try {
+                                const c = await exec('baja/lib/confirm.js',
+                                    'Clear everything and start fresh? Unsaved changes will be lost.', __fresh);
+                                showModal(c);
+                            } catch (e) { __fresh(); }
+                        }
+                    },
+                    {
+                        label: 'Open', icon: 'folder_open',
+                        tooltip: 'Open a design you saved earlier',
+                        run: () => { openSaveScreen(); }
+                    },
+                    {
+                        label: 'Save', icon: 'save',
+                        tooltip: 'Save this design under a name',
+                        run: () => { saveSaveScreen(); }
+                    },
+                    {
+                        label: 'Upload', icon: 'upload_file',
+                        tooltip: 'Read a file from this computer and take the tracks out of it',
+                        run: async () => { await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout); }
+                    },
+                    {
+                        label: 'My Files', icon: 'inventory_2',
+                        tooltip: 'Browse everything you have saved',
+                        run: () => { exec('manchester/fb.js'); }
+                    }
+                ];
+
                 // The Selection button is built here, not inline in the panel below, because the
                 // badge has to be able to reach it: button-menu binds the SAME array of objects
                 // it was handed, so mutating this one's `badge` is what updates the toolbar.
@@ -2539,44 +2585,30 @@ function (path, config) {
                                             buttons: [
                                                 {
                                                     label: 'File', icon: 'folder_open',
-                                                    tooltip: 'Open, save, upload and share', ionFunction: createIonFunction(() => {
-                                                        graph.showMenu([
-                                                            {
-                                                                label: 'New', move: () => { },
-                                                                click: async () => {
-                                                                    graph.hideMenu();
-                                                                    // Clear everything and relaunch a fresh editor, and reset the
-                                                                    // URL to the bare editor (no ?path=...) — same pattern used to
-                                                                    // launch a brand-new editor elsewhere.
-                                                                    const __fresh = () => {
-                                                                        try { window.history.pushState({ 'yak': '/' + getUser() }, 'editor', '/app/manchester/editor'); } catch (e) { }
-                                                                        exec('manchester/editor');
-                                                                    };
-                                                                    try {
-                                                                        const c = await exec('baja/lib/confirm.js', 'Clear everything and start fresh? Unsaved changes will be lost.', __fresh);
-                                                                        showModal(c);
-                                                                    } catch (e) { __fresh(); }
-                                                                }
-                                                            },
-                                                            { label: 'Open', click: () => { graph.hideMenu(); openSaveScreen(); }, move: () => { } },
-                                                            { label: 'Save', click: () => { graph.hideMenu(); saveSaveScreen(); }, move: () => { } },
-
-                                                            {
-                                                                label: 'Upload', move: () => { },
-                                                                click: async () => { graph.hideMenu(); await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout); }
-                                                            },
-                                                            {
-                                                                label: 'My Files', move: () => { },
-                                                                click: () => { graph.hideMenu(); exec('manchester/fb.js'); }
-                                                            },
+                                                    tooltip: 'Open, save, upload and share',
+                                                    // Built from __fileActions, which is also what the Files menu on the
+                                                    // toolbar lists. Sharing and the Library keep their own entries here
+                                                    // because they are not file operations: on the toolbar they are the
+                                                    // Share button and a Tools entry, and this menu is the older shape
+                                                    // that a frontend without the menu item type still falls back to.
+                                                    ionFunction: createIonFunction(() => {
+                                                        const __item = (a) => ({
+                                                            label: a.label, move: () => { },
+                                                            click: () => {
+                                                                graph.hideMenu();
+                                                                try { a.run(); }
+                                                                catch (e) { try { graph.setError('Could not ' + a.label + ': ' + e, 8); } catch (e2) { } }
+                                                            }
+                                                        });
+                                                        graph.showMenu(__fileActions.map(__item).concat([
                                                             {
                                                                 label: 'Share public view-only link', move: () => { },
                                                                 click: async () => {
                                                                     graph.hideMenu();
-                                                                    // Confirm PUBLIC sharing first — the resulting link needs no login.
+                                                                    // Confirm PUBLIC sharing first -- the resulting link needs no login.
                                                                     try {
                                                                         const c = await exec('baja/lib/confirm.js',
-                                                                            'Publish this screen PUBLICLY? Anyone with the link will be able to VIEW it (read-only) — no login required. Do not share sensitive data.',
+                                                                            'Publish this screen PUBLICLY? Anyone with the link will be able to VIEW it (read-only) \u2014 no login required. Do not share sensitive data.',
                                                                             () => { shareScreen(); },
                                                                             'Share publicly');
                                                                         showModal(c);
@@ -2584,42 +2616,18 @@ function (path, config) {
                                                                 }
                                                             },
                                                             {
-                                                                label: 'Share with a person…', move: () => { },
+                                                                label: 'Share with a person\u2026', move: () => { },
                                                                 click: () => { graph.hideMenu(); shareWithPerson(); }
                                                             },
                                                             {
-                                                                // Help ▸ — the reference shelves. 'The Library' and 'Clinical Compound
-                                                                // Library' moved here from the top level; Data and ML Models are new
-                                                                // bookshelves over the layer sources and the predictive models.
-                                                                // Opens the library OF the libraries: one page listing all eight,
-                                                                // split into reading rooms and working libraries. The four-item
-                                                                // menu that used to be here named a few of them and described
-                                                                // none, and left the other four with no entry point at all.
                                                                 label: 'The Library', move: () => { },
                                                                 click: () => {
                                                                     graph.hideMenu();
                                                                     try { exec('baja/lib/library-of-libraries.js', graph, genegraph_panel_layout); }
                                                                     catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                                 }
-                                                            },
-                                                            // {
-                                                            //     // Record the user's actions, then emit a demo.js script that replays them.
-                                                            //     // Toggles: first click starts (shows a REC badge), Stop shows the script.
-                                                            //     label: 'Record actions', move: () => { },
-                                                            //     click: () => {
-                                                            //         graph.hideMenu();
-                                                            //         try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
-                                                            //         catch (e) { try { graph.setMessage(' Recorder failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
-                                                            //     },
-                                                            // },
-                                                            // {
-                                                            //     // Play script: paste a recorded JSON script (from "Record actions")
-                                                            //     // and run it verbatim. The script carries its own `wait` timings,
-                                                            //     // so the inter-step delay defaults to 0 (honor recorded pacing).
-                                                            //     label: 'Play script…', move: () => { },
-                                                            //     click: () => { graph.hideMenu(); openPlayScriptPanel(); },
-                                                            // }
-                                                        ], 0, 0, 280);
+                                                            }
+                                                        ]), 0, 0, 280);
                                                     })
                                                 },
                                                 {
@@ -2919,6 +2927,26 @@ function (path, config) {
                                                         }
                                                         try { await exec('manchester/io/download-hub.js', graph, genegraph_panel_layout); }
                                                         catch (e) { try { graph.setError('Could not open Download: ' + e, 8); } catch (e2) { } }
+                                                    })
+                                                },
+                                                {
+                                                    // ASK sits between Download and Share, at the end of the
+                                                    // doing-things half of the toolbar. It opens one input: a
+                                                    // sentence goes in, and ONE action out of a fixed list comes
+                                                    // back, named and counted, before anything moves. The model
+                                                    // translates; baja/data/variant-search.js and
+                                                    // baja/bio/compound-filter.js do the matching, and the two
+                                                    // destructive verbs each need their own second click.
+                                                    label: 'Ask', icon: 'auto_awesome',
+                                                    tooltip: 'Say what you want done and it works out which operation does it -- "load clinvar pathogenic snps over the selection", "which RBP binds this", "select all snps", "are any of these pathogenic"',
+                                                    ionFunction: createIonFunction(async () => {
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ");
+                                                            return;
+                                                        }
+                                                        try { await exec('baja/manchester/menu/editor-command.js', graph, genegraph_panel_layout); }
+                                                        catch (e) { try { graph.setError('Could not open Ask: ' + e, 8); } catch (e2) { } }
                                                     })
                                                 },
                                                 {
@@ -3260,7 +3288,7 @@ function (path, config) {
                 // any button without a mapped icon falls back to its text label.
                 try {
                     const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
-                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'file_download', Share: 'share', Bookmarks: 'bookmarks' };
+                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'file_download', Ask: 'auto_awesome', Share: 'share', Bookmarks: 'bookmarks' };
                     // Track uses a Material SYMBOLS glyph (DNA double helix) rather than a classic
                     // Material Icons ligature — rendered via b.iconSymbol (see button-menu.component).
                     const __symbolIcons = { Track: 'genetics' };
@@ -3268,6 +3296,132 @@ function (path, config) {
                         if (!b || !b.label) continue;
                         if (__symbolIcons[b.label] && !b.icon && !b.iconSymbol) b.iconSymbol = __symbolIcons[b.label];
                         else if (__icons[b.label] && !b.icon) b.icon = __icons[b.label];
+                    }
+
+                    // THE TOOLBAR IS THE COMMAND BOX. The nine icons become two menus and the
+                    // rest of the bar is a text field, because everything behind those icons is
+                    // reachable by name now and a row of marks was a row of guesses. Files is
+                    // the work going in and out; Tools is what is done to it.
+                    //
+                    // REGROUPED HERE RATHER THAN RE-DECLARED ABOVE. The buttons are four
+                    // hundred lines of definitions that are all still wanted, just in two
+                    // drawers instead of in a row; rewriting that literal to move them would
+                    // risk every one of them to rearrange them. The array is mutated IN PLACE
+                    // because button-menu binds the array it was handed -- the same reason the
+                    // Selection badge works -- and each item keeps its own object identity, so
+                    // the badge keeps updating from inside the menu.
+                    // FILES IS THE FILE OPERATIONS THEMSELVES, not a button that opens a menu
+                    // of them. New, Open, Save, Upload, My Files come straight from
+                    // __fileActions; Download and Share are the toolbar's own buttons, which
+                    // already do those two jobs better than the older entries did.
+                    //
+                    // TOOLS IS EVERYTHING ELSE THE TOOLBAR USED TO CARRY -- tracks, layers,
+                    // drawing, navigation, bookmarks, the selection -- so nothing that was one
+                    // click away is now unreachable. Bookmarks sits here rather than under
+                    // Files: a bookmark is a place in the data, not a file.
+                    const __byLabel = (n) => __bm.find((b) => b && b.label === n);
+                    const __ask = __byLabel('Ask');
+                    // 'File' is excluded: its contents ARE the Files menu now, so keeping it
+                    // would put a menu inside the menu that replaced it.
+                    const __notInTools = ['Ask', 'File', 'Download', 'Share'];
+                    const __filesItems = __fileActions.map((a) => ({
+                        label: a.label, icon: a.icon, tooltip: a.tooltip,
+                        ionFunction: createIonFunction(() => {
+                            try { a.run(); }
+                            catch (e) { try { graph.setError('Could not ' + a.label + ': ' + e, 8); } catch (e2) { } }
+                        })
+                    })).concat(['Download', 'Share'].map(__byLabel).filter(Boolean));
+                    // Everything else, in the order it was declared. A button added later and
+                    // named nowhere here lands in Tools rather than disappearing.
+                    const __toolsItems = __bm.filter((b) => b && b.label
+                        && __notInTools.indexOf(b.label) < 0).concat([{
+                            // Not a toolbar button of its own: it lived inside the File menu,
+                            // which is not where a shelf of reference material belongs.
+                            label: 'The Library', icon: 'local_library',
+                            tooltip: 'Every reference shelf: data sources, models, modalities and the compound libraries',
+                            ionFunction: createIonFunction(() => {
+                                try { exec('baja/lib/library-of-libraries.js', graph, genegraph_panel_layout); }
+                                catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                            })
+                        }]);
+
+                    if (__filesItems.length && __toolsItems.length) {
+                        const __openList = (title, items) => {
+                            // The fallback for a frontend that predates the menu item type:
+                            // there the menu renders as a plain button and this is its click.
+                            try {
+                                graph.showSideMenu([{ label: title, header: true }].concat(
+                                    items.map((b) => ({
+                                        label: b.label, move: () => { },
+                                        click: () => {
+                                            try { graph.showSideMenu(null); } catch (e) { }
+                                            // ionFunction is a REFERENCE, not a function:
+                                            // createIonFunction registers the function and
+                                            // returns a key. Calling the key did nothing and
+                                            // threw nothing, so every entry in this fallback
+                                            // menu was a button that quietly did not work.
+                                            try {
+                                                const fn = (typeof b.ionFunction === 'function')
+                                                    ? b.ionFunction : getIonFunction(b.ionFunction);
+                                                if (fn) fn(b);
+                                                else graph.setError('No action is wired to ' + b.label, 6);
+                                            } catch (e) {
+                                                try { graph.setError('Could not open ' + b.label + ': ' + e, 8); } catch (e2) { }
+                                            }
+                                        }
+                                    }))));
+                            } catch (e) { }
+                        };
+                        const __bar = [
+                            {
+                                type: 'menu', label: 'Files', icon: 'folder',
+                                tooltip: 'New, open, save, upload, download and share this design',
+                                items: __filesItems,
+                                ionFunction: createIonFunction(() => { __openList('Files', __filesItems); })
+                            },
+                            {
+                                type: 'menu', label: 'Tools', icon: 'build',
+                                tooltip: 'Tracks, layers, drawing, navigation, bookmarks, the selection and the libraries',
+                                items: __toolsItems,
+                                ionFunction: createIonFunction(() => { __openList('Tools', __toolsItems); })
+                            },
+                            {
+                                type: 'input', label: 'Ask', icon: 'auto_awesome', goLabel: 'Go',
+                                placeholder: 'say what you want done — select the 3′ UTR · '
+                                    + 'load clinvar pathogenic snps · are any of these pathogenic',
+                                tooltip: 'Say what you want done and the editor works out which operation does it',
+                                // One function for both frontends. With the input item type the
+                                // component writes the typed text onto this object before
+                                // firing, and hands over the panel under the bar to render the
+                                // answer into; an older build renders the item as a plain
+                                // button, so there is neither, and the module opens a window of
+                                // its own. Either way the same module reads the request.
+                                ionFunction: createIonFunction(async (item) => {
+                                    try { graph.hideMenu(); } catch (e) { }
+                                    // No track check here. Loading one is an operation the box
+                                    // can carry out, and an empty canvas is precisely when
+                                    // someone types "load DNM1"; refusing to open was turning
+                                    // the one request that needs no track into the one request
+                                    // it would not take.
+                                    const text = ('' + ((item && item.value) || '')).trim();
+                                    // The panel under the bar, when the component gave us one.
+                                    // Without it the module opens its own window, which is the
+                                    // older frontend's path and the fallback here.
+                                    const host = (item && item.resultsHost) || null;
+                                    const opts = text
+                                        ? (host ? { host: host, prefill: text } : { prefill: text })
+                                        : undefined;
+                                    try {
+                                        await exec('baja/manchester/menu/editor-command.js', graph,
+                                            genegraph_panel_layout, opts);
+                                    } catch (e) {
+                                        try { graph.setError('Could not open Ask: ' + e, 8); } catch (e2) { }
+                                    }
+                                })
+                            }
+                        ];
+                        __bm.length = 0;
+                        for (const b of __bar) __bm.push(b);
                     }
                 } catch (e) { }
 

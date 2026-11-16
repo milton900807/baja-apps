@@ -314,6 +314,11 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             const MAX_ALLELE = 50;   // skip structural variants (giant ref/alt)
             let added = 0, skippedSv = 0, skippedFilter = 0, skippedUnmapped = 0;
             const __placed = [];   // the SnpIndels made here, for the gene-mechanism pass below
+            // How many the track already carried. A load onto an EMPTY track is just the
+            // track's variants and needs no batch; a load onto a track that already has some
+            // is the case where the new ones vanish into the old ones. See the batch step
+            // after the mechanism pass.
+            const __had = ((track.snpindels || []).length) | 0;
             for (const v of list) {
                 if (!v || v.start == null) continue;
                 if (v.chr && ('' + v.chr).replace(/^chr/, '') !== chr) continue;
@@ -443,6 +448,20 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                     }
                 }
             } catch (e) { }
+
+            // ---- tell the new ones from the ones already there ---------------------------
+            // Only when there WERE ones already there. Shape becomes the kind of change and
+            // colour becomes the predicted loss of function, read off each record's own
+            // consequence field; the batch keeps a handle so it can be hidden or dropped
+            // without touching what was on the track before.
+            let __batch = null;
+            if (__had > 0 && __placed.length) {
+                try {
+                    __batch = await exec('baja/data/variant-batch.js', track, __placed,
+                        { label: label + filterNote });
+                } catch (e) { console.warn('[variant batch]', e); }
+            }
+
             if (!added) {
                 // Two different nothings, and they need different answers: the class filter
                 // matched none of them (widen the class), or the region genuinely holds none.
@@ -492,6 +511,15 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                         + (skippedUnmapped
                             ? ('; ' + skippedUnmapped + ' fell in a region the two assemblies differ over and were not placed')
                             : '') + '. ')
+                    : '')
+                // What the reader needs to know to make sense of the track they are now
+                // looking at: these ones are drawn differently from the ones that were
+                // already there, and here is what the difference means.
+                + (__batch
+                    ? ('These are drawn as a batch: shape is the kind of change (circle a '
+                        + 'substitution, triangle an insertion, inverted triangle a deletion) '
+                        + 'and colour is the predicted loss of function from each record\u2019s own '
+                        + 'consequence field. ' + __batch.summary() + '. ')
                     : ''));
             restoreHover();
             return added;

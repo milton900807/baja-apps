@@ -104,6 +104,217 @@ function () {
             }
             monos = rebuilt;
         }
+        // ---- GENOMIC ORIENTATION, AND THE REFERENCE UNDERNEATH ---------------------------
+        //
+        // The beads were always laid out in SYNTHESIS order, 5' to 3' left to right,
+        // whatever direction the compound runs on the genome. For an antisense oligo that
+        // is backwards: its 5' end pairs with the HIGHER coordinate, so the leftmost bead
+        // was the last residue, and everything drawn under it read against the grain of a
+        // canvas where left is the lower coordinate.
+        //
+        // DECIDED AGAINST THE GENOME, NOT AGAINST THE TARGET FIELD. An earlier version of
+        // this measured the monomers against the compound's own targetSequence and assumed
+        // that field was in genomic orientation. It is not a fixed convention: it is
+        // whatever the designer was handed, and on a minus-strand gene that is now the
+        // mRNA, which is the reverse complement of the genome. Keying a drawing decision on
+        // it meant the fix to one made the other wrong. The track stashes the REFERENCE
+        // sequence under this compound (__genomicSite) and that is what this measures
+        // against, because the genome is not a convention.
+        //
+        // Four readings, because both unknowns are settled by the same measurement: the
+        // residues run with the genome or against it, and an oligo sitting on a plus-strand
+        // gene is the COMPLEMENT of the reference while one on a minus-strand gene IS the
+        // reference. Whichever of the four fits best wins, and a compound that fits none of
+        // them is left alone.
+        const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
+        const __host = opts.oligo || null;
+        // Take the n bases this compound actually covers. The track hands over a slice
+        // that is deliberately a little long, because its range accessor is end-exclusive
+        // and the compound's own end is stored inclusively by some callers; requiring an
+        // exact length made the row disappear on an off-by-one instead of drawing.
+        const __refRaw = ('' + ((__host && __host.__genomicSite) || '')).toUpperCase().replace(/[^ACGTUN]/g, '');
+        let __ref = (__refRaw.length >= n) ? __refRaw.slice(0, n) : '';
+        if (__refRaw && !__ref && __host && !__host.__refShortWarned) {
+            __host.__refShortWarned = true;
+            try {
+                console.warn('[chem-draw] ' + (__host.name || __host.id) + ': the track gave '
+                    + __refRaw.length + ' reference bases for a ' + n + '-residue compound, so no '
+                    + 'reference is drawn under it.');
+            } catch (e) { }
+        }
+        let __flip = false, __same = false, __refFit = -1, __targetRow = null;
+        if (__ref.length === n && n > 1) {
+            const fit = (mirror, same) => {
+                let k = 0;
+                for (let i = 0; i < n; i++) {
+                    const m = monos[mirror ? (n - 1 - i) : i];
+                    const b = (m && m.base) ? m.base[0] : '';
+                    if (!b || !__ref[i]) continue;
+                    if (same ? (b === __ref[i]) : (COMP[b] === __ref[i])) k++;
+                }
+                return k;
+            };
+            let best = null;
+            for (const mirror of [false, true]) {
+                for (const same of [false, true]) {
+                    const k = fit(mirror, same);
+                    if (!best || k > best.k) best = { k: k, mirror: mirror, same: same };
+                }
+            }
+            __refFit = best.k;
+            // An allele-selective oligo differs from the reference in one or two places, not
+            // in eight. Below three quarters none of the four readings is the right one, so
+            // nothing is reoriented and nothing is drawn underneath.
+            if (best.k >= Math.ceil(n * 0.75)) {
+                __flip = best.mirror;
+                __same = best.same;
+            } else if (__host && !__host.__refFitWarned) {
+                __host.__refFitWarned = true;
+                try {
+                    console.warn('[chem-draw] ' + (__host.name || __host.id)
+                        + ': best fit to the reference under it is ' + best.k + ' of ' + n
+                        + ' in any reading, so the reference is not drawn under it.');
+                } catch (e) { }
+            }
+        }
+
+        // ---- A COMPOUND THAT SPANS AN APPLIED DELETION ------------------------------------
+        //
+        // The four readings above all assume the compound and the reference under it are
+        // colinear. Across an applied deletion they are not: the oligo pairs with TWO
+        // segments of reference, one either side of the join, and the genomic slice beneath
+        // it is longer than the compound by exactly the bases that were removed. Compared
+        // straight, everything past the join is off by that much, which is why a one-base
+        // deletion drew a block of "mismatches" that grew a column wider with every register
+        // of the walk. Every one of those marks was the offset, not a base the oligo
+        // discriminates, and they were drawn in the same colour as the marks that are real.
+        //
+        // One gap is enough to explain a deletion, so that is all this looks for: the longest
+        // prefix of the compound that agrees with the slice, the longest suffix that agrees
+        // with it shifted right by d, and a d where the two meet or overlap. The SMALLEST
+        // such d wins, since a larger one can always manufacture agreement by skipping more
+        // sequence. Found by measuring prefix and suffix once per reading rather than trying
+        // every split, because this runs twice per compound per frame.
+        //
+        // An insertion is the mirror of this (the slice is shorter than the compound) and is
+        // not handled here; it still falls through to the compound's own target below.
+        //
+        // WHETHER THERE IS A DELETION AT ALL IS NOT GUESSED. The track stashes how many of
+        // its bases this compound covers, and a compound built against a sequence with a
+        // deletion applied is shorter than its own footprint by exactly the bases removed.
+        // That matters because the straight reading does not always fail: with the join near
+        // one end, fifteen of twenty residues still agree, which clears the three-quarters
+        // bar and draws the other five as mismatches. The footprint says plainly that those
+        // five are an offset, so the alignment runs on the fact and not on how badly the
+        // sequences happened to line up.
+        let __joinSlot = -1, __joinGap = 0;
+        const __span = +((__host && __host.__genomicSpan) || 0);
+        const __del = (__span > n) ? (__span - n) : 0;
+        if ((__del > 0 || __refFit < Math.ceil(n * 0.75)) && __refRaw.length > n && n > 2) {
+            const maxD = __del > 0 ? __del : Math.min(16, __refRaw.length - n);
+            const minD = __del > 0 ? __del : 1;
+            let bestJ = null;
+            for (const mirror of [false, true]) {
+                for (const same of [false, true]) {
+                    const B = [];
+                    for (let i = 0; i < n; i++) {
+                        const m = monos[mirror ? (n - 1 - i) : i];
+                        let b = (m && m.base) ? m.base[0] : '';
+                        if (b === 'U') b = 'T';
+                        B.push(same ? b : (COMP[b] || b));
+                    }
+                    let pre = 0;
+                    while (pre < n && B[pre] && B[pre] === __refRaw[pre]) pre++;
+                    for (let d = minD; d <= maxD; d++) {
+                        let suf = 0;
+                        while (suf < n) {
+                            const i = n - 1 - suf;
+                            if (!B[i] || B[i] !== __refRaw[i + d]) break;
+                            suf++;
+                        }
+                        if (pre + suf >= n) {
+                            if (!bestJ || d < bestJ.d) bestJ = { d: d, p: n - suf, mirror: mirror, same: same };
+                            break;
+                        }
+                    }
+                }
+            }
+            if (bestJ) {
+                __flip = bestJ.mirror;
+                __same = bestJ.same;
+                __joinGap = bestJ.d;
+                // A join at either end is not a join: it means the whole compound matched the
+                // slice at an offset, which is a placement question and not a deletion.
+                __joinSlot = (bestJ.p > 0 && bestJ.p < n) ? bestJ.p : -1;
+                let out = '';
+                for (let i = 0; i < n; i++) out += (i < bestJ.p) ? __refRaw[i] : __refRaw[i + bestJ.d];
+                __ref = out;
+                __refFit = n;
+            }
+        }
+
+        // ---- FALLING BACK TO THE COMPOUND'S OWN TARGET ------------------------------------
+        //
+        // The reference is the better row -- it reads with the track line and a column that
+        // disagrees with it IS the allele-selective base. But it only works when the
+        // compound's residues line up with the reference one for one, and across an applied
+        // deletion they do not: a twenty-mer spanning a ten-base deletion covers thirty
+        // bases of reference, pairs with two separate segments of it, and no single
+        // contiguous slice is the right answer.
+        //
+        // Showing nothing there was my own doing and it was worse than what it replaced. A
+        // compound's own targetSequence is always its own length and always pairs, so it is
+        // drawn when the reference cannot be, with the orientation taken the same way --
+        // from whichever reading pairs. No column is marked, because everything pairs by
+        // construction: this row says what the oligo binds, not how it differs.
+        let __fromTarget = false;
+        if (__refFit < Math.ceil(n * 0.75) && n > 1) {
+            const raw = ('' + ((__host && (__host.targetSequence || __host.targetSite)) || ''))
+                .toUpperCase().replace(/[^ACGTUN]/g, '');
+            if (raw.length === n) {
+                const pairFit = (mirror, arr) => {
+                    let k = 0;
+                    for (let i = 0; i < n; i++) {
+                        const m = monos[mirror ? (n - 1 - i) : i];
+                        const b = (m && m.base) ? m.base[0] : '';
+                        if (b && arr[i] && COMP[b] === arr[i]) k++;
+                    }
+                    return k;
+                };
+                const fwd = raw.split(''), rev = fwd.slice().reverse();
+                let bestT = null;
+                for (const mirror of [false, true]) {
+                    for (const arr of [fwd, rev]) {
+                        const k = pairFit(mirror, arr);
+                        if (!bestT || k > bestT.k) bestT = { k: k, mirror: mirror, arr: arr };
+                    }
+                }
+                if (bestT && bestT.k >= Math.ceil(n * 0.75)) {
+                    __flip = bestT.mirror;
+                    __fromTarget = true;
+                    __targetRow = bestT.arr;
+                }
+            }
+        }
+        // Slot -> monomer. Everything that draws walks SLOTS, left to right in genomic
+        // order; everything that records or resolves an index speaks MONOMERS, because
+        // __chemGeom.monos is the compound's own chemistry and the editor writes back
+        // through it. Mixing the two is how a mirrored compound would get its wings
+        // swapped the first time somebody edited a sugar.
+        const __mono = (slot) => monos[__flip ? (n - 1 - slot) : slot] || {};
+
+        // The discriminating residues, as the designer recorded them. A Set because the
+        // draw loop asks once per residue.
+        const __alleleSet = (() => {
+            try {
+                const cols = __host && __host.alleleCols;
+                if (!cols || !cols.length) return null;
+                const out = new Set();
+                for (const c of cols) { const v = +c; if (v >= 0 && v < n) out.add(v); }
+                return out.size ? out : null;
+            } catch (e) { return null; }
+        })();
+
         const x0 = Math.min(sxs, sxf);
         const per = span / n;
         // Bead radius from per-base width, clamped. When beads would be too tight to read,
@@ -146,6 +357,11 @@ function () {
             host.__chemGeom = {
                 x0: x0, per: per, n: n, sy: sy, R: R,
                 thin: !!opts.thin,
+                // Drawn in genomic order, so slot k holds monomer n-1-k. `monos` stays in
+                // the compound's own order -- the chemistry editor writes back through it
+                // and a reversed array there would swap a gapmer's wings the first time
+                // anyone edited a sugar. Whoever turns a pixel into an index applies this.
+                flipped: __flip,
                 // Selectable only once the sugars are drawn as rings -- the zoom at which
                 // there is a visible "part" to aim at. Below this the polymer is beads and a
                 // click has nothing specific to mean.
@@ -222,7 +438,11 @@ function () {
         for (let i = 0; i < n - 1; i++) {
             const cx = x0 + (i + 0.5) * per, nx = x0 + (i + 1.5) * per;
             if (nx < visMin || cx > visMax) continue;   // off-screen linkage — skip
-            const lk = (monos[i] && monos[i].linkage) || '';
+            // The bond drawn between slot i and slot i+1. Mirrored, those slots hold
+            // monomers n-1-i and n-2-i, and the bond is recorded on the 5' partner of the
+            // pair -- which is the SECOND of them in genomic order, not the first.
+            const __lkMono = __flip ? (monos[n - 2 - i] || {}) : (monos[i] || {});
+            const lk = __lkMono.linkage || '';
             const isPS = (lk === 'sp' || lk === 'ps' || lk === 'rsp' || lk === 'ssp');
             const isPO = (lk === 'po' || lk === 'p');
             if (chemMode && (isPS || isPO)) {
@@ -312,10 +532,46 @@ function () {
         //    drawn as a furanose ring showing its 2'-chemistry; otherwise a 3D bead.
         const sugarMode = per >= SUGAR_PER && !opts.thin && !lowDetail;
         const showBase = per >= 11 && !opts.thin && !lowDetail;
+        // WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND. oligo.js and sirna.js draw a
+        // sequence label beside the compound as well; at this zoom that label is the same
+        // string a second time, a few pixels up and to the left of the beads that already
+        // spell it. They read this and stay out of the way. Recorded here rather than
+        // recomputed there, so there is one definition of "the letters are drawn" instead
+        // of two that drift apart the next time this zoom threshold moves.
+        try { if (host && host.__chemGeom) host.__chemGeom.letters = !!showBase; } catch (e) { }
+
+        // ---- THE TARGET STRAND, UNDER THE COMPOUND ----------------------------------------
+        //
+        // The letters above the beads are the compound's OWN monomers. What a reader of an
+        // allele-selective design needs beside them is the strand being bound, in register,
+        // so the discriminating base is a column rather than two strings to compare.
+        // Drawn here rather than as a label because here the register is not a calculation:
+        // it is the same cx the bead was drawn at.
+        //
+        // The orientation question was settled above, where it had to be: the compound
+        // itself is drawn in genomic order now, so the target is written exactly as it is
+        // stored -- genomic order too -- and reads in the same direction as the track's own
+        // sequence underneath it. Slot i pairs with target base i, by construction.
+        // ---- THE ROW IS THE TRANSCRIPT, NOT THE STRAND THE TRACK STORES --------------------
+        //
+        // The track stores the genomic plus strand. On a minus-strand gene the transcript is
+        // its complement, and the ASO -- being antisense to the transcript -- then has the
+        // plus strand's own sequence. So drawing the plus strand under it reproduced the
+        // oligo's letters exactly: two identical rows, a duplex with no pairing in it, and
+        // nothing to read.
+        //
+        // The measurement above already answers which case this is. __same means the
+        // residues match the reference rather than complementing it, which is a minus-strand
+        // compound, and there the transcript is the complement of what the track holds. The
+        // row is then the strand the oligo actually binds, every column is a true base pair,
+        // and a column that is NOT one is the allele-selective base.
+        const __transcriptRow = (row) => (__same ? row.map((b) => COMP[b] || b) : row);
+        const tgtRow = !showBase ? null
+            : (__refFit >= Math.ceil(n * 0.75) ? __transcriptRow(__ref.split('')) : __targetRow);
         for (let i = 0; i < n; i++) {
             const cx = x0 + (i + 0.5) * per;
             if (cx < visMin || cx > visMax) continue;   // off-screen residue — skip
-            const mo = monos[i] || {};
+            const mo = __mono(i);
             const sugarCol = SUGAR_COL[mo.sugar] || baseCol;
             if (sugarMode) {
                 drawSugar(cx, sy, R, mo);
@@ -345,6 +601,86 @@ function () {
                 ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
                 ctx.fillStyle = BASE_COL[mo.base[0]] || GX.ink;
                 ctx.fillText(mo.base[0], cx, sy - R - 2);
+            }
+            // ---- THE RESIDUE THAT DOES THE DISCRIMINATING -------------------------------
+            //
+            // Recorded on the compound when it was designed, from the site it was built on
+            // against the track's own sequence, so this needs no comparison and holds even
+            // where the row underneath cannot be drawn -- across a deletion, or with no
+            // reference to hand. It is the one thing a reader of an allele-selective design
+            // is looking for and it was only ever implicit in two rows of letters.
+            //
+            // Indices are in the track's left-to-right order, which is the order slots are
+            // drawn in, so a mirrored compound needs no second convention.
+            //
+            // A RING ROUND THE BEAD, not a recolour: the bead's colour is its chemistry --
+            // which wing it is in, whether the gap reaches it -- and that is exactly what a
+            // reader checks next, once they know which residue discriminates. Painting over
+            // it would answer the first question by destroying the second.
+            if (__alleleSet && __alleleSet.has(i)) {
+                try {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(cx, sy, R + 2.5, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#b45309';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    // A tick below it too, so the residue is findable at a zoom where a
+                    // two-pixel ring is not.
+                    ctx.beginPath();
+                    ctx.moveTo(cx, sy + R + 1);
+                    ctx.lineTo(cx, sy + R + 5);
+                    ctx.stroke();
+                    ctx.restore();
+                } catch (e) { }
+            }
+
+            // THE JOIN, where the deleted bases used to be. Drawn as a break in the row
+            // rather than as a mark on a residue, because nothing was substituted here: the
+            // two reference segments either side are simply no longer adjacent on this
+            // copy, and that gap IS what the oligo discriminates.
+            if (__joinSlot === i) {
+                try {
+                    const jx = Math.round(cx - per / 2);
+                    ctx.save();
+                    ctx.strokeStyle = '#b45309';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(jx, sy + R + 1);
+                    ctx.lineTo(jx, sy + R + 15);
+                    ctx.stroke();
+                    if (showBase && __joinGap > 0 && per >= 14) {
+                        ctx.font = 'bold 9px "Segoe UI", Arial, sans-serif';
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                        ctx.fillStyle = '#b45309';
+                        ctx.fillText('\u2212' + __joinGap, jx, sy + R + 16);
+                    }
+                    ctx.restore();
+                } catch (e) { }
+            }
+
+            // The target base that pairs with this monomer, directly beneath it. A column
+            // that does NOT pair is the whole point of an allele-selective design, so it is
+            // marked as a column rather than left for the reader to spot.
+            if (tgtRow) {
+                const tb = tgtRow[i] || '';
+                const mb = (mo.base && mo.base[0]) || '';
+                // A column that disagrees with the REFERENCE is the allele-selective base:
+                // the one place the oligo was built to differ. Judged by the relation the
+                // measurement found, so it means the same thing on either strand.
+                // One test now, on either strand: the row is the transcript, so a residue
+                // that does not complement it is the base this oligo was built to differ at.
+                const bad = !__fromTarget && !!(tb && mb && COMP[mb] !== tb);
+                if (bad) {
+                    ctx.fillStyle = 'rgba(224,138,0,0.20)';
+                    ctx.fillRect(Math.round(cx - per / 2), sy + R + 1, Math.max(1, Math.round(per)), 14);
+                }
+                if (tb) {
+                    ctx.font = 'bold ' + Math.max(8, Math.min(13, Math.round(R * 1.35))) + 'px "Segoe UI", Arial, sans-serif';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                    ctx.fillStyle = bad ? '#b45309' : 'rgba(15,23,42,0.55)';
+                    ctx.fillText(tb, cx, sy + R + 3);
+                }
             }
         }
 
@@ -376,7 +712,9 @@ function () {
             const three = /3$/.test('' + (conj.units || '')) || (+conj.units === 3)
                 || /GN3|GalNAc3/i.test('' + (conj.symbol || ''));
             const nUnits = three ? 3 : 1;
-            const atFive = ('' + conj.site) === '5';
+            // Which SIDE the 5' end is on now depends on the mirror, so the conjugate
+            // follows its own end rather than a fixed edge.
+            const atFive = (('' + conj.site) === '5') !== __flip;
             // 5' is the LEFT end of the drawn span only when the compound is drawn 5'->3'
             // left to right, which is how this renderer lays it out.
             const endX = atFive ? x0 : x0 + per * n;

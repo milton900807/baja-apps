@@ -113,6 +113,34 @@ function (graph, genegraph_panel_layout) {
                 refs: [['VastDB', 'https://vastdb.crg.eu/'], ['GENCODE', 'https://www.gencodegenes.org/']]
             },
             {
+                name: 'BajaNMD',
+                field: 'Transcript fate',
+                headline: 'What including or skipping a cassette exon does to the transcript, and the oligos that switch it.',
+                method: 'Builds both isoforms of every cassette-eligible exon, translates from the annotated '
+                    + 'CDS start, and measures the distance from the first in-frame stop to the last '
+                    + 'exon-exon junction. Past about 50 nt the stop reads as premature and the transcript '
+                    + 'is degraded, so the exon is either a poison exon (including it causes decay) or an '
+                    + 'essential one (skipping it does). ASOs are then designed by masking each window to N '
+                    + 'and having the frozen BajaSplice splice-site model re-read both sites, on logits, '
+                    + 'taking the larger of the two losses, since destroying either site is enough.',
+                evidence: 'THE NMD CALL IS NOT FITTED — it is the 50-nt EJC rule applied to the annotation '
+                    + 'and the genome, so there is no training set and no cross-validation to quote; every '
+                    + 'verdict is reproducible by hand. What was measured is the failure of the obvious '
+                    + 'shortcut: an earlier version picked one host transcript per exon, and the exons it '
+                    + 'called poison sat at ~99% observed inclusion — impossible for a real poison exon, '
+                    + 'whose own isoform is the one destroyed. Those were minority labels borrowed from a '
+                    + 'minor isoform. The masking approach behind the ASO scores reproduces the ISS-N1 '
+                    + 'result nusinersen came out of.',
+                limits: 'Per transcript on purpose, so a single answer may not exist: read the agreement '
+                    + 'fraction and the MANE call, and treat a split verdict as the warning it is. It ranks '
+                    + 'oligos by predicted loss of a splice site, which is not the same as potency at the '
+                    + 'bench, and saturated windows are reported as such so the order is not read as '
+                    + 'strength. It says nothing about which RNA-binding protein acts at a site.',
+                refs: [['STK-001 / TANGO on SCN1A', 'https://doi.org/10.1126/scitranslmed.aaz6100'],
+                       ['The 50-nt rule', 'https://doi.org/10.1016/S0968-0004(98)01208-0'],
+                       ['GENCODE', 'https://www.gencodegenes.org/']]
+            },
+            {
                 name: 'djPrimer',
                 field: 'Assay design',
                 headline: 'primer3 designs ranked by predicted assay success, not by design score.',

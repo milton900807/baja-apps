@@ -674,6 +674,15 @@ function () {
                         highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
                     },
                     {
+                        // AN ASK BUTTON ON THE TABLE'S OWN BAR, beside maximize, the same one
+                        // the timeline carries. A request made from here is about THIS table:
+                        // table-ask.js sends its name, its shape and what is selected in it,
+                        // and leaves the object itself where the operations can find it.
+                        name: "ask", x: 0 + bsize, y: 10, width: 20, height: 20, letter: 'Ask',
+                        action: async (bx, by, x, y, pt) => { return await exec('baja/plate/ops/table-ask.js', this, pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('ask', pt) }, color: 'lightcyan', highlight_color: 'cyan'
+                    },
+                    {
                         // EVERY TABLE DOWNLOADS. A table's rows are the thing people take away
                         // to a spreadsheet, and asking for them used to mean finding the menu.
                         // baja/plate/table-xlsx.js does the work; /export-table builds the file.
@@ -744,6 +753,15 @@ function () {
                         name: "maximize", x: 0, y: 10, width: 20, height: 20,
                         action: async (bx, by, x, y, pt) => { if (pt && pt.maximizeObject) pt.maximizeObject(this); },
                         highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
+                    },
+                    {
+                        // AN ASK BUTTON ON THE TABLE'S OWN BAR, beside maximize, the same one
+                        // the timeline carries. A request made from here is about THIS table:
+                        // table-ask.js sends its name, its shape and what is selected in it,
+                        // and leaves the object itself where the operations can find it.
+                        name: "ask", x: 0 + bsize, y: 10, width: 20, height: 20, letter: 'Ask',
+                        action: async (bx, by, x, y, pt) => { return await exec('baja/plate/ops/table-ask.js', this, pt) },
+                        highlight: async (bx, by, x, y, pt) => { return await this.dev_null('ask', pt) }, color: 'lightcyan', highlight_color: 'cyan'
                     },
                     {
                         name: "download", x: 0 + bsize, y: 10, width: 20, height: 20,
@@ -1243,7 +1261,7 @@ function () {
                             ? 'This formula comes out as NaN. Trace NaN follows its references back to the cell where it starts, and jumps there.'
                             : hasFormula
                             ? 'A formula. Add to each puts it on every selected cell, one per cell; Save text stores the text as typed. Ctrl+Enter does the first button.'
-                            : 'Save text stores what you type in the selected cells. Add to each adds it to what each already holds, or sets a formula on each when it starts with =. Ctrl+Enter does the first button.',
+                            : 'Save text stores what you type in the selected cells. Add to each adds it to what each already holds, or sets a formula on each when it starts with =. Do it reads what you typed as an instruction instead and shows what it would do before doing it. Ctrl+Enter does the first button.',
                         value: '' + (__value == null ? '' : __value),
                         mono: true,
                         // ORDER MATTERS: Ctrl+Enter fires the FIRST of these (prompt-text
@@ -1254,17 +1272,52 @@ function () {
                         // formula used to do there; a cell with no formula still leads with
                         // Save text, so Ctrl+Enter on plain text cannot silently add to it.
                         // Delete formula is never first: nothing destructive on Ctrl+Enter.
+                        // DO IT IS ALWAYS LAST AND NEVER FIRST. What someone types into a
+                        // cell is a value until they say otherwise, so Save text keeps the
+                        // lead and Ctrl+Enter still stores the text exactly as typed. "Do
+                        // it…" reads the same text as an instruction instead, shows what it
+                        // would do, and runs nothing until that is confirmed -- so a cell
+                        // whose contents happen to read like a sentence can never be acted
+                        // on by accident.
                         actions: isNaNResult
-                            ? [{ key: 'each', label: 'Add to each' }, { key: 'trace', label: 'Trace NaN' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            ? [{ key: 'each', label: 'Add to each' }, { key: 'trace', label: 'Trace NaN' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }]
                             : hasFormula
-                            ? [{ key: 'each', label: 'Add to each' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
-                            : [{ key: 'text', label: 'Save text' }, { key: 'each', label: 'Add to each' }, { key: 'tag', label: 'Tag…' }],
+                            ? [{ key: 'each', label: 'Add to each' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }]
+                            : [{ key: 'text', label: 'Save text' }, { key: 'each', label: 'Add to each' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }],
                         completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
                     });
                 } catch (e) { r = null; }
                 if (!r) return;
                 const code = '' + (r.text == null ? '' : r.text);
                 if (r.action === 'tag') { setTimeout(() => { try { this.goTag(null, pt); } catch (e) { } }, 100); return; }
+                // READ WHAT WAS TYPED AS AN INSTRUCTION. The same panel the command field
+                // uses, so there is one set of operations and one set of rules about what may
+                // run, and it still shows what it will do before doing it. Nothing is written
+                // to the cells on this path: if the user wanted the text in the cell they had
+                // Save text, which is the button in front of this one.
+                if (r.action === 'ask') {
+                    const ask = code.trim();
+                    if (!ask) { try { pt.setMessage('Type what you want done first.', 2); } catch (e) { } return; }
+                    let menus = [];
+                    try { menus = (pt.__lastMenubar && pt.__lastMenubar()) || []; } catch (e) { menus = []; }
+                    try {
+                        await exec('baja/plate/menu/project-command.js', {
+                            menus: menus,
+                            pm: pt,
+                            text: ask,
+                            context: {
+                                table: this.name,
+                                selected_cells: w.length,
+                                where: cellName
+                            },
+                            setError: (m) => { try { pt.setMessage(m, 8); } catch (e) { } }
+                        });
+                    } catch (e) {
+                        try { pt.setMessage('Could not read that: '
+                            + ('' + (e && e.message ? e.message : e)), 8); } catch (e2) { }
+                    }
+                    return;
+                }
                 if (r.action === 'trace') { try { await pt.traceNaN(this, first); } catch (e) { console.warn('trace NaN', e); } return; }
                 if (r.action === 'delete') {
                     try { pushHistory(HM(this)); } catch (e) { }
@@ -3173,8 +3226,13 @@ function () {
                 // they read as controls against the table; the title-bar buttons stay quiet.
                 const isRow = (name === '+' || name === '-') || isCell;
                 const rowFill = isCell ? (isClose ? ORANGE : NAVY) : (name === '+' ? CYAN : ORANGE);
-                const fill = isRow ? (hover ? (isCell ? CYAN : NAVY) : rowFill) : (hover ? (isClose ? ORANGE : CYAN) : '#ffffff');
-                const ink = (hover || isRow) ? '#ffffff' : NAVY;
+                // The ask button is amber, the same as the one on a timeline's frame: it is
+                // the one button on the bar that is not a window control, and three quiet
+                // white discs is where a fourth would disappear.
+                const isAsk = name === 'ask';
+                const fill = isAsk ? (hover ? '#fde68a' : '#fef3c7')
+                    : (isRow ? (hover ? (isCell ? CYAN : NAVY) : rowFill) : (hover ? (isClose ? ORANGE : CYAN) : '#ffffff'));
+                const ink = isAsk ? '#92400e' : ((hover || isRow) ? '#ffffff' : NAVY);
                 ctx.save();
                 ctx.shadowColor = isRow ? 'rgba(10,37,64,0.35)' : 'rgba(0,0,0,0.18)';
                 ctx.shadowBlur = isRow ? 8 : 4; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = isRow ? 3 : 1;
@@ -4839,7 +4897,7 @@ function () {
             }
 
             handleMouseMoveTopRight(mx, my, pt) {
-                const r = this.getTopRightHandleRect(this, pt);
+                const r = this.getTopRightHandleRect(pt);
                 const over = this.pointInRect(mx, my, r);
                 this._trHover = over;
 
@@ -4876,7 +4934,7 @@ function () {
             }
 
             handleMouseDownTopRight(mx, my, pt) {
-                const r = this.getTopRightHandleRect(this, pt);
+                const r = this.getTopRightHandleRect(pt);
                 if (!pointInRect(mx, my, r)) return false;
 
                 this._trDrag = true;
@@ -4912,30 +4970,45 @@ function () {
             }
 
             isMouseInTopRightHandle(mx, my, pt) {
-                return pointInRect(mx, my, this.getTopRightHandleRect(this, pt));
+                return pointInRect(mx, my, this.getTopRightHandleRect(pt));
             }
 
+            // RESIZING IS THE RIGHT EDGE AND THE BOTTOM EDGE. NOTHING ELSE.
+            //
+            // This used to be a 60-pixel square centred on the bottom-right corner, which
+            // reaches THIRTY PIXELS INSIDE the table along both edges. On a table with narrow
+            // columns that is most of a column, so working in the last column or the last row
+            // -- selecting it, dragging it -- started a resize instead, and the table changed
+            // shape under a gesture that was not about its shape.
+            //
+            // It also fell back to an invisible top-right handle. Nothing draws that handle
+            // (drawResizeIconTopRight has no callers) and nothing drags it
+            // (handleMouseDownTopRight has none either), so all it could ever do was make
+            // this return true. Worse, it was asked for in the wrong coordinate space:
+            // getTopRightHandleRect takes (pt) and both callers passed (this, pt), so it
+            // measured the handle with the PLATE's grid instead of the track's and the
+            // rectangle landed wherever that arithmetic happened to put it. An invisible,
+            // undraggable, misplaced hotspot that silently armed a resize.
+            //
+            // A band of ten pixels either side of each edge is enough to grab and little
+            // enough to stay out of the way of the cells.
             inResize(mouseX, mouseY, pt) {
-                const rectWidth = pt.grid.screenWidth(this.grid.width);
-                const rectHeight = pt.grid.screenHeight(this.getHeight());
-                const rectX = pt.grid.X(this.grid.xi);
-                const rectY = pt.grid.Y(this.grid.yi);
-                const cornerSize = 60;
-                const cornerX = rectX + rectWidth - cornerSize / 2
-                const cornerY = rectY - cornerSize / 2
+                const EDGE = 10;
+                const width = pt.grid.screenWidth(this.grid.width);
+                const height = pt.grid.screenHeight(this.getHeight());
+                const left = pt.grid.X(this.grid.xi);
+                // Y(yi) is the BOTTOM of the table on screen: world y grows upward, screen y
+                // grows downward, and yi is its lower edge.
+                const bottom = pt.grid.Y(this.grid.yi);
+                const right = left + width;
+                const top = bottom - height;
 
-                let val = (
-                    mouseX + 5 >= cornerX &&
-                    mouseX - 5 <= cornerX + cornerSize &&
-                    mouseY + 5 >= cornerY &&
-                    mouseY - 5 <= cornerY + cornerSize
-                );
-                if (!val) {
-                    val = this.isMouseInTopRightHandle(mouseX, mouseY, pt)
-                }
+                const onRightEdge = mouseX >= right - EDGE && mouseX <= right + EDGE
+                    && mouseY >= top - EDGE && mouseY <= bottom + EDGE;
+                const onBottomEdge = mouseY >= bottom - EDGE && mouseY <= bottom + EDGE
+                    && mouseX >= left - EDGE && mouseX <= right + EDGE;
 
-                return val;
-
+                return onRightEdge || onBottomEdge;
             }
             onRightEdge(mouseX, mouseY, pt) {
                 const rectWidth = pt.grid.screenWidth(this.grid.width);
@@ -15860,7 +15933,11 @@ function () {
                     const top = G.Y(this.grid.yi + this.getHeight(pt)), bottom = G.Y(this.grid.yi);
                     if (sy < Math.min(top, bottom) - 2 || sy > Math.max(top, bottom) + 2) return -1;
                     const g = this.__colGeom(), x0 = Number(this.grid.xmin) || 0, TOL = 5;
-                    for (let i = 0; i < n; i++) {
+                    // INNER BOUNDARIES ONLY. The right edge of the LAST column is the table's
+                    // own right edge, and that belongs to the table resize: a drag there
+                    // armed both, so pulling the last column wider also pulled the table
+                    // wider and the two fought over the same pixels. One edge, one meaning.
+                    for (let i = 0; i < n - 1; i++) {
                         const rightUnit = g ? g.left[i] + g.w[i] : x0 + i + 1;
                         const px = G.X(this.grid.X(rightUnit)) - 2.5;                 // the middle of the gap beside the column
                         if (Math.abs(sx - px) <= TOL) return i;
@@ -15880,13 +15957,42 @@ function () {
                 const worldPerPx = this.grid.width / (unitPx * n);
                 const MIN_PX = 24;
                 let pushed = false;
+                // RESIZING A COLUMN RESIZES THE COLUMN, NOT THE TABLE.
+                //
+                // This used to widen the column and leave every other one alone, so the table
+                // grew at its right edge to make room. That is one spreadsheet convention and
+                // it was deliberate, but it means a gesture about one column silently changes
+                // the size of the thing it is in, and on a laid-out canvas that pushes the
+                // table into its neighbours.
+                //
+                // The width now comes out of the NEXT column, so the table's own width never
+                // changes. The next column cannot be squeezed below the same minimum the
+                // dragged one has, and when it reaches that floor the drag stops there rather
+                // than pretending: whatever the next column could give is what the dragged
+                // column gets, so the two always add up and nothing drifts.
+                //
+                // The last column's right edge is not an inner boundary at all (see
+                // __colEdgeAt) -- it is the table's right edge, and dragging it resizes the
+                // table, which is what it looks like it should do.
+                const TOTAL = px0.reduce((a, c) => a + c, 0);
                 const apply = (x) => {
                     const px = px0.slice();
-                    px[col] = Math.max(MIN_PX, px0[col] + (x - sx));
                     if (!pushed && Math.abs(x - sx) >= 2) { pushed = true; try { pushHistory(HM(this)); } catch (e) { } }
+                    const next = col + 1;
+                    if (next < n) {
+                        const wanted = Math.max(MIN_PX, px0[col] + (x - sx)) - px0[col];
+                        const given = px0[next] - Math.max(MIN_PX, px0[next] - wanted);
+                        px[col] = px0[col] + given;
+                        px[next] = px0[next] - given;
+                    } else {
+                        px[col] = Math.max(MIN_PX, px0[col] + (x - sx));
+                    }
                     const total = px.reduce((a, c) => a + c, 0);
                     this.column_widths = px.map(v => v / total * n);
-                    this.setWidth(total * worldPerPx);
+                    // Only when there was no next column to take it from does the table
+                    // change size; with one, total === TOTAL and this is a no-op kept so the
+                    // two paths cannot drift apart.
+                    if (Math.abs(total - TOTAL) > 0.5) this.setWidth(total * worldPerPx);
                     try { this.grid.rescale(); } catch (e) { }
                     this.__colFontCache = null;
                     for (const colCells of this.wells) for (const c of (colCells || [])) if (c) { c.__wrapKey = null; }   // wrapped text is laid out per width

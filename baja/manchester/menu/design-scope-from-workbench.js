@@ -43,7 +43,12 @@ function (graph, track, sequence, opts) {
         const baseOf = (t) => Math.round(+(t && t.xi) || 0) + offset;
         const seq0 = '' + (sequence || '');
         const out = {
-            sequence: seq0, exclude_regions: [], note: '',
+            // THE SEQUENCE AS DESIGNED, and the same window UNTOUCHED beside it. The designer
+            // cannot tell whether a candidate also binds the copy that has to survive without
+            // something to compare against, and the only honest comparison is the sequence
+            // before any allele was written into it. Kept here because this is the one place
+            // that holds both.
+            sequence: seq0, wildType: seq0, exclude_regions: [], note: '',
             appliedAlleles: 0, appliedIndels: 0, skippedIndels: 0, mismatched: 0,
             excludedVariants: 0, otherTracks: 0, unmatched: [],
             // This track's own variants, as the designed sequence sees them: pos, the span a
@@ -90,7 +95,20 @@ function (graph, track, sequence, opts) {
             // the other strand (a minus-strand transcript, or a stored reference0 that differs
             // from the loaded reference). Offering them always would let a plus-strand
             // substitution match its own complement at a position it does not belong to.
-            const flipped = (+sv.transcriptStrand < 0) || (!!r0 && !!r1 && r0 !== r1);
+            // THE TRACK'S OWN STRAND COUNTS TOO, and it is the signal that is always
+            // there. transcriptStrand is set by some loaders and not others, and a variant
+            // that arrived without it on a minus-strand track got only the as-written
+            // readings -- so a deletion recorded in transcript orientation was compared
+            // against the plus strand, disagreed with every base under it, and was dropped.
+            // The run then returned oligos over that site that match the reference exactly:
+            // a tiling walk wearing an allele-selective label.
+            //
+            // Measured on ACVR1: the deletion TTATGGTATGG>T appears in this track only as
+            // its per-base COMPLEMENT, AATACCATACC. That reading was already in the list
+            // below; nothing offered it, because the variant did not say which strand it
+            // came from and the track was never asked.
+            const trackMinus = (+((track && track.strand) || 0) < 0);
+            const flipped = (+sv.transcriptStrand < 0) || trackMinus || (!!r0 && !!r1 && r0 !== r1);
             const forms = flipped ? [[r0, a0], [r1, a1], [cmp(r1), cmp(a1)], [rc(r1), rc(a1)]]
                 : [[r0, a0], [r1, a1]];
             const seen = {}, out2 = [];
@@ -117,6 +135,34 @@ function (graph, track, sequence, opts) {
         // actually made. Only the SEQUENCE handed to the designer is rebuilt -- the track is not
         // touched -- and every position that moves is reported in `out.mutations`, in the
         // coordinates of that rebuilt sequence, so the caller never has to redo this arithmetic.
+        // HOW FAR THIS ALLELE IS FROM THE REFERENCE, as an edit distance between the two
+        // written forms. One substituted base is 1; a two-base MNV is 2; a five-base
+        // deletion is 5. It is reported on every mutation so a caller can order by it --
+        // the furthest-from-reference mutation is the one an allele-selective oligo can
+        // discriminate most confidently, since it has the most changed sequence to sit on.
+        //
+        // Levenshtein rather than a length difference, because ref CAG -> alt CTG is one
+        // edit and ref CAG -> alt C is two, and a length difference calls the first zero.
+        // The strings here are a handful of bases, so the full table is free.
+        const editDistance = (a, b) => {
+            a = ('' + (a || '')).toUpperCase(); b = ('' + (b || '')).toUpperCase();
+            if (a === b) return 0;
+            if (!a.length) return b.length;
+            if (!b.length) return a.length;
+            let prev = new Array(b.length + 1);
+            for (let j = 0; j <= b.length; j++) prev[j] = j;
+            for (let i = 1; i <= a.length; i++) {
+                const cur = new Array(b.length + 1);
+                cur[0] = i;
+                for (let j = 1; j <= b.length; j++) {
+                    cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1,
+                        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+                }
+                prev = cur;
+            }
+            return prev[b.length];
+        };
+
         const applyIndels = ('' + (o.indels || '')).toLowerCase() === 'apply';
         const rna = /U/i.test(seq0);
         const asSeq = (b) => (rna && b === 'T') ? 'U' : b;
@@ -217,7 +263,7 @@ function (graph, track, sequence, opts) {
                 span[1] = Math.max(span[0] + 1, Math.min(seq.length, span[1]));
                 out.mutations.push({
                     pos: at, span: span, type: (a.sub ? 'snp' : (a.alt.length > a.ref.length ? 'ins' : 'del')),
-                    ref: a.ref, alt: a.alt,
+                    ref: a.ref, alt: a.alt, edits: editDistance(a.ref, a.alt),
                     label: ('' + (a.v.name || a.v.id || (a.ref + '>' + a.alt))),
                     selected: !!(a.v.highlight || (a.v.isSelected && a.v.isSelected())),
                 });
@@ -238,7 +284,8 @@ function (graph, track, sequence, opts) {
                 span[1] = Math.max(span[0] + 1, Math.min(seq0.length, span[1]));
                 out.mutations.push({
                     pos: i, span: span, type: (sub ? 'snp' : (f.alt.length > f.ref.length ? 'ins' : 'del')),
-                    ref: f.ref, alt: f.alt, label: ('' + (v.name || v.id || (f.ref + '>' + f.alt))),
+                    ref: f.ref, alt: f.alt, edits: editDistance(f.ref, f.alt),
+                    label: ('' + (v.name || v.id || (f.ref + '>' + f.alt))),
                     selected: !!(v.highlight || (v.isSelected && v.isSelected())),
                 });
             }

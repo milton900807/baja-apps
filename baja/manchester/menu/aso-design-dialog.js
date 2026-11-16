@@ -176,7 +176,8 @@ function (kind, targetLength, context) {
                 // tab at least showed the numbers. The rules go here, where the choice is made.
                 + '<div id="ad-doc"></div>'
                 + '<div id="ad-adv" style="display:none;">'
-                + '<label style="' + lbl + '">ASO lengths (nt, comma-separated)</label>'
+                + '<label style="' + lbl + '">ASO lengths (nt, comma-separated, '
+                + (isGapmer ? '16\u201320' : '12\u201325') + ')</label>'
                 // THE ADVANCED TAB OPENS ON ONE LAYOUT, NOT ON THE WHOLE SEARCH SPACE. A gapmer
                 // programme runs on a house layout -- the 5-10-5 20-mer, full PS, 2'-MOE wings --
                 // and the tab that exists to tune a design should start from the thing being
@@ -192,7 +193,11 @@ function (kind, targetLength, context) {
                         + backboneEditor()))
                 + '<label style="' + lbl + '">Output alphabet</label>'
                 + '<select id="ad-alpha" style="' + inp + '"><option value="DNA">DNA</option><option value="RNA">RNA</option></select>'
-                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-overlap"/> Include overlapping layouts of the same site</label>'
+                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-overlap" checked/> Include overlapping layouts of the same site</label>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin:4px 0 0 27px;">'
+                + 'On by default. One site is generated at several lengths and gap sizes, and these are '
+                + 'the same site rather than different ones \u2014 so with a shortlist they can crowd out '
+                + 'other sites, and untick this to get the best layout of each site instead.</div>'
                 + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">Off, the design walks the ranking and takes one candidate per site, so it spans the transcript. On, it returns the global top N, which is mostly the same few sites at different lengths and gap sizes.</div>'
                 + '</div>'
                 + '</div></div>';
@@ -389,7 +394,12 @@ function (kind, targetLength, context) {
                     + ': up to ' + c.perMut + ' register' + (c.perMut === 1 ? '' : 's')
                     + ' over each of ' + c.muts + ' mutation' + (c.muts === 1 ? '' : 's') + '.'
                     + (cut ? (' The maximum below stops it at ' + cap.toLocaleString()
-                        + ', taken one mutation at a time in turn, so every mutation is covered before any is covered twice.') : '');
+                        + '. The mutations are ranked furthest from the reference first, and each one is '
+                        + 'walked across every register that covers it before the next is started \u2014 so a '
+                        + 'maximum below that total finishes the most discriminating mutations and leaves the '
+                        + 'rest with nothing, rather than giving every mutation a register or two. '
+                        + 'Registers that are homopolymer runs or tandem repeats are dropped, by the same '
+                        + 'rule the other strategies use, so a mutation inside a repeat may return nothing.') : '');
             };
             const setStrategy = (v) => {
                 strategy = v;
@@ -497,6 +507,36 @@ function (kind, targetLength, context) {
                 }
                 if (mode === 'advanced') {
                     params.lengths = parseList(q('#ad-lengths').value, isGapmer ? [20] : [18, 19, 20]);
+                    // CHECKED HERE, WHERE THE NUMBER WAS TYPED. The designers refuse a length
+                    // outside their range -- 16-20 for a gapmer, 12-25 for a steric blocker,
+                    // both chemistry limits rather than arbitrary ones -- and the refusal used
+                    // to arrive as a failed run with no readable reason. The field is free text,
+                    // so this is the only place that can say which value was wrong while the
+                    // user is still looking at it.
+                    const __lo = isGapmer ? 16 : 12, __hi = isGapmer ? 20 : 25;
+                    const __bad = params.lengths.filter((n) => n < __lo || n > __hi);
+                    if (__bad.length) {
+                        const __msg = (isGapmer ? 'Gapmer' : 'Steric-blocking')
+                            + ' lengths must be ' + __lo + '\u2013' + __hi + ' nt. '
+                            + (__bad.length === 1 ? ('Remove ' + __bad[0] + '.')
+                                : ('Remove ' + __bad.join(', ') + '.'));
+                        try {
+                            const w = q('#ad-lengths');
+                            if (w) { w.style.borderColor = '#ef4444'; w.focus(); }
+                            const n = q('#ad-length-note');
+                            if (n) { n.textContent = __msg; n.style.display = ''; }
+                            else if (w && w.insertAdjacentHTML) {
+                                w.insertAdjacentHTML('afterend',
+                                    '<div id="ad-length-note" style="font:12px Arial;color:#ef4444;margin:4px 0 0;">'
+                                    + __msg + '</div>');
+                            }
+                        } catch (e) { }
+                        return;                      // the dialog stays open on the bad field
+                    }
+                    try {
+                        const w = q('#ad-lengths'); if (w) w.style.borderColor = '';
+                        const n = q('#ad-length-note'); if (n) n.style.display = 'none';
+                    } catch (e) { }
                     if (isGapmer) { params.gap_sizes = parseList(q('#ad-gaps').value, [10]); }
                     params.wing_modification = q('#ad-wing') ? q('#ad-wing').value : "2'-MOE";
                     params.chemistry_template = params.wing_modification;
@@ -510,10 +550,23 @@ function (kind, targetLength, context) {
                     params.po_link_positions = pat.map((c, i) => (c === 'O' ? i + 1 : 0)).filter((n) => n > 0);
                     params.backbone_pattern_length = shownLength();
                     params.output_alphabet = q('#ad-alpha') ? q('#ad-alpha').value : 'DNA';
-                    // The checkbox asks the opposite question now: ticking it opts INTO the
-                    // overlapping layouts, which is the exception rather than the default.
-                    if (!tiling) params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
+                    // Ticking it opts INTO the overlapping layouts, and it is ticked by
+                    // default: every layout of a site is a real candidate, and which one
+                    // suits is a chemistry decision the designer should not be making on
+                    // the user's behalf by hiding the others.
+                    // Not for the two walks: they set this themselves above, because a walk
+                    // IS overlapping by construction and the checkbox has nothing to say
+                    // about it. Reading it here used to overwrite what they decided.
+                    if (!tiling && !allele) {
+                        params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
+                    }
                 }
+                // OVERLAPPING LAYOUTS ARE THE DEFAULT, on either tab. The checkbox lives on
+                // Advanced, so a Default-tab run never reaches the line above and used to
+                // leave this unset -- and the caller's own fallback was the opposite answer,
+                // so ticking the box by default would have changed nothing for anyone who
+                // did not open Advanced. Set here, where every path goes through.
+                if (params.enforce_non_overlapping == null) params.enforce_non_overlapping = false;
                 // Asked on both tabs: they are about the workbench, not about the chemistry,
                 // so a Default-tab run can use them without going through Advanced.
                 params.use_track_alleles = allele ? true : !!(q('#ad-allele') && q('#ad-allele').checked);

@@ -22,6 +22,18 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
         // as a flat line that would read as "no regulatory content out here".
         let cis_window = 500;
         let cis_bin = 50;
+        // THE SMALLEST BIN THAT MEASURES ANYTHING. The perturbation is a
+        // dinucleotide-preserving shuffle (Altschul-Erikson). Under four bases there is no
+        // rearrangement that preserves the dinucleotides at all: dinuc_shuffle returns
+        // `codes.copy()` unchanged, the model scores the identical sequence, and every bar
+        // is exactly zero. A smaller bin is not a finer measurement, it is no measurement.
+        //
+        // The old floor was 4, which is barely better. Measured over random windows, the
+        // share with NO alternative arrangement is 100% at 2 and 3 nt, 98% at 4, 68% at 5,
+        // 48% at 6, 2% at 8, and 0% from 10 nt up. So a 4 nt bin returns a near-flat profile
+        // of zeros for almost every window, which is the same confusion one step along. 8 is
+        // the first width where a shuffle almost always has somewhere to go.
+        const CIS_BIN_MIN = 8;
 
         const SUPPORT = [15, 110, 123];     // teal
         const SUPPRESS = [163, 64, 44];     // red
@@ -71,8 +83,25 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
         // would silently pad the profile with N and report zero impact out there.
         const cutFor = (track, site, halfSpan) => {
             const lo = Math.min(+track.xi, +track.xf), hi = Math.max(+track.xi, +track.xf);
-            const start = Math.max(lo, Math.floor(site) - halfSpan);
-            const end = Math.min(hi, Math.ceil(site) + halfSpan);
+            let start = Math.max(lo, Math.floor(site) - halfSpan);
+            let end = Math.min(hi, Math.ceil(site) + halfSpan);
+            // A SELECTED RANGE WINS. This tool is click-driven, so its default was
+            // never the whole track, but if the user has marked a stretch they have
+            // said which sequence they mean -- so score that instead of a window
+            // centred on wherever they happened to click. Clamped to what the model
+            // can physically reach, since ctx-2000 cannot see past 1000 nt and a
+            // larger span would be padded with N and read as "no content out here".
+            try {
+                const r = track.selectedRange && track.selectedRange();
+                if (r && Number.isFinite(+r.start) && Number.isFinite(+r.end) && +r.end > +r.start) {
+                    const rlo = Math.max(lo, Math.floor(Math.min(+r.start, +r.end)));
+                    const rhi = Math.min(hi, Math.ceil(Math.max(+r.start, +r.end)));
+                    if (rhi > rlo) {
+                        start = Math.max(lo, rlo - halfSpan);
+                        end = Math.min(hi, rhi + halfSpan);
+                    }
+                }
+            } catch (e) { }
             let seq = null;
             try { seq = track.getSequenceRange ? track.getSequenceRange(start, end) : null; } catch (e) { }
             if (!seq || !seq.length) {
@@ -97,7 +126,20 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
                 const w = parseInt(va['Window (nt each side)']);
                 const b = parseInt(va['Bin size (nt)']);
                 if (isFinite(w) && w > 0) cis_window = w;
-                if (isFinite(b) && b >= 4) cis_bin = b;
+                // Clamped, and SAID. The old test dropped anything under 4 on the floor and
+                // ran with whatever the last accepted bin was, so entering 2 was
+                // indistinguishable from entering nothing: the dialog took the number, the
+                // profile came back at 50 nt, and nothing anywhere said why.
+                if (isFinite(b) && b > 0) {
+                    if (b < CIS_BIN_MIN) {
+                        cis_bin = CIS_BIN_MIN;
+                        const __why = ' A ' + b + ' nt bin cannot be scrambled: the windows are shuffled'
+                            + ' keeping their dinucleotide composition, and a window that small almost never has'
+                            + ' another arrangement to take, so every bar would read zero. Profiling at '
+                            + CIS_BIN_MIN + ' nt instead. ';
+                        try { (graph.setResultMessage || graph.setMessage).call(graph, __why); } catch (e) { }
+                    } else cis_bin = b;
+                }
                 // Half the bin steps the windows, so neighbouring bars overlap and a
                 // narrow element is not missed by falling between two bins.
                 const step = Math.max(1, Math.floor(cis_bin / 2));

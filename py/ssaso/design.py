@@ -240,6 +240,70 @@ def max_self_complementary_stretch(seq: str) -> int:
     return best
 
 
+def low_complexity(seq: str, min_period: int = 1, max_period: int = 6,
+                   periodic_frac: float = 0.85, max_homopolymer: int = 6,
+                   max_g_run: int = 6, min_kmer_variety: float = 0.55) -> str:
+    """Why this sequence is low-complexity, or "" if it is not.
+
+    The scoring function already PENALISES repeats, and in rule-based mode that is
+    enough: a poly-T 16mer scores badly and never reaches the top N. A walk is
+    different. It emits every register over its site whatever the score, so the
+    penalty never bites and the export fills with TTTTTTTTTTTTTTTT and (AGAT)x5 --
+    oligos that will bind everywhere in the transcriptome and nowhere usefully.
+
+    The thresholds are the ones the scoring already uses, taken at the point where
+    its own term reaches zero: a homopolymer of 6 and a G run of 6 are each fully
+    penalised there, so they are the natural place to stop pretending the candidate
+    is usable at all.
+
+    The periodicity test is the part has_simple_repeat could not do. Its repeat
+    check only sees a six-base dinucleotide, so (AGAT)x5 -- a tetranucleotide
+    tandem repeat, and one of the worst offenders in the export that prompted this
+    -- walked straight through it. This compares the sequence against the periodic
+    extension of its own first u bases, for every unit length up to six, and calls
+    it low-complexity when any of them explains 85% of it.
+    """
+    seq = (seq or "").upper().replace("U", "T")
+    n = len(seq)
+    if n < 6:
+        return ""
+    hp = longest_homopolymer(seq)
+    if hp >= max_homopolymer:
+        return f"a homopolymer run of {hp}"
+    gr = longest_g_run(seq)
+    if gr >= max_g_run:
+        return f"a G run of {gr}"
+    for u in range(min_period, min(max_period, n // 2) + 1):
+        # PERIOD u, AT ANY PHASE. Comparing against the unit that starts at position
+        # zero only finds a repeat that begins at the 5' end: AAAAGATAGATAGATAGATA is
+        # (AGAT) four times with four A's in front of it, and anchoring on "AAAA"
+        # explains none of it. Comparing each base with the one u positions along
+        # asks whether the sequence repeats with period u wherever it starts, which
+        # is the question, and costs one pass.
+        pairs = n - u
+        if pairs <= 0:
+            break
+        same = sum(1 for i in range(pairs) if seq[i] == seq[i + u])
+        if same >= periodic_frac * pairs:
+            return (f"a {u}-base tandem repeat ({seq[:u]}…)" if u > 1
+                    else f"{same + 1} of {n} bases the same")
+    # HOW MANY DIFFERENT THINGS THE SEQUENCE SAYS. The tests above each describe one
+    # kind of repeat and a hybrid defeats both: AAAAGATAGATAGATA is a run of A's with
+    # a tetranucleotide repeat behind it, and neither explains 85% of it on its own.
+    # Counting distinct 3-mers asks the question they are both proxies for.
+    #
+    # The threshold is measured, not chosen by taste. On this track's real ASOs the
+    # ratio runs 0.67 to 0.94; on the sequences that prompted this it runs 0.07 to
+    # 0.44. Anything in that gap separates them, and the midpoint leaves margin on
+    # both sides rather than sitting against the weakest real candidate.
+    if n >= 12:
+        kmers = [seq[i:i + 3] for i in range(n - 2)]
+        variety = len(set(kmers)) / len(kmers)
+        if variety < min_kmer_variety:
+            return f"only {len(set(kmers))} distinct 3-mers in {len(kmers)}"
+    return ""
+
+
 def has_simple_repeat(seq: str) -> bool:
     if longest_homopolymer(seq) >= 4:
         return True
@@ -882,19 +946,38 @@ def select_allele_tiled(
     shared out. A span is the feature itself: the changed base of a substitution, every
     inserted base of an insertion, the two bases either side of a deletion's join.
 
-    They are taken ROUND-ROBIN across the mutations: one tile from the first, one from the
-    second, and so on, then round again. With a maximum below what the walk would produce,
-    every mutation is covered before any of them is covered twice -- which is the opposite of
-    what ranking does, since the registers over one strong site would otherwise fill the
-    answer and the other mutations would come back with nothing.
+    They are taken ONE MUTATION AT A TIME, IN FULL. The caller hands the mutations over
+    already ranked -- furthest from the reference first -- and this walks the first one
+    across every register that covers it, a base at a time, before starting the second. A
+    mutation is therefore finished or not started.
+
+    That is a deliberate change from the round-robin this used to do, which took one tile
+    from each mutation in turn so that every mutation was covered before any was covered
+    twice. Round-robin answers "give me a little about all of them"; this answers "give me
+    everything about the ones that matter most", which is the question being asked when the
+    mutations are ranked and the run is capped. The cost is explicit and belongs in the UI:
+    under a cap, the mutations past the cut get nothing at all rather than one register each.
 
     Within one mutation the walk is the same as select_tiled: the best layout at each start,
-    `step` bases apart (0 = every register, since a step wider than the oligo would leave the
-    mutation behind).
+    `step` bases apart (0 or 1 = every register, which is the default here, since a walk
+    across the length of the oligo is the point). A step wider than the oligo would leave
+    the mutation behind.
     """
     if not candidates:
         return []
-    spans = sorted({(int(x[0]), int(x[1])) for x in (cover_spans or [])})
+    # THE CALLER'S ORDER IS THE PRIORITY ORDER, so it is preserved rather than sorted away.
+    # The walk below finishes one mutation before starting the next, so this list IS the
+    # answer to which mutations get designed against when the cap bites. Sorting by position
+    # here meant the priority was "whichever is nearest the 5' end", which is not a property
+    # of the mutation at all. De-duplicated in place, first occurrence wins.
+    spans: List[Tuple[int, int]] = []
+    _seen_spans = set()
+    for x in (cover_spans or []):
+        sp = (int(x[0]), int(x[1]))
+        if sp in _seen_spans:
+            continue
+        _seen_spans.add(sp)
+        spans.append(sp)
     best_at: Dict[int, GapmerCandidate] = {}
     for cand in candidates:
         cur = best_at.get(cand.start)
@@ -928,27 +1011,45 @@ def select_allele_tiled(
             want = (st + 1) if step <= 0 else (st + step)
         walks[p] = picked
 
+    # ONE MUTATION AT A TIME, IN FULL, in the order the caller ranked them.
     selected: List[GapmerCandidate] = []
     seen = set()
-    depth = 0
-    while True:
-        added = 0
-        for p in spans:
-            w = walks.get(p) or []
-            if depth >= len(w):
-                continue
-            cand = w[depth]
+    covered = 0          # mutations that got at least one register
+    partial: Tuple[int, int] | None = None   # the one the cap cut off, if any
+    for p in spans:
+        w = walks.get(p) or []
+        if not w:
+            continue
+        took = 0
+        for cand in w:
             if id(cand) in seen:
                 continue
+            if top_n and len(selected) >= top_n:
+                # Stopped inside this mutation's walk rather than between two of them:
+                # worth saying out loud, because a half-walked mutation is the one case
+                # where the cap leaves a mutation covered but not fully tiled.
+                if took:
+                    partial = p
+                break
             seen.add(id(cand))
             selected.append(cand)
-            added += 1
-            if top_n and len(selected) >= top_n:
-                break
-        if (top_n and len(selected) >= top_n) or added == 0:
+            took += 1
+        if took:
+            covered += 1
+        if top_n and len(selected) >= top_n:
             break
-        depth += 1
 
+    # Reported so the caller can say what the cap actually did instead of only how many
+    # ASOs came back. These ride on the function's own return in design(), below.
+    select_allele_tiled.last_run = {
+        "mutations_given": len(spans),
+        "mutations_covered": covered,
+        "mutations_untouched": max(0, len(spans) - covered),
+        "partial": bool(partial),
+    }
+
+    # Drawn left to right whatever order they were chosen in; the ranking above decided
+    # WHICH ones exist, not where they sit.
     selected.sort(key=lambda c: c.start)
     for idx, candidate in enumerate(selected, start=1):
         candidate.rank = idx
@@ -972,8 +1073,14 @@ def generate_gapmer_candidates(
     cover_positions: Sequence[int] | None = None,
     cover_spans: Sequence[Sequence[int]] | None = None,
     tissue: str = "",
+    exclude_low_complexity: bool = True,
+    wild_type: str = "",
 ) -> List[GapmerCandidate]:
     seq_rna = clean_sequence(long_sequence)
+    # THE COPY THAT HAS TO SURVIVE. Supplied only for an allele-selective run, where
+    # long_sequence is the track rebuilt with the alleles applied and this is the same window
+    # untouched.
+    wild_type_rna = clean_sequence(wild_type) if wild_type else ""
     lengths = list(lengths)
     gap_sizes = list(gap_sizes)
 
@@ -1077,6 +1184,10 @@ def generate_gapmer_candidates(
 
     excluded_by_region = 0
     missed_required = 0
+    excluded_low_complexity = 0
+    low_complexity_examples: List[str] = []
+    not_selective = 0
+    not_selective_examples: List[str] = []
 
     for length in lengths:
         valid_gap_sizes = [g for g in gap_sizes if g < length]
@@ -1118,6 +1229,44 @@ def generate_gapmer_candidates(
                 cleavage_motif_hits = find_gap_cleavage_motif_hits(gap_sequence_rna, motifs_dna)
 
                 if exclude_gap_cleavage_motif_hits and cleavage_motif_hits:
+                    continue
+
+                # REPEATS ARE A RULE HERE, NOT A PENALTY. The score already marks them
+                # down, which is enough in rule-based mode: a poly-T 16mer never reaches
+                # the top N. A walk emits every register over its site whatever the score,
+                # so the penalty never bites and the answer fills with oligos that bind
+                # everywhere and nowhere. The same rule applied to both modes makes them
+                # agree about what a usable oligo is, and costs rule-based nothing, since
+                # it was never going to choose one of these anyway.
+                if exclude_low_complexity:
+                    why_lc = low_complexity(antisense_core_rna)
+                    if why_lc:
+                        excluded_low_complexity += 1
+                        if len(low_complexity_examples) < 3:
+                            low_complexity_examples.append(
+                                to_requested_alphabet(antisense_core_rna, output_alphabet)
+                                + " (" + why_lc + ")")
+                        continue
+
+                # ---- THE HONEST TEST OF ALLELE SELECTIVITY ------------------------
+                #
+                # Covering the span a mutation occupies is NOT the same as telling the two
+                # copies apart, and the whole design rested on the assumption that it was. A
+                # register inside a repeat, a deletion that shortens a homopolymer, or a
+                # mutation that was never applied to the rebuilt sequence in the first place
+                # all produce a target the wild-type copy also presents: the oligo binds
+                # both, knocks down the allele it was meant to spare, and arrives labelled
+                # allele-selective with nothing on it to say otherwise.
+                #
+                # The test needs no scoring and no threshold. If this target site occurs in
+                # the untouched window, that duplex exists on the other copy too. It is the
+                # same test the per-variant register walk makes, and it is what catches a run
+                # whose variants silently failed to apply -- every candidate is then a
+                # verbatim slice of the reference, and every one of them is dropped here.
+                if wild_type_rna and target_site_rna in wild_type_rna:
+                    not_selective += 1
+                    if len(not_selective_examples) < 3:
+                        not_selective_examples.append(target_display)
                     continue
 
                 (score, score_breakdown, notes, gc_percent, tm_c,
@@ -1185,6 +1334,17 @@ def generate_gapmer_candidates(
     results.sort(key=lambda x: (-x.score, abs(x.tm_c - 60.0), abs(x.gc_percent - 50.0), -x.length))
     for idx, candidate in enumerate(results, start=1):
         candidate.rank = idx
+    # What the repeat rule removed, so the caller can say it rather than leave a mutation
+    # silently uncovered. A site sitting inside a poly-T tract has no usable register at
+    # all, and "no ASOs here" is a finding, not a failure to report.
+    generate_gapmer_candidates.last_run = {
+        "excluded_low_complexity": excluded_low_complexity,
+        "low_complexity_examples": list(low_complexity_examples),
+        # Only meaningful for an allele-selective run; zero without a wild type to compare to.
+        "wild_type_given": bool(wild_type_rna),
+        "not_selective": not_selective,
+        "not_selective_examples": list(not_selective_examples),
+    }
     return results
 
 
@@ -1334,10 +1494,17 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     exclude_regions = request.get("exclude_regions") or []
     cover_positions = request.get("cover_positions") or []
     cover_spans = request.get("cover_spans") or []
+    # Defined for every mode, not just the allele walk: the response reports it
+    # unconditionally, and a stale value from a previous run in the same process would be
+    # worse than an empty one.
+    allele_walk_stats: Dict[str, Any] = {}
     # One list from here on: a bare position is the one-base span over it.
     all_spans = [(int(x[0]), int(x[1])) for x in cover_spans]
     all_spans += [(int(p), int(p) + 1) for p in cover_positions]
     tissue = request.get("tissue", "")
+    # The same window with no alleles applied. Present only for an allele-selective run; it is
+    # what makes "does this oligo also bind the other copy" answerable rather than assumed.
+    wild_type = request.get("wild_type", "") or ""
     # Allele-selective without any mutation to sit over is not a design, it is a request for
     # every candidate in the transcript labelled as allele-selective. Refuse it here rather
     # than return one.
@@ -1407,6 +1574,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         cover_positions=cover_positions,
         cover_spans=cover_spans,
         tissue=tissue,
+        wild_type=wild_type,
     )
 
     # What the scoring pass actually cost, and what the motif filter removed -- a design that
@@ -1458,6 +1626,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
             % (len(all_spans), "" if len(all_spans) == 1 else "s")
         )
         top_candidates = select_allele_tiled(all_candidates, all_spans, step=tile_step, top_n=want)
+        allele_walk_stats = dict(getattr(select_allele_tiled, "last_run", {}) or {})
         works.msg(
             "%d allele-selective tile%s over %d mutation%s"
             % (len(top_candidates), "" if len(top_candidates) == 1 else "s",
@@ -1756,12 +1925,29 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         "helm_note": "The structure field is returned as HELM using the configured monomer symbols.",
         "hits": hits,
         "top_candidates": hits,
+        # What the cap actually did to the walk. A count of ASOs cannot distinguish
+        # "every mutation got a few" from "the first two got everything", and after the
+        # walk became one-mutation-at-a-time that distinction is the whole behaviour.
+        "allele_walk": allele_walk_stats,
+        # What the repeat rule removed before any of that.
+        "repeat_filter": dict(getattr(generate_gapmer_candidates, "last_run", {}) or {}),
     }
 
 
 def _main() -> int:
     payload = works.param(1)
-    works.resolve(design_gapmer_sites(payload))
+    # A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL. Without a resolve the response body
+    # is empty, so the browser reported "Unexpected end of JSON input" and the actual reason
+    # -- a length outside the allowed range, a bad backbone, an unparseable payload -- was
+    # lost on this side of the wire. Every one of those is a message the user can act on, and
+    # none of them reached them. Resolved as {"error": ...} instead, which the caller already
+    # knows how to read, with the traceback left to the server log where it belongs.
+    try:
+        works.resolve(design_gapmer_sites(payload))
+    except Exception as exc:                     # noqa: BLE001 - the point is to report it
+        import traceback
+        traceback.print_exc()
+        works.resolve({"error": str(exc) or exc.__class__.__name__})
     return 0
 
 

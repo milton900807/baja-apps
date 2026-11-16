@@ -745,7 +745,27 @@ function () {
                 // said "something is wrong" and nothing said what -- the reader has to find a
                 // menu before the drawing will tell them why it is warning them. Score, name
                 // and every other attribute stay behind the toggle; this one does not.
-                const __flagged = this.labelAttribute === 'flagReason' && this.flagReason;
+                //
+                // ...BUT ONLY WHILE THERE IS ROOM FOR IT. The reason is a sentence -- "Low
+                // score -30 - GC 21.4%, Tm 34.0C, repetitive" is about 250 px of text -- and
+                // the compound it describes shrinks with the zoom. Once a design is small
+                // enough to see whole, which is exactly when you look for the bad ones, every
+                // red compound was drawing a label several times its own width, and twenty of
+                // them stacked into a wall that hid the track, the scores and each other. The
+                // colour already says which ones are bad; the sentence says why, and why is a
+                // question you ask one compound at a time.
+                //
+                // So the label is drawn while the compound is wide enough to carry it and
+                // dropped below that, leaving the colour. Measured as the compound's own
+                // width in pixels rather than a zoom level, because that is the thing the
+                // label has to fit against. Further out again, where track-flexi draws each
+                // compound as a line, __drawFlagLabels takes over and shows the worst few
+                // with leader lines and a count of the rest.
+                const FLAG_MIN_PX = 90;         // a 20-mer at ~4.5 px per base
+                let __flagWidth = 0;
+                try { __flagWidth = Math.abs(graph.X(tgraph.X(this.xf)) - graph.X(tgraph.X(this.xi))); } catch (e) { __flagWidth = 0; }
+                const __flagged = this.labelAttribute === 'flagReason' && this.flagReason
+                    && __flagWidth >= FLAG_MIN_PX;
                 const generalLabel = (graph.showOligoLabels || __flagged)
                     ? this.getDisplayLabelValue() : null;
                 if (generalLabel != null) {
@@ -777,15 +797,40 @@ function () {
                     let __per0 = 0;
                     try { __per0 = graph.X(tgraph.X(this.xi + 1)) - graph.X(tgraph.X(this.xi)); } catch (e) { __per0 = 0; }
                     const __chemLetters = (__per0 >= 11) && !(graph && graph.__lowDetail);
+                    // THE TARGET GOES UNDER THE COMPOUND, so the drawing reads as a duplex:
+                    // the oligo along the top, the strand it binds beneath it, columns
+                    // lining up. A mismatch is then a column you can see rather than two
+                    // strings to compare in a menu -- which is the whole question an
+                    // allele-selective design is asking, and the one the old layout, with
+                    // the target stacked above everything, made hardest to answer.
+                    //
+                    // When the beads are already spelling the compound out, the target goes
+                    // underneath ALONE: a row of letters repeating the beads directly below
+                    // them is noise, and it pushes the target further from the thing it is
+                    // supposed to be aligned with.
+                    this.__seqBelow = true;
                     if (__chemLetters) {
-                        if (__syn) { this.__seqDisp = __syn; this.__seqDisp2 = ''; this.__seqDispColor = '#7c2d12'; }
+                        if (__tgt) { this.__seqDisp = __tgt; this.__seqDisp2 = ''; this.__seqDispColor = '#0b7285'; }
+                        else if (__syn) { this.__seqDisp = __syn; this.__seqDisp2 = ''; this.__seqDispColor = '#7c2d12'; }
                     } else if (__tgt) {
-                        this.__seqDisp = __tgt; this.__seqDispColor = '#0b7285';
-                        // The target is about the pairing, so what will be made goes underneath it.
-                        if (__syn) this.__seqDisp2 = __syn;
+                        // Oligo first, target under it. The pairing test below is told which
+                        // way round they are, so an identical base is the mismatch under an
+                        // antisense compound and the other way round under a sense one.
+                        if (__syn) {
+                            this.__seqDisp = __syn; this.__seqDispColor = '#7c2d12';
+                            this.__seqDisp2 = __tgt; this.__seqDisp2Color = '#0b7285';
+                        } else {
+                            this.__seqDisp = __tgt; this.__seqDispColor = '#0b7285';
+                            this.__seqDisp2 = '';
+                        }
                     }
                 }
-                if (this.__seqDisp) {
+                // Not when the polymer renderer has already written the residue letters
+                // above the beads and the target row below them: the label would repeat
+                // both, offset from the compound it belongs to, which reads as a second
+                // oligo rather than as a caption for this one.
+                const __lettersOnBeads = !!(this.__chemGeom && this.__chemGeom.letters);
+                if (this.__seqDisp && !__lettersOnBeads) {
                     // IN REGISTER WITH THE BASES, when there is room for a letter per base:
                     // the target across the top and what will be synthesised underneath it,
                     // so the pairing -- and any mismatch in it -- is read off the drawing
@@ -795,26 +840,71 @@ function () {
                     try {
                         const __ctx = graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
                         if (__ctx && graph.drawAlignedSeqLabel) {
-                            const __x0 = graph.X(tgraph.X(this.xi));
-                            const __per = graph.X(tgraph.X(this.xi + 1)) - __x0;
+                            // THE BEADS' OWN LAYOUT, READ BACK, not a second layout computed
+                            // to match. chem-draw records where it actually put the residues
+                            // on the compound as __chemGeom { x0, per, n }, earlier in this
+                            // same draw, so the letters can be placed from the very numbers
+                            // the beads were placed from. Two calculations that are supposed
+                            // to agree are two chances to disagree: the first version here
+                            // stepped one genomic base from xi, which drifts a whole letter
+                            // across a 20mer the moment the drawn span is not exactly n
+                            // bases, and recomputing span / n instead only moves the
+                            // assumption from the step to the count.
+                            //
+                            // The fallback is that recomputation, for a compound drawn
+                            // without the polymer renderer, where there are no beads to be
+                            // out of register with anyway.
+                            const __g = this.__chemGeom;
+                            let __x0, __per;
+                            if (__g && isFinite(+__g.x0) && +__g.per > 0) {
+                                __x0 = +__g.x0; __per = +__g.per;
+                            } else {
+                                const __sxi = graph.X(tgraph.X(this.xi));
+                                const __sxf = graph.X(tgraph.X(this.xf));
+                                const __nLet = Math.max(1, Math.max(
+                                    ('' + (this.__seqDisp || '')).length,
+                                    ('' + (this.__seqDisp2 || '')).length));
+                                __x0 = Math.min(__sxi, __sxf);
+                                __per = Math.abs(__sxf - __sxi) / __nLet;
+                            }
+                            // A label longer or shorter than the chemistry is a real
+                            // disagreement about what this compound IS, not a drawing
+                            // question, and silently rescaling the letters to fit would hide
+                            // it. Say it once per compound and draw at the residue pitch.
+                            try {
+                                const __nL = ('' + (this.__seqDisp || '')).length;
+                                if (__g && __g.n && __nL && __nL !== __g.n && !this.__seqLenWarned) {
+                                    this.__seqLenWarned = true;
+                                    console.warn('[oligo] ' + (this.name || this.id)
+                                        + ': sequence label is ' + __nL + ' long but the chemistry has '
+                                        + __g.n + ' residues; the label is drawn at the residue pitch.');
+                                }
+                            } catch (e) { }
                             __drew = graph.drawAlignedSeqLabel(__ctx, {
                                 x0: __x0, perBase: __per,
-                                y: graph.Y(tgraph.Y(y)) + ((this.labelOffsetY || 0) - 16),
+                                // The compound's own baseline. The gap above it belongs to
+                                // drawAlignedSeqLabel; subtracting one here too is what put
+                                // the label beside the wrong oligo.
+                                y: graph.Y(tgraph.Y(y)) + (this.labelOffsetY || 0),
                                 top: this.__seqDisp, bottom: this.__seqDisp2 || '', pair: this.__seqDisp2Pair || 'complement',
+                                below: this.__seqBelow !== false,
                                 colorTop: this.__seqDispColor || '#0b7285',
                                 colorBottom: this.__seqDisp2Color || '#7c2d12',
                             });
                         }
                     } catch (e) { __drew = false; }
                     if (!__drew) {
-                        drawCenteredOvalLabel('' + this.__seqDisp, (this.labelOffsetY || 0) - 16, {
+                        // Same side as the aligned version, so a zoom change does not move
+                        // the sequence from under the compound to over it.
+                        const __pillY = (this.labelOffsetY || 0) + (this.__seqBelow !== false ? 16 : -16);
+                        drawCenteredOvalLabel('' + this.__seqDisp, __pillY, {
                             font: '10px Arial',
                             textColor: this.__seqDispColor || '#7c2d12',
                             fillColor: '#ffffff',
                             strokeColor: '#000000',
                         });
                         if (this.__seqDisp2) {
-                            drawCenteredOvalLabel('' + this.__seqDisp2, (this.labelOffsetY || 0) - 4, {
+                            drawCenteredOvalLabel('' + this.__seqDisp2, __pillY + 12, {
                                 font: '10px Arial',
                                 textColor: this.__seqDisp2Color || '#7c2d12',
                                 fillColor: '#ffffff',
@@ -861,9 +951,21 @@ function () {
                 // It sits above the body, clearing the beads' own letters (drawn just above each
                 // bead) when the chemistry is spelling them out -- chem-draw's threshold is
                 // per >= 11 screen px per base, and `per` is the same unit as screencell here.
+                // SUPERSEDED FOR THE POLYMER TYPES. chem-draw now draws the target row
+                // itself, directly under the beads and at the beads' own pitch, with the
+                // discriminating column marked. This overlay draws one letter per GENOMIC
+                // base from the track's grid, which is not the same pitch, so the two rows
+                // disagree by a fraction of a letter that accumulates across a 20mer: the
+                // green string slides out from under the compound it belongs to and reads
+                // as a second oligo. It is the same sequence either way, so the one drawn
+                // in register is the one to keep.
+                //
+                // showTargetSequence no longer gates this for these types -- the row is
+                // always there now -- but it still works for amplicons, primer-probes and
+                // anything else that has no bead layout to be out of register with.
+                if (this.type === 'aso' || this.type === 'gapmer'
+                    || this.type === 'siRNA' || this.type === 'sirna') return;
                 const wantsTarget = !!this.showTargetSequence;
-                if (!wantsTarget && (this.type === 'aso' || this.type === 'gapmer'
-                    || this.type === 'siRNA' || this.type === 'sirna')) return;
                 if (wantsTarget) {
                     let __cell = 0;
                     try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }

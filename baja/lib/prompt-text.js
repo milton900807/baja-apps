@@ -95,12 +95,28 @@ function (opts) {
             }
         } catch (e) { console.warn('prompt-text: no completion list', e); }
 
+        // NOTHING PRESSED IN HERE REACHES THE CANVAS. The backdrop stops a press landing on
+        // the canvas element, but the canvas hears its releases from the WINDOW, so a press
+        // on a button here still ended as a click out there -- and the release of the press
+        // that closed this box landed on whatever was underneath. The suggestion list is
+        // appended to the body rather than to this panel, so it is named as part of it.
+        let shield = null, shieldDone = false;
+        try {
+            exec('baja/lib/modal-shield.js', panel, { allow: ['.ls-sug'] }).then(
+                (sh) => { shield = sh; if (shieldDone) { try { sh.release(); } catch (e) { } } },
+                () => { shield = null; });
+        } catch (e) { shield = null; }
+
         let onKey;
         const close = (val) => {
             try { if (sug) sug.destroy(); } catch (e) { }
             try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
             try { if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); } catch (e) { }
             try { document.removeEventListener('keydown', onKey, true); } catch (e) { }
+            // Held a moment past the box being gone, so the release and click that follow the
+            // press that closed it are swallowed with it.
+            shieldDone = true;
+            try { if (shield) shield.release(); } catch (e) { }
             resolve(val);
         };
         onKey = (e) => {

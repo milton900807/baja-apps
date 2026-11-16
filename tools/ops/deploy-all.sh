@@ -43,7 +43,14 @@ APPS_DIR="${APPS_DIR:-/opt/baja-apps}"
 PORT="${PORT:-8080}"
 BRANCH="${BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
-REF="${REF:-578b95473de6ce92dec0f72edc308d219b7120ad}"
+# THE COMMIT THE FILES ARE FETCHED FROM, which is not necessarily the commit this script
+# came from. It cannot be: a pin can never name the commit that sets it. So bump it when
+# you add a group, and fetch the script itself at the SAME commit you bump it to --
+# downloading the script at an older ref hands you an older pin and the new group is
+# fetched at a ref that predates it, where every marker fails and install_group skips the
+# whole group with one line and a zero exit. That is not a loud failure. It reads as a
+# clean run.
+REF="${REF:-41e73173528388a1725ecdcaa49b18b6e9956acb}"
 DO_API=1; DO_WEB=0; DO_RESTART=1; DO_MENU=1
 
 while [[ $# -gt 0 ]]; do case "$1" in
@@ -113,6 +120,19 @@ if [[ $DO_API -eq 1 ]]; then
     || die "Could not download install-donation-endpoint.py"
   python3 "$TMP/a.py" "$SERVER_DIR"
 
+  # The credit gate and the status route used to answer "is this person entitled" with two
+  # different implementations, and only one of them knew about the early-access year. One
+  # function answers it now, and it reads EVERY Stripe customer record at the address: Stripe
+  # makes a new record per Checkout unless told to reuse one, so a payment can sit on a record
+  # that is not the first one returned. A patch rather than a copy, because /opt/baja-server
+  # is not a git checkout. It refuses to write anything that does not parse.
+  step "The credit gate honours the early-access year, across duplicate Stripe customers"
+  if curl -fsSL "$RAW/$REF/tools/hotfix/install-subscription-entitlement.py" -o "$TMP/sub.py" 2>/dev/null; then
+    python3 "$TMP/sub.py" "$SERVER_DIR" || say "  Not applied (see above). Everything else carries on."
+  else
+    say "  install-subscription-entitlement.py is not at ${REF:0:12}; skipped."
+  fi
+
   step "The lionscript modules"
   curl -fsSL "$RAW/$REF/tools/hotfix/install-fundraise-app.py" -o "$TMP/b.py" \
     || die "Could not download install-fundraise-app.py"
@@ -158,17 +178,24 @@ fi
 if [[ $DO_API -eq 1 ]]; then
   step "Lionscript files"
   FL_STAMP="$(date +%Y%m%d%H%M%S)"
+  SERVED_CHECK=()
   install_group() {   # install_group "label" file:marker ...  (all or none)
     local label="$1"; shift
     local pair f mk src dst owner i=0
     for pair in "$@"; do
       f="${pair%%:*}"; mk="${pair#*:}"; src="$TMP/fl.$i"; i=$((i+1))
+      # ONE FILE PER ENTRY. Several paths were once packed into a single entry separated
+      # by spaces; everything before the first colon is the path, so that became one
+      # filename with spaces in it, the fetch missed, and the group returned 0 -- a whole
+      # feature skipped on every run, saying only that it was not at the ref. A malformed
+      # entry is a mistake in this script and has to read like one.
+      case "$f" in *" "*) say "  $label: MALFORMED entry '$f' -- one file per entry; skipped."; return 0 ;; esac
       curl -fsSL "$RAW/$REF/$f" -o "$src" 2>/dev/null || { say "  $label: $f is not at ${REF:0:12}; skipped."; return 0; }
       grep -q -- "$mk" "$src" || { say "  $label: $f at ${REF:0:12} predates the change; skipped."; return 0; }
     done
     i=0
     for pair in "$@"; do
-      f="${pair%%:*}"; src="$TMP/fl.$i"; dst="$APPS_DIR/$f"; i=$((i+1))
+      f="${pair%%:*}"; mk="${pair#*:}"; src="$TMP/fl.$i"; dst="$APPS_DIR/$f"; i=$((i+1))
       if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then say "  $f: already current"; continue; fi
       mkdir -p "$(dirname "$dst")"
       if [[ -f "$dst" ]]; then
@@ -178,15 +205,260 @@ if [[ $DO_API -eq 1 ]]; then
       fi
       cp "$src" "$dst"; chmod 644 "$dst"; chown "$owner" "$dst" 2>/dev/null || true
       say "  $f: installed"
+      # Remember it, so the end of this run can ask the SERVER for it and find out whether
+      # what it serves is what we just wrote. See "Proving the server serves it".
+      SERVED_CHECK+=("$f|$mk")
     done
   }
+  # The AI credit meter asked a marker directory, not Stripe, and an unset $LJLSUBSCRIPTIONS
+  # read as "not subscribed" -- so every paying user was metered against the free allowance,
+  # refused inside python before the server's own gate was consulted. Both files go together:
+  # the meter now asks the server and treats could-not-ask as "do not meter", which needs
+  # works.py able to SAY it cannot answer.
+  install_group "the AI credit meter asks the server, not a marker directory" \
+    "py/ion-lib/claude_usage.py:WHERE THE SUBSCRIPTION ANSWER COMES FROM" \
+    "py/ion-lib/ion/works.py:NONE IS NOT NO, and the difference is the whole point"
+
   install_group "timeline side panel" \
     "baja/plots/point-side-panel.js:baja-point-side-panel" \
     "baja/plate/plate-track.js:point-side-panel"
   install_group "editor: rescue tracks keep each VCF apart" \
     "baja/data/load-transcripts-with-variants.js:GROUPED VARIANTS KEEP THEIR OWN TRACKS HERE TOO"
+  install_group "a menu caption is a caption, not a button that does nothing" \
+    "baja/manchester/menu/design-or-place.js:A CAPTION, NOT A ROW" \
+    "baja/bio/rbp/rbp-competition.js:Captions, not rows" \
+    "baja/manchester/menu/compound-ai-filter.js:Captions, not rows" \
+    "baja/manchester/menu/map-off-targets.js:Captions, not rows" \
+    "baja/manchester/menu/selected-sequence-menu.js:header: true" \
+    "baja/manchester/menu/snp-menu.js:header: true" \
+    "baja/manchester/menu/track-layers-side-menu.js:header: true" \
+    "baja/manchester/menu/menu-for-single-aso.js:header: true" \
+    "baja/manchester/menu/allele-selective-design.js:header: true" \
+    "baja/bio/splicing/clinvar-splice-variants.js:header: true" \
+    "baja/data/rnaseq-hierarchy-menu.js:header: true" \
+    "baja/manchester/menu/sample-compare.js:header: true"
+  install_group "the draw menu opens on the release, not the press" \
+    "baja/manchester/menu/draw-oligos.js:THE PRESS LOCKS THE WINDOW"
+  install_group "a tool that owns the canvas keeps its clicks" \
+    "flexigraph/gene.js:A TOOL OWNS THE CANVAS ONLY WHILE ITS LISTENERS DO" \
+    "baja/manchester/menu/draw-oligos.js:THIS TOOL OWNS THE CANVAS"
+  install_group "the hover handler does not take the first click" \
+    "baja/manchester/menu/design-or-place.js:THE HOVER HANDLER WOULD TAKE THE FIRST CLICK" \
+    "baja/manchester/menu/design-or-place.js:AND THE SELECTION WOULD TAKE IT BEFORE ANY LISTENER SAW IT"
+  install_group "the built chemistry is actually used" \
+    "baja/manchester/menu/chemistry-builder.js:THE TYPE DECIDES WHETHER THE TEMPLATE IS READ AT ALL"
+  install_group "a chemistry editor, not two canned templates" \
+    "baja/manchester/menu/chemistry-builder.js:BUILD A COMPOUND'S CHEMISTRY" \
+    "baja/manchester/menu/design-or-place.js:Build a chemistry"
+  install_group "place an ASO by hand, or design across the target" \
+    "baja/manchester/menu/design-or-place.js:DESIGN THE SITE, OR CHOOSE THE SITE YOURSELF" \
+    "baja/manchester/menu/track-design-menu.js:PLACE IT, OR DESIGN IT"
+  install_group "analyse and map off-targets from the selection page" \
+    "flexigraph/gene.js:WHAT THE SCREEN FOUND, once it has been run" \
+    "baja/manchester/menu/map-off-targets.js:PUT THE COMPOUND ON THE GENE IT SHOULDN"
+  install_group "open an off-target gene from the table, where coordinates were kept" \
+    "baja/manchester/menu/selected-off-target-genes.js:WHICH ONES CAN BE PUT ON THE GENE" \
+    "baja/manchester/menu/map-off-targets.js:ONE GENE, NAMED BY THE CALLER"
+  install_group "off-target genes of the selected compounds, with downloads" \
+    "baja/manchester/menu/selected-off-target-genes.js:THE OFF-TARGET GENES OF THE SELECTED COMPOUNDS" \
+    "baja/manchester/menu/compound-editor.js:WHICH GENES, not how many"
+  install_group "filter compounds by description (AI), on one shared definition" \
+    "baja/bio/compound-filter.js:WHAT A COMPOUND FILTER MEANS, in one place" \
+    "py/bio/compounds/filter-prompt.py:THE MODEL DOES NOT JUDGE ANY COMPOUND" \
+    "baja/manchester/menu/compound-ai-filter.js:FILTER THE COMPOUNDS BY DESCRIBING THEM" \
+    "baja/manchester/menu/select-compounds-by.js:ONE DEFINITION OF WHAT THESE WORDS MEAN" \
+    "baja/manchester/menu/track-design-menu.js:Filter by description"
+  install_group "select compounds by criteria" \
+    "baja/manchester/menu/select-compounds-by.js:SELECT COMPOUNDS BY WHAT THEY ARE" \
+    "baja/manchester/menu/compounds-editor.js:Select by criteria" \
+    "baja/manchester/menu/mouse-over-highlight.js:Scoped to this track, since that is the set"
+  install_group "select the flagged compounds on their own" \
+    "baja/manchester/menu/compounds-editor.js:Select warnings only (red)" \
+    "baja/manchester/menu/mouse-over-highlight.js:THE RED ONES ON THEIR OWN"
+  install_group "ASO warnings hide when the compound is too narrow to carry them" \
+    "flexigraph/oligo.js:ONLY WHILE THERE IS ROOM FOR IT"
+  install_group "designers say why they refused, instead of answering with nothing" \
+    "py/ssaso/design-steric-blocking.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
+    "py/ssaso/design.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
+    "py/sirna/design.py:A RAISE HERE REACHED THE CLIENT AS NOTHING AT ALL" \
+    "baja/manchester/menu/track-design-menu.js:THE DESIGNER'S OWN REASON, SHOWN" \
+    "baja/manchester/menu/aso-design-dialog.js:CHECKED HERE, WHERE THE NUMBER WAS TYPED"
+  install_group "Select all is a button, and listening before the list loads" \
+    "baja/lib/shelf.js:BUTTONS, NOT ANCHORS" \
+    "baja/bio/rbp/rbp-profile.js:Buttons rather than anchors"
+  install_group "selected sequence: microRNA site scan, and a Data submenu" \
+    "baja/bio/mirna/mirna-seeds.js:MIRNA SEEDS, AND THE SITE CLASSES THEY MAKE" \
+    "baja/bio/mirna/mirna-sites.js:MICRORNA SITES IN A SELECTED STRETCH" \
+    "baja/manchester/menu/selected-sequence-menu.js:The same datasets the Data toolbar loads"
+  install_group "selected sequence: ML menu, and which RBP wins the stretch" \
+    "baja/manchester/menu/selected-sequence-menu.js:The models that take a SPAN" \
+    "baja/bio/rbp/rbp-competition.js:WHICH RBP WINS THIS STRETCH" \
+    "py/bio/rbp/rbp-competition.py:WHY A COMPETITION RATHER THAN A SCORE"
+  install_group "cis-regulatory: a bin too small to scramble is said, not swallowed" \
+    "baja/bio/splicing/cis-attribution.js:THE SMALLEST BIN THAT MEASURES ANYTHING" \
+    "py/bio/splice/cis-profile.py:The smallest bin that measures anything"
+  # THE MARKERS HERE MOVED when the Exon -> AI Models list stopped being inline. This group
+  # was written against the inline copy in each file -- "in place of the old LJSplice v2
+  # window" in editor.js, openMenuAtPointer(__bajaSplice in menu-factory.js -- and neither
+  # phrase exists any more: both files now call baja/bio/splicing/exon-ai-models.js, which
+  # is the one definition of that list. Left as they were, both markers fail and this group
+  # skips silently, which is the failure this file keeps being bitten by.
+  #
+  # The guarantee is unchanged: these two files reach the box offering BajaSplice rather
+  # than LJSplice v2. It is just carried by the call now, so the markers name the call.
+  # That makes this group a narrower repeat of "BajaSplice on an exon", which ships the
+  # same two files plus the module and the python behind it -- kept rather than deleted
+  # because a group that re-asserts a guarantee costs one curl and removing one is a
+  # judgement about someone else's intent.
+  install_group "BajaSplice in place of LJSplice v2, opened at the pointer" \
+    "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
+    "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'"
   install_group "editor loading notice" \
     "manchester/editor.js:baja-loading-notice"
+  # Ask: the toolbar box, the catalogue of operations it may choose from, the planner that
+  # chooses, and the answerer for questions. ONE GROUP, because they only work together:
+  # the box reads the catalogue by path and calls both scripts by path, the planner is
+  # handed the catalogue rather than carrying its own copy, and an editor.js offering the
+  # button without the rest is a button that errors. Splitting them would let a half
+  # install pass its served-check and fail on the first click.
+  # Find published miRs: the shelf card, the reader that aggregates miRTarBase over the
+  # track, and the model that says what is published about each entry. All three, because
+  # the card calls the reader by path and the reader calls the script by path.
+  # A menu row with nothing behind it is drawn as a caption, not a button. Both DOM menu
+  # renderers, because a list is handed to whichever one the context picks and the two
+  # disagreeing about what a row is would be worse than either one being wrong.
+  # Off-target criteria in the compound filter. The markers here are phrases from THIS
+  # change, not the ones the older groups match: those are shared by both versions, so a
+  # stale cached copy would pass the served-check and the new criteria would silently not
+  # be there. All four files, because the contract, the two UIs that fill it and the
+  # script that fills it from a sentence have to agree on what the fields mean.
+  # Exporting compounds to a file: the exporter and the catalogue entry that reaches it.
+  # The IDT code table. Ships with the exporter that calls formatStrict: an export-compounds
+  # that calls it against an idt-format without it writes no codes at all.
+  # Down arrows marking where compounds sit. The shape lives in the draw registry, the
+  # module that creates the annotations calls it by type, and the catalogue reaches the
+  # module: an annotation of a type the registry does not know draws nothing at all.
+  # "load dnm1": ask whether that is a gene or a file, with both as things to click.
+  # editor.js moves with it because the toolbar's own no-track guard had to go: loading is
+  # the one request that needs no track, and it was the one the box would not take.
+  install_group "load by name" \
+    "baja/manchester/menu/load-by-name.js:IS THAT A GENE OR A FILE" \
+    "baja/manchester/menu/editor-capabilities.js:load_by_name" \
+    "baja/manchester/menu/editor-command.js:NO TRACK IS NOT A REASON TO REFUSE TO OPEN" \
+    "manchester/editor.js:No track check here"
+  install_group "show compound locations" \
+    "flexigraph/gene-draw.js:BIG, OUTLINED, AND ONE" \
+    "baja/manchester/menu/mark-compound-locations.js:FRAME THE TRANSCRIPT, because" \
+    "baja/manchester/menu/editor-capabilities.js:show_compound_locations"
+  # "create mRNA track from DNM3" was refused as not something the editor can do, while the
+  # track menu had offered Convert to mRNA all along. Both were right: the planner is handed
+  # editor-capabilities.js as its entire vocabulary, so an operation missing from that file
+  # cannot be reached from the box however plainly it is asked for.
+  #
+  # ONE FILE, and the marker is the new capability's own name rather than a phrase the older
+  # groups already match. Those are shared by both versions of the file, so a box still
+  # holding the 25-operation copy would pass their served-check and the box would go on
+  # refusing the request with nothing to show why.
+  install_group "Ask: splice a track into an mRNA" \
+    "baja/manchester/menu/editor-capabilities.js:convert_to_mrna"
+  # A request in flight has to look like one: the only sign was grey 12px text, so a slow
+  # answer read as a box that had ignored Enter -- and a second Enter execs a second copy of
+  # the module, which used to start a second request beside the first.
+  install_group "the command box shows that it is working" \
+    "baja/manchester/menu/editor-command.js:ONE REQUEST AT A TIME, ACROSS INSTANCES"
+  install_group "pick which steps of a plan to run" \
+    "baja/manchester/menu/editor-command.js:THE BUTTON SAYS GO, and the step count rides along"
+  install_group "the command box is a box you type in" \
+    "baja/manchester/menu/editor-command.js:NO BUTTONS. Enter sends it"
+  # The project's command field keeps taking formulas exactly as before; a SENTENCE is now
+  # matched against the app's own live menubar and the item that does it is offered. Three
+  # files, all or none: the router decides which path the text takes, the panel asks and
+  # offers, and the python picks an index out of the menu it is given.
+  # plate.js was in no install_group at all, so a change to it stayed in git. Resizing is
+  # now the right and bottom edges only: the old hit region was a 60px square on the
+  # bottom-right corner, reaching 30px inside the table, so working in the last column or row
+  # started a resize instead.
+  # Typing into a cell can now be read as an instruction instead of stored as a value, with
+  # Save text still first so Ctrl+Enter is unchanged and nothing can run by accident.
+  install_group "a table resizes from its edges; a cell can be told what to do" \
+    "baja/plate/plate.js:AN ASK BUTTON ON THE TABLE'S OWN BAR" \
+    "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
+    "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
+    "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
+    "baja/plate/ops/timeline-add.js:One resolver, in timeline-pick.js" \
+    "baja/plate/ops/timeline-pick.js:WHICH TIMELINE A REQUEST IS ABOUT, WORKED OUT ONCE" \
+    "baja/plate/ops/timeline-range.js:ONLY WHAT IS VISIBLE NOW CAN BE HIDDEN BY THIS" \
+    "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
+    "cpd/main-timeline.js:A PROMPT BOX OF ITS OWN, UNDER THE BAR" \
+    "manchester/controls/navigation-panel-plates2.js:PUBLISHED ON THE TRACK"
+
+  # A panel over the canvas used to let its clicks through: the canvas takes presses from
+  # its own element but releases from the window, so a button pressed on a panel moved
+  # what was underneath, and the click that dismissed it landed out there afterwards.
+  # prompt-text.js has never been listed here, so until now a change to it never shipped.
+  # The table carries the same Ask button the timeline does, and the first thing asked
+  # through it -- a cell that totals another table -- had no operation behind it.
+  install_group "a table can be asked for things from its own bar" \
+    "baja/plate/ops/table-ask.js:ASKING A TABLE FOR SOMETHING, FROM ITS OWN TITLE BAR" \
+    "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
+    "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
+    "baja/plate/ops/resolve-missing-references.js:count_rows" \
+    "baja/plate/menu/project-capabilities.js:ARITHMETIC ON WHAT IS SELECTED"
+
+  # Far out, a table is a bar with a name on it and its menu offered no way to simply go
+  # and look at it. And the canvas behind a maximized object was still taking presses
+  # through the backdrop, at its own world coordinates.
+  install_group "zoom into a table from its bar; a maximized object keeps the clicks" \
+    "baja/plate/plate-track.js:WHILE MAXIMIZED, THE PRESS BELONGS TO THE MAXIMIZED OBJECT"
+
+  install_group "a panel over the canvas keeps its clicks to itself" \
+    "baja/lib/modal-shield.js:A PANEL THAT OPENED ON TOP OF THIS ONE IS NOT BEHIND IT" \
+    "baja/lib/prompt-text.js:NOTHING PRESSED IN HERE REACHES THE CANVAS"
+
+  install_group "a sentence in the project command field does it, or opens where it is done" \
+    "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
+    "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
+    "baja/plate/menu/project-command.js:THE OBJECT THE REQUEST CAME FROM IS FILLED IN, NOT HOPED FOR" \
+    "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
+    "baja/plate/ops/table-size.js:ROWS AND COLUMNS ON A TABLE THAT IS ALREADY THERE" \
+    "baja/plate/ops/fill-table.js:FILLING A TABLE THAT ALREADY HAS ITS COLUMNS" \
+    "baja/plate/ops/change-values.js:ARITHMETIC ON THE CELLS THAT ARE SELECTED" \
+    "py/bio/project/table-fill.py:THE TABLE'S OWN COLUMNS ARE THE SHAPE" \
+    "baja/plate/menu/project-capabilities.js:A CELL THAT TOTALS ANOTHER TABLE" \
+    "baja/plate/ops/new-table.js:WELL.JS FIRST" \
+    "baja/plate/ops/show-new-object.js:PUT WHAT WAS JUST MADE ON SCREEN" \
+    "baja/plate/ops/rename-table.js:RENAME A TABLE, AND EVERY FORMULA THAT NAMES IT" \
+    "baja/plate/ops/set-column-values.js:const IO = await exec" \
+    "baja/plate/ops/shift-column-values.js:MOVE WHAT IS ALREADY IN A COLUMN" \
+    "baja/plate/ops/column-io.js:THE TABLE WHOSE OWN ASK BUTTON WAS PRESSED" \
+    "baja/plate/ops/rearrange-column.js:THE VALUES REVERSE AND THE CELLS THEY SIT IN" \
+    "baja/plate/ops/move-column.js:WHOLE COLUMNS, COPIED ONTO ANOTHER" \
+    "py/bio/project/menu-pick.py:ARE THINGS THE USER CAN SEE"
+  install_group "IDT codes: an explicit sugar table" \
+    "baja/chem/structure/idt/idt-format.js:THE SUGAR TABLE. One place, and nothing outside it is guessed" \
+    "baja/manchester/menu/export-compounds.js:formatStrict, not format"
+  install_group "export compounds" \
+    "baja/manchester/menu/export-compounds.js:IT REPORTS WHAT IT COULD NOT WRITE" \
+    "baja/manchester/menu/editor-capabilities.js:THE SKIPPED ONES ARE NAMED"
+  install_group "compound filter: off-target counts" \
+    "baja/bio/compound-filter.js:SCREENED-AND-ZERO IS NOT THE SAME AS NEVER-SCREENED" \
+    "baja/manchester/menu/editor-capabilities.js:never swept up by one" \
+    "baja/manchester/menu/select-compounds-by.js:Off-target sites" \
+    "py/bio/compounds/filter-prompt.py:off-target SITES: places in the genome the oligo hits"
+  install_group "menu rows with no action are captions" \
+    "baja/manchester/menu/floating-menu.js:WHAT IS A CAPTION RATHER THAN A BUTTON" \
+    "baja/manchester/menu/popup-menu.js:A ROW WITH NOTHING BEHIND IT IS NOT A BUTTON"
+  install_group "Find published miRs" \
+    "baja/data/data-resources-library.js:First, because it answers the question the other two" \
+    "baja/data/find-published-mirs.js:THE REASON FOR THAT LINE" \
+    "py/bio/mirna/published-mirs.py:THE MODEL NEVER SUPPLIES A miRNA, A SITE OR A SEQUENCE"
+  install_group "Ask: plan against the editor's own catalogue of operations" \
+    "manchester/editor.js:THE TOOLBAR IS THE COMMAND BOX" \
+    "baja/manchester/menu/editor-command.js:ASK: SAY WHAT YOU WANT DONE" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR CAN BE ASKED TO DO, DECLARED" \
+    "baja/bio/track-regions.js:COORDINATES ARE GENOMIC ORDER, ORIENTATION IS NOT" \
+    "py/bio/editor/plan.py:THE CATALOGUE IS SENT IN, NOT WRITTEN HERE" \
+    "py/bio/editor/variant-question.py:EVERY VERDICT IS INDEXED, NOT NAMED"
   install_group "baja-project: progress bar first, Add to a fundraising campaign" \
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \
@@ -223,13 +495,36 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-flexi.js:0-BASED, like every other builder of cdsi"
   install_group "protein residue indexing" \
     "py/bio/genetic-file.py:return {\"ref\": ref, \"index\": n - 1"
+  install_group "no green per-base overlay on a compound with beads" \
+    "flexigraph/oligo.js:SUPERSEDED FOR THE POLYMER TYPES"
+  install_group "no duplicate sequence label beside a lettered compound" \
+    "flexigraph/chem-draw.js:WHETHER THE LETTERS ARE ALREADY ON THE COMPOUND" \
+    "flexigraph/oligo.js:__lettersOnBeads" \
+    "flexigraph/sirna.js:__lettersOnBeads"
+  install_group "track-wide allele design: drop candidates that bind both copies" \
+    "py/ssaso/design.py:THE HONEST TEST OF ALLELE SELECTIVITY" \
+    "baja/manchester/menu/design-scope-from-workbench.js:THE SEQUENCE AS DESIGNED, and the same window UNTOUCHED" \
+    "baja/manchester/menu/track-design-menu.js:AND THE COPY THAT HAS TO SURVIVE"
+  install_group "a register that spans a deletion covers one more track base" \
+    "baja/manchester/annotation/tile-variant.js:WHERE THIS REGISTER SITS ON THE TRACK"
+  install_group "a compound that spans an applied deletion" \
+    "flexigraph/chem-draw.js:A COMPOUND THAT SPANS AN APPLIED DELETION" \
+    "baja/bio/track.js:HOW MANY TRACK BASES THIS COMPOUND COVERS" \
+    "baja/bio/track-flexi.js:shorter than its own genomic footprint"
+  install_group "allele-selective design: say how many registers were possible" \
+    "baja/bio/repeat-context.js:THE REPEAT A VARIANT SITS IN" \
+    "baja/manchester/menu/allele-selective-design.js:THE SEQUENCE CONTEXT THAT DECIDES HOW MANY REGISTERS CAN EXIST" \
+    "baja/manchester/annotation/tile-variant.js:WHY they read the same on both copies"
+  install_group "allele-selective design: a track that already carries the variant" \
+    "baja/bio/track-strand.js:THE TRACK MAY HOLD THE VARIANT RATHER THAN THE REFERENCE" \
+    "baja/manchester/menu/allele-selective-design.js:WHEN THE TRACK IS THE MUTANT"
   install_group "allele-selective design: the variant's strand" \
     "baja/bio/track-strand.js:allelesInFrame" \
     "baja/manchester/menu/allele-selective-design.js:allelesInFrame" \
     "baja/manchester/annotation/tile-variant.js:AND WHICH STRAND THE RECORD IS WRITTEN ON" \
     "py/bio/allele-selective-targets.py:def context_for("
   # Linear motifs (ELM) on a peptide track, and what a variant does to them.
-  # All five or none: the catalogue entry and the track menu would both open onto a
+  # All seven or none: the catalogue entry and the track menu would both open onto a
   # layer that is not there, and the layer would call a scan that is not there.
   #
   # The three baja/bio/protein files used to share one pair, space-joined before the
@@ -241,6 +536,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "linear motifs (ELM)" \
     "baja/bio/protein/slim-motif-layer.js:SHORT LINEAR MOTIFS AS A LAYER" \
     "baja/bio/protein/slim-motif-panel.js:The description window for one linear motif" \
+    "py/bio/protein/motif-lookup.py:Describe one ELM motif class when the catalogue has no description" \
     "baja/bio/protein/motif-impact.js:MOTIF IMPACT OF ONE MISSENSE VARIANT" \
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
@@ -304,9 +600,20 @@ if [[ $DO_API -eq 1 ]]; then
   #
   # All of them or none: a menu entry whose script is missing is worse than no entry, and
   # an entry script whose library is missing fails at import with nothing useful on screen.
+  #
+  # The three Machine Learning Models surfaces ride in THIS group, not in the groups that
+  # already carry them for other reasons. models-catalogue.js also ships with the ELM and
+  # uniqueness groups, so either of those could put the BajaNMD card on a box where
+  # bajanmd.js never arrived -- the card would open onto a missing script, which is the
+  # exact failure this group's all-or-none rule exists to prevent. Listing it here as well
+  # means the card and the script it opens travel together; whichever group runs first
+  # installs the same file and the others are inert.
   install_group "BajaNMD on an exon" \
     "baja/bio/splicing/exon-ai-models.js:BajaNMD (py/bajanmd-lib): the consequence of a cassette exon" \
     "baja/bio/splicing/bajanmd.js:BajaNMD: what including or skipping a cassette exon" \
+    "baja/ml/models-catalogue.js:title: 'NMD consequence of a cassette exon', badge: 'BajaNMD'" \
+    "baja/ml/institute-of-models-library.js:headline: 'What including or skipping a cassette exon does" \
+    "baja/lib/library-of-libraries.js:BajaCLIP, BajaSplice, BajaIR, BajaNMD and " \
     "py/bio/nmd/bajanmd-exons.py:BajaNMD: every cassette exon of a gene" \
     "py/bio/nmd/bajanmd-aso.py:BajaNMD: steric-block ASOs designed to skip one exon" \
     "py/bajanmd-lib/bajanmd/__init__.py:BajaNMD: what happens to a transcript when a cassette exon" \
@@ -320,6 +627,90 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/data/uniqueness-gradient.js:Uniqueness / repeat gradient laid over a transcript track" \
     "py/sequence/offtarget/uniqueness-gradient.py:Uniqueness / repeat gradient along a transcript" \
     "baja/ml/models-catalogue.js:title: 'Uniqueness / repeat gradient', badge: 'k-mer'" 
+  # THE COMPOUND SEQUENCE LABEL SPANS TWO FILES, so they ship together or not at all.
+  # oligo.js decides what a compound spells out and where; the renderer that draws it in
+  # register with the beads, drawAlignedSeqLabel, lives on the graph in gene.js. Shipped
+  # apart, a new oligo.js on an older gene.js finds no renderer, falls back to a CENTRED
+  # pill, and the label stops sitting over the residues it describes -- which looks like a
+  # drawing bug in the compound and is really a version skew. They were in two different
+  # groups until this was noticed.
+  install_group "compound sequence label (spans oligo.js, sirna.js, chem-draw.js and gene.js)" \
+    "flexigraph/chem-draw.js:GENOMIC ORIENTATION" \
+    "baja/bio/track-flexi.js:THE REFERENCE SEQUENCE UNDER ONE COMPOUND" \
+    "baja/bio/track.js:The reference sequence under one compound" \
+    "baja/chem/ui/pick-chem-part.js:SLOT -> MONOMER" \
+    "baja/chem/ui/chem-part-press.js:SLOT -> MONOMER" \
+    "flexigraph/oligo.js:THE TARGET GOES UNDER THE COMPOUND" \
+    "flexigraph/sirna.js:Same geometry the duplex is drawn with" \
+    "flexigraph/gene.js:CLEARANCE IS THIS FUNCTION'S ALONE"
+  # Ask a question about the selected variants. All four or none: the menu entry is the
+  # only way in, the panel needs the search module's record builder, and the python is
+  # where the gene-versus-variant guard actually lives.
+  install_group "ask about selected variants (AI)" \
+    "py/bio/variants/variant-association.py:gene-level contamination" \
+    "baja/data/variant-association.js:ASK A QUESTION ABOUT THE SELECTED VARIANTS" \
+    "baja/lib/model-panel.js:OPTIONAL COLOUR CONTROLS" \
+    "baja/data/variant-search.js:SEARCH THE VARIANTS ON THE OPEN TRACKS" \
+    "flexigraph/gene.js:ASK ABOUT THE SELECTED VARIANTS"
+  # Text search over the variants on the open tracks, with wildcards.
+  # Both or neither: the menu entry is the only way in, and the module is the search.
+  install_group "variant search (text, wildcards)" \
+    "baja/data/variant-search.js:SEARCH THE VARIANTS ON THE OPEN TRACKS" \
+    "baja/manchester/menu/variant-tools-finder.js:Search variants (text, wildcards)"
+  # Newly added variants blink for a minute so they can be found before the view settles.
+  # All three or none: the two loaders are the only callers and the module is the pulse.
+  install_group "new variants pulse" \
+    "baja/data/variant-pulse.js:PULSE THE VARIANTS THAT JUST ARRIVED" \
+    "baja/data/variant-arrival.js:EVERY VARIANT THAT ARRIVES ON A TRACK PASSES THROUGH HERE" \
+    "baja/bio/track-flexi.js:THE ONE PLACE EVERY ARRIVAL PASSES THROUGH" \
+    "baja/bio/track.js:THE ONE PLACE EVERY ARRIVAL PASSES THROUGH"
+  # A batch of newly loaded variants, told apart from the ones already on the track.
+  # All three or none: load-variants.js makes the batch, variant-batch.js is what a batch
+  # IS, and the layers menu is the only way to turn one off again.
+  install_group "variant batches: shape by kind, colour by LOF" \
+    "baja/data/variant-batch.js:TOLD APART FROM THE ONES ALREADY THERE" \
+    "baja/data/load-variants.js:tell the new ones from the ones already there" \
+    "baja/data/variant-from-prompt.js:tell what was just described from what was already there" \
+    "baja/manchester/menu/track-layers-side-menu.js:— variants added —"
+  # ALLELE-SELECTIVE ASO DESIGN, the whole chain. These five files were reaching the
+  # server only through two one-off installers (install-allele-selective-tiling.py and
+  # install-allele-indels.py), so whether the strategy works at all depended on whether
+  # someone remembered to run them, and nothing said so when they had not. The symptom is
+  # quiet and looks like a design problem rather than a deploy one: the dialog still
+  # offers the strategy and still counts the mutations, because that count is worked out
+  # in the browser, but the designer never receives cover_spans and returns ASOs that do
+  # not sit over a mutation -- reference oligos, in other words.
+  #
+  # All five or none: track-design-menu.js sends cover_spans, design.py is what honours
+  # them, design-scope-from-workbench.js is what rebuilds the mutant sequence they are
+  # indexed against, and a mismatched pair is worse than an old pair that agrees.
+  # The allele-selective annotation: which residue does the discriminating, recorded at
+  # design time and drawn on the compound. All three or none -- the menu reads the field
+  # track-design-menu writes and chem-draw draws it.
+  install_group "allele-selective: mark the discriminating residue" \
+    "baja/manchester/menu/track-design-menu.js:WHICH RESIDUES DO THE DISCRIMINATING" \
+    "flexigraph/chem-draw.js:THE RESIDUE THAT DOES THE DISCRIMINATING" \
+    "baja/manchester/menu/menu-for-single-aso.js:WHERE THE SELECTIVITY IS"
+  install_group "allele-selective ASO design" \
+    "py/ssaso/design.py:THE CALLER'S ORDER IS THE PRIORITY ORDER" \
+    "baja/manchester/menu/track-design-menu.js:BACK FROM THE DESIGNED SEQUENCE TO THE TRACK" \
+    "baja/manchester/menu/design-scope-from-workbench.js:HOW FAR THIS ALLELE IS FROM THE REFERENCE" \
+    "baja/manchester/menu/aso-design-dialog.js:use_track_alleles" \
+    "flexigraph/oligo.js:__seqDisp2"
+  # Conserved domains and functional sites answer a click, like the motifs do.
+  # All four or none: the layer registers the bars, mouse-over-highlight finds one from a
+  # pixel, the panel is what opens, and the lookup is the only thing with prose in it.
+  install_group "CDD domains: clickable, with a description" \
+    "baja/bio/protein/cdd-domain-layer.js:CLICK TARGETS" \
+    "baja/bio/protein/cdd-domain-panel.js:The description window for one CDD domain" \
+    "py/bio/protein/domain-lookup.py:Describe one CDD domain or functional site" \
+    "baja/manchester/menu/mouse-over-highlight.js:A CLICK ON A CONSERVED DOMAIN"
+  # Linear motifs: every lane stays on the track, and every bar answers a click.
+  # Both files or neither: the layer asks the TrackLayer to stack intervals that share a
+  # span, and without that half the bars are dropped before they are ever drawn.
+  install_group "linear motifs: lanes on the track, bars clickable" \
+    "baja/bio/track-layer.js:allowStackedIntervals" \
+    "baja/bio/protein/slim-motif-layer.js:EVERY LANE STAYS ON THE TRACK"
   install_group "Research panel" \
     "py/ion-lib/indication_store.py:def browse(" \
     "py/analytics/indication-browse.py:Reading the indication-market store" \
@@ -408,24 +799,30 @@ if [[ $DO_WEB -eq 1 ]]; then
   git -C "$SRC_DIR" reset -q --hard "origin/$BRANCH"
   say "At $(git -C "$SRC_DIR" log --oneline -1)"
 
-  # THIS TREE NEEDS --legacy-peer-deps, and saying so is better than discovering it.
+  # THIS TREE IS INSTALLED WITH --legacy-peer-deps. That is the intended mode, not a
+  # workaround applied after something failed.
   #
   # ngx-monaco-editor-v2 asks for Angular 18 peers while the application is on Angular 17,
-  # and the committed lock holds @angular/core at 17.3.8 beside an @angular/animations
-  # 17.3.12 that demands core 17.3.12 exactly. Neither is new and neither breaks the build:
-  # the tree was installed with peer checking off, which is how it has always been built.
-  # So npm ci is tried honestly first, and the flag is the fallback rather than the habit.
-  # Aligning the versions properly is a separate job; it is not one to do inside a deploy.
-  say "Installing dependencies (this is the slow part)…"
+  # and the tree holds @angular/core at 17.3.8 beside an @angular/animations 17.3.12 that
+  # demands core 17.3.12 exactly. Neither is new and neither breaks the build; the versions
+  # that are actually installed are the ones the app has always been built against.
+  #
+  # It used to try a plain `npm ci` first and fall back. That printed forty lines of
+  # ERESOLVE across the screen on every single frontend deploy, in the middle of the step
+  # that takes longest, and the retry that followed was the real install. A deploy that
+  # prints its own expected failure teaches whoever is watching to read errors as noise,
+  # which is the opposite of what an error is for. So the flag is passed up front and the
+  # reason is stated once.
+  say "Installing dependencies with --legacy-peer-deps (this is the slow part)…"
+  say "  (Angular 17 app, one package asking for 18 peers: expected, and how this tree builds.)"
   npm_in() { ( cd "$SRC_DIR" && npm "$@" --no-audit --no-fund ); }
   if [[ -f "$SRC_DIR/package-lock.json" ]]; then
-    npm_in ci || {
-      say "npm ci would not resolve the peers; retrying with --legacy-peer-deps, which is"
-      say "how this tree has always been installed."
-      npm_in ci --legacy-peer-deps || npm_in install --legacy-peer-deps
+    npm_in ci --legacy-peer-deps || {
+      say "npm ci could not use the committed lock; installing without it."
+      npm_in install --legacy-peer-deps
     }
   else
-    npm_in install || npm_in install --legacy-peer-deps
+    npm_in install --legacy-peer-deps
   fi
 
   say "Building…"
@@ -489,6 +886,47 @@ print("  donation endpoint: stripeConfigured=%s  separate account=%s"
 ' 2>/dev/null || true
   else
     say "  the endpoint did not answer on port $PORT (re-run with PORT=<port> if the API listens elsewhere)."
+  fi
+fi
+
+# ---- proving the server serves it --------------------------------------------
+#
+# A file on disk is not the same claim as a file being served. baja-server hands modules
+# out through /script, and between the restart above and that endpoint there is room for
+# an in-memory cache, a stale worker, or a path that resolves somewhere other than where
+# this script just wrote. Each of those looks identical from the outside: the deploy says
+# installed, the browser runs the old code, and the next hour is spent debugging the
+# wrong thing.
+#
+# So every module this run installed is asked for BACK, through the running server, and
+# checked for the marker that identifies the new version. A miss here is not fatal -- the
+# bytes are on disk and a second bounce usually settles it -- but it is said plainly.
+if [[ $DO_API -eq 1 && ${#SERVED_CHECK[@]} -gt 0 && $DO_RESTART -eq 1 ]]; then
+  step "Checking the server serves what was installed"
+  SERVED_BAD=0
+  for entry in "${SERVED_CHECK[@]}"; do
+    f="${entry%%|*}"; mk="${entry#*|}"
+    # Only lionscript modules go through /script; python is loaded from disk per call.
+    case "$f" in *.js) ;; *) continue ;; esac
+    dir="${f%/*}"; base="${f##*/}"
+    enc="${dir//\//%2F}"
+    body="$(curl -fsS "localhost:$PORT/script?spath=$enc&rule_name=$base&v=$(date +%s)" 2>/dev/null || true)"
+    if [[ -z "$body" ]]; then
+      say "  $f: the server did not answer for it on port $PORT"; SERVED_BAD=$((SERVED_BAD+1)); continue
+    fi
+    if printf '%s' "$body" | grep -q -- "$mk"; then
+      say "  $f: served, current"
+    else
+      say "  $f: SERVED STALE -- on disk but the server is still handing out the old one"
+      SERVED_BAD=$((SERVED_BAD+1))
+    fi
+  done
+  if [[ $SERVED_BAD -gt 0 ]]; then
+    say ""
+    say "  $SERVED_BAD file(s) are on disk but not being served. Bounce it again:"
+    say "      sudo systemctl restart baja-server"
+    say "  and if they are still stale, the server is loading them from somewhere other"
+    say "  than $APPS_DIR -- check APPS_DIR against the service's own working directory."
   fi
 fi
 
