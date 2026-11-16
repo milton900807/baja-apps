@@ -50,7 +50,7 @@ RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
 # fetched at a ref that predates it, where every marker fails and install_group skips the
 # whole group with one line and a zero exit. That is not a loud failure. It reads as a
 # clean run.
-REF="${REF:-17000dcee2672d937107d3307e343d01592d72d1}"
+REF="${REF:-b038a696c518ed302506e1a6cb2b7903bf19cc0d}"
 DO_API=1; DO_WEB=0; DO_RESTART=1; DO_MENU=1
 
 while [[ $# -gt 0 ]]; do case "$1" in
@@ -297,9 +297,22 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "cis-regulatory: a bin too small to scramble is said, not swallowed" \
     "baja/bio/splicing/cis-attribution.js:THE SMALLEST BIN THAT MEASURES ANYTHING" \
     "py/bio/splice/cis-profile.py:The smallest bin that measures anything"
+  # THE MARKERS HERE MOVED when the Exon -> AI Models list stopped being inline. This group
+  # was written against the inline copy in each file -- "in place of the old LJSplice v2
+  # window" in editor.js, openMenuAtPointer(__bajaSplice in menu-factory.js -- and neither
+  # phrase exists any more: both files now call baja/bio/splicing/exon-ai-models.js, which
+  # is the one definition of that list. Left as they were, both markers fail and this group
+  # skips silently, which is the failure this file keeps being bitten by.
+  #
+  # The guarantee is unchanged: these two files reach the box offering BajaSplice rather
+  # than LJSplice v2. It is just carried by the call now, so the markers name the call.
+  # That makes this group a narrower repeat of "BajaSplice on an exon", which ships the
+  # same two files plus the module and the python behind it -- kept rather than deleted
+  # because a group that re-asserts a guarantee costs one curl and removing one is a
+  # judgement about someone else's intent.
   install_group "BajaSplice in place of LJSplice v2, opened at the pointer" \
-    "manchester/editor.js:in place of the old LJSplice v2 window" \
-    "baja/manchester/menu/menu-factory.js:openMenuAtPointer(__bajaSplice"
+    "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
+    "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'"
   install_group "editor loading notice" \
     "manchester/editor.js:baja-loading-notice"
   # Ask: the toolbar box, the catalogue of operations it may choose from, the planner that
