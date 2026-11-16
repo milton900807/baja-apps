@@ -71,8 +71,25 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
         // would silently pad the profile with N and report zero impact out there.
         const cutFor = (track, site, halfSpan) => {
             const lo = Math.min(+track.xi, +track.xf), hi = Math.max(+track.xi, +track.xf);
-            const start = Math.max(lo, Math.floor(site) - halfSpan);
-            const end = Math.min(hi, Math.ceil(site) + halfSpan);
+            let start = Math.max(lo, Math.floor(site) - halfSpan);
+            let end = Math.min(hi, Math.ceil(site) + halfSpan);
+            // A SELECTED RANGE WINS. This tool is click-driven, so its default was
+            // never the whole track, but if the user has marked a stretch they have
+            // said which sequence they mean -- so score that instead of a window
+            // centred on wherever they happened to click. Clamped to what the model
+            // can physically reach, since ctx-2000 cannot see past 1000 nt and a
+            // larger span would be padded with N and read as "no content out here".
+            try {
+                const r = track.selectedRange && track.selectedRange();
+                if (r && Number.isFinite(+r.start) && Number.isFinite(+r.end) && +r.end > +r.start) {
+                    const rlo = Math.max(lo, Math.floor(Math.min(+r.start, +r.end)));
+                    const rhi = Math.min(hi, Math.ceil(Math.max(+r.start, +r.end)));
+                    if (rhi > rlo) {
+                        start = Math.max(lo, rlo - halfSpan);
+                        end = Math.min(hi, rhi + halfSpan);
+                    }
+                }
+            } catch (e) { }
             let seq = null;
             try { seq = track.getSequenceRange ? track.getSequenceRange(start, end) : null; } catch (e) { }
             if (!seq || !seq.length) {
