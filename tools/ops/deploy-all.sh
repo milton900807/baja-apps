@@ -353,7 +353,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate.js:AN ASK BUTTON ON THE TABLE'S OWN BAR" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
-    "baja/plate/ops/new-timeline.js:A TIMELINE OVER A RANGE OF DATES" \
+    "baja/plate/ops/new-timeline.js:A NAME GIVEN IN THE REQUEST IS USED" \
+    "baja/draw/place-timeline-with-time-range.js:A NAME THAT WAS ALREADY GIVEN IS NOT ASKED FOR AGAIN" \
     "baja/plate/ops/timeline-add.js:One resolver, in timeline-pick.js" \
     "baja/plate/ops/timeline-pick.js:WHICH TIMELINE A REQUEST IS ABOUT, WORKED OUT ONCE" \
     "baja/plate/ops/timeline-range.js:ONLY WHAT IS VISIBLE NOW CAN BE HIDDEN BY THIS" \
@@ -372,7 +373,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:A CALENDAR ON A TIMELINE"
+    "baja/plate/menu/project-capabilities.js:WHENEVER THE REQUEST SAYS OR IMPLIES "
 
   # Far out, a table is a bar with a name on it and its menu offered no way to simply go
   # and look at it. And the canvas behind a maximized object was still taking presses

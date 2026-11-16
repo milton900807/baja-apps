@@ -1,4 +1,4 @@
-function (platetrack, start_date, end_date) {
+function (platetrack, start_date, end_date, title) {
 
     return new Promise(async (resolve, reject) => {
 
@@ -7,8 +7,15 @@ function (platetrack, start_date, end_date) {
 
         const Plot = await exec('flexigraph/plot');
 
-        let va = await prompt("Timeline title", ["Name"], { "Name": '' }, 300, 300)
-        let m = va['Name']
+        // A NAME THAT WAS ALREADY GIVEN IS NOT ASKED FOR AGAIN. "A timeline called mywork"
+        // says the name in the request, and a box asking for it immediately afterwards reads
+        // as not having been listened to. The prompt is for the callers that have no name to
+        // pass -- the Draw > Timeline menu item -- and they pass nothing, so it still opens.
+        let m = ('' + (title == null ? '' : title)).trim();
+        if (!m) {
+            let va = await prompt("Timeline title", ["Name"], { "Name": '' }, 300, 300)
+            m = va ? ('' + (va['Name'] || '')).trim() : '';
+        }
         if (!m || m.length <= 0) {
             m = generateNautName();
         }

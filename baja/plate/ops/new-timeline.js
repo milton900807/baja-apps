@@ -8,6 +8,10 @@ function (pm, o) {
     // ten near-identical timeline-building blocks across the app files, and an eleventh
     // would be the problem, not the feature.
     //
+    // A NAME GIVEN IN THE REQUEST IS USED. "A timeline called mywork" has said the name, and
+    // asking for it in a box straight afterwards reads as not having listened. Only a request
+    // that names nothing gets the box.
+    //
     // THE DATES ARE WORKED OUT BEFORE HERE, by the model, from today's date in the request's
     // context -- "the end of the year" is a different day depending on when it is asked, and
     // nothing in this file knows when it was asked. What this does is check that what came
@@ -49,8 +53,12 @@ function (pm, o) {
                 return;
             }
 
-            await exec('baja/draw/place-timeline-with-time-range', pt, start, end);
-            resolve({ start: start.toDateString(), end: end.toDateString() });
+            // The name as the request gave it. Empty means nobody said one, and the
+            // placement module asks; it is not invented here.
+            const title = ('' + ((o && (o.title || o.name)) || '')).trim();
+            await exec('baja/draw/place-timeline-with-time-range', pt, start, end, title || null);
+            resolve({ start: start.toDateString(), end: end.toDateString(),
+                title: title || undefined });
         } catch (e) {
             resolve({ error: ('' + (e && e.message ? e.message : e)) });
         }

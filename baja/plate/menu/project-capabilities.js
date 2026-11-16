@@ -233,6 +233,10 @@ function () {
             summary: 'add a timeline covering a range of dates',
             module: 'baja/plate/ops/new-timeline.js',
             params: {
+                title: { type: 'string', default: 'the user is asked for one',
+                    about: 'what the timeline is called, WHENEVER THE REQUEST SAYS OR IMPLIES '
+                        + 'a name: "a timeline called mywork" is mywork, "my Q1 plan" is Q1 '
+                        + 'plan. Leave it out only when nothing in the request names it' },
                 start: { type: 'string', required: true,
                     about: 'the first date, as YYYY-MM-DD. Work it out from today\u2019s date in '
                         + 'the context: "now" and "today" mean that date' },
@@ -485,7 +489,7 @@ function () {
         }
         if (name === 'new_timeline') {
             return 'add a timeline from ' + args.start + ' to ' + args.end
-                + ' (it will ask for a title)';
+                + (args.title ? (' called "' + args.title + '"') : ' (it will ask for a title)');
         }
         if (name === 'derive_from_new_table') {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
