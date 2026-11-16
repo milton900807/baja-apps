@@ -355,7 +355,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
     "baja/plate/ops/new-timeline.js:A NAME GIVEN IN THE REQUEST IS USED" \
     "baja/draw/place-timeline-with-time-range.js:A NAME THAT WAS ALREADY GIVEN IS NOT ASKED FOR AGAIN" \
-    "baja/plate/ops/timeline-add.js:One resolver, in timeline-pick.js" \
+    "baja/plate/ops/timeline-add.js:A DATE, OR A DATE AND A TIME" \
     "baja/plate/ops/timeline-pick.js:WHICH TIMELINE A REQUEST IS ABOUT, WORKED OUT ONCE" \
     "baja/plate/ops/timeline-range.js:ONLY WHAT IS VISIBLE NOW CAN BE HIDDEN BY THIS" \
     "baja/plate/menu/is-sentence.js:IS THIS A REQUEST, OR IS IT A FORMULA" \
@@ -373,7 +373,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:WHENEVER THE REQUEST SAYS OR IMPLIES "
+    "baja/plate/menu/project-capabilities.js:ANYTHING WITH A LENGTH IS AN INTERVAL"
 
   # Far out, a table is a bar with a name on it and its menu offered no way to simply go
   # and look at it. And the canvas behind a maximized object was still taking presses

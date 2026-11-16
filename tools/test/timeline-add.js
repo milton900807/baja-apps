@@ -130,6 +130,46 @@ const run = (pt, args) => load('baja/plate/ops/timeline-add.js', pt, args);
     r = await run(pt, { title: 'x' });
     ok(!!r.error && /what date/.test(r.error), 'and one with no date');
 
+    // SOMETHING SHORTER THAN A DAY. "A meeting tomorrow afternoon for 3 hours" put the same
+    // date at both ends -- midnight to midnight -- and was refused for ending before it
+    // started. The axis is drawn in hours from the timeline's own start, so an afternoon was
+    // always representable; nothing could say one.
+    const short_ = mkTimeline('Week', '2026-11-16', '2026-11-22');
+    let ptS = mkTrack([short_], short_);
+    const pt0 = ptS;
+    r = await run(ptS, { kind: 'interval', title: 'Meeting',
+        start: '2026-11-17T13:00', end: '2026-11-17T16:00' });
+    ok(!r.error, 'three hours on one afternoon is an interval: ' + JSON.stringify(r));
+    const mtg = short_.scatterData.points[short_.scatterData.points.length - 1];
+    ok(mtg.type === 'interval', 'drawn as an interval');
+    ok(mtg.__startDate.getHours() === 13 && mtg.date.getHours() === 16,
+       'at the hours asked for, in the user\u2019s own clock: '
+       + mtg.__startDate.getHours() + ' to ' + mtg.date.getHours());
+    // Measured in TIME, not in axis units: how many units an hour is depends on the window,
+    // and asserting units would be asserting this harness's own grid rather than the span.
+    const spanMs = pt0.__tlXToMs(short_, mtg.x) - pt0.__tlXToMs(short_, mtg.startX);
+    ok(Math.abs(spanMs - 3 * 60 * 60 * 1000) < 60 * 1000,
+       'three hours wide on the axis: ' + (spanMs / 3600000).toFixed(2) + ' hours');
+    ok(mtg.__startDate.getDate() === 17,
+       'and on the day asked for, not the day before: a plain Date() would have read it as UTC');
+
+    // the same date twice is still refused, and now says how to ask for hours
+    r = await run(ptS, { kind: 'interval', title: 'Meeting', start: '2026-11-17', end: '2026-11-17' });
+    ok(!!r.error && /ends before it starts/.test(r.error) && /give the times/.test(r.error),
+       'the same date twice is refused, with how to say hours: ' + r.error);
+
+    // a milestone can carry a time too
+    r = await run(ptS, { title: 'Standup', date: '2026-11-18T09:30' });
+    const st = short_.scatterData.points[short_.scatterData.points.length - 1];
+    ok(!r.error && st.date.getHours() === 9 && st.date.getMinutes() === 30,
+       'a milestone keeps a time of day as well: ' + st.date.toString().slice(0, 21));
+
+    // plain dates still behave exactly as they did
+    r = await run(ptS, { title: 'Plain day', date: '2026-11-19' });
+    const pd = short_.scatterData.points[short_.scatterData.points.length - 1];
+    ok(!r.error && pd.date.getDate() === 19 && pd.date.getHours() === 0,
+       'a plain date is still local midnight on that day');
+
     // WHICH TIMELINE. The canvas usually has more than one, so the name comes with the
     // request rather than being inferred from what is selected.
     const a = mkTimeline('strehg', '2026-12-01', '2027-01-16');

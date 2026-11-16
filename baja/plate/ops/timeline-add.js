@@ -33,15 +33,30 @@ function (pm, o) {
             if (picked.error) { resolve({ error: picked.error }); return; }
             const tl = picked.timeline;
 
+            // A DATE, OR A DATE AND A TIME.
+            //
+            // "A meeting tomorrow afternoon for 3 hours" is three hours long, and a day is
+            // not. Taking only YYYY-MM-DD made both ends of it the same instant -- midnight
+            // to midnight -- and the answer was "that ends before it starts" to a request
+            // that was perfectly clear. The timeline is drawn in hours from its own start, so
+            // an afternoon has always been representable; nothing could say one.
+            //
+            // The date part is read field by field rather than handed to Date(), because
+            // new Date("2026-11-17") is UTC midnight, which is the day before anywhere west
+            // of Greenwich. With a time on it, the time is the user's own.
             const asDate = (v) => {
                 const s = ('' + (v == null ? '' : v)).trim();
                 if (!s) return null;
-                const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-                const d = ymd
-                    ? new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10))
+                const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+                const d = m
+                    ? new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10),
+                        m[4] ? parseInt(m[4], 10) : 0, m[5] ? parseInt(m[5], 10) : 0,
+                        m[6] ? parseInt(m[6], 10) : 0)
                     : new Date(s);
                 return isNaN(d.getTime()) ? null : d;
             };
+            // Whether a value carried a time of day, which decides how it is written back.
+            const hasTime = (v) => /\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}/.test('' + (v == null ? '' : v));
 
             const title = ('' + ((o && o.title) || '')).trim();
             if (!title) { resolve({ error: 'what should it be called?' }); return; }
@@ -82,7 +97,14 @@ function (pm, o) {
                 if (!a) { resolve({ error: 'when does it start?' }); return; }
                 if (!b) { resolve({ error: 'when does it end?' }); return; }
                 if (b.getTime() <= a.getTime()) {
-                    resolve({ error: 'that ends before it starts' });
+                    // Said with the times, since "ends before it starts" about two values
+                    // that look like the same day explains nothing.
+                    const show = (d, v) => hasTime(v) ? d.toString().slice(0, 21) : d.toDateString();
+                    resolve({ error: 'that ends before it starts: ' + show(a, o && o.start)
+                        + ' to ' + show(b, o && o.end)
+                        + (!hasTime(o && o.start) && !hasTime(o && o.end)
+                            ? '. For something shorter than a day, give the times: '
+                                + '2026-11-17T13:00 to 2026-11-17T16:00' : '') });
                     return;
                 }
                 if (!inWindow(a) || !inWindow(b)) {

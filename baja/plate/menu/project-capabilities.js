@@ -190,14 +190,23 @@ function () {
                         + 'timeline field when there is one: there can be several on the canvas' },
                 title: { type: 'string', required: true, about: 'what it is called' },
                 kind: { type: 'enum', values: ['milestone', 'interval'], default: 'milestone',
-                    about: 'a milestone sits on one date; an interval runs between two' },
+                    about: 'a milestone sits at one moment; an interval runs between two. '
+                        + 'ANYTHING WITH A LENGTH IS AN INTERVAL, however short: a meeting '
+                        + 'for 3 hours, a call for 30 minutes, a trip for a week' },
                 date: { type: 'string', default: 'required for a milestone',
-                    about: 'the date of a milestone, as YYYY-MM-DD, worked out from today\u2019s '
-                        + 'date in the context' },
+                    about: 'when a milestone is, as YYYY-MM-DD, or YYYY-MM-DDTHH:MM when the '
+                        + 'request gives a time of day. Worked out from today\u2019s date in the '
+                        + 'context' },
                 start: { type: 'string', default: 'required for an interval',
-                    about: 'the first date of an interval, as YYYY-MM-DD' },
+                    about: 'when an interval starts, as YYYY-MM-DD, or YYYY-MM-DDTHH:MM' },
                 end: { type: 'string', default: 'required for an interval',
-                    about: 'the last date of an interval, as YYYY-MM-DD' }
+                    about: 'when it ends, as YYYY-MM-DD, or YYYY-MM-DDTHH:MM. IT MUST BE '
+                        + 'LATER THAN start: for something that runs for hours or minutes, '
+                        + 'both ends need a TIME, since the same date twice is the same '
+                        + 'instant and is refused. "For 3 hours" from 13:00 ends at 16:00. '
+                        + 'Where the request says a part of the day and no clock time, read '
+                        + 'morning as 09:00, afternoon as 13:00, evening as 18:00, and give '
+                        + 'an unstated length one hour' }
             }
         },
         {
@@ -469,9 +478,12 @@ function () {
             // The timeline is named on the card: with several on the canvas, "to the timeline"
             // did not say which one was about to be changed.
             const which = args.timeline ? ('"' + args.timeline + '"') : 'the timeline';
+            // A time of day is shown as a time, not buried in an ISO stamp with a T in it.
+            const when = (v) => ('' + (v == null ? '' : v)).replace('T', ' at ');
             return args.kind === 'interval'
-                ? ('add ' + args.title + ' from ' + args.start + ' to ' + args.end + ' to ' + which)
-                : ('add ' + args.title + ' on ' + args.date + ' to ' + which);
+                ? ('add ' + args.title + ' from ' + when(args.start) + ' to ' + when(args.end)
+                    + ' to ' + which)
+                : ('add ' + args.title + ' on ' + when(args.date) + ' to ' + which);
         }
         if (name === 'timeline_range') {
             const which = args.timeline ? ('"' + args.timeline + '"') : 'the timeline';
