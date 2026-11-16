@@ -350,7 +350,8 @@ if [[ $DO_API -eq 1 ]]; then
   # Typing into a cell can now be read as an instruction instead of stored as a value, with
   # Save text still first so Ctrl+Enter is unchanged and nothing can run by accident.
   install_group "a table resizes from its edges; a cell can be told what to do" \
-    "baja/plate/plate.js:AN ASK BUTTON ON THE TABLE'S OWN BAR" \
+    "baja/plate/plate.js:A RED CELL SAYS WHY, AND WHAT WOULD FIX IT" \
+    "baja/plate/ops/diagnose-formula.js:WHY A CELL IS RED, AND WHAT WOULD FIX IT" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
     "baja/plate/ops/derive-from-new-table.js:A TABLE WITH NAMED COLUMNS AND A TOTAL AT THE FOOT" \
     "baja/plate/ops/new-timeline.js:A NAME GIVEN IN THE REQUEST IS USED" \

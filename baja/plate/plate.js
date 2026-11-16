@@ -1253,11 +1253,34 @@ function () {
                 // A formula that came out NaN: the panel says so and offers the trace, which
                 // follows the references back to the cell where it started.
                 const isNaNResult = !!(hasFormula && first && pt.__isNaNValue && pt.__isNaNValue(first.value));
+
+                // A RED CELL SAYS WHY, AND WHAT WOULD FIX IT.
+                //
+                // =Salaries[1][9] on a table whose last row is 8 drew red with a badge and
+                // no reason, and the only thing to do about it was delete it. The reason is
+                // knowable -- the name, the column, the row -- and each has one obvious
+                // correction. diagnose-formula.js works it out; nothing is changed here, the
+                // suggestion is offered as a button with the corrected formula on it.
+                let broken = null;
+                try {
+                    if (hasFormula && first && typeof first.hasError === 'function' && first.hasError()) {
+                        const d = await exec('baja/plate/ops/diagnose-formula.js', pt, this,
+                            '' + (__value == null ? '' : __value), first);
+                        if (d && !d.ok) broken = d;
+                    }
+                } catch (e) { broken = null; }
+
                 let r = null;
                 try {
                     r = await exec('baja/lib/prompt-text.js', {
                         title: cellName + (w.length > 1 ? ' (+' + (w.length - 1) + ' more)' : ''),
-                        message: isNaNResult
+                        message: broken
+                            ? ('This cell is in error: ' + broken.why + '.'
+                                + (broken.suggest ? (' Fix it puts ' + broken.suggest + ' in the box'
+                                    + (broken.about ? ' to ' + broken.about : '') + '.')
+                                    : (broken.about ? ' ' + broken.about + '.' : ''))
+                                + ' Nothing is changed until you press a button.')
+                            : isNaNResult
                             ? 'This formula comes out as NaN. Trace NaN follows its references back to the cell where it starts, and jumps there.'
                             : hasFormula
                             ? 'A formula. Add to each puts it on every selected cell, one per cell; Save text stores the text as typed. Ctrl+Enter does the first button.'
@@ -1279,7 +1302,13 @@ function () {
                         // would do, and runs nothing until that is confirmed -- so a cell
                         // whose contents happen to read like a sentence can never be acted
                         // on by accident.
-                        actions: isNaNResult
+                        // FIX IT LEADS, because a cell that is already wrong is the one
+                        // case where the first button should repair rather than store: there
+                        // is nothing in the box worth keeping as typed. It is offered only
+                        // when there is a real corrected formula to offer.
+                        actions: (broken && broken.suggest)
+                            ? [{ key: 'fix', label: 'Fix it' }, { key: 'each', label: 'Add to each' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag\u2026' }, { key: 'ask', label: 'Do it\u2026' }]
+                            : isNaNResult
                             ? [{ key: 'each', label: 'Add to each' }, { key: 'trace', label: 'Trace NaN' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }]
                             : hasFormula
                             ? [{ key: 'each', label: 'Add to each' }, { key: 'delete', label: 'Delete formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }, { key: 'ask', label: 'Do it…' }]
@@ -1289,6 +1318,30 @@ function () {
                 } catch (e) { r = null; }
                 if (!r) return;
                 const code = '' + (r.text == null ? '' : r.text);
+                // FIX IT WRITES THE CORRECTION, and only the correction it offered: if the
+                // user edited the box before pressing it, what they typed is theirs and goes
+                // in instead. The write goes through the same path as Add to each, so the
+                // formula is registered with the track rather than only sitting in the cell.
+                if (r.action === 'fix') {
+                    const fixed = (code.trim() && code.trim() !== ('' + (__value == null ? '' : __value)).trim())
+                        ? code.trim() : (broken && broken.suggest ? broken.suggest : '');
+                    if (!fixed) { try { pt.setMessage('Nothing to put right.', 3); } catch (e) { } return; }
+                    try { pushHistory(HM(this)); } catch (e) { }
+                    let n = 0;
+                    for (const one of w) {
+                        try {
+                            const wr = this.getWellRange([one]);
+                            try { this.formula[wr] = fixed; } catch (e) { }
+                            try { pt.addFormula(this.name + '' + wr, fixed); } catch (e) { }
+                            try { if (one.clearError) one.clearError(); } catch (e) { }
+                            one.setValue(fixed);
+                            n++;
+                        } catch (e) { }
+                    }
+                    try { pt.updateCalculations(); } catch (e) { }
+                    try { pt.setMessage(n + ' cell' + (n === 1 ? '' : 's') + ' set to ' + fixed, 6); } catch (e) { }
+                    return;
+                }
                 if (r.action === 'tag') { setTimeout(() => { try { this.goTag(null, pt); } catch (e) { } }, 100); return; }
                 // READ WHAT WAS TYPED AS AN INSTRUCTION. The same panel the command field
                 // uses, so there is one set of operations and one set of rules about what may
