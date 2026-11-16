@@ -15,7 +15,7 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
     // book calls it the same way, so a book does not know or care which one opened it.
     //
     // Every figure and caveat below is taken from the model libraries' own documentation
-    // (py/bajair-lib, py/bajaclip-lib, py/bajasplice-lib), not estimated here. Where a library
+    // (py/bajair-lib, py/bajaclip-lib, py/bajanmd-lib, py/bajasplice-lib), not estimated here. Where a library
     // states a limitation, it is repeated rather than smoothed over -- a model shelf that only
     // lists capabilities invites people to over-read the output.
 
@@ -434,6 +434,62 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                       note: 'The independent dataset the 0.63 AUC is measured against.' },
                     { title: 'GENCODE annotation', url: 'https://www.gencodegenes.org/',
                       note: 'Intron definitions come from the annotation, not from reads.' }
+                ]
+            }
+        },
+        {
+            title: 'NMD consequence of a cassette exon', badge: 'BajaNMD', ready: true, group: 'splicing',
+            blurb: 'Whether including an exon destroys the transcript, or skipping it does — and the oligos that switch it.',
+            // Gene-level, like intron retention: the exons come from the annotation, so a
+            // sequence selection does not narrow it. Opens its own report rather than
+            // writing a track layer, which is why it has no entry in design-report.js's
+            // layer-attribution table.
+            open: () => __onParentTrack('BajaNMD NMD consequence',
+                (list) => exec('baja/bio/splicing/bajanmd.js', graph, L, list)),
+            docs: {
+                summary: 'For every cassette-eligible exon of the gene, builds both isoforms — exon '
+                    + 'in, exon out — translates from the annotated CDS start, and measures how far '
+                    + 'the first in-frame stop sits from the last exon-exon junction. Past about 50 nt '
+                    + 'that stop reads as premature and the transcript is degraded. So an exon is '
+                    + 'NMD_in, a poison exon whose INCLUSION causes decay, or NMD_ex, an essential '
+                    + 'exon whose SKIPPING causes decay — or "both", which is no usable switch, or '
+                    + '"none". The direction is the whole point and it is opposite for the two '
+                    + 'classes: skipping a poison exon RAISES protein, skipping an essential exon '
+                    + 'LOWERS it. The same report designs steric-block ASOs against a chosen exon.',
+                provenance: 'TWO DIFFERENT KINDS OF THING, deliberately not merged. The NMD call is '
+                    + 'NOT A TRAINED MODEL: it is the 50-nt EJC rule applied to the annotation and '
+                    + 'the genome, so every verdict is reproducible by hand and there is no '
+                    + 'cross-validation to report. The ASO ranking IS model output — each window is '
+                    + 'masked to N (an oligo occludes its site, it does not rewrite it) and the '
+                    + 'frozen BajaSplice splice-site model re-reads both sites, on logits because a '
+                    + 'site at 0.9997 cannot fall measurably on the probability scale. Either site '
+                    + 'lost is enough to cause skipping, so the objective is the LARGER of the two '
+                    + 'losses. Candidates are screened for specificity through the same '
+                    + 'py/sequence/offtarget engine the rest of the app uses — edit distance up to '
+                    + '3, both strands, indels — against human_premrna, because a splice-site oligo '
+                    + 'straddles the exon-intron boundary and has no site at all in a spliced '
+                    + 'reference, where zero hits would mean nothing. BajaNMD (py/bajanmd-lib).',
+                usage: 'READ THE AGREEMENT COLUMN, not just the class. The same exon can be ordinary '
+                    + 'in one isoform and frameshifting in another, because the reading frame it '
+                    + 'lands in differs, so every transcript carrying the exon is evaluated and the '
+                    + 'report gives the fraction that agree with the MANE Select call beside it. An '
+                    + 'earlier version of this analysis picked one host transcript per exon: checked '
+                    + 'against observed inclusion, the exons it called poison sat at ~99% inclusion, '
+                    + 'which no real poison exon can do, since the isoform carrying it would be the '
+                    + 'one destroyed. Those were minority labels borrowed from a minor isoform. A '
+                    + 'split fraction is that warning, so take a unanimous call over a majority one. '
+                    + 'Events come from the annotation rather than a precomputed event table, so '
+                    + 'nothing here goes stale against a GENCODE release. It does NOT say which '
+                    + 'RNA-binding protein acts at a site, and no window is ranked by predicted '
+                    + 'binding: tests here found predicted RBP footprints do not localize splicing '
+                    + 'regulation.',
+                links: [
+                    { title: 'Nagy & Maquat, the 50-nt rule', url: 'https://doi.org/10.1016/S0968-0004(98)01208-0',
+                      note: 'The stop-to-last-junction distance this applies, and where the threshold comes from.' },
+                    { title: 'STK-001 / TANGO on SCN1A', url: 'https://doi.org/10.1126/scitranslmed.aaz6100',
+                      note: 'The clinical precedent for skipping a poison exon to raise protein.' },
+                    { title: 'GENCODE annotation', url: 'https://www.gencodegenes.org/',
+                      note: 'Exons, transcripts, CDS starts and the MANE Select flag all come from here.' }
                 ]
             }
         },

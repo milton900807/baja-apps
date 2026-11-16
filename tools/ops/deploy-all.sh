@@ -304,9 +304,20 @@ if [[ $DO_API -eq 1 ]]; then
   #
   # All of them or none: a menu entry whose script is missing is worse than no entry, and
   # an entry script whose library is missing fails at import with nothing useful on screen.
+  #
+  # The three Machine Learning Models surfaces ride in THIS group, not in the groups that
+  # already carry them for other reasons. models-catalogue.js also ships with the ELM and
+  # uniqueness groups, so either of those could put the BajaNMD card on a box where
+  # bajanmd.js never arrived -- the card would open onto a missing script, which is the
+  # exact failure this group's all-or-none rule exists to prevent. Listing it here as well
+  # means the card and the script it opens travel together; whichever group runs first
+  # installs the same file and the others are inert.
   install_group "BajaNMD on an exon" \
     "baja/bio/splicing/exon-ai-models.js:BajaNMD (py/bajanmd-lib): the consequence of a cassette exon" \
     "baja/bio/splicing/bajanmd.js:BajaNMD: what including or skipping a cassette exon" \
+    "baja/ml/models-catalogue.js:title: 'NMD consequence of a cassette exon', badge: 'BajaNMD'" \
+    "baja/ml/institute-of-models-library.js:headline: 'What including or skipping a cassette exon does" \
+    "baja/lib/library-of-libraries.js:BajaCLIP, BajaSplice, BajaIR, BajaNMD and " \
     "py/bio/nmd/bajanmd-exons.py:BajaNMD: every cassette exon of a gene" \
     "py/bio/nmd/bajanmd-aso.py:BajaNMD: steric-block ASOs designed to skip one exon" \
     "py/bajanmd-lib/bajanmd/__init__.py:BajaNMD: what happens to a transcript when a cassette exon" \

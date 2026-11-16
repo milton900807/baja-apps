@@ -96,8 +96,8 @@ function (graph, genegraph_panel_layout) {
                     },
                     {
                         name: 'Machine Learning Models',
-                        blurb: 'The models as things you run: BajaCLIP, BajaSplice, BajaIR and djPrimer, each '
-                            + 'writing its prediction onto a track as a layer.',
+                        blurb: 'The models as things you run: BajaCLIP, BajaSplice, BajaIR, BajaNMD and '
+                            + 'djPrimer, most of them writing a prediction onto a track as a layer.',
                         path: 'baja/ml/models-library.js'
                     }
                 ]
