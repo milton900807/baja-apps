@@ -5507,7 +5507,7 @@ function () {
                                 label: 'Delete selected row',
                                 click: async (x, y) => {
                                     pushHistory(HM(this))
-                                    this.removeFullySelectedRows()
+                                    await this.removeFullySelectedRows(pt)
                                     pt.wb(null)
                                 },
                                 move: () => {
@@ -6844,7 +6844,7 @@ function () {
                         label: 'Delete selected row(s)',
                         click: async (x, y) => {
                             pushHistory(HM(this))
-                            this.removeFullySelectedRows()
+                            await this.removeFullySelectedRows(pt)
                             pt.wb(null)
                         },
                         move: () => {
@@ -10492,7 +10492,7 @@ function () {
                                 label: 'Delete row',
                                 click: async (x, y) => {
                                     pushHistory(HM(this))
-                                    this.removeFullySelectedRows()
+                                    await this.removeFullySelectedRows(pt)
                                     this.clk_drag(pt);
 
                                 },
@@ -12135,9 +12135,9 @@ function () {
                         showModal(confirm)
                     }
                     if (rows && rows.length > 0) {
-                        let confirm = await exec('baja/lib/confirm.js', 'Delete the row?', () => {
+                        let confirm = await exec('baja/lib/confirm.js', 'Delete the row?', async () => {
                             pushHistory(HM(this))
-                            this.removeFullySelectedRows();
+                            await this.removeFullySelectedRows(pt);
                         })
                         showModal(confirm)
                     }
@@ -14101,14 +14101,68 @@ function () {
                 }
             }
 
-            removeFullySelectedRows() {
+            // THE ROW GOES AND THE FORMULAS GO WITH IT.
+            //
+            // removeRow splices the cells out of every column, so the VALUES below move up
+            // on their own. Nothing else does. A formula is held against the cell it sits in
+            // -- Name[c:c][r:r] -- and that key stays at the row number it had, so the total
+            // that was under the list is now beside it and still counting the old range. The
+            // numbers shuffle up and the sum does not change: the table looks right and is
+            // wrong, which is the whole reason shift-formulas.js exists. It was wired into
+            // the table_size operation and not into the buttons and menus people actually
+            // press, which is every delete in the editor.
+            //
+            // Rows are taken bottom-up and a selection need not be contiguous, so each
+            // removed row is shifted on its own, in that same descending order: a key below
+            // two deleted rows is moved up once for the lower one and once for the upper,
+            // which lands it exactly where the cells did.
+            async removeFullySelectedRows(pt) {
+                const removed = [];
                 for (let rowIndex = this.wells[0].length - 1; rowIndex >= 0; rowIndex--) {
                     const isRowSelected = this.wells.every(column => column[rowIndex] && column[rowIndex].select);
                     if (isRowSelected) {
                         this.removeRow(rowIndex);
+                        removed.push(rowIndex);
                     }
                 }
                 this.fitRowsAndColumns();
+                await this.shiftFormulasForRemovedRows(pt, removed);
+                return removed;
+            }
+
+            // Deleting is the one case insertion never has: a formula pointing INTO the row
+            // that is going. It cannot be moved anywhere honest, so shift-formulas.js leaves
+            // it alone and marks its cell in error, which puts it in front of the repair the
+            // cell editor offers. The delete itself is never refused here: the row was
+            // already confirmed, and silently keeping it would be the worse surprise.
+            async shiftFormulasForRemovedRows(pt, removed) {
+                const moved = { refs: 0, keys: 0, orphans: 0 };
+                if (!pt || !this.name || !removed || !removed.length) return moved;
+                for (const at of removed) {
+                    try {
+                        const r = await exec('baja/plate/ops/shift-formulas.js', pt, this.name, at, -1);
+                        if (r) {
+                            moved.refs += (r.refs || 0);
+                            moved.keys += (r.keys || 0);
+                            moved.orphans += (r.orphans || 0);
+                        }
+                    } catch (e) { }
+                }
+                try { pt.updateCalculations(); } catch (e) { }
+                try { if (pt.wake) pt.wake(); } catch (e) { }
+                const n = moved.refs + moved.keys;
+                if (n || moved.orphans) {
+                    try {
+                        pt.setMessage(this.name + ': ' + removed.length + ' row'
+                            + (removed.length === 1 ? '' : 's') + ' removed'
+                            + (n ? ('. ' + n + ' formula reference' + (n === 1 ? '' : 's')
+                                + ' moved up with them') : '')
+                            + (moved.orphans ? ('. ' + moved.orphans + ' read a row that is now '
+                                + 'gone and ' + (moved.orphans === 1 ? 'is' : 'are')
+                                + ' marked in error') : ''), 9);
+                    } catch (e) { }
+                }
+                return moved;
             }
             removeFullySelectedColumns() {
                 for (let colIndex = this.wells.length - 1; colIndex >= 0; colIndex--) {
