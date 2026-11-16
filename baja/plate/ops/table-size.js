@@ -50,6 +50,10 @@ function (pm, o) {
 
             const was = { rows: nRows(), cols: nCols() };
             let addedRows = 0, addedCols = 0, removedRows = 0, insertedAt = null;
+            // Declared BEFORE the branches that fill it in. It was declared after them, so
+            // the removal branch assigned into a dead zone: the throw was swallowed by the
+            // try around it and the orphans it had just counted were reported as none.
+            let shifted = { keys: 0, refs: 0, cells: 0, orphans: 0 };
 
             // WHERE THE ROWS GO. "Insert three rows after this" is not "add three rows":
             // the first says where, and adding them at the bottom of a table the user is
@@ -114,7 +118,35 @@ function (pm, o) {
                         + 'removed. Say to remove them anyway if that is what you want' });
                     return;
                 }
+                // WHAT POINTS AT THE ROWS THAT ARE GOING, asked BEFORE they go. A formula
+                // reading a row that will not exist cannot be put right afterwards: shifting
+                // it up makes it read its neighbour's number, which is a wrong figure that
+                // looks right. So it is counted first and the delete is refused, with the
+                // cells named -- the same bar the rows' own contents are held to.
+                const firstGone = was.rows - take;
+                try {
+                    const plan = await exec('baja/plate/ops/shift-formulas.js', pt, t.name,
+                        firstGone, -take, { plan: true });
+                    if (plan && plan.orphans && !(o && o.force)) {
+                        resolve({ error: plan.orphans + ' formula'
+                            + (plan.orphans === 1 ? '' : 's') + ' read the row'
+                            + (take === 1 ? '' : 's') + ' being removed ('
+                            + (plan.orphan_where || []).slice(0, 4).join(', ')
+                            + '), so nothing was removed. Say to remove them anyway and those '
+                            + 'cells will be marked in error for you to put right' });
+                        return;
+                    }
+                } catch (e) { /* the removal below is still guarded by what the rows hold */ }
+
                 for (let i = 0; i < take; i++) { try { t.removeLastRow(); removedRows++; } catch (e) { break; } }
+                // AND NOW THE ONES BELOW MOVE UP. Everything pointing under the removed
+                // block is a row too low until this runs.
+                if (removedRows > 0) {
+                    try {
+                        shifted = await exec('baja/plate/ops/shift-formulas.js', pt, t.name,
+                            firstGone, -removedRows) || shifted;
+                    } catch (e) { }
+                }
             }
 
             if (cols > 0) {
@@ -142,7 +174,6 @@ function (pm, o) {
             // stops counting the row it was built to count, and a figure on another sheet
             // reads its neighbour's number. shift-formulas.js moves both the places formulas
             // LIVE and everything that POINTS at this table, anywhere in the project.
-            let shifted = { keys: 0, refs: 0, cells: 0 };
             if (insertedAt != null && addedRows > 0) {
                 try {
                     shifted = await exec('baja/plate/ops/shift-formulas.js', pt, t.name,
@@ -162,12 +193,16 @@ function (pm, o) {
                 const moved = (shifted.refs || 0) + (shifted.keys || 0);
                 pt.setMessage(t.name + ': ' + bits.join(', ') + ' (now ' + nRows() + ' x ' + nCols() + ')'
                     + (moved ? ('. ' + moved + ' formula reference'
-                        + (moved === 1 ? '' : 's') + ' moved with the rows') : ''), 8);
+                        + (moved === 1 ? '' : 's') + ' moved with the rows') : '')
+                    + (shifted.orphans ? ('. ' + shifted.orphans + ' now point'
+                        + (shifted.orphans === 1 ? 's' : '') + ' at a row that is gone and '
+                        + (shifted.orphans === 1 ? 'is' : 'are') + ' marked in error') : ''), 9);
             } catch (e) { }
 
             resolve({ table: t.name, added_rows: addedRows || undefined,
                 inserted_at: (insertedAt == null) ? undefined : insertedAt,
                 formulas_moved: ((shifted.refs || 0) + (shifted.keys || 0)) || undefined,
+                formulas_orphaned: shifted.orphans || undefined,
                 removed_rows: removedRows || undefined, added_columns: addedCols || undefined,
                 rows: nRows(), columns: nCols() });
         } catch (e) {

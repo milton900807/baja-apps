@@ -179,9 +179,9 @@ function () {
                     about: 'names for the new columns, separated by commas, if the request '
                         + 'gives them' },
                 force: { type: 'enum', values: ['yes'], default: 'not set, so rows holding '
-                        + 'something are kept',
+                        + 'something, or read by a formula, are kept',
                     about: 'set to yes ONLY when the request plainly says to remove rows even '
-                        + 'though they have something in them' }
+                        + 'though they have something in them or something reads them' }
             }
         },
         {

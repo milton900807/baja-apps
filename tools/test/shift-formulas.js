@@ -24,7 +24,14 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
 const shift = (pt, name, at, by) => load('baja/plate/ops/shift-formulas.js', pt, name, at, by);
 
-const cell = (v) => ({ value: v, setValue(x) { this.value = x; } });
+// A cell the way GenericWell behaves where this module touches it: setValue writes, and
+// setError is what puts the red badge on and what the cell editor's diagnosis then reads.
+const cell = (v) => ({
+    value: v,
+    setValue(x) { this.value = x; },
+    setError(m) { this.__hasError = true; this.__errorMessage = m; },
+    hasError() { return !!this.__hasError; }
+});
 const mkTable = (name, rows) => ({
     name: name, formula: {},
     wells: (rows[0] || []).map((_, c) => rows.map((r) => cell(r[c])))
@@ -100,6 +107,64 @@ const mkTable = (name, rows) => ({
     const pt5 = { root: [quiet], formulas: {} };
     const none = await shift(pt5, 'Q', 0, 0);
     ok(none.refs === 0 && quiet.wells[1][0].value === '=Q[0][0]', 'a shift of zero changes nothing');
+
+    // ================= REMOVING ROWS: the same move backwards ==========================
+    //
+    // With one thing insertion never has: a formula pointing INTO the rows that are going.
+    // Shifting it up would make it read its neighbour's number, which is a wrong figure that
+    // looks right, so it is left alone, marked, and counted.
+    const del = mkTable('D', [['a', '10'], ['b', '20'], ['c', '30'], ['d', '40'],
+        ['Total', '=sum(D[1:1][0:3])']]);
+    del.formula['[1:1][4:4]'] = '=sum(D[1:1][0:3])';
+    const other = mkTable('other', [['below', '=D[1][4]'], ['inside', '=D[1][2]'],
+        ['above', '=D[1][0]'], ['span', '=sum(D[1:1][1:4])']]);
+    const ptd = { root: [del, other], formulas: { 'D[1:1][4:4]': '=sum(D[1:1][0:3])' } };
+
+    // ASK FIRST: what would break, with nothing touched
+    const plan = await load('baja/plate/ops/shift-formulas.js', ptd, 'D', 2, -1, { plan: true });
+    ok(plan.orphans === 1, 'the plan finds the one formula that reads the row being removed: '
+       + JSON.stringify(plan.orphan_where));
+    ok(other.wells[1][0].value === '=D[1][4]', 'and nothing was changed by asking');
+    ok(ptd.formulas['D[1:1][4:4]'] === '=sum(D[1:1][0:3])', 'the maps are untouched too');
+
+    // now do it: row 2 ("c") goes
+    const r2 = await shift(ptd, 'D', 2, -1);
+    ok(other.wells[1][0].value === '=D[1][3]',
+       'a reference BELOW the removed row moves up: ' + other.wells[1][0].value);
+    ok(other.wells[1][2].value === '=D[1][0]', 'one above it is untouched');
+    ok(other.wells[1][3].value === '=sum(D[1:1][1:3])',
+       'a range across the removed row SHRINKS by what went: ' + other.wells[1][3].value);
+    ok(del.wells[1][4].value === '=sum(D[1:1][0:2])',
+       'the total now sums what is left: ' + del.wells[1][4].value);
+    ok(del.formula['[1:1][3:3]'] === '=sum(D[1:1][0:2])',
+       'and is held against the row it moved up to: ' + JSON.stringify(Object.keys(del.formula)));
+    ok(ptd.formulas['D[1:1][3:3]'] === '=sum(D[1:1][0:2])', 'the project map moved too');
+
+    // THE ORPHAN. Left as it was, marked, counted: never silently pointed somewhere else.
+    ok(other.wells[1][1].value === '=D[1][2]',
+       'a formula that read the removed row is NOT quietly moved: ' + other.wells[1][1].value);
+    ok(other.wells[1][1].hasError() === true, 'it is marked in error instead');
+    ok(/row that was removed/.test(other.wells[1][1].__errorMessage || ''),
+       'with a reason the cell editor can show: ' + other.wells[1][1].__errorMessage);
+    ok(r2.orphans === 1, 'and counted: ' + JSON.stringify({ orphans: r2.orphans, refs: r2.refs }));
+
+    // a key ON a removed row goes with it
+    const kill = mkTable('K', [['a'], ['b'], ['c']]);
+    kill.formula['[0:0][1:1]'] = '=1';
+    kill.formula['[0:0][2:2]'] = '=2';
+    const ptk = { root: [kill], formulas: {} };
+    await shift(ptk, 'K', 1, -1);
+    ok(!kill.formula['[0:0][1:1]'] || kill.formula['[0:0][1:1]'] === '=2',
+       'the key on the removed row is gone and the one below took its place: '
+       + JSON.stringify(kill.formula));
+    ok(!kill.formula['[0:0][2:2]'], 'nothing is left behind at the old position');
+
+    // several rows at once
+    const many = mkTable('M', [['a'], ['b'], ['c'], ['d'], ['e']]);
+    const ptm = { root: [many, mkTable('z', [['x', '=M[0][4]']])], formulas: {} };
+    await shift(ptm, 'M', 1, -3);
+    ok(ptm.root[1].wells[1][0].value === '=M[0][1]',
+       'three rows removed moves a reference up by three: ' + ptm.root[1].wells[1][0].value);
 
     // ---- the operation says what it did -------------------------------------------------
     const op = fs.readFileSync('baja/plate/ops/table-size.js', 'utf8');

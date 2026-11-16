@@ -149,6 +149,39 @@ const shape = (t) => t.wells[0].length + 'x' + t.wells.length;
        'held against the row it is now on: ' + JSON.stringify(Object.keys(ins.formula)));
     ok(r.formulas_moved >= 1, 'and the operation says so: ' + JSON.stringify(r));
 
+    // REMOVING ROWS, END TO END. A formula that reads a row being removed stops the delete
+    // before anything is lost; the ones below move up when it goes ahead.
+    // The last row is EMPTY, so the contents guard has nothing to say and the formula guard
+    // is the one being tested: a row with something in it is stopped before this anyway.
+    let dt = mkTable('D', [['a', '10'], ['b', '20'], ['', '']]);
+    let reader = mkTable('r', [['x', '=D[1][2]']]);
+    let ptd = mkTrack([dt, reader]);
+    ptd.formulas = {};
+    r = await run(ptd, { table: 'D', rows: -1 });
+    ok(!!r.error && /read the row being removed/.test(r.error),
+       'a formula pointing at the last row stops the delete: ' + r.error);
+    ok(dt.wells[0].length === 3, 'and nothing was removed');
+    ok(reader.wells[1][0].value === '=D[1][2]', 'nor changed');
+
+    // told plainly, it goes ahead and marks what cannot be put right
+    r = await run(ptd, { table: 'D', rows: -1, force: 'yes' });
+    ok(!r.error && dt.wells[0].length === 2, 'forced, the row goes: ' + JSON.stringify(r));
+    ok(r.formulas_orphaned === 1, 'and the formula that read it is reported as orphaned');
+    ok(reader.wells[1][0].value === '=D[1][2]',
+       'left exactly as it was rather than quietly pointed at another row');
+
+    // the ones below move up
+    dt = mkTable('E', [['a', '10'], ['b', '20'], ['c', '30'], ['d', '40']]);
+    reader = mkTable('r2', [['x', '=E[1][3]']]);
+    ptd = mkTrack([dt, reader]);
+    ptd.formulas = {};
+    // the last row is empty of content and nothing reads it, so this one just goes
+    dt.wells[0][3].value = ''; dt.wells[1][3].value = '';
+    reader.wells[1][0].value = '=E[1][2]';
+    r = await run(ptd, { table: 'E', rows: -1 });
+    ok(!r.error, 'an empty last row that nothing reads goes without ceremony: ' + JSON.stringify(r));
+    ok(reader.wells[1][0].value === '=E[1][2]', 'and a reference above it is untouched');
+
     // and the end is still the end
     ins = mkTable('T', [['a'], ['b']]);
     ptI = mkTrack([ins]);
