@@ -43,7 +43,14 @@ APPS_DIR="${APPS_DIR:-/opt/baja-apps}"
 PORT="${PORT:-8080}"
 BRANCH="${BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
-REF="${REF:-58a43bbeb0aa643b86abf2733b95a20de9b21023}"
+# THE COMMIT THE FILES ARE FETCHED FROM, which is not necessarily the commit this script
+# came from. It cannot be: a pin can never name the commit that sets it. So bump it when
+# you add a group, and fetch the script itself at the SAME commit you bump it to --
+# downloading the script at an older ref hands you an older pin and the new group is
+# fetched at a ref that predates it, where every marker fails and install_group skips the
+# whole group with one line and a zero exit. That is not a loud failure. It reads as a
+# clean run.
+REF="${REF:-ab8830d7572a3d64f230c9269f6df63ae469c5d6}"
 DO_API=1; DO_WEB=0; DO_RESTART=1; DO_MENU=1
 
 while [[ $# -gt 0 ]]; do case "$1" in
