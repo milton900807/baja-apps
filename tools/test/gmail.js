@@ -117,6 +117,62 @@ const A = 'https://api.gene.clinic';
 
     global.lion_engine = engine();
 
+    // ---- A FAILED CALL IS NOT A RESULT -------------------------------------------------------
+    //
+    // POSTJSON resolves on a non-2xx with Angular's HttpErrorResponse, which carries the
+    // failed request's own URL. Read as the answer, that URL went straight into the consent
+    // window: the browser showed "Cannot GET /gmail/start" where Google should have been.
+    server = {};
+    server[A + '/gmail/status'] = { connected: false };
+    server[A + '/gmail/start'] = { ok: false, status: 404, url: A + '/gmail/start',
+        error: { error: 'Cannot GET /gmail/start' } };
+    server[A + '/api/gmail/start'] = server[A + '/gmail/start'];
+    opened = null;
+    r = await realLoad('baja/plate/ops/gmail-connect.js', pt, {});
+    ok(opened === null, 'a 404 opens no window at all');
+    ok(!!r.error && /server side of this needs to be deployed/.test(r.error),
+       'and says what is actually wrong: ' + r.error);
+
+    // a reply that is fine but points somewhere that is not Google
+    server[A + '/gmail/start'] = { url: 'https://example.com/phish' };
+    opened = null;
+    r = await realLoad('baja/plate/ops/gmail-connect.js', pt, {});
+    ok(opened === null && /did not return a Google consent address/.test(r.error),
+       'a consent window only ever opens at Google: ' + r.error);
+
+    // the server answering only under /api is still found
+    server[A + '/gmail/start'] = { ok: false, status: 404, url: A + '/gmail/start' };
+    server[A + '/api/gmail/start'] = { url: 'https://accounts.google.com/o/oauth2/v2/auth?state=z' };
+    // A server reachable only under /api answers nothing at all on the bare path, status
+    // included: a bare path that answers "not connected" IS an answer and is believed.
+    server[A + '/gmail/status'] = { ok: false, status: 404 };
+    server[A + '/api/gmail/status'] = { connected: false };
+    opened = null;
+    const viaApi = realLoad('baja/plate/ops/gmail-connect.js', pt, {});
+    await new Promise((d) => setTimeout(d, 20));
+    ok(!!opened && /accounts\.google\.com/.test(opened.url),
+       'the /api path is tried when the bare one is not there');
+    server[A + '/api/gmail/status'] = { connected: true, mailbox: 'jeff@violetresearch.org' };
+    window.postMessage({ source: 'baja-gmail', ok: true }, '*');
+    r = await viaApi;
+    ok(r.connected === true, 'and status is read from the path that answered: ' + JSON.stringify(r));
+
+    // the same for reading mail
+    server[A + '/gmail/messages'] = { ok: false, status: 404, url: A + '/gmail/messages' };
+    server[A + '/api/gmail/messages'] = { connected: true, messages: [
+        { id: '1', subject: 'x', sent: '2026-11-10T09:00:00.000Z', text: 'the 18th' }] };
+    global.lion_engine = engine({ exec: async (p, ...a) => {
+        if (p === 'baja/plate/ops/text-to-timeline.js') return { added: 1 };
+        return realLoad(p, ...a);
+    } });
+    r = await realLoad('baja/plate/ops/gmail-to-timeline.js', pt, {});
+    ok(!r.error && r.added === 1, 'mail is read over /api too: ' + JSON.stringify(r));
+    delete server[A + '/api/gmail/messages'];
+    r = await realLoad('baja/plate/ops/gmail-to-timeline.js', pt, {});
+    ok(!!r.error && /needs to be deployed/.test(r.error),
+       'and a 404 on both says so rather than "no mail matched": ' + r.error);
+    global.lion_engine = engine();
+
     // ---- what the client never handles ------------------------------------------------------
     const cc = fs.readFileSync('baja/plate/ops/gmail-connect.js', 'utf8');
     const gt = fs.readFileSync('baja/plate/ops/gmail-to-timeline.js', 'utf8');

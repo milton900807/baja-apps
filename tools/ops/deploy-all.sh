@@ -381,6 +381,11 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "zoom into a table from its bar; a maximized object keeps the clicks" \
     "baja/plate/plate-track.js:WHILE MAXIMIZED, THE PRESS BELONGS TO THE MAXIMIZED OBJECT"
 
+  # prompt() and infoPrompt() live in core.js, which has never been listed here: their
+  # Cancel and Close were clicks the canvas got as well.
+  install_group "a core dialog keeps its own clicks" \
+    "lib/core.js:A PANEL OVER THE CANVAS KEEPS ITS OWN MOUSE EVENTS"
+
   install_group "a panel over the canvas keeps its clicks to itself" \
     "baja/lib/modal-shield.js:MOVING THE MOUSE IS A MOUSE EVENT TOO" \
     "baja/lib/prompt-text.js:NOTHING PRESSED IN HERE REACHES THE CANVAS"
@@ -395,8 +400,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/change-values.js:ARITHMETIC ON THE CELLS THAT ARE SELECTED" \
     "baja/plate/ops/calendar-import.js:A CALENDAR ON A TIMELINE" \
     "baja/plate/ops/text-to-timeline.js:MILESTONES AND INTERVALS READ OUT OF TEXT" \
-    "baja/plate/ops/gmail-connect.js:CONNECTING A MAILBOX, OR SAYING WHETHER ONE IS CONNECTED" \
-    "baja/plate/ops/gmail-to-timeline.js:DATES OUT OF A MAILBOX, ONTO A TIMELINE" \
+    "baja/plate/ops/gmail-connect.js:A FAILED CALL IS NOT A RESULT" \
+    "baja/plate/ops/gmail-to-timeline.js:THE FIRST REASON IS KEPT" \
     "py/bio/project/text-events.py:each event resolves against ITS" \
     "py/bio/project/ical-read.py:WHY ICS AND NOT A GOOGLE SIGN-IN" \
     "py/bio/project/table-fill.py:THE TABLE'S OWN COLUMNS ARE THE SHAPE" \

@@ -15,6 +15,46 @@ function (pm, o) {
             try { return ('' + ((window['env'] && window['env']['apiUrl']) || '')).replace(/\/+$/, ''); }
             catch (e) { return ''; }
         };
+
+        // A FAILED CALL IS NOT A RESULT.
+        //
+        // POSTJSON resolves rather than rejects on a non-2xx and hands back Angular's
+        // HttpErrorResponse -- an object with status, error and URL on it. Read as the
+        // answer, its `url` is the address that just failed, and the consent window was
+        // opened on it: a popup showing "Cannot GET /gmail/start" instead of Google.
+        const answered = (r) => {
+            if (!r || typeof r !== 'object') return null;
+            if (r.ok === false) return null;
+            if (typeof r.status === 'number' && r.status >= 400) return null;
+            if (r.error && typeof r.error === 'object') return null;
+            return r;
+        };
+        const why = (r, fallback) => {
+            const b = (r && r.error && typeof r.error === 'object') ? r.error : r;
+            const code = b && (b.error_description || b.error);
+            const st = r && typeof r.status === 'number' ? r.status : 0;
+            if (st === 404) {
+                return 'this server has no Gmail endpoints yet: the server side of this needs '
+                    + 'to be deployed before a mailbox can be connected';
+            }
+            return ('' + (code || fallback)).slice(0, 300);
+        };
+
+        // The server answers at /gmail/... and at /api/gmail/..., and which one is reachable
+        // depends on what sits in front of it. Both are tried before anything is called a
+        // failure.
+        const call = async (path, body) => {
+            const host = api();
+            const first = await POSTJSON(body, host + path).catch(() => null);
+            const ok1 = answered(first);
+            if (ok1) return { ok: ok1 };
+            const second = await POSTJSON(body, host + '/api' + path).catch(() => null);
+            const ok2 = answered(second);
+            // The FIRST reason is kept: the second path is a fallback for where the server
+            // is mounted, and when it is not there either it answers nothing, which would
+            // replace a real refusal with a blank.
+            return ok2 ? { ok: ok2 } : { bad: first || second };
+        };
         const who = (() => { try { return ('' + (getUser() || '')).trim(); } catch (e) { return ''; } })();
         try {
             const pt = (pm && pm.plateTrack) ? pm.plateTrack : pm;
@@ -23,10 +63,14 @@ function (pm, o) {
             if (!who) { resolve({ error: 'sign in first: a mailbox is connected to an account' }); return; }
 
             const status = async () => {
-                try {
-                    return await GETJSON(host + '/gmail/status?user=' + encodeURIComponent(who),
-                        { 'x-user-id': who });
-                } catch (e) { return null; }
+                const q = '?user=' + encodeURIComponent(who);
+                for (const path of ['/gmail/status', '/api/gmail/status']) {
+                    let r = null;
+                    try { r = await GETJSON(host + path + q, { 'x-user-id': who }); } catch (e) { r = null; }
+                    const good = answered(r);
+                    if (good) return good;
+                }
+                return null;
             };
 
             if (o && o.what === 'status') {
@@ -36,8 +80,7 @@ function (pm, o) {
             }
 
             if (o && o.what === 'disconnect') {
-                let r = null;
-                try { r = await POSTJSON({ user: who }, host + '/gmail/disconnect'); } catch (e) { r = null; }
+                await call('/gmail/disconnect', { user: who });
                 try { pt.setMessage('Gmail disconnected, and the access given back to Google', 6); } catch (e) { }
                 resolve({ connected: false, disconnected: true });
                 return;
@@ -49,17 +92,24 @@ function (pm, o) {
                 return;
             }
 
-            let start = null;
-            try { start = await POSTJSON({ user: who }, host + '/gmail/start'); } catch (e) { start = null; }
-            if (!start || !start.url) {
+            const got = await call('/gmail/start', { user: who });
+            if (!got.ok) {
                 // The server says exactly what is missing, and that is worth passing on
                 // rather than replacing with something vaguer.
-                resolve({ error: (start && (start.error_description || start.error))
-                    || 'the server cannot start a Gmail connection' });
+                resolve({ error: why(got.bad, 'the server cannot start a Gmail connection') });
+                return;
+            }
+            const start = got.ok;
+            // WHERE IT GOES IS CHECKED BEFORE IT IS OPENED. A consent window can only ever go
+            // to Google; anything else arriving in that field is a failure wearing a URL, and
+            // opening it is how the browser ended up showing "Cannot GET /gmail/start".
+            const url = ('' + ((start && start.url) || '')).trim();
+            if (!/^https:\/\/accounts\.google\.com\//.test(url)) {
+                resolve({ error: 'the server did not return a Google consent address' });
                 return;
             }
 
-            const win = window.open(start.url, 'baja-gmail',
+            const win = window.open(url, 'baja-gmail',
                 'width=520,height=680,menubar=no,toolbar=no');
             if (!win) {
                 resolve({ error: 'the consent window was blocked. Allow popups for this site '

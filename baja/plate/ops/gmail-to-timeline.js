@@ -43,15 +43,39 @@ function (pm, o) {
             let max = Math.floor(Number((o && o.max) || 25));
             if (!isFinite(max) || max < 1) max = 25;
 
-            let got = null;
-            try {
-                got = await POSTJSON({ user: who, query: query, max: Math.min(max, 50) },
-                    host + '/gmail/messages');
-            } catch (e) { got = null; }
-            if (!got || got.error) {
-                resolve({ error: (got && (got.error_description || got.error)) === 'access_revoked'
+            // A FAILED CALL IS NOT A RESULT. POSTJSON resolves on a non-2xx with Angular's
+            // HttpErrorResponse, whose fields read like an answer; the reply is checked
+            // rather than trusted, and both paths the server answers on are tried.
+            const answered = (r) => {
+                if (!r || typeof r !== 'object') return null;
+                if (r.ok === false) return null;
+                if (typeof r.status === 'number' && r.status >= 400) return null;
+                if (r.error) return null;
+                return r;
+            };
+            const body = { user: who, query: query, max: Math.min(max, 50) };
+            let got = null, bad = null;
+            for (const path of ['/gmail/messages', '/api/gmail/messages']) {
+                let r = null;
+                try { r = await POSTJSON(body, host + path); } catch (e) { r = null; }
+                got = answered(r);
+                if (got) break;
+                // THE FIRST REASON IS KEPT. The second path is a fallback for where the
+                // server is mounted, and when it is not there either it answers nothing at
+                // all -- which overwrote "that mailbox is no longer shared" with a blank and
+                // turned a clear refusal into "the mail could not be read".
+                if (r && !bad) bad = r;
+            }
+            if (!got) {
+                const b = (bad && bad.error && typeof bad.error === 'object') ? bad.error : bad;
+                const code = '' + ((b && (b.error_description || b.error)) || '');
+                const st = bad && typeof bad.status === 'number' ? bad.status : 0;
+                resolve({ error: code === 'access_revoked'
                     ? 'that mailbox is no longer shared with this app: connect it again'
-                    : ((got && (got.error_description || got.error)) || 'the mail could not be read') });
+                    : (st === 404
+                        ? 'this server has no Gmail endpoints yet: the server side of this '
+                            + 'needs to be deployed first'
+                        : (code || 'the mail could not be read')) });
                 return;
             }
             const messages = Array.isArray(got.messages) ? got.messages : [];
