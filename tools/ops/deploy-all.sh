@@ -373,7 +373,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:DATES READ OUT OF TEXT"
+    "baja/plate/menu/project-capabilities.js:A MAILBOX AS A SOURCE OF DATES"
 
   # Far out, a table is a bar with a name on it and its menu offered no way to simply go
   # and look at it. And the canvas behind a maximized object was still taking presses
@@ -395,7 +395,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/change-values.js:ARITHMETIC ON THE CELLS THAT ARE SELECTED" \
     "baja/plate/ops/calendar-import.js:A CALENDAR ON A TIMELINE" \
     "baja/plate/ops/text-to-timeline.js:MILESTONES AND INTERVALS READ OUT OF TEXT" \
-    "py/bio/project/text-events.py:NOTHING IS INVENTED" \
+    "baja/plate/ops/gmail-connect.js:CONNECTING A MAILBOX, OR SAYING WHETHER ONE IS CONNECTED" \
+    "baja/plate/ops/gmail-to-timeline.js:DATES OUT OF A MAILBOX, ONTO A TIMELINE" \
+    "py/bio/project/text-events.py:each event resolves against ITS" \
     "py/bio/project/ical-read.py:WHY ICS AND NOT A GOOGLE SIGN-IN" \
     "py/bio/project/table-fill.py:THE TABLE'S OWN COLUMNS ARE THE SHAPE" \
     "baja/plate/menu/project-capabilities.js:A CELL THAT TOTALS ANOTHER TABLE" \

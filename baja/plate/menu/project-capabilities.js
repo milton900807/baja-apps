@@ -20,6 +20,42 @@ function () {
 
     const LIST = [
         {
+            // A MAILBOX AS A SOURCE OF DATES. The connection is a consent screen and a token
+            // kept on the server; this is the asking.
+            name: 'gmail_to_timeline',
+            summary: 'read recent mail from the user\u2019s connected Gmail and put the dated '
+                + 'commitments in it on a timeline. THIS IS THE ANSWER to "integrate my '
+                + 'gmail", "put the dates from my mail on this", "what have I committed to '
+                + 'this month". It connects the mailbox first if it is not connected, and '
+                + 'what is found is shown with the words it came from before anything is '
+                + 'added',
+            module: 'baja/plate/ops/gmail-to-timeline.js',
+            params: {
+                query: { type: 'string', default: 'the last fortnight, without spam or bin',
+                    about: 'a Gmail search, in Gmail\u2019s own syntax, when the request narrows '
+                        + 'it: from:someone, newer_than:30d, subject:kickoff, has:attachment. '
+                        + 'Combine them with spaces' },
+                max: { type: 'number', default: '25',
+                    about: 'how many messages to read, at most 50' },
+                timeline: { type: 'string', default: 'the timeline the request was made from, '
+                        + 'or the only one here',
+                    about: 'the NAME of the timeline to put them on' }
+            }
+        },
+        {
+            // CONNECTING OR DISCONNECTING THE MAILBOX ITSELF.
+            name: 'gmail_connection',
+            summary: 'connect the user\u2019s Gmail to this app, say whether it is connected, or '
+                + 'disconnect it and give the access back to Google. Reading mail connects it '
+                + 'on its own, so this is for "connect my gmail", "is my gmail connected", '
+                + '"disconnect my gmail" asked on their own',
+            module: 'baja/plate/ops/gmail-connect.js',
+            params: {
+                what: { type: 'enum', values: ['connect', 'status', 'disconnect'],
+                    default: 'connect', about: 'which of the three was asked for' }
+            }
+        },
+        {
             // DATES READ OUT OF TEXT. "Load milestones and intervals derived from my mail":
             // the reading is this, whatever the text comes from.
             name: 'events_from_text',
@@ -531,6 +567,18 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'gmail_to_timeline') {
+            return 'read ' + (args.max || 25) + ' messages'
+                + (args.query ? (' matching ' + args.query) : ' from the last fortnight')
+                + ' and put the dates in them on '
+                + (args.timeline ? ('"' + args.timeline + '"') : 'the timeline');
+        }
+        if (name === 'gmail_connection') {
+            const w = args.what || 'connect';
+            return w === 'status' ? 'say whether Gmail is connected'
+                : (w === 'disconnect' ? 'disconnect Gmail and give the access back to Google'
+                    : 'connect Gmail (Google will ask you to approve it)');
         }
         if (name === 'events_from_text') {
             return 'read the dates out of ' + (args.text ? 'that text' : 'text you paste')

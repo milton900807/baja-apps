@@ -57,9 +57,11 @@ RULES
    year" are not dates. Leave the event out and say so in note. A wrong date on a timeline
    is acted on; a missing one is noticed.
 
-3. RESOLVE RELATIVE DATES AGAINST sent, which is the day the message was written, not
-   against today. "Tomorrow" in a message from 3 March is 4 March. Where there is no sent
-   date, use today, and mark those events "implied".
+3. RESOLVE RELATIVE DATES AGAINST THE DAY THE MESSAGE WAS WRITTEN, not against today.
+   "Tomorrow" in a message from 3 March is 4 March. Where the text is several messages, each
+   beginning "--- MESSAGE ---" with its own "Sent:" line, each event resolves against ITS
+   OWN message's Sent date, not the newest one and not today. Otherwise use the sent date in
+   the context, and failing that today, marking those events "implied".
 
 4. ANYTHING WITH A LENGTH IS AN INTERVAL, however short: a 3-hour meeting, a two-day
    workshop, a trip from the 4th to the 9th. For something that runs in hours, BOTH ends
