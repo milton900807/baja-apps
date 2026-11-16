@@ -6511,7 +6511,29 @@ function (progress) {
                         console.warn('Formulas reference fields that do not exist: ' + names.join(', '));
                     }
                 } catch (e) { }
-                for (let calculation_key of Object.keys(this.formulas)) {
+                // A FORMULA THAT IS ONLY WAITING ITS TURN IS NOT A BROKEN ONE.
+                //
+                // The formulas were worked out in whatever order they happened to be stored
+                // in. A total over a column is written before the cell above it that the
+                // total reads, so the total met that cell's own formula text where a number
+                // should be, failed, and -- because failing used to `return` -- took every
+                // formula after it down with it. The user saw a red total and an untouched
+                // cell, and the only thing wrong was the order.
+                //
+                // So the order is not fixed. Anything that fails is set aside and tried
+                // again once the rest have been worked out, and that repeats for as long as
+                // each pass resolves something. When a pass resolves nothing, what is left
+                // cannot be fixed by waiting -- it is a bad reference or a loop -- and only
+                // then is it reported, against its own cell, with the reason it last gave.
+                let pending = Object.keys(this.formulas);
+                const whyFailed = {};
+                let finalPass = false;
+                for (let pass = 0; pending.length > 0; pass++) {
+                    const deferred = [];
+                    // A hard stop, so a loop between two cells cannot spin here: there can
+                    // be no more rounds of waiting than there are formulas to wait for.
+                    if (pass > Object.keys(this.formulas).length + 1) finalPass = true;
+                for (let calculation_key of pending) {
                     try {
                         let well_ranges = calculation_key;
                         let calculation = this.formulas[calculation_key]
@@ -6590,9 +6612,16 @@ function (progress) {
                                                 }
                                             }
                                         } catch (e) {
-                                            table.__hasFormulaError = true;
-                                            this.tagError(tableName, startX, stopX, startY, stopY, calculation)
-
+                                            // Marked only once waiting has been ruled out: a
+                                            // token that cannot be read on the first pass is
+                                            // often one whose cell has not been worked out
+                                            // yet, and a cell marked red on a pass it later
+                                            // passes stays red, since the marks are cleared
+                                            // before the first pass and not between them.
+                                            if (finalPass) {
+                                                table.__hasFormulaError = true;
+                                                this.tagError(tableName, startX, stopX, startY, stopY, calculation)
+                                            }
                                             console.error(`Error parsing token ${token}:`, e);
                                         }
                                     }
@@ -6638,15 +6667,14 @@ function (progress) {
                                     let v = await exec('baja/plate/ops/frun-object.js', icl, this);
 
                                     if (!v['results']) {
-                                        this.highlightWell(calculation_key);
-                                        table.__hasFormulaError = true;
-                                        this.tagError(tableName, startX, stopX, startY, stopY, calculation);
-
-                                        this.setMessage(
-                                            'Unable to calculate: ' + calculation_key + ' = ' + calculation,
-                                            2
-                                        );
-                                        return;
+                                        // NOT AN ANSWER YET. Thrown rather than reported, and
+                                        // certainly rather than returning: this abandoned every
+                                        // formula after it, so one cell that was merely waiting
+                                        // its turn stopped the whole canvas calculating. The
+                                        // pass controller decides whether this is a real error
+                                        // or an ordering problem it can fix by trying later.
+                                        throw new Error('Unable to calculate: ' + calculation_key
+                                            + ' = ' + calculation);
                                     }
 
                                     table.__hasFormulaError = false;
@@ -6665,15 +6693,9 @@ function (progress) {
                                 let v = await exec('baja/plate/ops/frun-object.js', calculation, this);
 
                                 if (!v['results']) {
-                                    table.__hasFormulaError = true;
-                                    this.tagError(tableName, startX, stopX, startY, stopY, calculation);
-                                    this.setMessage(
-                                        'Unable to calculate: ' + calculation_key + ' = ' + calculation,
-                                        2
-                                    );
-
-                                    if (v.message) this.setMessage(v.message, -1);
-                                    return;
+                                    throw new Error(v.message
+                                        ? ('' + v.message)
+                                        : ('Unable to calculate: ' + calculation_key + ' = ' + calculation));
                                 }
 
                                 table.__hasFormulaError = false;
@@ -6686,18 +6708,40 @@ function (progress) {
                         this.attr__displayComputationEvents = null;
 
                     } catch (exception) {
-                        console.error(`Message: ${exception.message}`);
-                        console.error("Stack trace:");
-                        console.error(exception.stack);
-                        if (displayedOnce) {
-                            this.setMessage('Failed at ' + calculation_key, 2)
+                        const why = ('' + ((exception && exception.message) || exception)).trim();
+                        whyFailed[calculation_key] = why;
+                        this.attr__displayComputationEvents = null;
+                        if (!finalPass) {
+                            // Set aside, not reported: it may be reading a cell that has not
+                            // been worked out yet, and the next pass will have it.
+                            deferred.push(calculation_key);
+                            continue;
+                        }
+                        // NOTHING MOVED LAST PASS, so waiting will not help. This is a real
+                        // error and the cell it belongs to is the place to say so.
+                        console.error('[formula] ' + calculation_key + ': ' + why);
+                        try {
+                            const home = parseTableStructure(calculation_key);
+                            const tb = home.tableName ? this.getTableByName(home.tableName) : null;
+                            if (tb) {
+                                tb.__hasFormulaError = true;
+                                this.tagError(home.tableName, home.startX, home.stopX, home.startY, home.stopY, this.formulas[calculation_key]);
+                            }
+                        } catch (e) { }
+                        if (!displayedOnce) {
+                            this.setMessage(why, 3);
                             displayedOnce = true;
                         }
-
-                        this.attr__displayComputationEvents = null;
-
                     }
 
+                }
+                    // WAS ANY PROGRESS MADE? If this pass resolved nothing, the next one
+                    // cannot either, so the one after it is the last and reports what is
+                    // left. Otherwise keep going with just the ones still waiting.
+                    if (finalPass) break;
+                    if (deferred.length >= pending.length) finalPass = true;
+                    pending = deferred;
+                    if (!pending.length) break;
                 }
                 for (let pl of this.root) {
                     try {

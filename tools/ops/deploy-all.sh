@@ -380,7 +380,7 @@ if [[ $DO_API -eq 1 ]]; then
   # and look at it. And the canvas behind a maximized object was still taking presses
   # through the backdrop, at its own world coordinates.
   install_group "zoom into a table from its bar; a maximized object keeps the clicks" \
-    "baja/plate/plate-track.js:STORED THE WAY THE ENGINE READS IT" \
+    "baja/plate/plate-track.js:A FORMULA THAT IS ONLY WAITING ITS TURN IS NOT A BROKEN ONE" \
     "baja/plate/timeline-track.js:A TABLE NAME IS WHATEVER IS IN FRONT OF THE BRACKETS" \
     "baja/plate/plate-track-view.js:A TABLE NAME IS WHATEVER IS IN FRONT OF THE BRACKETS"
 
