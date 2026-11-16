@@ -1187,11 +1187,24 @@ function () {
             return expressions;
         }
 
+        // A TABLE NAME IS WHATEVER IS IN FRONT OF THE BRACKETS.
+        //
+        // The key a formula is held under is the table's name followed by the cell it sits in:
+        // "cost[1:1][7:7]". This read the name with \w+, so a table called "Operating Costs" or
+        // "cost-2" did not match, parseTableStructure returned null, and every caller destructures
+        // the result immediately -- which throws, inside a try that swallows it. The formula was
+        // then skipped in silence: the cell went on showing its own text with nothing to say why,
+        // while the totals built on it went red. The name is now whatever stands before the first
+        // bracket pair, which is what it always was.
+        //
+        // AND IT NEVER RETURNS NULL. Fourteen call sites destructure it on the spot; a shape with
+        // no table name reaches them instead, so a key that really cannot be read is reported by
+        // the caller that knows what it was trying to do rather than thrown away by a catch.
         function parseTableStructure(input) {
 
-            const pattern = /^(\w+)\[(.*?):(.*?)\]\[(.*?):(.*?)\]$/;
-            const match = input.match(pattern);
-            if (!match) return null;
+            const pattern = /^(.+?)\[(.*?):(.*?)\]\[(.*?):(.*?)\]$/;
+            const match = ('' + (input == null ? '' : input)).match(pattern);
+            if (!match) return { tableName: null, startX: -Infinity, stopX: Infinity, startY: -Infinity, stopY: Infinity, unreadable: ('' + input) };
 
             function parseCoord(value, isStart) {
                 if (value === "") return isStart ? -Infinity : Infinity;

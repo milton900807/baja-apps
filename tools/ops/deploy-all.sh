@@ -380,7 +380,9 @@ if [[ $DO_API -eq 1 ]]; then
   # and look at it. And the canvas behind a maximized object was still taking presses
   # through the backdrop, at its own world coordinates.
   install_group "zoom into a table from its bar; a maximized object keeps the clicks" \
-    "baja/plate/plate-track.js:prefill: prefill || null"
+    "baja/plate/plate-track.js:A FORMULA THAT IS NOT WORKED OUT MUST SAY SO" \
+    "baja/plate/timeline-track.js:A TABLE NAME IS WHATEVER IS IN FRONT OF THE BRACKETS" \
+    "baja/plate/plate-track-view.js:A TABLE NAME IS WHATEVER IS IN FRONT OF THE BRACKETS"
 
   # prompt() and infoPrompt() live in core.js, which has never been listed here: their
   # Cancel and Close were clicks the canvas got as well.
@@ -403,7 +405,7 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
     "baja/plate/menu/project-command.js:A FORMULA IS NOT A REQUEST TO BE INTERPRETED" \
-    "baja/plate/ops/set-formula.js:A FORMULA TYPED AS A REQUEST IS A FORMULA" \
+    "baja/plate/ops/set-formula.js:open the cell to see why" \
     "baja/plate/ops/focus-object.js:pick-canvas-object.js, which every operation" \
     "baja/plate/ops/pick-canvas-object.js:ONE ANSWER TO \"WHICH ONE?\", FOR ANYTHING ON THE CANVAS" \
     "baja/plate/ops/share-object.js:SHARE THIS\" OPENS THE SHARE DIALOG. IT DOES NOT SHARE ANYTHING" \

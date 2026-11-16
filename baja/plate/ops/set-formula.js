@@ -64,8 +64,8 @@ function (pm, o) {
 
             try {
                 pt.setMessage(n + ' cell' + (n === 1 ? '' : 's') + ' set to ' + f
-                    + (broke ? ' — it did not work out; open the cell to see why'
-                        : (shows && shows !== f ? ' — ' + shows : '')), 8);
+                    + (broke ? ': it did not work out, open the cell to see why'
+                        : (shows && shows !== f ? ': ' + shows : '')), 8);
             } catch (e) { }
 
             resolve({ table: t.name, cells: n, formula: f, shows: shows, error_in_cell: broke || undefined });
