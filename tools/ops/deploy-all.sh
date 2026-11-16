@@ -374,6 +374,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
     "baja/plate/menu/project-capabilities.js:ARITHMETIC ON WHAT IS SELECTED"
 
+  # Far out, a table is a bar with a name on it and its menu offered no way to simply go
+  # and look at it. And the canvas behind a maximized object was still taking presses
+  # through the backdrop, at its own world coordinates.
+  install_group "zoom into a table from its bar; a maximized object keeps the clicks" \
+    "baja/plate/plate-track.js:WHILE MAXIMIZED, THE PRESS BELONGS TO THE MAXIMIZED OBJECT"
+
   install_group "a panel over the canvas keeps its clicks to itself" \
     "baja/lib/modal-shield.js:A PANEL THAT OPENED ON TOP OF THIS ONE IS NOT BEHIND IT" \
     "baja/lib/prompt-text.js:NOTHING PRESSED IN HERE REACHES THE CANVAS"
