@@ -720,6 +720,13 @@ if [[ $DO_API -eq 1 ]]; then
   # and deletes every SNP/indel of the one chosen.
   install_group "remove SNPs by phase" \
     "baja/manchester/menu/remove-snps-menu.js:REMOVE BY PHASE"
+  # Ask: "goto c.778" goes to the base on each track it exists on, zoomed in to read it.
+  # All three or none: the card offers choices the operation produces, and the operation
+  # resolves c. positions with position() from track-regions.js.
+  install_group "Ask: go to a position" \
+    "baja/bio/track-regions.js:ONE POSITION FROM WHAT SOMEONE TYPES" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'go_to_position'" \
+    "baja/manchester/menu/editor-command.js:ONE GO PER TRACK"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
