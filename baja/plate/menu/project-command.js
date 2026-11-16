@@ -148,6 +148,32 @@ function (o) {
     };
 
     (async () => {
+        // A FORMULA IS NOT A REQUEST TO BE INTERPRETED.
+        //
+        // =sum(employees[1:1][1:]) typed in here was sent to a model, which answered that
+        // nothing does that and suggested clicking the cell and typing it instead. There is
+        // nothing to work out: an "=" at the front is the user saying exactly what they want
+        // in the cell. It goes in, the project recalculates, and no model is asked.
+        //
+        // Before the menubar check as well: whether a formula can be typed has nothing to do
+        // with what is on the menu, and "there is no menu on screen" is a strange answer to
+        // somebody who typed a sum.
+        if (text.charAt(0) === '=') {
+            let put = null;
+            try { put = await exec('baja/plate/ops/set-formula.js', o.pm, { formula: text }); }
+            catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+            if (put && put.error) {
+                say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                    + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                    + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                    + '">Close</button></div>');
+                try { q('#pc-cancel').onclick = close; } catch (e) { }
+                return;
+            }
+            close();
+            return;
+        }
+
         if (!actions.length) {
             say('<div style="font:12.5px Arial;color:#fca5a5;">There is no menu on screen to '
                 + 'match that against.</div>');

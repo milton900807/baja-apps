@@ -402,7 +402,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
-    "baja/plate/menu/project-command.js:THE VALUES CAN BE CHANGED BEFORE IT RUNS" \
+    "baja/plate/menu/project-command.js:A FORMULA IS NOT A REQUEST TO BE INTERPRETED" \
+    "baja/plate/ops/set-formula.js:A FORMULA TYPED AS A REQUEST IS A FORMULA" \
     "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
     "baja/plate/ops/table-size.js:WHAT POINTS AT THE ROWS THAT ARE GOING" \
     "baja/plate/ops/shift-formulas.js:DELETING ROWS IS THE SAME MOVE BACKWARDS" \
