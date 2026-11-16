@@ -20,6 +20,34 @@ function () {
 
     const LIST = [
         {
+            // ARITHMETIC ON WHAT IS SELECTED. "Increase these values by 10%" had nothing
+            // behind it, and the only way was to retype eight numbers.
+            name: 'change_values',
+            summary: 'change the numbers in the SELECTED cells by arithmetic: raise or lower '
+                + 'them by a percentage, add or subtract an amount, multiply them, or set '
+                + 'them all to one number. THIS IS THE ANSWER to "increase these by 10%", '
+                + '"take 5000 off these", "double these", "round these to the nearest '
+                + 'thousand". Cells holding text or a formula are left alone',
+            module: 'baja/plate/ops/change-values.js',
+            params: {
+                by_percent: { type: 'number', default: '0, meaning no percentage change',
+                    about: 'raise them by this percentage; a negative number lowers them, so '
+                        + '"10% off" is -10' },
+                add: { type: 'number', default: '0, meaning nothing added',
+                    about: 'add this to each; a negative number subtracts it' },
+                multiply_by: { type: 'number', default: '0, meaning no multiplication',
+                    about: 'multiply each by this ("double these" is 2)' },
+                set_to: { type: 'number', default: 'not set, so the numbers that are there are '
+                        + 'changed rather than replaced',
+                    about: 'set every selected cell to this one number' },
+                round: { type: 'enum', values: ['none', 'whole', 'cents', 'ten', 'hundred', 'thousand'],
+                    default: 'none', about: 'round the result; "to the nearest thousand" is '
+                        + 'thousand, "no pennies" is whole' },
+                table: { type: 'string', default: 'the table the request was made from',
+                    about: 'the NAME of the table the selected cells are in, if the request says it' }
+            }
+        },
+        {
             // CONTENT FOR A TABLE WHOSE COLUMNS ALREADY EXIST. Making a new table from a
             // sentence was covered; filling in the one in front of you was not, and that is
             // the commoner job.
@@ -443,6 +471,16 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'change_values') {
+            const bits = [];
+            if (args.set_to != null) bits.push('set to ' + args.set_to);
+            if (args.by_percent) bits.push((args.by_percent > 0 ? 'up ' : 'down ')
+                + Math.abs(args.by_percent) + '%');
+            if (args.multiply_by) bits.push('times ' + args.multiply_by);
+            if (args.add) bits.push((args.add > 0 ? 'plus ' : 'minus ') + Math.abs(args.add));
+            if (args.round && args.round !== 'none') bits.push('rounded to the nearest ' + args.round);
+            return 'change the selected cells: ' + (bits.join(', ') || 'no change');
         }
         if (name === 'fill_table') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';
