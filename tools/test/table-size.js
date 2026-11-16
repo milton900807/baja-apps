@@ -30,6 +30,17 @@ const mkTable = (name, rows) => {
     const t = { name: name, wells: [], formula: {} };
     for (let c = 0; c < cols; c++) t.wells.push(rows.map((r) => ({ value: r[c] })));
     t.addRow = () => { for (const col of t.wells) col.push({ value: '' }); };
+    // The plate's own insertRow splices a cell into every column at that row.
+    t.insertRow = (at) => { for (const col of t.wells) col.splice(at, 0, { value: '' }); };
+    t.__sel = [];
+    t.getSelectedWellsInOrder = () => t.__sel;
+    t.getWellIndicies = (w) => {
+        for (let c = 0; c < t.wells.length; c++) {
+            const r = t.wells[c].indexOf(w);
+            if (r >= 0) return { colIdx: c, rowIdx: r };
+        }
+        return null;
+    };
     t.removeLastRow = () => { for (const col of t.wells) col.pop(); };
     t.addColumn = (nm) => {
         const n = t.wells[0].length;
@@ -86,6 +97,67 @@ const shape = (t) => t.wells[0].length + 'x' + t.wells.length;
     r = await run(pt, { columns: -1 });
     ok(!!r.error && /removing columns is not something this can do/.test(r.error),
        'removing a column says so rather than doing most of it: ' + r.error);
+
+    // WHERE THE ROWS GO. "Insert three rows after this" is not "add three rows": adding
+    // them at the bottom of a table the user is partway down is the wrong place by as many
+    // rows as they had scrolled.
+    let ins = mkTable('Employees', [['Job', 'Salary'], ['Director', '200000'],
+        ['Scientist', '120000'], ['Total', '320000']]);
+    let ptI = mkTrack([ins]);
+    ins.__sel = [ins.wells[0][1]];                       // the Director row
+    r = await run(ptI, { rows: 3, where: 'after_selection' });
+    ok(!r.error, 'three rows go in after the selected one: ' + JSON.stringify(r));
+    ok(ins.wells[0].map((w) => w.value).join('|') === 'Job|Director||||Scientist|Total',
+       'in the right place, with what was below pushed down: '
+       + ins.wells[0].map((w) => w.value || '_').join('|'));
+    ok(r.inserted_at === 2, 'and it says where they went: ' + r.inserted_at);
+    ok(ins.wells[1].length === 7, 'every column grew, not just the one: ' + ins.wells[1].length);
+
+    // before, and at a block: before the first of it, after the last of it
+    ins = mkTable('T', [['a'], ['b'], ['c']]);
+    ptI = mkTrack([ins]);
+    ins.__sel = [ins.wells[0][1]];
+    r = await run(ptI, { rows: 1, where: 'before_selection' });
+    ok(ins.wells[0].map((w) => w.value).join('|') === 'a||b|c',
+       'before puts it above the selected row: ' + ins.wells[0].map((w) => w.value || '_').join('|'));
+
+    ins = mkTable('T', [['a'], ['b'], ['c'], ['d']]);
+    ptI = mkTrack([ins]);
+    ins.__sel = [ins.wells[0][1], ins.wells[0][2]];
+    r = await run(ptI, { rows: 1, where: 'after_selection' });
+    ok(ins.wells[0].map((w) => w.value).join('|') === 'a|b|c||d',
+       'after a block of rows means after the LAST of them: '
+       + ins.wells[0].map((w) => w.value || '_').join('|'));
+
+    // nothing selected: said, rather than quietly adding at the end
+    ins = mkTable('T', [['a'], ['b']]);
+    ptI = mkTrack([ins]);
+    r = await run(ptI, { rows: 2, where: 'after_selection' });
+    ok(!!r.error && /select the row to insert after/.test(r.error) && ins.wells[0].length === 2,
+       'with nothing selected it asks rather than guessing: ' + r.error);
+
+    // the formulas that are now pointing at the wrong rows are named
+    ins = mkTable('T', [['a'], ['b'], ['c']]);
+    ins.formula = { '[0:0][2:2]': '=sum(T[0:0][0:1])' };
+    ptI = mkTrack([ins]);
+    ins.__sel = [ins.wells[0][0]];
+    r = await run(ptI, { rows: 1, where: 'after_selection' });
+    ok(r.formulas_to_check === 1,
+       'a formula below the insertion is reported, since inserting moves the cells and not '
+       + 'what refers to them: ' + JSON.stringify(r));
+
+    // and the end is still the end
+    ins = mkTable('T', [['a'], ['b']]);
+    ptI = mkTrack([ins]);
+    ins.__sel = [ins.wells[0][0]];
+    r = await run(ptI, { rows: 1 });
+    ok(ins.wells[0].map((w) => w.value).join('|') === 'a|b|',
+       'with no "where", rows still go on the end: ' + ins.wells[0].map((w) => w.value || '_').join('|'));
+    ok(r.inserted_at === undefined, 'and nothing claims they were inserted');
+
+    r = await run(ptI, { rows: 1, where: 'sideways' });
+    ok(!!r.error && /where: end, after_selection or before_selection/.test(r.error),
+       'a place nobody offers is refused: ' + r.error);
 
     // which table: named, or the one the Ask button was pressed on
     const a = mkTable('A', [['x']]), b = mkTable('B', [['y']]);

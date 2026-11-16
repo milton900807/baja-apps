@@ -156,7 +156,8 @@ function () {
             // a NEW table, in answer to a request about the one in front of the user.
             name: 'table_size',
             summary: 'add or remove rows, or add columns, on a table that is already on the '
-                + 'canvas. THIS IS THE ANSWER to "add 4 rows", "two more columns", "make it '
+                + 'canvas, at the end or INSERTED at the selected row. THIS IS THE ANSWER to '
+                + '"add 4 rows", "insert three rows after this", "two more columns", "make it '
                 + 'longer" and the like, which are about the table the request came from and '
                 + 'never a reason to make a new one',
             module: 'baja/plate/ops/table-size.js',
@@ -166,6 +167,12 @@ function () {
                 rows: { type: 'number', default: '0, meaning leave the rows alone',
                     about: 'how many rows to add; a negative number removes that many from '
                         + 'the bottom' },
+                where: { type: 'enum', values: ['end', 'after_selection', 'before_selection'],
+                    default: 'end', about: 'WHERE THE ROWS GO. "Insert rows after this", '
+                        + '"add a row below this one", "put two rows under here" are '
+                        + 'after_selection; "insert above", "add a row before this" are '
+                        + 'before_selection. Only a request that says nothing about where, '
+                        + 'or says at the end, is end' },
                 columns: { type: 'number', default: '0, meaning leave the columns alone',
                     about: 'how many columns to add. Removing columns is not offered' },
                 names: { type: 'string', default: 'the new columns are left unnamed',
@@ -630,7 +637,11 @@ function () {
         if (name === 'table_size') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';
             const bits = [];
-            if (args.rows > 0) bits.push('add ' + args.rows + ' row' + (args.rows === 1 ? '' : 's'));
+            if (args.rows > 0) {
+                const w = args.where === 'after_selection' ? ' after the selected row'
+                    : (args.where === 'before_selection' ? ' before the selected row' : '');
+                bits.push((w ? 'insert ' : 'add ') + args.rows + ' row' + (args.rows === 1 ? '' : 's') + w);
+            }
             if (args.rows < 0) bits.push('remove ' + (-args.rows) + ' row' + (args.rows === -1 ? '' : 's'));
             if (args.columns > 0) bits.push('add ' + args.columns + ' column' + (args.columns === 1 ? '' : 's')
                 + (args.names ? (' (' + args.names + ')') : ''));

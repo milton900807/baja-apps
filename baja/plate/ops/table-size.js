@@ -49,9 +49,54 @@ function (pm, o) {
                 || (typeof w.formula === 'string' && w.formula.trim() !== ''));
 
             const was = { rows: nRows(), cols: nCols() };
-            let addedRows = 0, addedCols = 0, removedRows = 0;
+            let addedRows = 0, addedCols = 0, removedRows = 0, insertedAt = null;
 
-            if (rows > 0) {
+            // WHERE THE ROWS GO. "Insert three rows after this" is not "add three rows":
+            // the first says where, and adding them at the bottom of a table the user is
+            // partway down is the wrong place by as many rows as they had scrolled.
+            //
+            // The plate's own insertRow splices a real cell into every column at a given
+            // row and keeps the grid in step, so this says WHERE and nothing more.
+            const where = ('' + ((o && o.where) || 'end')).trim().toLowerCase();
+            if (['end', 'after_selection', 'before_selection'].indexOf(where) < 0) {
+                resolve({ error: 'where: end, after_selection or before_selection?' });
+                return;
+            }
+            const selectedRow = (() => {
+                let best = null;
+                try {
+                    const sel = (typeof t.getSelectedWellsInOrder === 'function')
+                        ? (t.getSelectedWellsInOrder() || []) : [];
+                    for (const w of sel) {
+                        const ix = t.getWellIndicies ? t.getWellIndicies(w) : null;
+                        if (!ix || ix.rowIdx == null) continue;
+                        // After a block of selected rows means after the LAST of them;
+                        // before means before the first.
+                        best = (best == null) ? ix.rowIdx
+                            : (where === 'before_selection' ? Math.min(best, ix.rowIdx) : Math.max(best, ix.rowIdx));
+                    }
+                } catch (e) { best = null; }
+                return best;
+            })();
+            if (where !== 'end' && selectedRow == null) {
+                resolve({ error: 'select the row to insert ' + (where === 'after_selection' ? 'after' : 'before')
+                    + ' first, or ask for the rows to be added at the end' });
+                return;
+            }
+
+            if (rows > 0 && where !== 'end') {
+                if (typeof t.insertRow !== 'function') {
+                    resolve({ error: 'this table cannot have rows inserted into it' });
+                    return;
+                }
+                const at = (where === 'after_selection') ? selectedRow + 1 : selectedRow;
+                // Inserted at the same index each time, so three rows come out in the order
+                // they would be typed rather than reversed.
+                for (let i = 0; i < rows; i++) {
+                    try { t.insertRow(at + i); addedRows++; } catch (e) { break; }
+                }
+                insertedAt = at;
+            } else if (rows > 0) {
                 for (let i = 0; i < rows; i++) { try { t.addRow(); addedRows++; } catch (e) { break; } }
             } else if (rows < 0) {
                 const take = Math.min(-rows, was.rows);
@@ -92,15 +137,40 @@ function (pm, o) {
             try { pt.updateCalculations(); } catch (e) { }
             try { if (pt.wake) pt.wake(); } catch (e) { }
 
+            // A FORMULA BELOW THE INSERTION IS NOW POINTING ONE ROW TOO HIGH.
+            //
+            // Formulas are held against cell positions -- Name[c:c][r:r] -- and inserting a
+            // row moves the cells without moving what refers to them. The plate's own insert
+            // row menu has always had this. It is not fixed here, because rewriting every
+            // formula in a project is its own piece of work and a half-done version of it is
+            // worse than none; it is SAID, which is the part that was missing.
+            let shifted = 0;
+            if (insertedAt != null) {
+                try {
+                    for (const k of Object.keys(t.formula || {})) {
+                        const m = ('' + k).match(/\[(\d+)(?::\d+)?\]\[(\d+)(?::\d+)?\]/);
+                        if (m && parseInt(m[2], 10) >= insertedAt) shifted++;
+                    }
+                } catch (e) { shifted = 0; }
+            }
+
             const bits = [];
-            if (addedRows) bits.push('added ' + addedRows + ' row' + (addedRows === 1 ? '' : 's'));
+            if (addedRows && insertedAt != null) {
+                bits.push('inserted ' + addedRows + ' row' + (addedRows === 1 ? '' : 's')
+                    + ' at row ' + insertedAt);
+            } else if (addedRows) bits.push('added ' + addedRows + ' row' + (addedRows === 1 ? '' : 's'));
             if (removedRows) bits.push('removed ' + removedRows + ' row' + (removedRows === 1 ? '' : 's'));
             if (addedCols) bits.push('added ' + addedCols + ' column' + (addedCols === 1 ? '' : 's'));
             if (!bits.length) { resolve({ error: 'nothing changed: ' + t.name + ' is as it was' }); return; }
-            try { pt.setMessage(t.name + ': ' + bits.join(', ') + ' (now '
-                + nRows() + ' x ' + nCols() + ')', 6); } catch (e) { }
+            try {
+                pt.setMessage(t.name + ': ' + bits.join(', ') + ' (now ' + nRows() + ' x ' + nCols() + ')'
+                    + (shifted ? ('. ' + shifted + ' formula' + (shifted === 1 ? '' : 's')
+                        + ' below that point still point at the old rows: check them') : ''), 8);
+            } catch (e) { }
 
             resolve({ table: t.name, added_rows: addedRows || undefined,
+                inserted_at: (insertedAt == null) ? undefined : insertedAt,
+                formulas_to_check: shifted || undefined,
                 removed_rows: removedRows || undefined, added_columns: addedCols || undefined,
                 rows: nRows(), columns: nCols() });
         } catch (e) {

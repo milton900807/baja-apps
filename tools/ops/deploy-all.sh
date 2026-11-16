@@ -373,7 +373,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:TOTALLED at the foot"
+    "baja/plate/menu/project-capabilities.js:WHERE THE ROWS GO"
 
   # Far out, a table is a bar with a name on it and its menu offered no way to simply go
   # and look at it. And the canvas behind a maximized object was still taking presses
@@ -403,7 +403,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
     "baja/plate/menu/project-command.js:THE VALUES CAN BE CHANGED BEFORE IT RUNS" \
     "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
-    "baja/plate/ops/table-size.js:ROWS AND COLUMNS ON A TABLE THAT IS ALREADY THERE" \
+    "baja/plate/ops/table-size.js:WHERE THE ROWS GO" \
     "baja/plate/ops/fill-table.js:FILLING A TABLE THAT ALREADY HAS ITS COLUMNS" \
     "baja/plate/ops/change-values.js:ARITHMETIC ON THE CELLS THAT ARE SELECTED" \
     "baja/plate/ops/calendar-import.js:A CALENDAR ON A TIMELINE" \
