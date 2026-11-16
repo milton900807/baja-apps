@@ -317,13 +317,28 @@ function () {
         },
         {
             name: 'derive_from_new_table',
-            summary: 'make a new table the shape of the SELECTED cells and point those cells at '
-                + 'it by formula, so their values come from it',
+            summary: 'make a new table and point the SELECTED cells at it by formula, so their '
+                + 'values come from it. Two shapes: with columns (or sum_column) given it '
+                + 'builds a table with those headings, rows to fill in, and the named column '
+                + 'TOTALLED at the foot, and the selected cell reads that total -- which is '
+                + 'what "derive this from the sum of the salaries in a new table" asks for. '
+                + 'With neither, it builds a table the shape of the selection and each cell '
+                + 'reads its own',
             module: 'baja/plate/ops/derive-from-new-table.js',
             params: {
                 name: { type: 'string', default: 'the user is asked for one',
                     about: 'what to call the new table, if the request says it. Leave it out '
                         + 'when it does not: the user is asked. Never invent a name' },
+                columns: { type: 'string', default: 'not set, so the table is the shape of the selection',
+                    about: 'the new table\u2019s column headings, separated by commas, when the '
+                        + 'request says what it holds: "salaries" gives "Name, Salary". Put '
+                        + 'the labels first and the numbers second' },
+                sum_column: { type: 'string', default: 'the second column, where the numbers '
+                        + 'sit in a table of labels and values',
+                    about: 'which column is totalled at the foot, by its heading. Setting this '
+                        + 'alone builds the totalled table too' },
+                rows: { type: 'number', default: '8',
+                    about: 'how many rows to leave to fill in, above the total' },
                 table: { type: 'string', default: 'the selected table',
                     about: 'the table the selected cells are in, if the request names it' }
             }
@@ -562,6 +577,14 @@ function () {
         if (name === 'new_timeline') {
             return 'add a timeline from ' + args.start + ' to ' + args.end
                 + (args.title ? (' called "' + args.title + '"') : ' (it will ask for a title)');
+        }
+        if (name === 'derive_from_new_table' && (args.columns || args.sum_column)) {
+            const cols = ('' + (args.columns || '')).split(',').map((x) => x.trim()).filter((x) => x);
+            const totals = args.sum_column || (cols.length > 1 ? cols[1] : (cols[0] || 'the second column'));
+            return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
+                + (cols.length ? ('with columns ' + cols.join(', ') + ' ') : '')
+                + 'and ' + (args.rows || 8) + ' rows, total "' + totals + '" at the foot, '
+                + 'and have the selected cells read that total';
         }
         if (name === 'derive_from_new_table') {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')

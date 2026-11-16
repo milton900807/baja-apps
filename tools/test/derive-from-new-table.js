@@ -63,6 +63,8 @@ const mkHost = (cols, rows) => {
     };
     return t;
 };
+// The real Plate marks a text top row as headings when applycolumnheaders runs; the stub
+// records that it was called, since drawing is not what is being tested.
 const mkTrack = (host) => ({
     root: [host], selectedPlate: host, added: [], formulas: {},
     getTableByName(n) { return this.root.filter((t) => t.name === n)[0] || null; },
@@ -100,6 +102,71 @@ const mkTrack = (host) => ({
     ok(r.carried === 4 && !r.lost,
        'and it reports them as carried, counted from what the cells hold: '
        + JSON.stringify({ carried: r.carried, lost: r.lost }));
+
+    // A TABLE WITH NAMED COLUMNS AND A TOTAL AT THE FOOT.
+    //
+    // "Derive this value from the sum of the salaries column in a new table called
+    // lab_employees", with ONE cell selected, used to give a 1 x 1 table and a reference to
+    // its only cell: a rename of the number rather than somewhere to keep salaries.
+    host = mkHost(4, 12);
+    host.__sel = [host.wells[1][5]];
+    pt = mkTrack(host);
+    r = await load('baja/plate/ops/derive-from-new-table.js', pt,
+        { name: 'lab_employees', columns: 'Name, Salary', rows: 6 });
+    ok(!r.error, 'it runs: ' + JSON.stringify(r));
+    const emp = pt.added[0];
+    ok(emp.wells.length === 2, 'two columns, as named');
+    ok(emp.wells[0].length === 8, 'a heading row, six to fill in, and the total: '
+       + emp.wells[0].length + ' rows');
+    ok(emp.wells[0][0].value === 'Name' && emp.wells[1][0].value === 'Salary',
+       'the headings are written across the top');
+    ok(emp.wells[0][0].skin_type === 'ColumnHeader' && !!(emp.wells[0][0].group || {})['ColumnHeader'],
+       'and really marked as headings by the plate itself, so they draw as headings and are '
+       + 'left out of a row count');
+    ok(emp.wells[0][7].value === 'Total', 'the last row is labelled');
+    ok(emp.wells[1][7].value === '=sum(lab_employees[1:1][1:6])',
+       'and totals the column above it, not the whole table: ' + emp.wells[1][7].value);
+    // The plate's own getWellRange writes a RANGE for a single cell -- [1:1][7:7] -- which
+    // is the key the track stores it under. Asserting [1][7] would be asserting a spelling
+    // this test made up.
+    ok(pt.formulas['lab_employees[1:1][7:7]'] === '=sum(lab_employees[1:1][1:6])',
+       'the total is registered as a formula, so it recalculates as the table is filled in: '
+       + JSON.stringify(Object.keys(pt.formulas)));
+    ok(host.wells[1][5].value === '=lab_employees[1][7]',
+       'the cell that asked reads THE TOTAL, not the first cell: ' + host.wells[1][5].value);
+
+    // which column is totalled, by name
+    host = mkHost(4, 12); host.__sel = [host.wells[1][5]]; pt = mkTrack(host);
+    r = await load('baja/plate/ops/derive-from-new-table.js', pt,
+        { name: 'T2', columns: 'Role, Headcount, Salary', sum_column: 'Salary' });
+    ok(!r.error && r.totals === 'Salary', 'a named column is the one totalled: ' + JSON.stringify(r.totals));
+    ok(pt.added[0].wells[2][9].value === '=sum(T2[2:2][1:8])',
+       'the third column, with the default eight rows: ' + pt.added[0].wells[2][9].value);
+
+    // a column that is not there is said, rather than column two being totalled quietly
+    host = mkHost(4, 12); host.__sel = [host.wells[1][5]]; pt = mkTrack(host);
+    r = await load('baja/plate/ops/derive-from-new-table.js', pt,
+        { name: 'T3', columns: 'Role, Salary', sum_column: 'Bonus' });
+    ok(!!r.error && /no column called "Bonus"/.test(r.error) && pt.added.length === 0,
+       'and nothing is built: ' + r.error);
+
+    // sum_column alone is enough to ask for the totalled shape
+    host = mkHost(4, 12); host.__sel = [host.wells[1][5]]; pt = mkTrack(host);
+    r = await load('baja/plate/ops/derive-from-new-table.js', pt,
+        { name: 'T4', sum_column: 'salaries' });
+    ok(!r.error && pt.added[0].wells.length === 2,
+       'a labels column and a numbers column: ' + JSON.stringify(r.columns));
+    ok(pt.added[0].wells[1][0].value === 'salaries', 'named as the request named it');
+
+    // with neither, the old behaviour is untouched
+    host = mkHost(4, 4);
+    host.wells[1][1].value = 5;
+    host.__sel = [host.wells[1][1]];
+    pt = mkTrack(host);
+    r = await load('baja/plate/ops/derive-from-new-table.js', pt, { name: 'Plain' });
+    ok(pt.added[0].wells.length === 1 && pt.added[0].wells[0].length === 1,
+       'no columns asked for means the shape of the selection, as before');
+    ok(host.wells[1][1].value === '=Plain[0][0]', 'reading its own cell');
 
     // NO NAME GIVEN: it asks, rather than inventing one
     asked = 0;

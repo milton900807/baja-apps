@@ -352,7 +352,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a table resizes from its edges; a cell can be told what to do" \
     "baja/plate/plate.js:AN ASK BUTTON ON THE TABLE'S OWN BAR" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
-    "baja/plate/ops/derive-from-new-table.js:THE SELECTED CELLS COME FROM A NEW TABLE" \
+    "baja/plate/ops/derive-from-new-table.js:A TABLE WITH NAMED COLUMNS AND A TOTAL AT THE FOOT" \
     "baja/plate/ops/new-timeline.js:A NAME GIVEN IN THE REQUEST IS USED" \
     "baja/draw/place-timeline-with-time-range.js:A NAME THAT WAS ALREADY GIVEN IS NOT ASKED FOR AGAIN" \
     "baja/plate/ops/timeline-add.js:A DATE, OR A DATE AND A TIME" \
@@ -373,7 +373,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
     "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
-    "baja/plate/menu/project-capabilities.js:A MAILBOX AS A SOURCE OF DATES"
+    "baja/plate/menu/project-capabilities.js:TOTALLED at the foot"
 
   # Far out, a table is a bar with a name on it and its menu offered no way to simply go
   # and look at it. And the canvas behind a maximized object was still taking presses
