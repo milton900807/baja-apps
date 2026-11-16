@@ -353,7 +353,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate.js:A RED CELL SAYS WHY, AND WHAT WOULD FIX IT" \
     "baja/plate/ops/diagnose-formula.js:WHY A CELL IS RED, AND WHAT WOULD FIX IT" \
     "baja/plate/ops/format-cells.js:HOW THE SELECTED CELLS ARE SHOWN" \
-    "baja/plate/ops/derive-from-new-table.js:A TABLE WITH NAMED COLUMNS AND A TOTAL AT THE FOOT" \
+    "baja/plate/ops/derive-from-new-table.js:OPEN AT THE BOTTOM" \
     "baja/plate/ops/new-timeline.js:A NAME GIVEN IN THE REQUEST IS USED" \
     "baja/draw/place-timeline-with-time-range.js:A NAME THAT WAS ALREADY GIVEN IS NOT ASKED FOR AGAIN" \
     "baja/plate/ops/timeline-add.js:A DATE, OR A DATE AND A TIME" \
@@ -372,7 +372,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a table can be asked for things from its own bar" \
     "baja/plate/ops/table-ask.js:ASKING A TABLE FOR SOMETHING, FROM ITS OWN TITLE BAR" \
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
-    "baja/plate/ops/frun-object.js:HOW MANY ROWS A TABLE ACTUALLY HOLDS" \
+    "baja/plate/ops/frun-object.js:A SUM DOES NOT COUNT THE CELL IT IS WRITTEN IN" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
     "baja/plate/menu/project-capabilities.js:WHERE THE ROWS GO"
 

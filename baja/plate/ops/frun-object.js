@@ -2118,20 +2118,42 @@ function (expression, pt) {
                 }
                 else if (functionName === 'sum') {
 
+                    // A SUM DOES NOT COUNT THE CELL IT IS WRITTEN IN.
+                    //
+                    // =sum(employees[1:1][1:]) in the last row of employees is the ordinary
+                    // way to total a column: everything from the first row to the end. The
+                    // open end reaches the last row, which is the row the formula is sitting
+                    // in, so the sum met its own text where a number should be and the whole
+                    // cell went red. The user had written the obvious thing.
+                    //
+                    // The cell holding this formula is left out, which is what "total the
+                    // column" means and what makes an open-ended range usable: the range
+                    // does not have to be rewritten every time a row is added.
+                    //
+                    // ONLY ITS OWN TEXT IS SKIPPED. Another cell holding some other formula
+                    // still throws, because that is a real ordering problem -- a total built
+                    // on a figure that has not been worked out yet -- and quietly leaving it
+                    // out would make the total wrong rather than red.
+                    const __self = ('' + (expression == null ? '' : expression)).trim().replace(/^=/, '');
                     const extractNumbers = (input) => {
                         const toArray = (x) => Array.isArray(x) ? x : (x == null ? [] : [x]);
                         const flat = toArray(input).flat(Infinity);
 
-                        return flat.map(item => {
+                        const out = [];
+                        for (const item of flat) {
                             const value = (typeof item === 'object' && item !== null && 'value' in item)
                                 ? Number(item.value)
                                 : Number(item);
 
                             if (Number.isNaN(value)) {
+                                const raw = (item && typeof item === 'object' && 'value' in item)
+                                    ? ('' + item.value) : ('' + item);
+                                if (raw.trim().replace(/^=/, '') === __self) continue;   // itself
                                 throw new Error(`Invalid input for sum: '${JSON.stringify(item)}' has no valid numeric value.`);
                             }
-                            return value;
-                        });
+                            out.push(value);
+                        }
+                        return out;
                     };
 
                     let r = args[0]

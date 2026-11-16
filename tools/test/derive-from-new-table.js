@@ -124,12 +124,14 @@ const mkTrack = (host) => ({
        'and really marked as headings by the plate itself, so they draw as headings and are '
        + 'left out of a row count');
     ok(emp.wells[0][7].value === 'Total', 'the last row is labelled');
-    ok(emp.wells[1][7].value === '=sum(lab_employees[1:1][1:6])',
-       'and totals the column above it, not the whole table: ' + emp.wells[1][7].value);
+    // Open at the bottom, so a row added later is counted without the total being
+    // rewritten. The engine leaves the cell the sum is written in out of its own range.
+    ok(emp.wells[1][7].value === '=sum(lab_employees[1:1][1:])',
+       'and totals the column above it, open at the bottom: ' + emp.wells[1][7].value);
     // The plate's own getWellRange writes a RANGE for a single cell -- [1:1][7:7] -- which
     // is the key the track stores it under. Asserting [1][7] would be asserting a spelling
     // this test made up.
-    ok(pt.formulas['lab_employees[1:1][7:7]'] === '=sum(lab_employees[1:1][1:6])',
+    ok(pt.formulas['lab_employees[1:1][7:7]'] === '=sum(lab_employees[1:1][1:])',
        'the total is registered as a formula, so it recalculates as the table is filled in: '
        + JSON.stringify(Object.keys(pt.formulas)));
     ok(host.wells[1][5].value === '=lab_employees[1][7]',
@@ -140,8 +142,8 @@ const mkTrack = (host) => ({
     r = await load('baja/plate/ops/derive-from-new-table.js', pt,
         { name: 'T2', columns: 'Role, Headcount, Salary', sum_column: 'Salary' });
     ok(!r.error && r.totals === 'Salary', 'a named column is the one totalled: ' + JSON.stringify(r.totals));
-    ok(pt.added[0].wells[2][9].value === '=sum(T2[2:2][1:8])',
-       'the third column, with the default eight rows: ' + pt.added[0].wells[2][9].value);
+    ok(pt.added[0].wells[2][9].value === '=sum(T2[2:2][1:])',
+       'the third column: ' + pt.added[0].wells[2][9].value);
 
     // a column that is not there is said, rather than column two being totalled quietly
     host = mkHost(4, 12); host.__sel = [host.wells[1][5]]; pt = mkTrack(host);

@@ -145,7 +145,12 @@ function (pm, o) {
 
                 const lastRow = dataRows + 1;
                 put(0, lastRow, 'Total');
-                const total = '=sum(' + name + '[' + sumAt + ':' + sumAt + '][1:' + dataRows + '])';
+                // OPEN AT THE BOTTOM: [1:] is every row from the first to the last, so rows
+                // added to the table later are counted without the total being rewritten.
+                // Safe because a sum leaves out the cell it is written in, which is the row
+                // this total sits in (see frun-object.js); written closed, a total stopped
+                // counting the moment somebody added a row at the end.
+                const total = '=sum(' + name + '[' + sumAt + ':' + sumAt + '][1:])';
                 const tcell = made2.wells[sumAt] && made2.wells[sumAt][lastRow];
                 if (tcell) {
                     try { made2.formula[made2.getWellRange([tcell])] = total; } catch (e) { }
