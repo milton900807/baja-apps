@@ -292,6 +292,27 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/splice/splicing-profile.py:Splicing profile for a raw sequence, via the bajasplice-lib models" \
     "py/bio/splice/cis-profile.py:Cis-regulatory profile around one splice site, via bajasplice-lib" \
     "py/bio/splice/intron-retention.py:Intron-retention propensity for a gene, via bajair"
+  # BajaNMD under Exon -> AI Models: what including or skipping a cassette exon does to
+  # the transcript, and the steric-block ASOs that switch it. A sibling model family to
+  # BajaSplice, so it ships as its own group rather than being folded into that one: the
+  # two share only the menu file.
+  #
+  # The library's modules are listed one by one, the way py/ion-lib/indication_store.py
+  # is, so the entry scripts' sys.path fallback finds them even on a box where the
+  # package has not been pip-installed into the venv. If it HAS been installed there, the
+  # installed copy wins and these are inert.
+  #
+  # All of them or none: a menu entry whose script is missing is worse than no entry, and
+  # an entry script whose library is missing fails at import with nothing useful on screen.
+  install_group "BajaNMD on an exon" \
+    "baja/bio/splicing/exon-ai-models.js:BajaNMD (py/bajanmd-lib): the consequence of a cassette exon" \
+    "baja/bio/splicing/bajanmd.js:BajaNMD: what including or skipping a cassette exon" \
+    "py/bio/nmd/bajanmd-exons.py:BajaNMD: every cassette exon of a gene" \
+    "py/bio/nmd/bajanmd-aso.py:BajaNMD: steric-block ASOs designed to skip one exon" \
+    "py/bajanmd-lib/bajanmd/__init__.py:BajaNMD: what happens to a transcript when a cassette exon" \
+    "py/bajanmd-lib/bajanmd/consequence.py:NMD consequence of every cassette-eligible exon of a gene" \
+    "py/bajanmd-lib/bajanmd/design.py:Steric-block ASOs that push a cassette exon toward being skipped" \
+    "py/bajanmd-lib/bajanmd/offtarget.py:Off-target screening for designed oligos"
   # Uniqueness / repeat gradient on a transcript track. All three or none: the catalogue
   # entry would otherwise open onto a loader that is not there, and the loader would
   # call a scorer that is not there.
