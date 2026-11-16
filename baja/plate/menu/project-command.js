@@ -285,13 +285,51 @@ function (o) {
             // THE BUTTON SAYS GO. It is the same word as the field it sits under, and the
             // field is where the request was typed; "Run it" named the mechanism instead of
             // the act.
+            // THE VALUES CAN BE CHANGED BEFORE IT RUNS.
+            //
+            // "A new table called lab_employees" has to come out some size, and 10 x 5 is a
+            // guess at what was not said. Printing the guess and offering only GO or Cancel
+            // makes a wrong number into a thing to undo: run it, see it, delete it, say it
+            // again with the number in. The arguments are the operation's own declared
+            // parameters, so every operation gets this without being told about it, and
+            // whatever is typed goes back through the same validate() that the model's
+            // answer did -- a hand-typed value is no more trusted than a generated one.
+            const fields = (() => {
+                const ps = (op.capability && op.capability.params) || {};
+                const names = Object.keys(ps);
+                if (!names.length) return '';
+                return '<div style="margin-top:10px;display:grid;grid-template-columns:auto 1fr;'
+                    + 'gap:6px 10px;align-items:center;">'
+                    + names.map((k) => {
+                        const d = ps[k] || {};
+                        const v = (op.args[k] == null) ? '' : ('' + op.args[k]);
+                        const id = 'pc-arg-' + k.replace(/[^A-Za-z0-9_]/g, '');
+                        const label = '<label for="' + id + '" style="font:11.5px Arial;color:#9fb3c8;'
+                            + 'text-align:right;" title="' + H('' + (d.about || '')) + '">' + H(k)
+                            + (d.required ? ' *' : '') + '</label>';
+                        const box = 'background:#0e2236;color:#e8f0fb;border:1px solid #2b4a68;'
+                            + 'border-radius:6px;padding:4px 7px;font:12px Arial;width:100%;'
+                            + 'box-sizing:border-box;';
+                        if (d.type === 'enum' && Array.isArray(d.values)) {
+                            return label + '<select id="' + id + '" data-arg="' + H(k) + '" style="' + box + '">'
+                                + (d.required ? '' : '<option value=""></option>')
+                                + d.values.map((o) => '<option value="' + H('' + o) + '"'
+                                    + (('' + o) === v ? ' selected' : '') + '>' + H('' + o) + '</option>').join('')
+                                + '</select>';
+                        }
+                        return label + '<input id="' + id + '" data-arg="' + H(k) + '" type="'
+                            + (d.type === 'number' ? 'number' : 'text') + '" value="' + H(v)
+                            + '" placeholder="' + H('' + (d.default || '')) + '" style="' + box + '">';
+                    }).join('') + '</div>';
+            })();
+
             say('<div style="font:700 13px Arial;color:#7fb0e8;">One operation</div>'
-                + '<div style="font:700 14px Arial;color:#e8f0fb;margin-top:7px;">'
+                + '<div id="pc-headline" style="font:700 14px Arial;color:#e8f0fb;margin-top:7px;">'
                 + H(CAP.preview(op.capability.name, op.args)) + '</div>'
                 + '<div style="font:11px Arial;color:#6b8299;margin-top:3px;">'
-                + H(op.capability.name) + ' · '
-                + H(Object.keys(op.args).map((k) => k + '=' + op.args[k]).join(' ') || 'no arguments')
-                + '</div>'
+                + H(op.capability.name) + '</div>'
+                + fields
+                + '<div id="pc-argerr" style="font:12px Arial;color:#fbbf24;margin-top:6px;"></div>'
                 + (r.explain ? ('<div style="font:12px Arial;color:#9fb3c8;margin-top:5px;">'
                     + H(r.explain) + '</div>') : '')
                 + (op.dropped && op.dropped.length
@@ -303,6 +341,48 @@ function (o) {
                 + (pick ? ('<div style="font:12px Arial;color:#6b8299;margin-top:14px;">Or do it '
                     + 'yourself in <a href="#" class="pc-alt" data-i="' + pick.i
                     + '" style="color:#7fb0e8;">' + H(pick.path) + '</a></div>') : ''));
+            // What is in the boxes now, read back through validate so a typed value is
+            // checked exactly as a generated one is.
+            const readArgs = () => {
+                const out = {};
+                try {
+                    for (const el of panel.querySelectorAll('[data-arg]')) {
+                        const k = el.getAttribute('data-arg');
+                        const v = ('' + (el.value == null ? '' : el.value)).trim();
+                        if (v !== '') out[k] = v;
+                    }
+                } catch (e) { }
+                return out;
+            };
+            const refresh = () => {
+                const v = CAP.validate(op.capability.name, readArgs());
+                const err = q('#pc-argerr'), head = q('#pc-headline'), go = q('#pc-op');
+                if (v.ok) {
+                    op.args = v.args;
+                    if (head) head.textContent = CAP.preview(op.capability.name, v.args);
+                    if (err) err.textContent = (v.dropped && v.dropped.length)
+                        ? ('ignored: ' + v.dropped.join(', ')) : '';
+                    if (go) { go.disabled = false; go.style.opacity = ''; }
+                } else {
+                    // GO is turned off rather than left to fail: a card that refuses on press
+                    // is a card that let you press it.
+                    // validate() calls it `problem`, which is what the refusal above reads
+                    // too: asking for `error` here printed a generic line and left the user
+                    // to guess which box was wrong.
+                    if (err) err.textContent = v.problem || v.error || 'that will not run';
+                    if (go) { go.disabled = true; go.style.opacity = '0.5'; }
+                }
+            };
+            try {
+                for (const el of panel.querySelectorAll('[data-arg]')) {
+                    el.addEventListener('input', refresh);
+                    el.addEventListener('change', refresh);
+                    // Enter in a box is GO, which is what it is for.
+                    el.addEventListener('keydown', (e) => {
+                        if (e && e.key === 'Enter') { e.preventDefault(); const g = q('#pc-op'); if (g && !g.disabled) g.click(); }
+                    });
+                }
+            } catch (e) { }
             try { q('#pc-op').onclick = runOp; } catch (e) { }
         } else if (!pick) {
 

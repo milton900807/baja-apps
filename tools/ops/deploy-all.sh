@@ -401,7 +401,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a sentence in the project command field does it, or opens where it is done" \
     "flexigraph/plot.js:A BUTTON ON THE TIMELINE'S FRAME, NEXT TO MAXIMIZE" \
     "baja/plate/ops/timeline-ask.js:WHAT THIS WAS ASKED FROM" \
-    "baja/plate/menu/project-command.js:THE OBJECT THE REQUEST CAME FROM IS FILLED IN, NOT HOPED FOR" \
+    "baja/plate/menu/project-command.js:THE VALUES CAN BE CHANGED BEFORE IT RUNS" \
     "baja/plate/ops/focus-object.js:SHOW ME THE THING THAT IS ALREADY HERE" \
     "baja/plate/ops/table-size.js:ROWS AND COLUMNS ON A TABLE THAT IS ALREADY THERE" \
     "baja/plate/ops/fill-table.js:FILLING A TABLE THAT ALREADY HAS ITS COLUMNS" \
