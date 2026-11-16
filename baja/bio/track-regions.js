@@ -151,8 +151,69 @@ function (track) {
         return { start: r.start, end: r.end, label: LABEL[what] || what };
     };
 
+    // ONE POSITION FROM WHAT SOMEONE TYPES: HGVS c. notation or a plain track coordinate.
+    //   R.position('c.778')    -> { pos, label }  the base at coding position 778
+    //   R.position('c.-12')    -> 12 bases before the A of the ATG, counted along the mRNA
+    //   R.position('c.*30')    -> 30 bases after the stop codon
+    //   R.position('c.778+5')  -> 5 bases into the intron after c.778 (or -5 before it)
+    //   R.position('1520')     -> the track's own coordinate 1520
+    // pos is the track coordinate of that base, which occupies [pos, pos+1). c. positions
+    // are counted along the SPLICED transcript, in transcript order, so on a minus-strand
+    // track c.1 sits at the HIGH end of the CDS and c.2 one base below it. This walks the
+    // exons rather than calling track.codingToGenomic(), which sorts the track's annotation
+    // list in place and rounds its coordinates as a side effect.
+    const position = (text) => {
+        const raw = ('' + (text == null ? '' : text)).trim().replace(/\s+/g, '');
+        const name = T.name || 'this track';
+        const w = whole();
+        const inside = (p) => !w || (p >= w.start && p < w.end);
+        const plain = raw.match(/^(?:pos(?:ition)?)?:?(\d+)$/i);
+        if (plain) {
+            const p = +plain[1];
+            if (!inside(p)) return { error: p.toLocaleString() + ' is outside ' + name + ', which runs ' + w.start + ' to ' + w.end };
+            return { pos: p, label: 'position ' + p.toLocaleString() };
+        }
+        const m = raw.match(/^c\.([-*]?)(\d+)([-+]\d+)?$/i);
+        if (!m) return { error: '“' + text + '” is not a position: use c.778, c.-12, c.*30, c.778+5 or a plain number' };
+        const c = cds();
+        if (!c) return { error: name + ' has no annotated coding region, so it has no c. positions' };
+        const n = +m[2];
+        if (!m[1] && n < 1) return { error: 'c. positions start at c.1' };
+        const mi = minus();
+        // Exonic bases in transcript order.
+        const tx = [];
+        const byPos = exons().slice().sort((a, b) => (Math.min(a.xi, a.xf) - Math.min(b.xi, b.xf)));
+        for (const e of byPos) {
+            const s = span(e.xi, e.xf);
+            if (s) for (let i = s.start; i < s.end; i++) tx.push(i);
+        }
+        if (!tx.length) return { error: name + ' has no annotated exons to count c. positions along' };
+        if (mi) tx.reverse();
+        const first = mi ? tx.findIndex((i) => i <= c.end - 1) : tx.findIndex((i) => i >= c.start);
+        let last = -1;
+        for (let k = tx.length - 1; k >= 0; k--) {
+            if (mi ? tx[k] >= c.start : tx[k] < c.end) { last = k; break; }
+        }
+        if (first < 0 || last < first) return { error: name + '’s coding region does not lie on its exons' };
+        const L = last - first + 1;
+        let k;
+        if (m[1] === '-') k = first - n;
+        else if (m[1] === '*') k = last + n;
+        else {
+            if (n > L) return { error: name + '’s CDS is ' + L.toLocaleString() + ' nt, so there is no c.' + n + ' (past the stop codon is c.*' + (n - L) + ')' };
+            k = first + n - 1;
+        }
+        if (k < 0 || k >= tx.length) {
+            return { error: 'c.' + m[1] + n + ' runs off the ' + (k < 0 ? "5′" : "3′") + ' end of ' + name };
+        }
+        const off = m[3] ? +m[3] : 0;
+        const p = tx[k] + (mi ? -off : off);
+        if (!inside(p)) return { error: 'c.' + m[1] + n + (m[3] || '') + ' is outside ' + name };
+        return { pos: p, label: 'c.' + m[1] + n + (m[3] || '') };
+    };
+
     return {
-        resolve: resolve, available: available,
+        resolve: resolve, available: available, position: position,
         exons: exons, introns: introns, cds: cds, whole: whole,
         utr5: () => utr(5), utr3: () => utr(3), isMinus: minus,
         REGIONS: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'coordinates']

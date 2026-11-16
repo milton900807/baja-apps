@@ -89,6 +89,54 @@ function (graph, genegraph_panel_layout) {
         // and argBlocker() can use it without becoming async.
         const regionsNow = (t) => (t ? (__regions.get(t) || null) : null);
 
+        // ONE GO PER TRACK, NOT A REFUSAL. An operation that runs on one track and was given
+        // no track name used to stop at "more than one track is open: name the one you mean".
+        // Now it can offer the tracks it actually fits instead: choices(a) returns one entry per
+        // such track, each carrying the track OBJECT in __track (two tracks can share a name),
+        // and the Ask card shows a Go button for each. __track never comes from the model --
+        // validate() drops any key that is not a declared parameter -- only from a choice.
+        const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
+        const choicesOver = (a, fits) => {
+            if (!a || a.__track || a.track) return [];
+            return tracks().map((t) => {
+                let r = null;
+                try { r = fits(t); } catch (e) { r = null; }
+                return (r && !r.error) ? { track: t, label: (t.name || '(unnamed track)'), detail: r.detail || '',
+                    args: Object.assign({}, a, { __track: t }) } : null;
+            }).filter(Boolean);
+        };
+
+        // FRAME ONE BASE CLOSE ENOUGH TO READ THE SEQUENCE. The track draws its letters only
+        // above ~30 screen px per base (screencell in track-flexi.js), so the window is sized
+        // from the canvas width to land well above that, centred on the base, with the track
+        // about 100 px tall. Same arithmetic as load-clinical-compound.js, which was tuned on
+        // the real canvas. zoomRect() returns immediately while another animation runs, so wait
+        // for the graph to go idle first.
+        const frameBase = async (t, pos) => {
+            const g = t && t.tgraph;
+            if (!g || typeof g.X !== 'function' || !graph.zoomRect) return;
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            for (let i = 0; graph.animating && i < 60; i++) await sleep(60);
+            let cw = 1200, ch = 800;
+            try { cw = (graph.canvas && graph.canvas.width) || cw; ch = (graph.canvas && graph.canvas.height) || ch; } catch (e) { }
+            const PX_PER_BASE = 44;
+            const half = Math.max(6, Math.floor(cw / PX_PER_BASE)) / 2;
+            const mid = pos + 0.5;
+            const x0 = g.X(mid - half), x1 = g.X(mid + half);
+            let ymin, ymax;
+            try {
+                const top = g.Y(typeof g.getymax === 'function' ? g.getymax() : (g.yi + (g.height || 0)));
+                const bot = g.Y(typeof g.getymin === 'function' ? g.getymin() : g.yi);
+                if (isFinite(top) && isFinite(bot) && Math.abs(top - bot) > 0) {
+                    const cy = (top + bot) / 2;
+                    const ySpan = Math.max(1.0001, Math.abs(top - bot) * (ch / 100));
+                    ymin = cy - ySpan / 2; ymax = cy + ySpan / 2;
+                }
+            } catch (e) { }
+            if (ymin == null) { const yb = g.yi + (g.height || 0); ymin = yb - 0.51; ymax = yb + 0.51; }
+            if (isFinite(x0) && isFinite(x1)) await graph.zoomRect(Math.min(x0, x1), Math.max(x0, x1), ymin, ymax, 400);
+        };
+
         // Resolved up front for every open track. preview() and argBlocker() are synchronous
         // -- they run while a plan is being drawn -- so a cache filled only by run() would
         // mean the first plan never checks the region and "exon 14 of 11" is discovered after
@@ -553,13 +601,91 @@ function (graph, genegraph_panel_layout) {
                 preview: (a) => 'delete the compounds: ' + F.describe(a) + offtargetNote(a)
             },
             {
+                // GOTO ONE POSITION, zoomed in far enough to read the bases. "goto c.778" was
+                // read as select_sequence_region with start=end=778, which counted from the start
+                // of the TRACK rather than the A of the ATG, refused outright whenever more than
+                // one track was open, and framed a 1-nt selection with a margin of 8 -- nowhere
+                // near letter resolution. With several tracks open and none named, this offers a
+                // Go per track the position exists on: c.778 is a different place on each
+                // transcript, and which one was meant is the user's call.
+                name: 'go_to_position',
+                summary: 'GO TO ONE POSITION on a track and zoom in until the bases can be read: '
+                    + '"goto c.778", "go to c.-12", "jump to c.*30", "show me c.1234+5", "take me to '
+                    + 'position 1520". Marks that base as the selection. Use this, not '
+                    + 'select_sequence_region, whenever the request names a single position to go '
+                    + 'to or look at.',
+                needs: 'track',
+                params: {
+                    position: {
+                        type: 'string', required: true,
+                        about: 'the position exactly as written: HGVS coding notation (c.778, c.-12 in '
+                            + "the 5' UTR, c.*30 after the stop, c.778+5 in an intron) or a plain number, "
+                            + 'which is a coordinate counted from the start of the track'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
+                },
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const R = await regionsOf(t);
+                    if (!R) { result('Could not read the exons of ' + (t.name || 'that track') + '.'); return; }
+                    const r = R.position(a.position);
+                    if (r.error) { result(r.error); return; }
+                    try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                    t.markstart = r.pos;
+                    t.markend = r.pos + 1;
+                    t.showResizeBar = true;
+                    try { graph.startX = t.tgraph.X(r.pos); graph.endX = t.tgraph.X(r.pos + 1); } catch (e) { }
+                    try { graph.selectedTrack = t; } catch (e) { }
+                    try { await frameBase(t, r.pos); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result((t.name || 'Track') + ' · ' + r.label
+                        + (r.label.indexOf('position') === 0 ? '' : (' (track position ' + r.pos.toLocaleString() + ')')) + '.');
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const R = regionsNow(t);
+                    const r = R ? R.position(a.position) : null;
+                    return 'go to ' + a.position + (t ? (' on ' + (t.name || 'the track')) : '')
+                        + ((r && !r.error) ? (' (track position ' + r.pos.toLocaleString() + ')') : '')
+                        + ', zoomed in to the bases';
+                },
+                choices: (a) => choicesOver(a, (x) => {
+                    const R = regionsNow(x); if (!R) return null;
+                    const r = R.position(a.position); if (r.error) return r;
+                    return { detail: r.label + ' is track position ' + r.pos.toLocaleString() };
+                }),
+                argBlocker: (a) => {
+                    const t = pickTrack(a);
+                    if (!t || (!a.track && !a.__track)) {
+                        // No track named: fine when the position exists on at least one track.
+                        const n = choicesOver(a, (x) => regionsNow(x) && regionsNow(x).position(a.position)).length;
+                        if (n) return '';
+                        if (!a.track && tracks().length > 1) {
+                            const why = tracks().map((x) => { const R = regionsNow(x); const r = R && R.position(a.position); return r && r.error; }).find(Boolean);
+                            return why || ('no open track has ' + a.position);
+                        }
+                    }
+                    if (!t) {
+                        return a.track
+                            ? ('no single track matches “' + a.track + '”: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'which track? click one first';
+                    }
+                    const R = regionsNow(t);
+                    if (!R) return '';
+                    return R.position(a.position).error || '';
+                }
+            },
+            {
                 name: 'select_sequence_region',
                 summary: 'Select a named part of the transcript as the sequence selection: the '
                     + "5' UTR, the 3' UTR, the coding region, a numbered exon or intron, the whole "
                     + 'transcript, or an explicit coordinate range. This is the selection every '
                     + 'model and design runs on, so it is the step that comes before "which RBP '
                     + 'binds this" or "load variants over the selection" when the user names a '
-                    + 'region instead of dragging one.',
+                    + 'region instead of dragging one. To GO TO a single position ("goto c.778") '
+                    + 'use go_to_position instead.',
                 needs: 'track',
                 params: {
                     region: {
@@ -576,7 +702,7 @@ function (graph, genegraph_panel_layout) {
                     track: { type: 'string', about: 'which track, by name. Omit when there is only one, or to use the selected one' }
                 },
                 run: async (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const t = pickTrack(a);
                     if (!t) { result('Which track? Name it, or click one first.'); return; }
                     const R = await regionsOf(t);
                     if (!R) { result('Could not read the regions of ' + (t.name || 'that track') + '.'); return; }
@@ -614,7 +740,7 @@ function (graph, genegraph_panel_layout) {
                         + ' to ' + r.end.toLocaleString() + '.');
                 },
                 preview: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const t = pickTrack(a);
                     const R = regionsNow(t);
                     const where = t ? (' of ' + (t.name || 'the track')) : '';
                     if (R) {
@@ -626,11 +752,20 @@ function (graph, genegraph_panel_layout) {
                         + ((a.index != null) ? (' ' + a.index) : '');
                     return 'select the ' + what + where;
                 },
+                // Only when no single track is implied: a selection or a clicked track still
+                // decides it, as before.
+                choices: (a) => oneTrack() ? [] : choicesOver(a, (x) => {
+                    const R = regionsNow(x); if (!R) return null;
+                    const r = R.resolve(a); if (r.error) return r;
+                    return { detail: r.label + ': ' + (r.end - r.start).toLocaleString() + ' nt, '
+                        + r.start.toLocaleString() + ' to ' + r.end.toLocaleString() };
+                }),
                 // Resolved before the button so "this transcript has 11 exons, so there is no
                 // exon 14" is something the user reads instead of a run that does nothing.
                 argBlocker: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const t = pickTrack(a);
                     if (!t) {
+                        if (!a.track && choicesOver(a, (x) => regionsNow(x) && regionsNow(x).resolve(a)).length > 1) return '';
                         return a.track
                             ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
                                 + tracks().map((x) => x.name || '(unnamed)').join(', '))
@@ -1081,6 +1216,11 @@ function (graph, genegraph_panel_layout) {
             const v = validate(step);
             if (!v.ok) return { ok: false, text: v.problem };
             const c = v.capability;
+            // Which tracks this step could run on, when it names none. One: it simply runs
+            // there. Several: the card offers a Go for each rather than guessing.
+            let choices = [];
+            try { choices = c.choices ? (c.choices(v.args) || []) : []; } catch (e) { choices = []; }
+            if (choices.length === 1) { v.args = choices[0].args; choices = []; }
             let text;
             try { text = c.preview ? c.preview(v.args) : c.summary.split('.')[0].toLowerCase(); }
             catch (e) { text = c.summary.split('.')[0].toLowerCase(); }
@@ -1094,7 +1234,8 @@ function (graph, genegraph_panel_layout) {
             return {
                 ok: true, capability: c, args: v.args, text: text, count: n,
                 blocker: b, destructive: !!c.destructive,
-                opens: !!c.opens, answers: !!c.answers
+                opens: !!c.opens, answers: !!c.answers,
+                choices: choices.length > 1 ? choices : null
             };
         };
 
