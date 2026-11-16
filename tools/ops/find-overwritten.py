@@ -54,6 +54,9 @@ def parse_args():
     p.add_argument("--apps-dir", default=os.environ.get("APPS_DIR", "/opt/baja-apps"))
     p.add_argument("--run", help="detail this run stamp instead of the latest")
     p.add_argument("--all", action="store_true", help="detail every run")
+    p.add_argument("--file", help="every backup of ONE path, oldest first")
+    p.add_argument("--grep", metavar="TEXT",
+                   help="which backups still contain TEXT (finds code a deploy removed)")
     p.add_argument("--commands", action="store_true", help="print restore commands")
     p.add_argument("--archive", action="store_true", help="tar every backup to $HOME")
     p.add_argument("--tolerance", type=int, default=180,
@@ -243,6 +246,114 @@ def shq(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def backup_rows(inv, backups):
+    """Classified rows for an arbitrary set of backups, oldest content first."""
+    rows = []
+    for b in backups:
+        live, suffix = split_suffix(b)
+        try:
+            st = os.stat(b)
+            mtime, size = st.st_mtime, st.st_size
+        except OSError:
+            mtime, size = 0, 0
+        rows.append({
+            "rel": inv.rel(live), "live": live, "backup": b, "suffix": suffix,
+            "mtime": mtime, "written": when(mtime), "size": size,
+            "origin": inv.origin_run(mtime) if TS_RE.match(suffix) else None,
+            "named": not TS_RE.match(suffix),
+        })
+    rows.sort(key=lambda r: r["mtime"])
+    return rows
+
+
+def describe_origin(row):
+    if row["named"]:
+        return "applied by hand (.before-%s)" % row["suffix"]
+    if row["origin"]:
+        return "content from deploy run %s" % row["origin"]
+    return "NOT FROM A DEPLOY -- written on the box"
+
+
+def report_file(inv, path, show_commands):
+    """Every backup of one path, so the right version can be picked."""
+    rel = path.lstrip("/")
+    if rel.startswith(inv.apps_dir.lstrip("/")):
+        rel = inv.rel("/" + rel)
+    live = os.path.join(inv.apps_dir, rel)
+    mine = [b for b in inv.backups if split_suffix(b)[0] == live]
+
+    print()
+    hr()
+    print("EVERY BACKUP OF %s" % rel)
+    hr()
+    if not mine:
+        print("  No backups of that path. Either it has never been replaced in")
+        print("  place, or the path is wrong. Known paths look like:")
+        for b in inv.backups[:3]:
+            print("    %s" % inv.rel(split_suffix(b)[0]))
+        return
+
+    live_size = os.path.getsize(live) if os.path.isfile(live) else None
+    print("  live now: %s" % ("%d bytes" % live_size if live_size is not None else "MISSING"))
+    print("  %d backup(s), oldest content first:" % len(mine))
+    print()
+    for r in backup_rows(inv, mine):
+        print("  %s   %8d bytes   %s" % (r["written"], r["size"], describe_origin(r)))
+        print("      %s" % r["backup"])
+    if show_commands:
+        print()
+        print("  To read one, and to put it back:")
+        print("    sudo diff -u <backup> %s" % shq(live))
+        print("    sudo cp -p <backup> %s" % shq(live))
+
+
+def report_grep(inv, text, show_commands):
+    """Which backups still contain TEXT. Finds code a deploy removed."""
+    needle = text.encode("utf-8", "replace")
+    hits = [b for b in inv.backups if (read_bytes(b) or b"").find(needle) >= 0]
+
+    print()
+    hr()
+    print("BACKUPS CONTAINING %r" % text)
+    hr()
+    live_hits = []
+    for root, _dirs, files in os.walk(inv.apps_dir):
+        for name in files:
+            if MARK in name:
+                continue
+            p = os.path.join(root, name)
+            if (read_bytes(p) or b"").find(needle) >= 0:
+                live_hits.append(p)
+
+    print("  live files containing it:   %d" % len(live_hits))
+    for p in sorted(live_hits)[:20]:
+        print("      %s" % inv.rel(p))
+    print("  backups containing it:      %d" % len(hits))
+    if not hits:
+        print()
+        print("  Not in any backup. If it is not in a live file either, no copy of")
+        print("  it survives under %s." % inv.apps_dir)
+        return
+
+    print()
+    by_path = {}
+    for r in backup_rows(inv, hits):
+        by_path.setdefault(r["rel"], []).append(r)
+    for rel in sorted(by_path):
+        print("  %s" % rel)
+        for r in by_path[rel]:
+            print("      %s   %s" % (r["written"], describe_origin(r)))
+            print("          %s" % r["backup"])
+        if show_commands:
+            newest = by_path[rel][-1]
+            print("      # the newest copy holding it:")
+            print("      sudo diff -u %s %s" % (shq(newest["backup"]), shq(newest["live"])))
+    print()
+    print("  A backup holding text that no live file has is a change this box")
+    print("  once had and a deploy removed. Take it from here, then get it into")
+    print("  the repo -- restoring it alone only lasts until the next deploy.")
+
+
 def report_named(inv):
     if not inv.named:
         return
@@ -304,6 +415,13 @@ def main():
 
     if args.archive:
         do_archive(inv)
+
+    if args.grep:
+        report_grep(inv, args.grep, args.commands)
+        return 0
+    if args.file:
+        report_file(inv, args.file, args.commands)
+        return 0
 
     if args.all:
         for stamp in inv.run_stamps:
