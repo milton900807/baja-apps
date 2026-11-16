@@ -325,6 +325,10 @@ if [[ $DO_API -eq 1 ]]; then
     "py/analytics/indication-browse.py:Reading the indication-market store" \
     "baja/research.js:baja-research" \
     "baja/home.js:data-door=\"research\""
+  # Remove SNPs by phase: the remove-SNPs menu lists each phase on the track (or selection)
+  # and deletes every SNP/indel of the one chosen.
+  install_group "remove SNPs by phase" \
+    "baja/manchester/menu/remove-snps-menu.js:REMOVE BY PHASE"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
