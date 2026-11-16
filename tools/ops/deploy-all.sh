@@ -350,6 +350,17 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/gene-draw.js:BIG, OUTLINED, AND ONE" \
     "baja/manchester/menu/mark-compound-locations.js:FRAME THE TRANSCRIPT, because" \
     "baja/manchester/menu/editor-capabilities.js:show_compound_locations"
+  # "create mRNA track from DNM3" was refused as not something the editor can do, while the
+  # track menu had offered Convert to mRNA all along. Both were right: the planner is handed
+  # editor-capabilities.js as its entire vocabulary, so an operation missing from that file
+  # cannot be reached from the box however plainly it is asked for.
+  #
+  # ONE FILE, and the marker is the new capability's own name rather than a phrase the older
+  # groups already match. Those are shared by both versions of the file, so a box still
+  # holding the 25-operation copy would pass their served-check and the box would go on
+  # refusing the request with nothing to show why.
+  install_group "Ask: splice a track into an mRNA" \
+    "baja/manchester/menu/editor-capabilities.js:convert_to_mrna"
   # A request in flight has to look like one: the only sign was grey 12px text, so a slow
   # answer read as a box that had ignored Enter -- and a second Enter execs a second copy of
   # the module, which used to start a second request beside the first.

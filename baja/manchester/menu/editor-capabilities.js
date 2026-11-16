@@ -890,6 +890,83 @@ function (graph, genegraph_panel_layout) {
                 run: async () => { try { await graph.viewAllTracks(); } catch (e) { } result('Zoomed out to every track.'); }
             },
 
+            // SPLICE A TRACK INTO AN mRNA. The track menu has offered this for a while
+            // ("Convert to mRNA", in baja/manchester/menu/mouse-over-highlight.js); the box
+            // could not, so "create mRNA track from DNM3" came back as not something the
+            // editor can do. That was true as written: the planner is handed this file as its
+            // whole vocabulary, so an operation absent from here is unreachable however
+            // plainly it is asked for.
+            //
+            // THE PRECONDITIONS ARE THE MENU'S, not new ones. The menu answers them by not
+            // drawing the item at all; argBlocker has to say them out loud instead, because
+            // by then someone has already asked.
+            //
+            // The menu keeps its own copy of this logic rather than both calling one
+            // function. Copied here deliberately rather than refactoring the menu from the
+            // Ask box: these two will drift, and the right fix is one function both call.
+            {
+                name: 'convert_to_mrna',
+                summary: 'Build a spliced mRNA track from a gene track that has introns, '
+                    + 'carrying its variants, compounds and plots across. Use this for '
+                    + '"make an mRNA from X", "splice X", "create an mRNA track from X".',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string', required: false,
+                        about: 'the track name, or enough of it to pick it out. Use the names '
+                            + 'given in canvas_now. Leave it out to use the selected track.'
+                    }
+                },
+                run: (a) => {
+                    const st = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!st) { result('No single track matches “' + (a.track || '') + '”.'); return; }
+                    if (!st.sequence) { result('No sequence on ' + (st.name || 'that track') + ' to splice into mRNA.'); return; }
+                    let track;
+                    try { track = st.createTrackFromAnnotation('CDNA'); }
+                    catch (e) { result('Could not build mRNA: ' + (e && e.message ? e.message : e)); return; }
+                    if (!track) { result('Could not build the mRNA track.'); return; }
+                    // Carried across exactly as the menu does it, each guarded on its own so a
+                    // track with no compounds still gets its variants.
+                    try { if (st.snpindels && st.snpindels.length > 0) { track.liftSnpindels(); track.targetPhase = st.targetPhase; } } catch (e) { }
+                    try { if (st.oligos && st.oligos.length > 0) track.liftCompounds(); } catch (e) { }
+                    try { if (st.plots && st.plots.length > 0) track.liftPlots(); } catch (e) { }
+                    graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
+                    try { graph.deselectAllTracks(); } catch (e) { }
+                    try { track.select(); } catch (e) { }
+                    // grid || tgraph. createTrackFromAnnotation builds a track carrying a GRID
+                    // (baja/bio/track-flexi.js), so reading .tgraph alone threw straight into
+                    // the catch and the new track was created off screen with nothing said.
+                    // The menu learned that the hard way; the same rule holds here.
+                    try {
+                        const ax = track.grid || track.tgraph;
+                        if (ax) graph.animateTo(ax.xi - 100, ax.xi + ax.width + 100, ax.Y(-3), ax.Y(3));
+                    } catch (e) { }
+                    result('Created ' + (track.name || 'an mRNA track') + ' from ' + (st.name || 'track') + '.');
+                },
+                preview: (a) => {
+                    const st = a.track ? matchTrack(a.track) : oneTrack();
+                    return st ? ('splice ' + (st.name || 'that track') + ' into an mRNA track')
+                              : ('splice the track “' + (a.track || '') + '” into an mRNA track');
+                },
+                argBlocker: (a) => {
+                    const st = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!st) {
+                        return a.track
+                            ? ('no single track matches “' + a.track + '”: open tracks are '
+                                + tracks().map((t) => t.name || '(unnamed)').join(', '))
+                            : 'no single track is selected, so there is nothing to splice';
+                    }
+                    if (st.track_type === 'CDNA') return (st.name || 'that track') + ' is already an mRNA';
+                    try {
+                        if (!(st.containsIntrons && st.containsIntrons())) {
+                            return (st.name || 'that track') + ' has no introns, so an mRNA of it would be a copy of it';
+                        }
+                    } catch (e) { }
+                    if (!st.sequence) return (st.name || 'that track') + ' has no sequence to splice';
+                    return '';
+                }
+            },
+
             // ---------------------------------------------------------------- answering ----
             {
                 name: 'ask_variants',
