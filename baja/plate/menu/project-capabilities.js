@@ -20,6 +20,30 @@ function () {
 
     const LIST = [
         {
+            // DATES READ OUT OF TEXT. "Load milestones and intervals derived from my mail":
+            // the reading is this, whatever the text comes from.
+            name: 'events_from_text',
+            summary: 'read dated commitments out of text -- a pasted email, a thread, notes, '
+                + 'minutes -- and put them on a timeline as milestones and intervals. THIS IS '
+                + 'THE ANSWER to "pull the dates out of this", "put the deadlines in this '
+                + 'email on the timeline", "load milestones from my mail". What is found is '
+                + 'shown with the words it came from before anything is added',
+            module: 'baja/plate/ops/text-to-timeline.js',
+            params: {
+                text: { type: 'string', default: 'the user is asked to paste it',
+                    about: 'the text to read, ONLY when the request itself contains it. A '
+                        + 'request that merely refers to an email or a document does not: '
+                        + 'leave this out and the user is asked to paste it' },
+                sent: { type: 'string', default: 'today',
+                    about: 'the date the text was written, as YYYY-MM-DD, if the request says '
+                        + 'it: "tomorrow" in an old email is a day near when it was sent, not '
+                        + 'near today' },
+                timeline: { type: 'string', default: 'the timeline the request was made from, '
+                        + 'or the only one here',
+                    about: 'the NAME of the timeline to put them on' }
+            }
+        },
+        {
             // A CALENDAR ON A TIMELINE. "Integrate my calendar" had nothing behind it.
             name: 'import_calendar',
             summary: 'put the events from a calendar onto a timeline. THIS IS THE ANSWER to '
@@ -507,6 +531,10 @@ function () {
             return 'make a new table ' + (args.name ? ('called ' + args.name + ' ') : '')
                 + 'and have the selected cells read from it'
                 + (args.name ? '' : ' (it will ask for a name)');
+        }
+        if (name === 'events_from_text') {
+            return 'read the dates out of ' + (args.text ? 'that text' : 'text you paste')
+                + ' and put them on ' + (args.timeline ? ('"' + args.timeline + '"') : 'the timeline');
         }
         if (name === 'import_calendar') {
             return 'put a calendar\u2019s events on '
