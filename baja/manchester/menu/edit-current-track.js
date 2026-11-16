@@ -104,30 +104,11 @@ function (graph, genegraph_panel_layout, selectedTrack) {
             {
                 label: 'Create mRNA',
                 click: async (xwc, ywc) => {
-                    if (selectedTrack) {
-                        let seq = selectedTrack.sequence;
-                        if (!seq) {
-                            prompt(" No sequence found ")
-                        } else {
-                            let track = selectedTrack.createTrackFromAnnotation('CDNA')
-                            track.targetPhase = selectedTrack.targetPhase;
-                            graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
-                            // Data is mirrored from the parent by the per-draw diff sync.
-                            try { track.syncFromParent(); } catch (e) { }
-                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                            graph.deselectAllTracks()
-                            track.select();
-                            graph.animateTo(track.tgraph.xi - 100,
-                                track.tgraph.xi + track.tgraph.width + 100,
-                                track.tgraph.Y(-3), track.tgraph.Y(3))
-
-                            if (isMobile()) {
-                                CurrentLayout.clearComponent('mainPanel')
-                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-
-                            }
-                        }
-                    }
+                    // One builder, in baja/bio/orfs/make-mrna.js: this was the same twenty
+                    // lines in two menus, and the typed command could reach neither.
+                    const r = await exec('baja/bio/orfs/make-mrna.js', graph, selectedTrack,
+                        'CDNA', genegraph_panel_layout);
+                    if (r && r.error) { try { graph.setMessage(r.error, 8); } catch (e) { } }
 
                 }
                 ,

@@ -337,6 +337,64 @@ function (graph, genegraph_panel_layout) {
             },
 
             // ---------------------------------------------------------------- design -------
+            // ---------------------------------------------------------------- building ----
+            {
+                // THE SPLICED TRANSCRIPT, AS A TRACK. Both right-click menus have carried a
+                // Create mRNA item all along; the catalogue is what a typed request can
+                // reach, so "create mRNA from DNM1" found nothing.
+                name: 'create_mrna',
+                summary: 'BUILD THE mRNA (the spliced transcript) from a gene track and put it on '
+                    + 'the canvas as a new track: the exons joined in transcription order, no '
+                    + 'introns. This is the answer to "create mRNA from X", "make the mRNA", '
+                    + '"splice this", "give me the transcript sequence". The new track is '
+                    + 'selected, so the models and the designer can be run on it next.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the gene track to build from, by name, as given in canvas_now. '
+                            + 'Omit it when there is only one track or one is selected'
+                    },
+                    part: {
+                        type: 'enum', values: ['mRNA', 'CDS', 'Exon'], default: 'mRNA',
+                        about: 'mRNA for the whole spliced transcript, which is what is nearly '
+                            + 'always meant. CDS builds the coding sequence alone; Exon builds '
+                            + 'the exons as annotated'
+                    }
+                },
+                run: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('No single track matches that, so there is nothing to splice.'); return; }
+                    const part = /^cds$/i.test(a.part || '') ? 'CDS'
+                        : (/^exon$/i.test(a.part || '') ? 'Exon' : 'CDNA');
+                    return exec('baja/bio/orfs/make-mrna.js', graph, t, part, genegraph_panel_layout)
+                        .then((r) => { if (r && r.error) result(r.error); return r; });
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const what = /^cds$/i.test(a.part || '') ? 'the coding sequence'
+                        : (/^exon$/i.test(a.part || '') ? 'the exons' : 'the mRNA');
+                    return 'build ' + what + ' from ' + (t ? (t.name || 'that track') : ('\u201c' + (a.track || '') + '\u201d'))
+                        + ' as a new track';
+                },
+                argBlocker: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) {
+                        return a.track
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to build from: there is more than one open';
+                    }
+                    // Said before the button is pressed, not after a track appears that is the
+                    // whole genomic span under another name.
+                    if (!('' + (t.sequence || ''))) return (t.name || 'that track') + ' has no sequence loaded';
+                    const ex = (typeof t.getExons === 'function') ? (t.getExons() || [])
+                        : ((t.annotations || []).filter((x) => x && x.type === 'Exon'));
+                    if (!ex.length) return (t.name || 'that track') + ' has no exons annotated, so there is nothing to splice';
+                    return '';
+                }
+            },
+
             {
                 name: 'design_oligos',
                 summary: 'Open the oligo tiling designer, which walks a modality across the target '

@@ -383,6 +383,14 @@ if [[ $DO_API -eq 1 ]]; then
 
   # prompt() and infoPrompt() live in core.js, which has never been listed here: their
   # Cancel and Close were clicks the canvas got as well.
+  # "Create mRNA from DNM1" found nothing: the item existed in two right-click menus and
+  # not in the catalogue the typed command reads from.
+  install_group "the editor can be asked to build an mRNA" \
+    "baja/bio/orfs/make-mrna.js:BUILD THE SPLICED TRANSCRIPT AS A TRACK OF ITS OWN" \
+    "baja/manchester/menu/editor-capabilities.js:THE SPLICED TRANSCRIPT, AS A TRACK" \
+    "baja/manchester/menu/edit-current-track.js:One builder, in baja/bio/orfs/make-mrna.js" \
+    "baja/manchester/menu/edit-track.js:One builder, in baja/bio/orfs/make-mrna.js"
+
   install_group "a core dialog keeps its own clicks" \
     "lib/core.js:A PANEL OVER THE CANVAS KEEPS ITS OWN MOUSE EVENTS"
 
