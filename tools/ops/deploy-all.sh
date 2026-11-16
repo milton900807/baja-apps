@@ -372,7 +372,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a table can be asked for things from its own bar" \
     "baja/plate/ops/table-ask.js:ASKING A TABLE FOR SOMETHING, FROM ITS OWN TITLE BAR" \
     "baja/plate/ops/cell-from-table.js:A TABLE WITH NO NUMBERS IN IT IS COUNTED, NOT REFUSED" \
-    "baja/plate/ops/frun-object.js:WHICH CELL THIS FORMULA IS WRITTEN IN" \
+    "baja/plate/ops/frun-object.js:THE FORMULA MAP IS THE RECORD THAT DOES NOT GO STALE" \
     "baja/plate/ops/resolve-missing-references.js:count_rows" \
     "baja/plate/menu/project-capabilities.js:WHERE THE ROWS GO"
 

@@ -104,11 +104,56 @@ const num = (r) => { const v = val(r); return Number(v && typeof v === 'object' 
         { wells: [emp.wells[0][4]] })) === RIGHT,
        'naming a different cell as the owner leaves the real figures alone');
 
-    // A caller that says nothing about ownership (qpcr, the track views) keeps the text
-    // match it always had, so this change takes nothing away from them.
+    // ---- THE CALLERS THAT NAME NO OWNER, which is nearly all of them -------------------
+    // The engine is reached from fifteen places; plate-track.js's updateCalculations is the
+    // one the canvas actually runs and it passes an expression and the track, nothing more.
+    // So the engine works the owner out from the formula maps, which keep the TEXT against
+    // the cell permanently and are untouched by the number written back into it.
     emp = build(); said = [];
-    ok(num(await load('baja/plate/ops/frun-object.js', F, track(emp, said))) === RIGHT,
-       'a caller that names no owner still gets the right answer from the text match');
+    let tr = track(emp, said);
+    tr.root = [emp];
+    emp.formula = { '[1:1][4:4]': '=' + F };
+    tr.formulas = { 'employees[1:1][4:4]': '=' + F };
+    const seen2 = [];
+    for (let pass = 0; pass < 5; pass++) {
+        const v = num(await load('baja/plate/ops/frun-object.js', F, tr));
+        seen2.push(v);
+        emp.wells[1][4].setValue(parseFloat(v).toFixed(4));   // what updateWells writes back
+    }
+    ok(seen2.every((v) => v === RIGHT),
+       'told nothing but the expression and the project, it still holds steady across five '
+       + 'passes: ' + seen2.join(', '));
+
+    // The table's own map is enough on its own, and so is the project's.
+    emp = build(); said = []; tr = track(emp, said); tr.root = [emp];
+    emp.formula = { '[1:1][4:4]': '=' + F };
+    emp.wells[1][4].setValue('370000');
+    ok(num(await load('baja/plate/ops/frun-object.js', F, tr)) === RIGHT,
+       "the table's own formula map alone identifies the cell");
+
+    emp = build(); said = []; tr = track(emp, said); tr.root = [emp];
+    tr.formulas = { 'employees[1:1][4:4]': '=' + F };
+    emp.wells[1][4].setValue('370000');
+    ok(num(await load('baja/plate/ops/frun-object.js', F, tr)) === RIGHT,
+       "and so does the project's, which is keyed with the table name in front");
+
+    // A DIFFERENT formula in the range is still an error, not a silent omission: that is a
+    // real ordering problem and dropping it would make the total wrong rather than red.
+    emp = build(); said = []; tr = track(emp, said); tr.root = [emp];
+    emp.formula = { '[1:1][4:4]': '=' + F, '[1:1][2:2]': '=1+1' };
+    emp.wells[1][2].setValue('=1+1');
+    let threw = false;
+    try { await load('baja/plate/ops/frun-object.js', F, tr); } catch (e) { threw = true; }
+    const r2 = threw ? null : await load('baja/plate/ops/frun-object.js', F, tr);
+    ok(threw || !r2 || !r2.results || isNaN(num(r2)),
+       'another cell holding a different formula is not quietly left out');
+
+    // A cell somewhere else that happens to hold the same text is not in the range, so
+    // matching it changes nothing.
+    emp = build(); said = []; tr = track(emp, said); tr.root = [emp];
+    emp.formula = { '[1:1][4:4]': '=' + F, '[0:0][0:0]': '=' + F };
+    ok(num(await load('baja/plate/ops/frun-object.js', F, tr)) === RIGHT,
+       'a cell outside the range holding the same formula does not change the total');
 
     // ---- the wiring, which is the half that was missing --------------------------------
     const plate = fs.readFileSync('baja/plate/plate.js', 'utf8');

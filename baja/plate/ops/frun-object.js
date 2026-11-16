@@ -9,10 +9,55 @@ function (expression, pt, owner) {
     // into itself: 2,380,202 becomes 4,760,404 becomes 49,084,684, climbing every pass with
     // nothing to say it is wrong. Identity does not go stale, so the owner's own wells are
     // passed in and left out by reference.
+    // THE FORMULA MAP IS THE RECORD THAT DOES NOT GO STALE. A caller may say which cells it
+    // is working out -- plate.js does -- but the engine is reached from fifteen places and
+    // wiring each of them is fifteen chances to miss one, which is how this came back. So it
+    // works the owner out for itself: pt.formulas and each table's own formula map hold the
+    // TEXT of every formula against the cell it lives in, permanently, and the written-back
+    // number never touches them. Any cell recorded as holding this very expression is left
+    // out. Matching more cells than strictly own it costs nothing, because a cell is only
+    // ever dropped when it falls inside the range being read AND is recorded as holding the
+    // same formula, which is a cell that would be summing itself either way.
     const __ownWells = new Set();
     try {
         const ow = owner && (Array.isArray(owner) ? owner : owner.wells);
         if (Array.isArray(ow)) for (const w of ow) { if (w) __ownWells.add(w); }
+    } catch (e) { }
+    try {
+        const want = ('' + (expression == null ? '' : expression)).trim().replace(/^=/, '');
+        const tables = (pt && Array.isArray(pt.root))
+            ? pt.root.filter((t) => t && Array.isArray(t.wells)) : [];
+        const byName = (n) => {
+            for (const t of tables) if (t.name === n) return t;
+            try { if (pt && typeof pt.getTableByName === 'function') return pt.getTableByName(n); }
+            catch (e) { }
+            return null;
+        };
+        const addKey = (t, key, text) => {
+            if (!t || !Array.isArray(t.wells)) return;
+            if (('' + (text == null ? '' : text)).trim().replace(/^=/, '') !== want) return;
+            const m = ('' + key).match(/\[(\d+)(?::(\d+))?\]\s*\[(\d+)(?::(\d+))?\]\s*$/);
+            if (!m) return;
+            const c0 = +m[1], c1 = (m[2] == null ? +m[1] : +m[2]);
+            const r0 = +m[3], r1 = (m[4] == null ? +m[3] : +m[4]);
+            for (let c = c0; c <= c1; c++) {
+                for (let r = r0; r <= r1; r++) {
+                    const w = t.wells[c] && t.wells[c][r];
+                    if (w) __ownWells.add(w);
+                }
+            }
+        };
+        if (want) {
+            for (const t of tables) {
+                const fm = t.formula || {};
+                for (const k of Object.keys(fm)) addKey(t, k, fm[k]);
+            }
+            const pf = (pt && pt.formulas) || {};
+            for (const k of Object.keys(pf)) {
+                const m = ('' + k).match(/^(.*?)(\[\d+(?::\d+)?\]\s*\[\d+(?::\d+)?\])\s*$/);
+                if (m) addKey(byName(m[1]), m[2], pf[k]);
+            }
+        }
     } catch (e) { }
 
     return new Promise(async (resolve, reject) => {
