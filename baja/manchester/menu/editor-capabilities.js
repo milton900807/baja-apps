@@ -1363,13 +1363,22 @@ function (graph, genegraph_panel_layout) {
 
             {
                 name: 'show_compound_locations',
-                summary: 'Mark where the compounds are with a down arrow over the track, so they can '
-                    + 'be seen at a view too wide to show the compounds themselves. Answers "where '
-                    + 'are the compounds", "show me the locations", "where do these sit". Marks the '
-                    + 'selected ones when any are selected, otherwise all of them.',
+                summary: 'HIGHLIGHT THE COMPOUNDS / show where they are: marks each one with a down '
+                    + 'arrow over the track, so they can be seen at a view too wide to show the '
+                    + 'compounds themselves. This is what "highlight compounds", "highlight all '
+                    + 'compounds", "where are the compounds", "show me where the compounds are on the '
+                    + 'transcript", "show me the locations" and "where do these sit" all mean. Marks '
+                    + 'the selected ones when any are selected, unless the request asks for all.',
                 needs: 'compounds',
                 params: {
-                    scope: { type: 'enum', values: ['selected', 'all'], about: 'omit to mark the selection when there is one' },
+                    scope: {
+                        type: 'enum', values: ['selected', 'all'],
+                        about: 'use all when the request says all, every, the whole track or the whole '
+                            + 'transcript -- "highlight all compounds", "where are all the compounds on '
+                            + 'the transcript" -- which means every compound even when some are '
+                            + 'selected. Use selected for "these" or "the selected ones". Omit to mark '
+                            + 'the selection when there is one and everything otherwise'
+                    },
                     clear: { type: 'boolean', about: 'true to take the arrows off again' }
                 },
                 count: (a) => {
@@ -1388,9 +1397,19 @@ function (graph, genegraph_panel_layout) {
                             + (r && r.noPosition ? (': ' + r.noPosition + ' compounds have no position on the track.') : '.'));
                         return;
                     }
-                    result('Marked ' + r.marked + ' compound' + (r.marked === 1 ? '' : 's') + ' on '
+                    // WHEN IT MARKED ONLY THE SELECTION, SAY SO. With 85 of 210 compounds
+                    // selected, "highlight compounds" marks 85 and a bare count reads as though
+                    // that were all of them. The line now says which it did and how to get the rest.
+                    const sel = selectedCompoundSet();
+                    const usedSel = (a.scope === 'selected') || (a.scope !== 'all' && sel.size > 0);
+                    const total = crows().length;
+                    result('Marked ' + r.marked + (usedSel ? ' selected' : '') + ' compound'
+                        + (r.marked === 1 ? '' : 's') + ' on '
                         + r.tracks + ' track' + (r.tracks === 1 ? '' : 's')
-                        + (r.noPosition ? ('. ' + r.noPosition + ' have no position and could not be placed.') : '.'));
+                        + (r.noPosition ? ('. ' + r.noPosition + ' have no position and could not be placed.') : '.')
+                        + ((usedSel && total > r.marked)
+                            ? (' ' + total + ' compounds in all \u2014 say \u201chighlight all compounds\u201d for every one.')
+                            : ''));
                 },
                 preview: (a) => {
                     if (a.clear) return 'take the compound location arrows off';
