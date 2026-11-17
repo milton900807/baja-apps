@@ -112,7 +112,10 @@ function (graph, genegraph_panel_layout) {
         // about 100 px tall. Same arithmetic as load-clinical-compound.js, which was tuned on
         // the real canvas. zoomRect() returns immediately while another animation runs, so wait
         // for the graph to go idle first.
-        const frameBase = async (t, pos) => {
+        const frameBase = (t, pos) => frameRange(t, pos, pos + 1);
+        // A stretch [lo, hi): shown whole, but never wider than it has to be -- anything shorter
+        // than a screenful of readable bases is framed at letter resolution, centred.
+        const frameRange = async (t, lo, hi) => {
             const g = t && t.tgraph;
             if (!g || typeof g.X !== 'function' || !graph.zoomRect) return;
             const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -120,8 +123,9 @@ function (graph, genegraph_panel_layout) {
             let cw = 1200, ch = 800;
             try { cw = (graph.canvas && graph.canvas.width) || cw; ch = (graph.canvas && graph.canvas.height) || ch; } catch (e) { }
             const PX_PER_BASE = 44;
-            const half = Math.max(6, Math.floor(cw / PX_PER_BASE)) / 2;
-            const mid = pos + 0.5;
+            const L = Math.max(1, Math.abs(hi - lo));
+            const half = Math.max(Math.max(6, Math.floor(cw / PX_PER_BASE)), L * 1.15) / 2;
+            const mid = (Math.min(lo, hi) + Math.max(lo, hi)) / 2;
             const x0 = g.X(mid - half), x1 = g.X(mid + half);
             let ymin, ymax;
             try {
@@ -194,6 +198,57 @@ function (graph, genegraph_panel_layout) {
         const crows = () => {
             const out = [];
             for (const t of tracks()) for (const o of (t.oligos || [])) out.push({ t: t, o: o });
+            return out;
+        };
+        // EVERY OBJECT ON THE CANVAS AS ONE LIST of { kind, track, lo, hi, label, detail, hay, ref }
+        // for zoom_to_objects. Variants are searched through VS.recordOf, the same record the
+        // variant search reads, so "pathogenic" finds them by clinical significance rather
+        // than only by name. Every word of the query must appear somewhere in hay.
+        const objectHits = (a) => {
+            const words = ('' + ((a && a.query) || '')).toLowerCase().split(/\s+/).filter(Boolean);
+            if (!words.length) return [];
+            const kind = (a && a.kind) || 'any';
+            const want = (k) => kind === 'any' || kind === k;
+            const num = (x) => (Number.isFinite(+x) ? +x : null);
+            // Collected first, matched after: WHOLE WORDS when that finds anything, so
+            // "pathogenic" is not also "conflicting interpretations of pathogenicity";
+            // substrings only when whole words find nothing, so "patho" still works.
+            const all = [];
+            const add = (o) => { if (o.lo != null && o.hi != null) all.push(o); };
+            for (const t of tracks()) {
+                const tn = t.name || 'track';
+                if (want('tracks')) add({ kind: 'track', track: t, lo: num(t.xi), hi: num(t.xf), label: tn,
+                    detail: 'the whole track', hay: [tn, t.geneID, t.description, t.track_type].filter(Boolean).join(' ') });
+                if (want('variants')) for (const v of (t.snpindels || [])) {
+                    if (!v) continue;
+                    let rec = null; try { rec = VS.recordOf(v); } catch (e) { rec = null; }
+                    const x = num(v.xi); if (x == null) continue;
+                    const len = Math.max(1, ('' + (v.reference || '')).length);
+                    const sig = rec && rec.clinsig ? rec.clinsig.replace(/_/g, ' ') : '';
+                    add({ kind: 'variant', ref: v, track: t, lo: x, hi: x + len,
+                        label: 'Variant ' + ((rec && rec.name) || v.name || v.id || ((v.reference || '') + '>' + (v.alternate || ''))),
+                        detail: [tn, rec && rec.change, sig, rec && rec.condition].filter(Boolean).join(' \u00b7 '),
+                        hay: ['variant snp', rec ? rec.all : (v.name || ''), tn].join(' ') });
+                }
+                if (want('compounds')) for (const o of (t.oligos || [])) {
+                    if (!o) continue;
+                    add({ kind: 'compound', ref: o, track: t, lo: num(o.xi), hi: num(o.xf != null ? o.xf : o.xi),
+                        label: (o.type ? ('' + o.type).toUpperCase() + ' ' : 'Compound ') + (o.name || o.id || ''),
+                        detail: tn + (o.synthesisSequence ? ' \u00b7 ' + o.synthesisSequence : ''),
+                        hay: ['compound oligo', o.name, o.id, o.type, o.synthesisSequence, tn].filter(Boolean).join(' ') });
+                }
+                if (want('annotations')) for (const n of (t.annotations || [])) {
+                    if (!n) continue;
+                    const lo = num(Math.min(n.xi, n.xf != null ? n.xf : n.xi)), hi = num(Math.max(n.xi, n.xf != null ? n.xf : n.xi));
+                    add({ kind: 'annotation', ref: n, track: t, lo: lo, hi: hi,
+                        label: (n.type ? n.type + ' ' : '') + (n.name || ''),
+                        detail: tn + (n.description ? ' \u00b7 ' + n.description : ''),
+                        hay: ['annotation', n.name, n.type, n.description, tn].filter(Boolean).join(' ') });
+                }
+            }
+            const toks = (o) => o.__toks || (o.__toks = new Set(o.hay.toLowerCase().split(/[^a-z0-9.*>+-]+/).filter(Boolean)));
+            let out = all.filter((o) => words.every((w) => toks(o).has(w)));
+            if (!out.length) out = all.filter((o) => { const h = o.hay.toLowerCase(); return words.every((w) => h.indexOf(w) >= 0); });
             return out;
         };
         const selectVariants = (rows) => {
@@ -682,6 +737,63 @@ function (graph, genegraph_panel_layout) {
                     if (!R) return '';
                     return R.position(a.position).error || '';
                 }
+            },
+            {
+                // ZOOM TO WHATEVER ON THE CANVAS MATCHES SOME WORDS. "zoom into the pathogenic
+                // variant" names a thing by what it IS, not where it is, so this searches every
+                // object the canvas holds -- variants by their whole record (clinical
+                // significance, condition, consequence, gene, change), compounds, annotations
+                // such as exons, and the tracks themselves -- and offers a GO per hit, each
+                // zooming to letter resolution. One hit just goes there.
+                name: 'zoom_to_objects',
+                summary: 'FIND AND ZOOM TO objects on the canvas by keywords: "zoom into the pathogenic '
+                    + 'variant", "take me to the ASO", "show me exon 7", "go to the frameshift", "where is '
+                    + 'rs6025". Searches variants, compounds, annotations and tracks, and offers one GO per '
+                    + 'match, each zooming in until the bases can be read. Use this when the request names '
+                    + 'WHAT to look at; use go_to_position when it names a position such as c.778.',
+                params: {
+                    query: {
+                        type: 'string', required: true,
+                        about: 'the words that identify the object, as they would appear on it: '
+                            + '"pathogenic", "frameshift", "rs6025", "exon 7", an oligo name. Spell them '
+                            + 'correctly ("pathologic" means pathogenic). Every word must match. Leave out '
+                            + 'the kind of object; that goes in kind'
+                    },
+                    kind: {
+                        type: 'enum', values: ['any', 'variants', 'compounds', 'annotations', 'tracks'],
+                        default: 'any',
+                        about: 'what sort of object, when the request says ("the pathogenic VARIANT" is variants)'
+                    }
+                },
+                run: async (a) => {
+                    let h = a.__hit;
+                    if (!h) {
+                        const hits = objectHits(a);
+                        if (!hits.length) { result('Nothing on the canvas matches \u201c' + a.query + '\u201d.'); return; }
+                        if (hits.length > 1) { result(hits.length + ' objects match \u201c' + a.query + '\u201d: ask again and pick one.'); return; }
+                        h = hits[0];
+                    }
+                    if (h.kind === 'variant') {
+                        try { selectVariants([{ v: h.ref }]); } catch (e) { }
+                    }
+                    try { graph.selectedTrack = h.track; } catch (e) { }
+                    try { await frameRange(h.track, h.lo, h.hi); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result(h.label + ' \u00b7 ' + (h.track.name || 'track') + '.');
+                },
+                count: (a) => objectHits(a).length,
+                preview: (a) => {
+                    const n = objectHits(a).length;
+                    const what = (a.kind && a.kind !== 'any') ? a.kind : 'objects';
+                    return n === 1 ? ('zoom to the one ' + what.replace(/s$/, '') + ' matching \u201c' + a.query + '\u201d')
+                        : ('zoom to ' + what + ' matching \u201c' + a.query + '\u201d');
+                },
+                choices: (a) => {
+                    if (a.__hit) return [];
+                    return objectHits(a).map((h) => ({ label: h.label, detail: h.detail, args: Object.assign({}, a, { __hit: h }) }));
+                },
+                choiceTitle: (a, ch) => ch.length + ' match \u201c' + a.query + '\u201d \u2014 zoom to which?',
+                argBlocker: (a) => objectHits(a).length ? '' : ('nothing on the canvas matches \u201c' + a.query + '\u201d')
             },
             {
                 name: 'select_sequence_region',
@@ -1241,7 +1353,8 @@ function (graph, genegraph_panel_layout) {
                 ok: true, capability: c, args: v.args, text: text, count: n,
                 blocker: b, destructive: !!c.destructive,
                 opens: !!c.opens, answers: !!c.answers,
-                choices: choices.length > 1 ? choices : null
+                choices: choices.length > 1 ? choices : null,
+                choiceTitle: (choices.length > 1 && c.choiceTitle) ? c.choiceTitle(v.args, choices) : null
             };
         };
 

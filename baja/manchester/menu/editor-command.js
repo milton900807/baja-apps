@@ -502,18 +502,24 @@ function (graph, genegraph_panel_layout, options) {
                 // c.778" with three transcripts open, where c.778 is a different place on each --
                 // lists them, each with its own Go, instead of refusing until a track is named.
                 if (good.length === 1 && good[0].p.choices && !good[0].p.blocker) {
-                    const p0 = good[0].p, ch = p0.choices;
+                    // Long lists (forty pathogenic variants) scroll, and stop at CHOICE_MAX with a
+                    // note to narrow the words rather than drawing hundreds of buttons.
+                    const CHOICE_MAX = 40;
+                    const p0 = good[0].p, ch = p0.choices.slice(0, CHOICE_MAX);
                     out.innerHTML = card(
-                        '<div style="font:700 13px Arial;color:#7fb0e8;">' + H(p0.text.replace(/^(\S+)/, (w) => w.charAt(0).toUpperCase() + w.slice(1)))
-                        + ' — on which track?</div>'
-                        + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:5px;">from “' + H(ask) + '” · '
-                        + ch.length + ' open tracks have it</div>'
+                        '<div style="font:700 13px Arial;color:#7fb0e8;">' + (p0.choiceTitle ? H(p0.choiceTitle)
+                            : (H(p0.text.replace(/^(\S+)/, (w) => w.charAt(0).toUpperCase() + w.slice(1))) + ' — on which track?')) + '</div>'
+                        + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:5px;">from “' + H(ask) + '”'
+                        + (p0.choiceTitle ? '' : (' · ' + ch.length + ' open tracks have it'))
+                        + (p0.choices.length > CHOICE_MAX ? (' · showing the first ' + CHOICE_MAX + '; add a word to narrow it') : '') + '</div>'
+                        + '<div style="max-height:46vh;overflow-y:auto;">'
                         + ch.map((o, i) => '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.08);">'
                             + '<div style="min-width:0;flex:1 1 auto;"><div style="font:700 12.5px Arial;color:#e8f0fb;">' + H(o.label) + '</div>'
                             + (o.detail ? ('<div style="font:11px Arial;color:#6b8299;margin-top:3px;">' + H(o.detail) + '</div>') : '')
                             + '</div>'
                             + '<button id="ec-c' + i + '" style="cursor:pointer;border-radius:8px;padding:8px 16px;font:700 12.5px Arial;'
                             + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;flex:0 0 auto;">GO</button></div>').join('')
+                        + '</div>'
                         + warn
                         + '<div style="display:flex;gap:10px;margin-top:13px;"><button id="ec-no" style="' + btn + '">Cancel</button></div>');
                     q('#ec-no').onclick = () => {
