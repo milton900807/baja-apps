@@ -556,8 +556,33 @@ seed-pattern, GGG | Required
         onlyMissing = (__choice.scope === 'unscreened');
         selectedOnly = (__choice.scope === 'selected');
         returnMode = 'editdistance';
-        graph.setMessage(' Edit distance : ' + editDistance + ' ');
-        graph.rungraph((g) => { runOffTargets(g, [selected_genome], editDistance); });
+
+        // START IT, AND SAY SO IF IT CANNOT START. The old path handed the work to
+        // graph.rungraph inside a 2-second setTimeout -- a timer callback, where a throw goes
+        // nowhere. Pressing Run then did nothing at all: no screen, no error, no message. The
+        // timeout existed only because the panel had replaced the canvas and the remount
+        // needed a moment; nothing is replaced now, so there is nothing to wait for.
+        //
+        // runOffTargets does the rest of the feedback itself -- the progress bar and Cancel in
+        // the button panel, the gunsight and red glow on the compound being searched, and the
+        // camera walking to each one as its results land.
+        try { graph.setMessage(' Starting off-target screen \u2014 edit distance ' + editDistance + '\u2026 '); } catch (e) { }
+        const __startRun = async () => {
+            try {
+                if (typeof graph.rungraph === 'function') {
+                    await graph.rungraph((g) => runOffTargets(g || graph, [selected_genome], editDistance));
+                } else {
+                    await runOffTargets(graph, [selected_genome], editDistance);
+                }
+            } catch (e) {
+                const __m = (e && e.message) ? e.message : ('' + e);
+                try { console.error('[off-targets] the screen failed to start', e); } catch (e2) { }
+                try { graph.setMessage(' The off-target screen could not start: ' + __m + ' '); } catch (e2) { }
+                // Whatever happened, do not leave the canvas inert with the pointer disabled.
+                try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); } catch (e2) { }
+            }
+        };
+        __startRun();
 
         resolve();
 

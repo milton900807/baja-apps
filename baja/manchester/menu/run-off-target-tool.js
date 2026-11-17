@@ -60,6 +60,7 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             const pattern = /(\w)\1{3,}/g;
             let ot_oligos = []
             let warn = false;
+            let __noSeq = 0;   // compounds carrying nothing searchable
             let seqList = []
             // The tracks to screen: the ones this run was opened FOR, else the whole canvas.
             // The Design menu passes its own track, so a screen reached by walking Design >
@@ -97,6 +98,12 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
 
                 }
                 for (let o of oligos) {
+                    // NOTHING TO SEARCH IS NOT A CRASH. A compound with no sequence reached
+                    // Biopolymer.reverseComp(o.sequence) and o.sequence.match() below, both of
+                    // which throw on undefined -- and the throw escaped a run started from a
+                    // timer, so the whole screen died before drawing anything and the button
+                    // looked inert. Counted and skipped, and said at the end.
+                    if (!('' + (o.sequence || o.synthesisSequence || '')).trim()) { __noSeq++; continue; }
                     o.__strand = t.strand;   // remember strand for the query rebuild below
                     // Off-target query = reverse-complement of the target region read straight
                     // from the track (genomic+, guaranteed in the index) so every oligo —
@@ -111,8 +118,12 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
 
                         if (t.strand < 0) {
                             o.synthesisSequence = o.sequence   // reverse strand: ASO = genomic+ target
-                        } else {
+                        } else if (Biopolymer && Biopolymer.reverseComp) {
                             o.synthesisSequence = Biopolymer.reverseComp(o.sequence)
+                        } else {
+                            // The chemistry module did not load; the raw sequence is wrong for
+                            // this strand, so skip rather than search the wrong thing.
+                            __noSeq++; continue;
                         }
 
                     }
@@ -136,6 +147,18 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             }
 
             // Reading order — left→right (genomic x), then top→bottom (world-y desc) —
+            // NOTHING TO RUN IS AN ANSWER, SAID OUT LOUD. An empty queue used to walk the
+            // loop below zero times and end without drawing anything, which from the button is
+            // indistinguishable from a screen that failed to start.
+            if (!ot_oligos.length) {
+                const __why = __noSeq
+                    ? (__noSeq + ' compound' + (__noSeq === 1 ? '' : 's') + ' in view carry no sequence to search.')
+                    : 'No compounds in that scope are in view.';
+                try { graph.setMessage(' Nothing to screen \u2014 ' + __why + ' '); } catch (e) { }
+                try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); } catch (e) { }
+                return;
+            }
+
             // and cap each run at 200 oligos; rebuild the query list in that order.
             try {
                 ot_oligos.sort((a, b) => { const ax = Math.min(a.xi, a.xf), bx = Math.min(b.xi, b.xf); if (ax !== bx) return ax - bx; return (b.y || 0) - (a.y || 0); });
@@ -473,8 +496,33 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
         onlyMissing = (__choice.scope === 'unscreened');
         selectedOnly = (__choice.scope === 'selected');
         returnMode = 'editdistance';
-        graph.setMessage(' Edit distance : ' + editDistance + ' ');
-        graph.rungraph((g) => { runOffTargets(g, [selected_genome], editDistance); });
+
+        // START IT, AND SAY SO IF IT CANNOT START. The old path handed the work to
+        // graph.rungraph inside a 2-second setTimeout -- a timer callback, where a throw goes
+        // nowhere. Pressing Run then did nothing at all: no screen, no error, no message. The
+        // timeout existed only because the panel had replaced the canvas and the remount
+        // needed a moment; nothing is replaced now, so there is nothing to wait for.
+        //
+        // runOffTargets does the rest of the feedback itself -- the progress bar and Cancel in
+        // the button panel, the gunsight and red glow on the compound being searched, and the
+        // camera walking to each one as its results land.
+        try { graph.setMessage(' Starting off-target screen \u2014 edit distance ' + editDistance + '\u2026 '); } catch (e) { }
+        const __startRun = async () => {
+            try {
+                if (typeof graph.rungraph === 'function') {
+                    await graph.rungraph((g) => runOffTargets(g || graph, [selected_genome], editDistance));
+                } else {
+                    await runOffTargets(graph, [selected_genome], editDistance);
+                }
+            } catch (e) {
+                const __m = (e && e.message) ? e.message : ('' + e);
+                try { console.error('[off-targets] the screen failed to start', e); } catch (e2) { }
+                try { graph.setMessage(' The off-target screen could not start: ' + __m + ' '); } catch (e2) { }
+                // Whatever happened, do not leave the canvas inert with the pointer disabled.
+                try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); } catch (e2) { }
+            }
+        };
+        __startRun();
 
         resolve();
 
