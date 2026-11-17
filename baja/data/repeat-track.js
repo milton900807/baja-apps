@@ -72,6 +72,10 @@ function (graph, genegraph_panel_layout, presetTrack) {
             // Maskers (dust, trf) are not elements; they would swamp the track by number
             // and say nothing about splicing, so they stay out of the annotations and are
             // still counted in the summary.
+            // Same reason as baja/manchester/menu/mark-compound-locations.js: Annotation is
+            // not a global, and `new Annotation(...)` below sits outside the try, so without
+            // this the first repeat threw and no repeat was ever drawn.
+            const Annotation = await exec('flexigraph/annotation.js');
             let drawn = 0;
             for (const r of reps) {
                 if (NON_TE.indexOf(r.cls) >= 0) continue;

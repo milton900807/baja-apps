@@ -18,6 +18,13 @@ function (graph, opts) {
     // to "where are they" is one set of arrows, not a darker and darker band.
     return (async () => {
         const F = await exec('baja/bio/compound-filter.js');
+        // ANNOTATION HAS TO BE ASKED FOR. Every module that builds one does this first
+        // (baja/manchester/menu/sequence.js, flexigraph/gene.js); a module is compiled as its
+        // own function, so nothing another module declared is in scope here and there is no
+        // global of this name. Without it `new Annotation(...)` threw ReferenceError on the
+        // first compound, the whole call rejected, and the operation reported "Could not mark
+        // them" -- which is why the arrows never appeared.
+        const Annotation = await exec('flexigraph/annotation.js');
         const o = opts || {};
         const tracks = (graph.track || []).filter(Boolean);
         const MARK = 'CompoundMark';
