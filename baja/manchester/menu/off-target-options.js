@@ -124,7 +124,15 @@ function (graph, opts) {
                     + H(t) + (n != null ? (' · ' + fmt(n)) : '')
                     + '<div style="font:400 11.5px ' + C.font + ';opacity:0.75;margin-top:3px;">' + H(d) + '</div></button>';
             }).join('')
-            + '</div></div>'
+            + '</div>'
+            // WHY A COUNT IS SMALL. The screen has always run on what is in view, but "1" on a
+            // track carrying 210 reads as a broken number unless the other 209 are accounted
+            // for. Shown only when they differ, so the usual case stays quiet.
+            + ((counts && counts.trackTotal != null && counts.trackTotal > (countOf('all') || 0))
+                ? ('<div style="' + note + '">' + fmt(countOf('all')) + ' of ' + fmt(counts.trackTotal)
+                    + ' compounds on the track are in view. Zoom out to bring more of them into the screen.</div>')
+                : '')
+            + '</div>'
 
             + '<div style="margin-bottom:22px;"><span style="' + lab + '">Edit distance</span>'
             + '<div id="ot-ed" style="display:flex;gap:8px;">'

@@ -1,6 +1,28 @@
 function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
 
     editDistance = 0;
+    // WHAT "VISIBLE" MEANS, in one place, because the number the panel offers and the set the
+    // run walks have to be the same set.
+    //
+    // This used to be getOligosInRange(), which is a CONTAINMENT test: `xstart <= o.xi &&
+    // xend >= o.xf`, so a compound with either end outside the window is dropped. On a track
+    // carrying 210 compounds the panel offered "All visible compounds - 1", and the run would
+    // have screened exactly that one. getVisibleOligos() is the overlap test on the same
+    // class and is what "visible" has always meant on screen: a compound half in view is in
+    // view. gitVisibleTrackRange also answers the NUMBER -1 when the grid is not laid out
+    // yet, which read as {start: undefined, end: undefined} and quietly matched nothing; with
+    // no usable range the honest answer is the whole track rather than none of it.
+    const __visibleOligosOf = (t, g) => {
+        try {
+            const r = t && typeof t.gitVisibleTrackRange === 'function' ? t.gitVisibleTrackRange(g) : null;
+            if (r && r !== -1 && isFinite(r.start) && isFinite(r.end) && r.end > r.start) {
+                if (typeof t.getVisibleOligos === 'function') return (t.getVisibleOligos(r.start, r.end) || []).filter(Boolean);
+                return (t.getOligosInRange(r.start, r.end) || []).filter(Boolean);
+            }
+        } catch (e) { }
+        return ((t && t.oligos) || []).filter(Boolean);
+    };
+
 
     return new Promise(async (resolve, reject) => {
 
@@ -66,8 +88,7 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             for (let t of __screenTracks) {
                 if (!t) continue;
                 t.showOfftargets = true;
-                let range = t.gitVisibleTrackRange(graph);
-                let oligos = t.getOligosInRange(range.start, range.end);
+                let oligos = __visibleOligosOf(t, graph);
                 // SCOPE, which arrives two ways and must mean the same thing both times.
                 //   selectedOnly   from the caller: true / 'selected' for the selected compounds,
                 //                  'unscreened' for the ones with no result yet (the Ask box).
@@ -505,15 +526,19 @@ seed-pattern, GGG | Required
             const seen = [];
             try {
                 for (const t of __optTracks) {
-                    if (!t || typeof t.gitVisibleTrackRange !== 'function') continue;
-                    const r = t.gitVisibleTrackRange(graph);
-                    for (const o of (t.getOligosInRange(r.start, r.end) || [])) if (o) seen.push(o);
+                    for (const o of __visibleOligosOf(t, graph)) seen.push(o);
                 }
             } catch (e) { }
+            // trackTotal is NOT the scope -- the screen runs on what is in view. It is here so
+            // the panel can say why a count is small instead of leaving "1" to look broken on
+            // a track the user knows carries hundreds.
+            let total = 0;
+            try { for (const t of __optTracks) total += ((t && t.oligos) || []).filter(Boolean).length; } catch (e) { }
             return {
                 all: seen.length,
                 unscreened: seen.filter((o) => !__optHas(o)).length,
-                selected: seen.filter((o) => o.selected || o.highlight__).length
+                selected: seen.filter((o) => o.selected || o.highlight__).length,
+                trackTotal: total
             };
         })();
 
