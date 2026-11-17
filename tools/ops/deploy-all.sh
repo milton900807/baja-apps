@@ -805,6 +805,11 @@ if [[ $DO_API -eq 1 ]]; then
   # have. All three or none: the operation passes a scope the two tools must understand.
   # The off-target options panel. All three or none: the two run tools now ask it for
   # the reference, the scope and the edit distance instead of building their own.
+  # "show me the off-target report" from the box. Both files, so the operation never
+  # ships without the panel it opens.
+  install_group "Ask: show the off-target report" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'show_offtarget_report'" \
+    "baja/manchester/menu/selected-off-target-genes.js:THE OFF-TARGET GENES OF THE SELECTED COMPOUNDS"
   install_group "off-target options panel" \
     "baja/manchester/menu/off-target-options.js:THE OFF-TARGET SCREEN" \
     "baja/manchester/menu/run-off-target-tool.js:THE OPTIONS, asked in the editor" \
