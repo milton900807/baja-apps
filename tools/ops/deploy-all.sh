@@ -50,7 +50,7 @@ RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
 # fetched at a ref that predates it, where every marker fails and install_group skips the
 # whole group with one line and a zero exit. That is not a loud failure. It reads as a
 # clean run.
-REF="${REF:-8dce675311ea9186defff01c9a0ba975802c02fb}"
+REF="${REF:-51410e59d496745c7be1271cba9927c1add6aa6e}"
 DO_API=1; DO_WEB=0; DO_RESTART=1; DO_MENU=1
 
 while [[ $# -gt 0 ]]; do case "$1" in
