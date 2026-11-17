@@ -441,21 +441,69 @@ function (graph, genegraph_panel_layout) {
 
             // ---------------------------------------------------------------- design -------
             {
+                // "DESIGN ASOS" OPENS THE ASO DESIGNER. This used to go through
+                // tile-oligos-design.js, which refuses outright unless a sequence is already
+                // selected -- so with nothing selected, "design asos" put a hint in the status
+                // line and opened nothing. It now opens track-design-menu.js, the same path as the
+                // track's own Design menu: with a modality it goes straight to that designer's
+                // Default / Advanced dialog (aso-design-dialog.js for the ASOs), designing over the
+                // selection when there is one and the whole track when there is not. "ASOs" without
+                // a kind offers Gapmer and Steric-blocking as a GO each, per track when several
+                // are open; no modality at all opens the track's Design library.
                 name: 'design_oligos',
-                summary: 'Open the oligo tiling designer, which walks a modality across the target '
-                    + 'and scores the candidates. Opens a dialog to set the parameters; it does not '
-                    + 'design anything on its own.',
+                summary: 'DESIGN ASOs, gapmers, steric-blocking / splice-switching ASOs or siRNAs on a '
+                    + 'track: "design asos", "design gapmers", "make siRNAs", "design splice-switching '
+                    + 'oligos". Opens the design dialog (Default / Advanced) for that modality; the design '
+                    + 'runs over the selected sequence, or the whole track when nothing is selected. It '
+                    + 'does not design anything until the user presses Run.',
                 needs: 'track', opens: true,
                 params: {
                     modality: {
-                        type: 'enum', values: ['gapmer', 'steric', 'sirna'],
-                        about: 'which design ruleset to start on. gapmer for a gapmer ASO, steric for '
-                            + 'a steric-blocking ASO, sirna for siRNA. Omit to let the dialog ask'
-                    }
+                        type: 'enum', values: ['aso', 'gapmer', 'steric', 'sirna'],
+                        about: 'gapmer for a gapmer / RNase H ASO, steric for a steric-blocking or '
+                            + 'splice-switching ASO, sirna for siRNA, aso when the request says ASOs '
+                            + 'without saying which kind (the user is then offered both). Omit only '
+                            + 'when no modality is named at all, to open the Design library'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
                 },
-                run: (a) => exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout,
-                    a.modality || null, oneTrack() || null),
-                preview: (a) => 'open the tiling designer' + (a.modality ? (' on ' + a.modality) : '')
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const m = a.__modality !== undefined ? a.__modality : (a.modality === 'aso' ? 'gapmer' : (a.modality || null));
+                    try { graph.selectedTrack = t; } catch (e) { }
+                    return exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout, m);
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const m = a.__modality !== undefined ? a.__modality : a.modality;
+                    const what = { aso: 'the ASO designer', gapmer: 'the gapmer ASO designer', steric: 'the steric-blocking ASO designer',
+                        sirna: 'the siRNA designer' }[m] || 'the Design library';
+                    return 'open ' + what + (t ? (' on ' + (t.name || 'the track')) : '')
+                        + (t ? (hasSel(t) ? ', over the selected sequence' : ', over the whole track') : '');
+                },
+                // One GO per (kind, track): "ASOs" is two kinds, and several open tracks with none
+                // selected is several targets.
+                choices: (a) => {
+                    if (a.__track && a.__modality !== undefined) return [];
+                    const KIND = { gapmer: 'Gapmer ASO (RNase H)', steric: 'Steric-blocking / splice-switching ASO', sirna: 'siRNA' };
+                    const kinds = a.modality === 'aso' ? ['gapmer', 'steric'] : [a.modality || null];
+                    const one = a.__track || (a.track ? matchTrack(a.track) : oneTrack());
+                    const ts = one ? [one] : tracks();
+                    const out = [];
+                    for (const t of ts) for (const k of kinds) {
+                        out.push({
+                            label: (k ? KIND[k] : 'Design library') + (ts.length > 1 ? (' · ' + (t.name || 'track')) : ''),
+                            detail: (t.name || 'track') + ' · ' + (hasSel(t) ? 'over the selected sequence' : 'over the whole track'),
+                            args: Object.assign({}, a, { __track: t, __modality: k })
+                        });
+                    }
+                    return out;
+                },
+                choiceTitle: (a, ch) => (a.modality === 'aso' ? 'Design ASOs — which kind?' : 'Design — on which track?'),
+                argBlocker: (a) => (a.track && !matchTrack(a.track))
+                    ? ('no single track matches “' + a.track + '”: open tracks are ' + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                    : ''
             },
 
             {
