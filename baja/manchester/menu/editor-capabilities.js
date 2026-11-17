@@ -99,17 +99,22 @@ function (graph, genegraph_panel_layout) {
         // The track a compound operation runs on: the one named or chosen, else the selected
         // one IF it carries compounds, else the first that does. A report on -- or a screen of
         // -- an empty track is not what was asked for, even when that track is the selected one.
-        // SCREENED, as baja/bio/compound-filter.js decides it (screenedOf). One predicate,
-        // so "has no off-target value" means the same thing to the screen, the filters and the
-        // report rather than three nearly-identical tests.
-        const otScreened = (o) => !!(o && (o.offtargetsRun || o.offtarget != null));
+        // ALREADY SCREENED -- AND THAT DEPENDS ON WHICH SCREEN. A full-strand run records
+        // offtarget / _offtarget; a SEED run records mi_targets_transient_. Counting the
+        // full-strand field for a seed screen calls every compound unscreened and offers to
+        // rerun all of them, so the predicate follows the method. The two run tools apply the
+        // same split when they filter, so the count here and the work there agree.
+        const otScreened = (o, method) => (method === 'seed')
+            ? !!(o && o.mi_targets_transient_ != null)
+            : !!(o && (o.offtargetsRun || o.offtarget != null || o._offtarget != null));
         const screenPool = (a) => {
             const t = compoundTrack(a);
             if (!t) return { t: null, list: [] };
             let list = (t.oligos || []).filter(Boolean);
             const sc = (a && a.scope) || 'all';
+            const method = (a && a.method) || 'full';
             if (sc === 'selected') list = list.filter((o) => o.selected || o.highlight__);
-            else if (sc === 'unscreened') list = list.filter((o) => !otScreened(o));
+            else if (sc === 'unscreened') list = list.filter((o) => !otScreened(o, method));
             return { t: t, list: list };
         };
 
