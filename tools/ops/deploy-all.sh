@@ -727,6 +727,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-regions.js:ONE POSITION FROM WHAT SOMEONE TYPES" \
     "baja/manchester/menu/editor-capabilities.js:name: 'go_to_position'" \
     "baja/manchester/menu/editor-command.js:ONE GO PER TRACK"
+  # Ask: select / remove variants by phase. The search engine gains the field and the
+  # operation docs tell the planner it exists; either alone leaves "phase 1" matching nothing.
+  install_group "Ask: variants by phase" \
+    "baja/data/variant-search.js:PHASE IS A NUMBER, NOT TEXT" \
+    "baja/manchester/menu/editor-capabilities.js:is the variant's phase number"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
