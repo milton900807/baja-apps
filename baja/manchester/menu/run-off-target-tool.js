@@ -399,171 +399,59 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             CurrentLayout.setComponent('buttonMenuPanel', bpanel);
 
         }
-        // Run scope: false = rerun every visible compound; true = only those with no result yet.
+        // THE OPTIONS, asked in the editor's own look. The panel this replaced was built
+        // from the legacy card/radio widgets and mounted into mainPanel, so it REPLACED the
+        // canvas with a full-page grey form -- and it listed whatever /genomes returned,
+        // which on a failure is the error envelope, so its fields became the references to
+        // choose from. off-target-options.js validates the list and shows a failure as one.
         let onlyMissing = false;
         let selected_genome = '';
-        let bg = []
-        for (let a of Object.keys(available_genomes)) {
-            if (bg.length === 0) {
-                selected_genome = a;
-            }
-            bg.push({
-                'label': a, ionfunction: createIonFunction((_label) => {
-                    selected_genome = a
-
-                })
-
-            })
-        }
-        sleep = async (ms) => {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-        let ms = {
-            wid: 'radio-buttons',
-            height: '100px',
-            width: '50px',
-            data: { 'buttons': bg }
-        }
-        let off_target_tool = {
-            wid: 'card',
-            data: {
-                cards: [
-                    [
-
-                        {
-                            'title': ' ', 'body': ``,
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'html',
-                                data: 'Select an search reference.  Off-targets are only run on <font color="RED"> VISIBLE </font> compounds.'
-                            }
-                        },
-
-                        {
-                            'title': ' ', 'body': ` `,
-                            'width': '100%',
-                            'component': ms
-
-                        },
-                        {
-                            'title': ' ', 'body': ``,
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'html',
-                                data: '<hr>Run on'
-                            }
-                        },
-                        {
-                            'title': ' ', 'body': ` `,
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'radio-buttons',
-                                data: {
-                                    'buttons': [
-                                        { 'label': 'All compounds (rerun all off-targets)', ionfunction: createIonFunction(() => { onlyMissing = false; }) },
-                                        { 'label': 'Only compounds without off-targets', ionfunction: createIonFunction(() => { onlyMissing = true; }) }
-                                    ]
-                                }
-                            }
-                        },
-                        {
-                            'title': ' ', 'body': ``,
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'html',
-                                data: '<hr>Edit distance (number of insertions, deletions or mismatches allowed).'
-                            }
-                        },
-
-                        {
-                            'title': '', 'body': ` `,
-                            'width': '50%',
-                            'component':
-                            {
-                                wid: 'radio-buttons',
-                                data: {
-                                    'unchecked': true,
-                                    'buttons': [
-                                        {
-                                            'label': '0', ionfunction: createIon(() => {
-                                                editDistance = 0;
-                                            }
-                                            )
-                                        }, {
-                                            'label': '1', ionfunction: createIon(() => {
-                                                editDistance = 1;
-                                            }
-                                            ),
-                                        },
-                                        {
-                                            'label': '2', ionfunction: createIon(() => {
-                                                editDistance = 2;
-                                            }
-                                            )
-                                        },
-
-                                        {
-                                            'label': '3', ionfunction: createIon(() => {
-                                                editDistance = 3;
-                                            }
-                                            )
-                                        }
-
-                                    ],
-                                }
-                            }
-                        },
-
-                        {
-                            'title': ' ',
-                            'width': '30%',
-                            'component':
-                            {
-                                wid: 'mt-button', data: {
-                                    buttons: [
-                                        {
-                                            label: 'Run...', ionFunction: createIonFunction(async () => {
-                                                if (selected_genome.length == 0) {
-                                                    alert('Select a target dataset')
-                                                    return;
-                                                }
-                                                returnMode = 'editdistance'
-
-                                                CurrentLayout.clearComponent('mainPanel')
-                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-                                                setTimeout(() => {
-                                                    graph.setMessage(" Edit distance : " + editDistance)
-                                                    graph.rungraph((graph) => {
-                                                        graph.setMessage(" Edit distance : " + editDistance)
-                                                        runOffTargets(graph, [selected_genome], editDistance)
-                                                    })
-                                                }, 2000)
-                                            })
-                                        },
-                                        {
-                                            label: 'Cancel', ionFunction: createIonFunction(async () => {
-                                                CurrentLayout.clearComponent('mainPanel')
-                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-                                            })
-
-                                        }]
-                                }
-                            }
-                        },
-
-                    ]
-                ]
-            }
-
-        }
         editDistance = 0;
 
-        CurrentLayout.clearComponent('mainPanel')
-        CurrentLayout.setComponent('mainPanel', off_target_tool);
+        // What each scope would screen, for the panel's labels. Counted over the same visible
+        // compounds the run itself walks, so the number offered is the number screened.
+        const __optTracks = (() => {
+            const p = (Array.isArray(presetTracks) ? presetTracks.filter(Boolean) : (presetTracks ? [presetTracks] : []));
+            return p.length ? p : ((graph && graph.track) || []);
+        })();
+        const __optHas = (o) => !!(o && (o.offtargetsRun || o.offtarget != null || o._offtarget != null));
+        const __optCounts = (() => {
+            const seen = [];
+            try {
+                for (const t of __optTracks) {
+                    if (!t || typeof t.gitVisibleTrackRange !== 'function') continue;
+                    const r = t.gitVisibleTrackRange(graph);
+                    for (const o of (t.getOligosInRange(r.start, r.end) || [])) if (o) seen.push(o);
+                }
+            } catch (e) { }
+            return {
+                all: seen.length,
+                unscreened: seen.filter((o) => !__optHas(o)).length,
+                selected: seen.filter((o) => o.selected || o.highlight__).length
+            };
+        })();
+
+        const __scopeIn = (selectedOnly === true) ? 'selected' : ('' + (selectedOnly || '')).toLowerCase();
+        const __choice = await exec('baja/manchester/menu/off-target-options.js', graph, {
+            region: 'full',
+            genomes: available_genomes,
+            endpoint: url,
+            counts: __optCounts,
+            trackLabel: (__optTracks.length === 1 && __optTracks[0]) ? (__optTracks[0].name || '') : '',
+            defaults: {
+                scope: (__scopeIn === 'selected' || __scopeIn === 'unscreened') ? __scopeIn : 'all',
+                editDistance: 0
+            }
+        });
+        // Cancelled: nothing was mounted over the canvas, so there is nothing to put back.
+        if (!__choice) { resolve(); return; }
+        selected_genome = __choice.genome;
+        editDistance = __choice.editDistance;
+        onlyMissing = (__choice.scope === 'unscreened');
+        selectedOnly = (__choice.scope === 'selected');
+        returnMode = 'editdistance';
+        graph.setMessage(' Edit distance : ' + editDistance + ' ');
+        graph.rungraph((g) => { runOffTargets(g, [selected_genome], editDistance); });
 
         resolve();
 
