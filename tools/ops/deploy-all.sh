@@ -772,6 +772,12 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Tools > Track: Design" \
     "manchester/editor.js:DESIGN, reachable from Tools > Track" \
     "baja/manchester/menu/track-design-menu.js:ASSAY rather than a therapeutic modality"
+  # Off-target screening from the Ask box, with an "unscreened" scope the screens did not
+  # have. All three or none: the operation passes a scope the two tools must understand.
+  install_group "Ask: run off-target screen" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'run_offtarget_screen'" \
+    "baja/manchester/menu/run-off-target-tool.js:SCOPE. `selectedOnly` has always been a boolean" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:SCOPE. `selectedOnly` has always been a boolean"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
