@@ -732,6 +732,14 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask: variants by phase" \
     "baja/data/variant-search.js:PHASE IS A NUMBER, NOT TEXT" \
     "baja/manchester/menu/editor-capabilities.js:is the variant's phase number"
+  # Remove the top or bottom phase (the lollipops above or below the track line), from the
+  # remove-SNPs menu and from the Ask box; and "zoom into the pathogenic variant", which
+  # finds matching objects and offers a GO per match. editor-command.js draws that card.
+  install_group "Ask: top/bottom phase, zoom to objects" \
+    "baja/data/variant-search.js:WHICH SIDE OF THE TRACK THE LOLLIPOP IS DRAWN ON" \
+    "baja/manchester/menu/remove-snps-menu.js:REMOVE THE TOP OR BOTTOM SIDE" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'zoom_to_objects'" \
+    "baja/manchester/menu/editor-command.js:CHOICE_MAX"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
