@@ -811,6 +811,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:name: 'show_offtarget_report'" \
     "baja/manchester/menu/selected-off-target-genes.js:THE OFF-TARGET GENES OF THE SELECTED COMPOUNDS"
   install_group "off-target options panel" \
+    "baja/lib/canvas-overlay-panel.js:THE CANVAS OVERLAY PANEL" \
     "baja/manchester/menu/off-target-options.js:THE OFF-TARGET SCREEN" \
     "baja/manchester/menu/run-off-target-tool.js:THE OPTIONS, asked in the editor" \
     "baja/manchester/menu/run-off-target-tool-seed-seq.js:THE OPTIONS, asked in the editor"
