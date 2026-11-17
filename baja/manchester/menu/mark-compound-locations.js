@@ -72,6 +72,16 @@ function (graph, opts) {
                 a.description = ('' + (c.name || 'compound'))
                     + (F.lenOf(c) ? (' · ' + F.lenOf(c) + ' nt') : '')
                     + (F.isRed(c) ? ' · flagged' : '');
+                // THE ARROW IS THE WHOLE MESSAGE. flexigraph/annotation.js draws an
+                // annotation's NAME above the track on a dashed leader, and these marks are
+                // named after the compound -- which for a designed oligo is usually its
+                // sequence. So asking where the compounds are answered with a row of arrows
+                // AND a stack of twenty-mers printed across the track, each one leadered back
+                // to a different arrow: the clutter buried the very thing being pointed at.
+                // The name stays on the annotation for the hover text and the description; it
+                // is simply not drawn, because the arrow already says everything the question
+                // asked.
+                a.hideLabel = true;
                 try { t.add(a); } catch (e) { try { t.annotations.push(a); } catch (e2) { continue; } }
                 n++; marked++;
             }
