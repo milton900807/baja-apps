@@ -193,7 +193,6 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             let progressBar;
             let __cancelled = false;
             let __freeLimit = null;   // set when the server refuses for free-tier allowance
-            let __modalPB = null;
             // Progress bar + a Cancel button right beside it (stops the calculation).
             let w = {
                 wid: 'card',
@@ -208,22 +207,19 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
             CurrentLayout.setComponent('buttonMenuPanel', w);
 
-            // Block the app while the run is in progress — only Cancel is actionable.
+            // NO MODAL OVER THE RUN. There was one, and it was covering the only thing worth
+            // watching: the camera already walks the track, zooming to each oligo as its turn
+            // comes (centerOnOligo, one behind so the one on screen is the one just finished),
+            // and a full-screen card with a grey backdrop hid every frame of it. The progress
+            // bar and Cancel live in the button panel, which is beside the canvas rather than
+            // on top of it, so the run is watchable and still stoppable.
+            //
+            // Pointer input stays off for the duration. That is not to lock the app for its
+            // own sake: the camera is animating to a new oligo every chunk, and a pan fighting
+            // it mid-flight leaves the view somewhere neither chose.
             try { graph.setMouseMode('none'); graph.clearMouseListeners(); } catch (e) { }
-            const __runModal = {
-                wid: 'card',
-                data: {
-                    cards: [
-                        [{ 'width': '100%', 'component': { wid: 'html', data: `<div style="padding:14px 20px;font-family:'Segoe UI',system-ui,Arial,sans-serif;color:#eaf6f9;background:rgba(10,37,64,0.98);border:1px solid #1aa3bd;border-radius:10px;"><div style="font-size:15px;font-weight:700;">Running off-targets…</div><div style="font-size:12.5px;color:#8fb8c8;margin-top:4px;">Scanning oligos one at a time, left→right — the app is locked until this finishes.</div></div>` } }],
-                        [{ 'width': '100%', 'component': { wid: 'progress', data: { 'progress': 0, 'progressBar': createIonFunction((pb) => { __modalPB = pb; }) } } }],
-                        [{ 'width': '100%', 'component': { wid: 'mt-button', data: { buttons: [{ label: 'Cancel', ionFunction: createIonFunction(() => { __cancelled = true; }) }] } } }]
-                    ]
-                }
-            };
-            try { showModal(__runModal, 460, 210); } catch (e) { }
             const __finishRun = () => {
                 try { for (const o of ot_oligos) { if (o) o.__gunsight = false; } } catch (e) { }
-                try { hideAllModal(); } catch (e) { }
                 try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, graph.genegraph_panel_layout); } catch (e) { }
             };
 
@@ -317,7 +313,6 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                 rr.push(r);
                 index++;
                 progressBar((index / sp.length) * 100)
-                try { if (__modalPB) __modalPB((index / sp.length) * 100); } catch (e) { }
                 __framePrev = (__chunkOligos && __chunkOligos[0]) || __framePrev;   // now completed
             }
 
