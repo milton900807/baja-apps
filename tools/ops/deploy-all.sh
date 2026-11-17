@@ -348,7 +348,8 @@ if [[ $DO_API -eq 1 ]]; then
     "manchester/editor.js:No track check here"
   install_group "show compound locations" \
     "flexigraph/gene-draw.js:BIG, OUTLINED, AND ONE" \
-    "baja/manchester/menu/mark-compound-locations.js:FRAME THE TRANSCRIPT, because" \
+    "flexigraph/gene-draw2.js:the same mark flexigraph/gene-draw.js draws" \
+    "baja/manchester/menu/mark-compound-locations.js:ANNOTATION HAS TO BE ASKED FOR" \
     "baja/manchester/menu/editor-capabilities.js:HIGHLIGHT THE COMPOUNDS"
   # "create mRNA track from DNM3" was refused as not something the editor can do, while the
   # track menu had offered Convert to mRNA all along. Both were right: the planner is handed
