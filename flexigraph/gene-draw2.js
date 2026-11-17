@@ -104,6 +104,119 @@ function () {
     }
 
     return {
+        // A DOWN ARROW OVER THE TRACK, marking where something sits. BIG, OUTLINED, AND ONE
+        // PER PLACE -- the same mark flexigraph/gene-draw.js draws, and it has to be here too.
+        //
+        // mark-compound-locations.js adds CompoundMark annotations, and a plain track draws
+        // them through annotation.js -> gene-draw.js. A FLEXI track does not: it draws every
+        // annotation through annotation2.js's drawPlot(), which resolves its shapes from THIS
+        // file. With no entry here, shapeFunction was null and drawPlot fell through to its
+        // fallback -- the first five characters of the name in 9px black -- so "show me where
+        // the compounds are" marked the track with something effectively invisible, on exactly
+        // the tracks the question gets asked about. Same geometry and same colours as the
+        // gene-draw.js version, so a track looks the same whichever class drew it.
+        //
+        // The signature differs from that file's: here the context comes first and xs/xf/y are
+        // RAW track coordinates, mapped through grid.X(tgraph.X(..)) as every shape here does.
+        'CompoundMark': createIon((ctx, grid, tgraph, xs, xf, y, color, annotation) => {
+            if (!ctx) return;
+            const c = (annotation && annotation.color) || color || '#f59e0b';
+            const sx = (grid.X(tgraph.X(xs)) + grid.X(tgraph.X(xf))) / 2;
+            const sy = grid.Y(tgraph.Y(y));
+            if (!isFinite(sx) || !isFinite(sy)) return;
+
+            // ONE ARROW PER PLACE, counted per repaint. Seeing an annotation twice means a new
+            // frame started, because each mark is drawn exactly once per pass; without the
+            // reset the counts would climb on every repaint.
+            let reg = null;
+            try {
+                if (!tgraph.__cmReg) tgraph.__cmReg = { bins: {}, seen: new Set() };
+                reg = tgraph.__cmReg;
+                if (reg.seen.has(annotation)) { reg.bins = {}; reg.seen = new Set(); }
+                reg.seen.add(annotation);
+            } catch (e) { reg = null; }
+            const BIN = 20;
+            const bin = Math.round(sx / BIN);
+            let n = 1;
+            if (reg) { n = reg.bins[bin] = (reg.bins[bin] || 0) + 1; }
+
+            const TIP = 10, STEM = 30, HW = 15, HH = 17;
+            if (n === 1) {
+                ctx.save();
+                try {
+                    ctx.setLineDash([]);
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 1;
+                    ctx.lineCap = 'round';
+                    // The dark pass first and wider, so the arrow keeps its edge over a pale
+                    // exon and over a dark splice arc alike.
+                    ctx.strokeStyle = 'rgba(15,23,42,0.85)';
+                    ctx.lineWidth = 6;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy - TIP - STEM);
+                    ctx.lineTo(sx, sy - TIP);
+                    ctx.stroke();
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy - TIP - STEM);
+                    ctx.lineTo(sx, sy - TIP);
+                    ctx.stroke();
+                    // The head, drawn here rather than through a helper: this file has no
+                    // arrowhead of its own, and a triangle is less to go wrong than a dependency.
+                    const head = (fill, grow) => {
+                        ctx.beginPath();
+                        ctx.moveTo(sx, sy - TIP + grow);
+                        ctx.lineTo(sx - HW / 2 - grow, sy - TIP - HH);
+                        ctx.lineTo(sx + HW / 2 + grow, sy - TIP - HH);
+                        ctx.closePath();
+                        ctx.fillStyle = fill;
+                        ctx.fill();
+                    };
+                    head('rgba(15,23,42,0.85)', 2);
+                    head(c, 0);
+                } catch (e) { }
+                ctx.restore();
+            }
+
+            // The count, redrawn as the cluster grows so the last value standing is the total.
+            if (n > 1) {
+                const label = '' + n;
+                const w = 14 + label.length * 7, h = 16;
+                const bx = sx - w / 2, by = sy - TIP - STEM - h - 4;
+                ctx.save();
+                try {
+                    ctx.setLineDash([]);
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = 'rgba(15,23,42,0.92)';
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    const r = 5;
+                    ctx.moveTo(bx + r, by);
+                    ctx.lineTo(bx + w - r, by);
+                    ctx.arcTo(bx + w, by, bx + w, by + r, r);
+                    ctx.lineTo(bx + w, by + h - r);
+                    ctx.arcTo(bx + w, by + h, bx + w - r, by + h, r);
+                    ctx.lineTo(bx + r, by + h);
+                    ctx.arcTo(bx, by + h, bx, by + h - r, r);
+                    ctx.lineTo(bx, by + r);
+                    ctx.arcTo(bx, by, bx + r, by, r);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 11px system-ui, -apple-system, Roboto, Arial, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, sx, by + h / 2 + 0.5);
+                } catch (e) { }
+                ctx.restore();
+            }
+        }),
         'UserAnnotation': createIon((ctx, grid, tgraph, xs, xf, y, color, annotation) => {
             color = annotation.color;
             rawVerticalLine(ctx, grid.X(tgraph.X(xs)), grid.Y(tgraph.Y(y)), 0.13, '#9fe0e8', 0.5);
