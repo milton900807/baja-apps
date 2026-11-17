@@ -902,7 +902,10 @@ function () {
                     } catch (e) { return true; }
                 };
 
-                if (this.__seqDisp && !__lettersOnBeads && __seqHasRoom()) {
+                // While the location arrows are up, the sequence labels stay down -- see
+                // baja/manchester/menu/mark-compound-locations.js for why.
+                const __marksUp = (() => { try { return !!tgraph.__compoundMarksOn; } catch (e) { return false; } })();
+                if (this.__seqDisp && !__lettersOnBeads && !__marksUp && __seqHasRoom()) {
                     // IN REGISTER WITH THE BASES, when there is room for a letter per base:
                     // the target across the top and what will be synthesised underneath it,
                     // so the pairing -- and any mismatch in it -- is read off the drawing

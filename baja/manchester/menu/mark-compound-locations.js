@@ -47,6 +47,12 @@ function (graph, opts) {
             const before = t.annotations.length;
             t.annotations = t.annotations.filter((a) => !(a && a.type === MARK));
             cleared += before - t.annotations.length;
+            // ARROWS ON MEANS SEQUENCES OFF, and the flag says which. flexigraph/oligo.js
+            // reads it to drop the per-compound sequence label while the arrows are up: the
+            // arrows exist to answer "where are they" at a zoom too wide to read a compound,
+            // and a twenty-mer printed over every one of them buries the answer. Cleared here
+            // first, so taking the arrows off brings the labels straight back.
+            try { if (t.tgraph) t.tgraph.__compoundMarksOn = false; } catch (e) { }
         }
         if (o.clear) {
             try { if (graph.wake) graph.wake(); } catch (e) { }
@@ -85,7 +91,10 @@ function (graph, opts) {
                 try { t.add(a); } catch (e) { try { t.annotations.push(a); } catch (e2) { continue; } }
                 n++; marked++;
             }
-            if (n) { used++; markedTrack = t; }
+            if (n) {
+                used++; markedTrack = t;
+                try { if (t.tgraph) t.tgraph.__compoundMarksOn = true; } catch (e) { }
+            }
         }
         // FRAME THE TRANSCRIPT, because "where are they" is a question about a view.
         //
