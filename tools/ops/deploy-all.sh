@@ -751,6 +751,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:name: 'open_variant_designer'" \
     "baja/manchester/menu/snp-tools-mouse-menu.js:label: 'Variant designer'" \
     "baja/manchester/menu/edit-snps-menu.js:label: 'Variant designer'"
+  # Bookmarks: "bookmark this site <name>" saves the view, "go to <name>" returns to it, and
+  # a panel lists them. Both files or neither -- the operations are the only way in.
+  install_group "Ask: bookmark this site" \
+    "baja/lib/bookmarks.js:BOOKMARKS -- named places on the canvas" \
+    "baja/manchester/menu/editor-capabilities.js:BOOKMARK THIS SITE"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
