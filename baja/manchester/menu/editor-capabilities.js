@@ -603,6 +603,31 @@ function (graph, genegraph_panel_layout) {
                     ? ('matching “' + a.query + '”') : '(all of them)')
             },
             {
+                // The Variant designer: every variant ranked by how far its window has diverged
+                // from the reference, with the compounds tiled on each and a GO to it.
+                name: 'open_variant_designer',
+                summary: 'OPEN THE VARIANT DESIGNER: a ranked list of every variant by its divergence '
+                    + 'from the reference over a window of bases around it, with the number of compounds '
+                    + 'tiled on each and a GO to its location. "open the variant designer", "rank the '
+                    + 'variants by divergence", "which variants diverge most from the reference", "which '
+                    + 'variants have compounds on them".',
+                needs: 'variants', opens: true,
+                params: {
+                    window: { type: 'number', about: 'the window size in nt when the request gives one ("over 100 bases"). Omit to keep the last one used (50 the first time)' },
+                    track: { type: 'string', about: 'one track, by name, when the request names one. Omit for every track' }
+                },
+                run: (a) => {
+                    try {
+                        const S = graph.__variantDesigner || (graph.__variantDesigner = { W: 50, samePhase: false, track: null, sort: 'divergence', scroll: 0 });
+                        if (a.window != null && +a.window >= 1) S.W = Math.round(+a.window);
+                    } catch (e) { }
+                    return exec('baja/manchester/menu/variant-designer.js', graph, genegraph_panel_layout, a.track ? (matchTrack(a.track) || null) : null);
+                },
+                preview: (a) => 'open the Variant designer' + (a.track ? (' on ' + a.track) : '')
+                    + (a.window != null ? (', window ' + a.window + ' nt') : ''),
+                argBlocker: (a) => (a.track && !matchTrack(a.track)) ? ('no single track matches \u201c' + a.track + '\u201d') : ''
+            },
+            {
                 name: 'remove_variants',
                 summary: 'DELETE the variants matching a search query from the tracks.',
                 needs: 'variants', destructive: true,

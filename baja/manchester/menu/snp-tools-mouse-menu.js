@@ -132,6 +132,16 @@ function (graph, genegraph_panel_layout) {
                 },
 
                 {
+                    // Ranked by divergence from the reference over a window, with the compounds
+                    // tiled on each and a GO to it. Opens on this track.
+                    label: 'Variant designer',
+                    click: (xwc, ywc) => {
+                        let tr = selectedTrack;
+                        if (!tr) { try { const i = graph.getTrack(xwc, ywc); if (i >= 0) tr = graph.track[i]; } catch (e) { } }
+                        exec('baja/manchester/menu/variant-designer.js', graph, genegraph_panel_layout, tr || null);
+                    }
+                },
+                {
                     label: 'Remove SNPs / indels',
                     click: (xwc, ywc) => {
                         // Standard removal menu: Remove all, or Remove by filter (attributes).
