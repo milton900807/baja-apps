@@ -7044,6 +7044,11 @@ return new Promise(async (resolve, reject) => {
             // would overlap one already drawn this frame is skipped (annotation.js / drawCddSite),
             // so cluttered regions simply drop the colliding labels instead of stacking forever.
             this.tgraph.__labelRects = [];
+            // Same idea for the per-compound sequence labels drawn by flexigraph/oligo.js:
+            // a tiled design prints one sequence per compound over the same band, so a label
+            // landing on one already drawn this frame is skipped. Cleared here, beside the
+            // annotation one, because this is the pass that owns the frame.
+            this.tgraph.__seqLabelRects = [];
             // Background 5'/3' UTR labels: when zoomed OUT (screencell <= 5), draw a light-gray,
             // centered label over each untranslated region. Drawn BEFORE the annotation loop and all
             // later feature passes, so it sits behind everything and never overwrites other content.
