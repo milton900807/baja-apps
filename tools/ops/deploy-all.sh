@@ -740,6 +740,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/remove-snps-menu.js:REMOVE THE TOP OR BOTTOM SIDE" \
     "baja/manchester/menu/editor-capabilities.js:name: 'zoom_to_objects'" \
     "baja/manchester/menu/editor-command.js:CHOICE_MAX"
+  # Ask: "design asos" opens the ASO designer (track-design-menu.js -> aso-design-dialog.js,
+  # both already deployed) instead of a tiling path that needs a selection first.
+  install_group "Ask: design asos opens the ASO designer" \
+    "baja/manchester/menu/editor-capabilities.js:OPENS THE ASO DESIGNER"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
