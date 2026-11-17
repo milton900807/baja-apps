@@ -292,7 +292,14 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                 }
                 rr.push(r);
                 index++;
-                progressBar((index / sp.length) * 100)
+                // THE PROGRESS BAR IS COSMETIC AND MUST NEVER KILL THE RUN. `progressBar` is
+                // not assigned here: the host calls back with it when the progress component
+                // MOUNTS, which happens after this code continues. The old path got away with
+                // calling it unguarded only because a 2-second setTimeout sat between the two,
+                // long enough for the mount; with that gone it was undefined on the first
+                // chunk and the TypeError killed the screen after gunsighting one compound --
+                // which from the outside is a Run button that does nothing.
+                try { if (typeof progressBar === 'function') progressBar((index / sp.length) * 100); } catch (e) { }
                 __framePrev = (__chunkOligos && __chunkOligos[0]) || __framePrev;   // now completed
             }
 
