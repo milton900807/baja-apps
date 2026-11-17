@@ -107,6 +107,21 @@ function (graph, genegraph_panel_layout) {
         const otScreened = (o, method) => (method === 'seed')
             ? !!(o && o.mi_targets_transient_ != null)
             : !!(o && (o.offtargetsRun || o.offtarget != null || o._offtarget != null));
+        // WHICH COMPOUNDS THE REPORT COVERS. The selection when there is one, across the
+        // canvas, because a selection is rarely confined to one track; otherwise the track's
+        // own compounds. compound-editor.js offers the same two, so the box and the menu
+        // report on the same sets.
+        const reportSet = (a) => {
+            const want = (a && a.scope) || '';
+            const sel = Array.from(selectedCompoundSet());
+            if (want === 'selected' || (!want && sel.length)) {
+                return { list: sel, where: ' (the selection)' };
+            }
+            const t = compoundTrack(a);
+            const list = t ? (t.oligos || []).filter(Boolean) : [];
+            return { list: list, where: t ? (' on ' + (t.name || 'the track')) : '' };
+        };
+
         const screenPool = (a) => {
             const t = compoundTrack(a);
             if (!t) return { t: null, list: [] };
@@ -630,6 +645,53 @@ function (graph, genegraph_panel_layout) {
                 },
                 preview: (a) => 'select the variants ' + (('' + (a.query || '')).trim()
                     ? ('matching “' + a.query + '”') : '(all of them)')
+            },
+            {
+                // THE OFF-TARGET REPORT, from results already on the compounds. "show me the
+                // off-target report" was refused as not something the editor does, though the
+                // report itself has been in Compounds all along -- the catalogue could run a
+                // screen and could fold off-targets into a design report, but had no way to
+                // just show what the last screen found.
+                name: 'show_offtarget_report',
+                summary: 'SHOW THE OFF-TARGET REPORT for the compounds: which genes they hit, as two '
+                    + 'tables -- by gene (which genes this set keeps running into) and by compound '
+                    + '(what each one hits) -- with downloads. "show me the off-target report", "what '
+                    + 'did the off-target screen find", "which genes do these hit", "off-target '
+                    + 'results". It reads the results already stored on the compounds and runs '
+                    + 'nothing; use run_offtarget_screen to actually screen them.',
+                needs: 'compounds', opens: true,
+                params: {
+                    scope: {
+                        type: 'enum', values: ['all', 'selected'],
+                        about: 'selected for "these" or "the selected ones". Omit to report on the '
+                            + 'selection when there is one and on every compound otherwise'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                count: (a) => reportSet(a).list.length,
+                run: (a) => {
+                    const { list } = reportSet(a);
+                    if (!list.length) { result('No compounds to report on.'); return; }
+                    return exec('baja/manchester/menu/selected-off-target-genes.js', graph, list);
+                },
+                preview: (a) => {
+                    if (a.track && !matchTrack(a.track)) return 'show the off-target report for \u201c' + a.track + '\u201d';
+                    const { list, where } = reportSet(a);
+                    const n = list.filter((o) => o && o.offtargetsRun).length;
+                    // How many have actually been screened is the thing worth knowing before
+                    // opening it: a table of "not screened" is a different answer from a clean one.
+                    return 'show the off-target report for ' + list.length + ' compound'
+                        + (list.length === 1 ? '' : 's') + where
+                        + ' \u00b7 ' + (n ? (n + ' screened') : 'none screened yet');
+                },
+                argBlocker: (a) => {
+                    if (a.track && !matchTrack(a.track)) return 'no single track matches \u201c' + a.track + '\u201d';
+                    const { list } = reportSet(a);
+                    if (!list.length) {
+                        return (a.scope === 'selected') ? 'no compounds are selected' : 'no compounds to report on';
+                    }
+                    return '';
+                }
             },
             {
                 // OFF-TARGET SCREENING FROM THE BOX. The screens have always been in Design >
