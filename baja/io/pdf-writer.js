@@ -61,28 +61,48 @@ return (async () => {
     const pdfText = (v) => asciiOf(v)
         .replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 
-    // Helvetica advance widths, per 1000 units, for the printable Latin-1 range. Without
-    // these every column would be laid out as if each glyph were the same width, and a
-    // proportional font makes that visibly wrong within one line.
-    const W = (() => {
-        const w = new Array(256).fill(556);
-        const set = (str, v) => { for (const ch of str) w[ch.charCodeAt(0)] = v; };
-        set(' !', 278); set('"', 355); set('#$', 556); set('%', 889); set('&', 667);
-        set("'", 191); set('()', 333); set('*', 389); set('+', 584); set(',.', 278);
-        set('-', 333); set('/', 278); set('0123456789', 556); set(':;', 278);
-        set('<=>', 584); set('?', 556); set('@', 1015);
-        set('ABDEHKNOPQRSUVXY', 722); set('C', 722); set('FG', 667); set('IJ', 278);
-        set('LT', 611); set('M', 833); set('W', 944); set('Z', 611);
-        set('[]', 278); set('\\', 278); set('^', 469); set('_', 556); set('`', 333);
-        set('abcdeghknopqsuvxyz', 556); set('f', 278); set('ij', 222); set('l', 222);
-        set('m', 833); set('r', 333); set('t', 278); set('w', 722);
-        w[32] = 278;
+    // ADVANCE WIDTHS PER 1000 UNITS, for Helvetica and Helvetica-Bold, as the AFM files give
+    // them. Two tables, because bold is not regular scaled by a constant -- 'o' is 556 regular
+    // and 611 bold while '1' is 556 in both -- and a single fudged table drifts: measuring
+    // bold with regular widths ran words together ("discriminatethe variant"), and inflating
+    // every bold glyph by a flat percentage opened gaps in the other direction. Without the
+    // right numbers a proportional font is laid out as if it were monospace, and it shows
+    // inside one line.
+    const mkWidths = (spec, dflt) => {
+        const w = new Array(256).fill(dflt);
+        for (const [chars, v] of spec) { for (const ch of chars) w[ch.charCodeAt(0)] = v; }
         return w;
-    })();
-    const widthOf = (v, size) => {
+    };
+    const W = mkWidths([
+        [' ', 278], ['!', 278], ['"', 355], ['#$', 556], ['%', 889], ['&', 667], ["'", 191],
+        ['()', 333], ['*', 389], ['+', 584], [',', 278], ['-', 333], ['.', 278], ['/', 278],
+        ['0123456789', 556], [':;', 278], ['<=>', 584], ['?', 556], ['@', 1015],
+        ['AB', 667], ['CDGHNOQRUVX', 722], ['E', 667], ['F', 611], ['G', 778], ['I', 278],
+        ['J', 500], ['K', 667], ['L', 556], ['M', 833], ['O', 778], ['P', 667], ['Q', 778],
+        ['S', 667], ['T', 611], ['V', 667], ['W', 944], ['XY', 667], ['Z', 611],
+        ['[]', 278], ['\\', 278], ['^', 469], ['_', 556], ['`', 333],
+        ['abdeghnopqu', 556], ['c', 500], ['f', 278], ['ij', 222], ['k', 500], ['l', 222],
+        ['m', 833], ['r', 333], ['s', 500], ['t', 278], ['vxyz', 500], ['w', 722],
+        ['{', 334], ['|', 260], ['}', 334], ['~', 584]
+    ], 556);
+    const WB = mkWidths([
+        [' ', 278], ['!', 333], ['"', 474], ['#$', 556], ['%', 889], ['&', 722], ["'", 238],
+        ['()', 333], ['*', 389], ['+', 584], [',', 278], ['-', 333], ['.', 278], ['/', 278],
+        ['0123456789', 556], [':;', 333], ['<=>', 584], ['?', 611], ['@', 975],
+        ['ABCDHKUX', 722], ['E', 667], ['F', 611], ['G', 778], ['I', 278], ['J', 556],
+        ['L', 611], ['M', 833], ['NQR', 722], ['O', 778], ['P', 667], ['S', 667], ['T', 611],
+        ['VY', 667], ['W', 944], ['Z', 611],
+        ['[]', 333], ['\\', 278], ['^', 584], ['_', 556], ['`', 333],
+        ['abcekrsv', 556], ['bdghnopqu', 611], ['f', 333], ['ij', 278], ['l', 278],
+        ['m', 889], ['r', 389], ['t', 333], ['wxy', 556], ['w', 778], ['z', 500],
+        ['{', 389], ['|', 280], ['}', 389], ['~', 584]
+    ], 556);
+
+    const widthOf = (v, size, bold) => {
         const s = asciiOf(v);
+        const tbl = bold ? WB : W;
         let t = 0;
-        for (let i = 0; i < s.length; i++) t += (W[s.charCodeAt(i) & 0xFF] || 556);
+        for (let i = 0; i < s.length; i++) t += (tbl[s.charCodeAt(i) & 0xFF] || 556);
         return t * size / 1000;
     };
     // Cut to fit rather than let a long sequence run off the page edge, which is the one
@@ -117,11 +137,9 @@ return (async () => {
         return out.length ? out : [{ t: '', b: false }];
     };
 
-    // Word-wrap those runs to a width, keeping each word's weight. Bold is measured with the
-    // regular widths inflated a little: Helvetica-Bold is slightly wider, and a line that
-    // overflows the margin is worse than one that stops a few points short of it.
-    const BOLD_FUDGE = 1.04;
-    const runWidth = (t, size, bold) => widthOf(t, size) * (bold ? BOLD_FUDGE : 1);
+    // Word-wrap those runs to a width, keeping each word's weight so that each is measured
+    // against the table for the font it will actually be drawn in.
+    const runWidth = (t, size, bold) => widthOf(t, size, bold);
     const wrapRuns = (runs, size, maxW) => {
         const words = [];
         for (const r of runs) {
@@ -181,7 +199,7 @@ return (async () => {
         // Column widths from the content, proportional, then scaled to the text width.
         const avail = PAGE_W - 2 * M;
         const want = columns.map((c, i) => {
-            let m = widthOf(c, 8);
+            let m = widthOf(c, 8, true);
             for (const r of rows) m = Math.max(m, widthOf(r[i] == null ? '' : r[i], 8));
             return Math.min(m + 10, avail * 0.42);
         });
