@@ -96,6 +96,13 @@ function (graph, genegraph_panel_layout) {
         // and the Ask card shows a Go button for each. __track never comes from the model --
         // validate() drops any key that is not a declared parameter -- only from a choice.
         const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
+        // The track a report runs on: the one named or chosen, else the selected one IF it
+        // carries compounds, else the first that does. A report on an empty track is not what
+        // "generate aso report" asks for, even when that track is the selected one.
+        const reportTrack = (a) => (a && a.__track)
+            || (a && a.track ? matchTrack(a.track) : null)
+            || ((oneTrack() && (oneTrack().oligos || []).length) ? oneTrack() : null)
+            || tracks().find((x) => (x.oligos || []).length) || null;
         const choicesOver = (a, fits) => {
             if (!a || a.__track || a.track) return [];
             return tracks().map((t) => {
@@ -604,6 +611,54 @@ function (graph, genegraph_panel_layout) {
                 },
                 preview: (a) => 'select the variants ' + (('' + (a.query || '')).trim()
                     ? ('matching “' + a.query + '”') : '(all of them)')
+            },
+            {
+                // "generate aso report" came back as "not something the editor can do", though
+                // Design > Therapeutics has written this report all along. The report itself is
+                // unchanged; it is reachable from the box now.
+                name: 'generate_design_report',
+                summary: 'GENERATE THE DESIGN REPORT for the compounds on a track: "generate aso '
+                    + 'report", "generate oligo report", "write the design report", "report on these '
+                    + 'ASOs". It gathers the target, the layers, the compounds, their chemistry and '
+                    + 'their off-targets and writes them up, and where the compounds are '
+                    + 'allele-selective it adds a section ordering them by how far they diverge from '
+                    + 'the reference. The report opens in a reader that can save it as PDF or markdown.',
+                needs: 'compounds', opens: true,
+                params: {
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                run: (a) => {
+                    const t = reportTrack(a);
+                    if (!t) { result('No compounds on any open track to report on.'); return; }
+                    return exec('baja/manchester/menu/design-report.js', graph, genegraph_panel_layout, t);
+                },
+                preview: (a) => {
+                    // A name that matches nothing must not read as a report on some other
+                    // track: the blocker stops the run either way, but the line above it is
+                    // what the user actually reads.
+                    if (a.track && !matchTrack(a.track)) return 'write the design report for \u201c' + a.track + '\u201d';
+                    const t = reportTrack(a);
+                    const n = t ? (t.oligos || []).length : 0;
+                    return 'write the design report' + (t ? (' for ' + n + ' compound' + (n === 1 ? '' : 's')
+                        + ' on ' + (t.name || 'the track')) : '');
+                },
+                // Several tracks carry compounds: the report covers ONE track, so which one is the
+                // user's call rather than whichever comes first.
+                choices: (a) => {
+                    if (a.__track || a.track) return [];
+                    const withC = tracks().filter((x) => (x.oligos || []).length);
+                    if (withC.length < 2) return [];
+                    return withC.map((t) => ({
+                        label: t.name || '(unnamed track)',
+                        detail: (t.oligos || []).length + ' compound' + ((t.oligos || []).length === 1 ? '' : 's')
+                            + ((t.oligos || []).some((o) => o && o.alleleSelective) ? ' \u00b7 allele-selective' : ''),
+                        args: Object.assign({}, a, { __track: t })
+                    }));
+                },
+                choiceTitle: () => 'Design report \u2014 for which track?',
+                argBlocker: (a) => (a.track && !matchTrack(a.track))
+                    ? ('no single track matches \u201c' + a.track + '\u201d')
+                    : ''
             },
             {
                 // The Variant designer: every variant ranked by how far its window has diverged
