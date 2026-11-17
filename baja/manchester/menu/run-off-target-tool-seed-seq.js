@@ -63,18 +63,23 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                 t.showOfftargets = true;
                 let range = t.gitVisibleTrackRange(graph);
                 let oligos = t.getOligosInRange(range.start, range.end);
-                // SCOPE. `selectedOnly` has always been a boolean for "just the selected
-                // ones"; it now also takes a word, so a caller can ask for the compounds that
-                // have never been screened -- "run off-targets on compounds with no off-target
-                // values" -- without first selecting them by hand and losing whatever
-                // selection the user had. true still means 'selected', so every existing
-                // caller is unchanged. The screened test is the one in baja/bio/compound-filter.js
-                // (screenedOf), which is what the filters and the report already agree on.
+                // SCOPE, which arrives two ways and must mean the same thing both times.
+                //   selectedOnly   from the caller: true / 'selected' for the selected compounds,
+                //                  'unscreened' for the ones with no result yet (the Ask box).
+                //   onlyMissing    the panel's own "Run on" radio, which means 'unscreened'.
+                // Applied independently, so "selected" and "only without" compose: the selected
+                // compounds that have no result yet. Filtering happens BEFORE anything is
+                // cleared below, so results already on the other compounds are left alone.
+                //
+                // WHAT COUNTS AS ALREADY HAVING A RESULT IS PER SCREEN, and this is the part
+                // that is easy to get wrong: a SEED run records mi_targets_transient_, not
+                // offtarget. Testing the full-strand field here would call every compound
+                // unscreened and rerun the lot.
                 const __scope = (selectedOnly === true) ? 'selected'
                     : ('' + (selectedOnly || '')).toLowerCase();
-                const __screened = (o) => !!(o && (o.offtargetsRun || o.offtarget != null));
+                const __hasResult = (o) => !!(o && o.mi_targets_transient_ != null);
                 if (__scope === 'selected') oligos = oligos.filter((o) => o && (o.selected || o.highlight__));
-                else if (__scope === 'unscreened') oligos = oligos.filter((o) => o && !__screened(o));
+                if (__scope === 'unscreened' || onlyMissing) oligos = oligos.filter((o) => o && !__hasResult(o));
 
                 for (let o of oligos) {
                     o.mi_targets_transient_ = null;
@@ -478,6 +483,8 @@ seed-pattern, GGG | Required
             CurrentLayout.setComponent('buttonMenuPanel', bpanel);
 
         }
+        // Run scope: false = rerun every visible compound; true = only those with no result yet.
+        let onlyMissing = false;
         let selected_genome = '';
         let bg = [];
         const __genomeKeys = Object.keys(available_genomes || {});
@@ -532,6 +539,29 @@ seed-pattern, GGG | Required
                             'width': '100%',
                             'component': ms
 
+                        },
+                        {
+                            'title': ' ', 'body': ``,
+                            'width': '100%',
+                            'component':
+                            {
+                                wid: 'html',
+                                data: '<hr>Run on'
+                            }
+                        },
+                        {
+                            'title': ' ', 'body': ` `,
+                            'width': '100%',
+                            'component':
+                            {
+                                wid: 'radio-buttons',
+                                data: {
+                                    'buttons': [
+                                        { 'label': 'All compounds (rerun all off-targets)', ionfunction: createIonFunction(() => { onlyMissing = false; }) },
+                                        { 'label': 'Only compounds without off-targets', ionfunction: createIonFunction(() => { onlyMissing = true; }) }
+                                    ]
+                                }
+                            }
                         },
                         {
                             'title': ' ',

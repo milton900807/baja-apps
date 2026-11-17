@@ -170,6 +170,15 @@ fi
 #   cpd/baja-project.js, cpd/baja-analytics.js
 #       the progress bar goes up before the megabytes of code load, and tells the home
 #       page's "Opening..." card it can go; Build > Add to a fundraising campaign
+#   baja/manchester/menu/run-off-targets.js, run-off-target-tool.js, run-off-target-tool-seed-seq.js
+#       an off-target run asks whether to rerun all compounds or only those with no result yet
+#   baja/io/pdf-writer.js, baja/io/aso-report-pdf.js, manchester/io/download-hub.js
+#       (and baja/chem/structure/idt/idt-format.js)
+#       the detailed ASO report is drawn in the browser: a page per compound, a map of the
+#       track broken into rows with the 5' and 3' ends marked, and a zoomed panel for each
+#       window where compounds pile up on a variant
+#       the download hub also offers an IDT order file, and the IDT formatter writes the
+#       inline codes (+A, mA, rA, fA) instead of dropping or mangling them
 #
 # Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
 # so a REF that predates the change is said and skipped rather than installing an older
@@ -464,6 +473,25 @@ if [[ $DO_API -eq 1 ]]; then
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \
     "cpd/baja-analytics.js:__bajaOpening"
+  # Off-targets: rerun all, or only the compounds that have no off-target result yet. The
+  # three runners are independent of one another, so each is its own group.
+  install_group "off-targets: rerun all or only compounds without (editor runner)" \
+    "baja/manchester/menu/run-off-targets.js:__hasOffResult"
+  install_group "off-targets: rerun all or only compounds without (tool panel)" \
+    "baja/manchester/menu/run-off-target-tool.js:onlyMissing"
+  install_group "off-targets: rerun all or only compounds without (seed tool panel)" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:onlyMissing"
+  # The detailed ASO report. All three together: the hub calls the report module, which
+  # needs the page builder the writer only gained for this.
+  install_group "detailed ASO report with a track map" \
+    "baja/io/pdf-writer.js:the low-level page builder" \
+    "baja/io/aso-report-pdf.js:THE DETAILED ASO REPORT, drawn rather than tabulated" \
+    "manchester/io/download-hub.js:aso-report-pdf.js"
+  # The IDT order file. The hub is in the group above as well; whichever group gets there
+  # first installs it and the other reports it current.
+  install_group "IDT order file, and the IDT inline modification codes" \
+    "baja/chem/structure/idt/idt-format.js:INLINE_SUGARS" \
+    "manchester/io/download-hub.js:IDT order file"
   # The Research panel: Home > Tools > Research reads the indication-market store rather
   # than running any research. All four or none, so Home never gets a live tile with
   # nothing behind it.
@@ -777,8 +805,8 @@ if [[ $DO_API -eq 1 ]]; then
   # have. All three or none: the operation passes a scope the two tools must understand.
   install_group "Ask: run off-target screen" \
     "baja/manchester/menu/editor-capabilities.js:name: 'run_offtarget_screen'" \
-    "baja/manchester/menu/run-off-target-tool.js:SCOPE. `selectedOnly` has always been a boolean" \
-    "baja/manchester/menu/run-off-target-tool-seed-seq.js:SCOPE. `selectedOnly` has always been a boolean"
+    "baja/manchester/menu/run-off-target-tool.js:SCOPE, which arrives two ways" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:SCOPE, which arrives two ways"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
