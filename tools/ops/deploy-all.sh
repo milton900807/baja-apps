@@ -810,6 +810,15 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask: show the off-target report" \
     "baja/manchester/menu/editor-capabilities.js:name: 'show_offtarget_report'" \
     "baja/manchester/menu/selected-off-target-genes.js:THE OFF-TARGET GENES OF THE SELECTED COMPOUNDS"
+  # One sequence label per place on a tiled design. Both files: track.js empties the list
+  # at the top of each frame, oligo.js checks and fills it.
+  install_group "sequence labels: one per place" \
+    "flexigraph/oligo.js:ONE SEQUENCE LABEL PER PLACE" \
+    "baja/bio/track.js:Same idea for the per-compound sequence labels"
+  # Run screen actually starting, and saying so when it cannot.
+  install_group "off-target run: start it, and report a failure" \
+    "baja/manchester/menu/run-off-target-tool.js:START IT, AND SAY SO IF IT CANNOT START" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:START IT, AND SAY SO IF IT CANNOT START"
   install_group "off-target options panel" \
     "baja/lib/canvas-overlay-panel.js:THE CANVAS OVERLAY PANEL" \
     "baja/manchester/menu/off-target-options.js:THE OFF-TARGET SCREEN" \
