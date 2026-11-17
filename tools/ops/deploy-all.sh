@@ -803,6 +803,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/track-design-menu.js:ASSAY rather than a therapeutic modality"
   # Off-target screening from the Ask box, with an "unscreened" scope the screens did not
   # have. All three or none: the operation passes a scope the two tools must understand.
+  # The off-target options panel. All three or none: the two run tools now ask it for
+  # the reference, the scope and the edit distance instead of building their own.
+  install_group "off-target options panel" \
+    "baja/manchester/menu/off-target-options.js:THE OFF-TARGET SCREEN" \
+    "baja/manchester/menu/run-off-target-tool.js:THE OPTIONS, asked in the editor" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:THE OPTIONS, asked in the editor"
   install_group "Ask: run off-target screen" \
     "baja/manchester/menu/editor-capabilities.js:name: 'run_offtarget_screen'" \
     "baja/manchester/menu/run-off-target-tool.js:SCOPE, which arrives two ways" \
