@@ -82,6 +82,44 @@ function (graph, genegraph_panel_layout, track, range) {
         graph.showMenu(items);
     };
 
+    // REMOVE THE TOP OR BOTTOM SIDE: the lollipops standing up from the track line (phase 1)
+    // or hanging down below it (phase 0, phase 3, or no phase), exactly as getPhaseDirs in
+    // track.js draws them. Phase 2 draws no stem and is on neither side. Same rule as the
+    // `side` field in variant-search.js.
+    const sideOf = (s) => {
+        const p = (s && Number.isFinite(+s.phase)) ? +s.phase : 0;
+        return p === 1 ? 'top' : (p === 2 ? 'none' : 'bottom');
+    };
+    const sideCount = (side) => {
+        let n = 0;
+        for (const t of targets()) for (const s of (t.snpindels || [])) if (inRange(s) && sideOf(s) === side) n++;
+        return n;
+    };
+    const removeSide = (side) => {
+        try { graph.pushOntoHistory(); } catch (e) { }
+        let removed = 0, childRm = 0;
+        for (const t of targets()) {
+            const arr = t.snpindels || [];
+            const before = arr.length;
+            t.snpindels = arr.filter((s) => !(inRange(s) && sideOf(s) === side));
+            const rm = before - t.snpindels.length;
+            removed += rm;
+            if (rm) { try { if (t.clearDescendantSnps) childRm += t.clearDescendantSnps(graph); } catch (e) { } }
+        }
+        if (graph.wake) graph.wake();
+        graph.setMessage(' Removed ' + removed + ' ' + side + '-side SNP/indel' + (removed === 1 ? '' : 's') + ' ' + scopeLabel
+            + (childRm ? ' (+' + childRm + ' from child tracks)' : '') + '. ');
+    };
+    const sideItem = (side, words) => {
+        const n = sideCount(side);
+        return n ? [{
+            label: 'Remove ' + side + ' lollipops (' + words + ')  (' + n + ')', move: () => { }, click: () => {
+                if (graph.hideMenu) graph.hideMenu();
+                confirmThen('Remove all ' + n + ' ' + side + '-side SNPs/indels ' + scopeLabel + ' (' + words + ')?', () => removeSide(side));
+            }
+        }] : [];
+    };
+
     const mainMenu = () => {
     const nPhases = Object.keys(phaseTally()).length;
     graph.showMenu([
@@ -90,6 +128,8 @@ function (graph, genegraph_panel_layout, track, range) {
                 confirmThen('Remove all ' + countIn() + ' SNPs/indels ' + scopeLabel + '? This cannot be undone.', removeAll);
             }
         },
+        ...sideItem('top', 'stick up from the track'),
+        ...sideItem('bottom', 'line down below the track'),
         ...(nPhases ? [{ label: 'Remove by phase ▸  (' + nPhases + ')', move: () => { }, click: () => phaseMenu() }] : []),
         {
             label: 'Remove by filter (attributes)…', move: () => { }, click: () => {

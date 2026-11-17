@@ -483,8 +483,11 @@ function (graph, genegraph_panel_layout) {
                             + "record, * and ? as wildcards against a whole field, -word to exclude, "
                             + "field:word to restrict. Empty means every variant. Fields: name, gene, "
                             + "clinsig, condition, consequence, source, type, ref, alt, change, pos, "
-                            + "annotations, batch, phase. phase is the variant's phase number (0, 1, 2, ...) "
-                            + "and matches exactly: \"phase 1\" is phase:1"
+                            + "annotations, batch, phase, side. phase is the variant's phase number (0, 1, 2, ...) "
+                            + "and matches exactly: \"phase 1\" is phase:1. side is where its lollipop is drawn: "
+                            + "side:top stands up above the track line, side:bottom hangs down below it. "
+                            + "\"the top phase\", \"the upper ones\", \"the ones above the track\" are side:top; "
+                            + "\"the bottom phase\", \"the lower ones\", \"below the track\" are side:bottom"
                     }
                 },
                 count: (a) => vhits(a.query).length,
@@ -500,7 +503,7 @@ function (graph, genegraph_panel_layout) {
                 name: 'remove_variants',
                 summary: 'DELETE the variants matching a search query from the tracks.',
                 needs: 'variants', destructive: true,
-                params: { query: { type: 'string', about: 'same search language as select_variants, fields included (phase:1 for phase 1). Empty means every variant' } },
+                params: { query: { type: 'string', about: 'same search language as select_variants, fields included (phase:1 for phase 1, side:top / side:bottom for the top or bottom phase). Empty means every variant' } },
                 count: (a) => vhits(a.query).length,
                 run: (a) => {
                     const hits = vhits(a.query);
