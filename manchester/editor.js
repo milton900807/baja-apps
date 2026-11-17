@@ -2639,6 +2639,30 @@ function (path, config) {
                                                         try { graph.hideMenu(); } catch (e) { }
                                                         try { graph.showSideMenu(null); } catch (e) { }
                                                         const n = (graph.track || []).length;
+                                                        // THE TRACK A DESIGN RUNS ON. A design is per track, so the
+                                                        // card has to resolve one: the clicked track, the only one
+                                                        // open, or the only one carrying a selection. Nothing is
+                                                        // opened on a guess when several are equally plausible.
+                                                        const __designTrack = () => {
+                                                            try {
+                                                                const all = (graph.track || []).filter(Boolean);
+                                                                if (graph.selectedTrack && all.indexOf(graph.selectedTrack) >= 0) return graph.selectedTrack;
+                                                                if (all.length === 1) return all[0];
+                                                                const sel = all.filter((t) => t.markstart != null
+                                                                    && t.markend != null && t.markend > t.markstart);
+                                                                if (sel.length === 1) return sel[0];
+                                                            } catch (e) { }
+                                                            return null;
+                                                        };
+                                                        const __openDesign = (preset) => {
+                                                            const t = __designTrack();
+                                                            if (!t) {
+                                                                try { graph.setMessage(' Click the track you want to design on first. '); } catch (e) { }
+                                                                return;
+                                                            }
+                                                            return exec('baja/manchester/menu/track-design-menu.js',
+                                                                graph, t, genegraph_panel_layout, preset || null);
+                                                        };
                                                         exec('baja/lib/shelf.js', {
                                                             id: 'baja-tracks-library',
                                                             title: 'Tracks',
@@ -2693,6 +2717,57 @@ function (path, config) {
                                                                     badge: 'Clipboard',
                                                                     blurb: 'Merge the tracks from a copied graph into this canvas, alongside whatever is already here. Nothing on the canvas is replaced.',
                                                                     open: () => exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'paste')
+                                                                },
+                                                                // DESIGN, reachable from Tools > Track rather than only by
+                                                                // clicking the track itself. The first card is the whole
+                                                                // library -- therapeutics, assay, off-targets, compounds,
+                                                                // clinical -- and the rest open one designer directly, so
+                                                                // the modalities are visible here instead of being two
+                                                                // clicks inside a shelf nobody knew to open.
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Design library',
+                                                                    badge: 'Everything',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Every designer for one track in one place: the ASO and siRNA therapeutics, the primer and probe assay designers, off-target screening, the compounds already on the track, and the clinical reference library.',
+                                                                    open: () => __openDesign(null)
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Gapmer ASO',
+                                                                    badge: 'Therapeutic',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'RNase H gapmer ASOs tiled over the selected sequence, or the whole track when nothing is selected. Opens its Default / Advanced dialog before it runs.',
+                                                                    open: () => __openDesign('gapmer')
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Steric-blocking ASO',
+                                                                    badge: 'Therapeutic',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Steric-blocking and splice-switching ASOs, for moving an exon in or out rather than degrading the transcript.',
+                                                                    open: () => __openDesign('steric')
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'siRNA',
+                                                                    badge: 'Therapeutic',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Double-stranded RISC siRNA duplexes designed across the target, scored and ranked.',
+                                                                    open: () => __openDesign('sirna')
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Primer probes',
+                                                                    badge: 'Assay',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Assay design over the track: primer3, the in-house djPrimer scorer, or exon-exon junction probes.',
+                                                                    open: () => __openDesign('assay')
                                                                 }
                                                             ]
                                                         });

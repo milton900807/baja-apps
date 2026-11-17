@@ -2993,8 +2993,35 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         // temporal dead zone. The handler threw on the line after the dialog closed, the throw
         // was swallowed by the catch here, and the design silently did nothing: dialog, Run
         // design, no compounds, no error. Nothing is dispatched until the body has finished.
+        // The shelf, opened at the top level or at one of its own shelves. Written once so a
+        // preset lands on exactly the shelf the full library would have walked the user into.
+        const openShelf = (title, books, subtitle) => exec('baja/lib/shelf.js', {
+            id: 'baja-design-library',
+            title: title,
+            subtitle: subtitle || (((selectedTrack && selectedTrack.name) ? (selectedTrack.name + ' \u2014 ') : '')
+                + 'designs run over ' + scopeNote()),
+            books: books,
+            graph: graph,
+            onClose: () => {
+                try { graph.clearMouseListeners(); } catch (e) { }
+                try { graph.setMouseMode('navigate'); } catch (e) { }
+                try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+            }
+        });
+
         if (presetModality) {
             const __k = ('' + presetModality).toLowerCase();
+            // ASSAY rather than a therapeutic modality: open the primer/probe shelf itself.
+            // There is no single "assay designer" to dispatch to -- primer3, djPrimer and the
+            // junction probes are three -- so the preset lands on the shelf that lists them,
+            // which is where the full library would have walked to anyway.
+            if (__k.indexOf('assay') >= 0 || __k.indexOf('primer') >= 0 || __k.indexOf('probe') >= 0) {
+                // primerBooks is a FUNCTION -- shelf.js calls it when a book nests another
+                // shelf, but the top-level `books` option must be an array, and a function
+                // there falls back to an empty shelf rather than failing.
+                await openShelf('Primer probes', primerBooks());
+                return;
+            }
             const __idx = (__k.indexOf('sirna') >= 0 || __k.indexOf('si-rna') >= 0) ? 0
                 : (__k.indexOf('gap') >= 0 ? 1
                     : (__k.indexOf('steric') >= 0 ? 2 : -1));
@@ -3009,21 +3036,9 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             }
         }
 
-        await exec('baja/lib/shelf.js', {
-            id: 'baja-design-library',
-            title: 'Design',
-            // Say up front what a design will be run over: a selection silently narrowing the
-            // work is worse than no narrowing at all.
-            subtitle: ((selectedTrack && selectedTrack.name) ? (selectedTrack.name + ' — ') : '')
-                + 'designs run over ' + scopeNote(),
-            books: DESIGN,
-            graph: graph,
-            onClose: () => {
-                try { graph.clearMouseListeners(); } catch (e) { }
-                try { graph.setMouseMode('navigate'); } catch (e) { }
-                try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
-            }
-        });
+        // Say up front what a design will be run over: a selection silently narrowing the work
+        // is worse than no narrowing at all.
+        await openShelf('Design', DESIGN);
 
     })();
 }
