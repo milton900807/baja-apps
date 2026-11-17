@@ -756,6 +756,12 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask: bookmark this site" \
     "baja/lib/bookmarks.js:BOOKMARKS -- named places on the canvas" \
     "baja/manchester/menu/editor-capabilities.js:BOOKMARK THIS SITE"
+  # Download a generated report as a PDF. Both files or neither: the button is in the viewer
+  # and the prose rendering it calls is in the writer. The writer's table path changed too
+  # (ASCII output, escaping fixed), which run-off-targets.js and snp-more-info.js also use.
+  install_group "Report viewer: PDF download" \
+    "baja/io/pdf-writer.js:TEXT GOES OUT AS ASCII" \
+    "baja/lib/report-view.js:A report is usually written to be sent on"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
