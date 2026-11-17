@@ -744,6 +744,13 @@ if [[ $DO_API -eq 1 ]]; then
   # both already deployed) instead of a tiling path that needs a selection first.
   install_group "Ask: design asos opens the ASO designer" \
     "baja/manchester/menu/editor-capabilities.js:OPENS THE ASO DESIGNER"
+  # The Variant designer: variants ranked by divergence from the reference over a window,
+  # with the compounds tiled on each and a GO. The panel and the three ways to open it.
+  install_group "Variant designer" \
+    "baja/manchester/menu/variant-designer.js:VARIANT DESIGNER -- every variant on the canvas" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'open_variant_designer'" \
+    "baja/manchester/menu/snp-tools-mouse-menu.js:label: 'Variant designer'" \
+    "baja/manchester/menu/edit-snps-menu.js:label: 'Variant designer'"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
