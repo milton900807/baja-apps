@@ -760,8 +760,18 @@ if [[ $DO_API -eq 1 ]]; then
   # and the prose rendering it calls is in the writer. The writer's table path changed too
   # (ASCII output, escaping fixed), which run-off-targets.js and snp-more-info.js also use.
   install_group "Report viewer: PDF download" \
-    "baja/io/pdf-writer.js:TEXT GOES OUT AS ASCII" \
+    "baja/io/pdf-writer.js:ADVANCE WIDTHS PER 1000 UNITS" \
     "baja/lib/report-view.js:A report is usually written to be sent on"
+  # "generate aso report" from the Ask box, and the allele-selectivity section the report
+  # gains: compounds built on a variant allele, ordered by divergence from the reference.
+  install_group "Ask: generate the design report" \
+    "baja/manchester/menu/design-report.js:ORDERED BY DIVERGENCE FROM THE REFERENCE" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'generate_design_report'"
+  # Tools > Track > Design: the whole design library plus a card per designer. editor.js
+  # carries the cards, track-design-menu.js the 'assay' preset they open for primer probes.
+  install_group "Tools > Track: Design" \
+    "manchester/editor.js:DESIGN, reachable from Tools > Track" \
+    "baja/manchester/menu/track-design-menu.js:ASSAY rather than a therapeutic modality"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
