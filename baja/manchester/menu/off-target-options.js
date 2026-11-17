@@ -54,11 +54,15 @@ function (graph, opts) {
         const whyFailed = (res) => {
             if (!res) return 'the reference server returned nothing';
             if (typeof res === 'object') {
-                const bits = [];
-                if (res.status != null) bits.push('HTTP ' + res.status + (res.statusText ? (' ' + res.statusText) : ''));
-                if (res.message) bits.push('' + res.message);
-                else if (res.error) bits.push('' + res.error);
-                if (bits.length) return bits.join(' · ');
+                // statusText is often the literal string "OK" even on a 404, which printed as
+                // "HTTP 404 OK"; and the framework's message usually just restates the status
+                // and the URL that is already on screen. Neither is echoed verbatim.
+                const st = ('' + (res.statusText || '')).trim();
+                if (res.status != null) {
+                    return 'HTTP ' + res.status + ((st && st.toUpperCase() !== 'OK') ? (' ' + st) : '');
+                }
+                const m = ('' + (res.message || res.error || '')).trim();
+                if (m) return m.length > 140 ? (m.slice(0, 137) + '…') : m;
             }
             return 'the reference list could not be read';
         };
@@ -90,9 +94,11 @@ function (graph, opts) {
             const note = 'font:12px Arial;color:#6b8299;line-height:1.6;margin-top:8px;';
 
             const scopes = [
-                ['all', 'All compounds', 'Rerun every visible compound, replacing any result it already has.'],
-                ['unscreened', 'Only those with no result yet', 'Leaves results already on the other compounds untouched.'],
-                ['selected', 'Selected compounds only', 'Just the compounds currently selected on the track.']
+                // "All compounds · 1" on a track carrying 210 reads as a bug rather than as the
+                // zoom it is, so visible goes in the label and not only in the subtitle above.
+                ['all', 'All visible compounds', 'Rerun every compound in view, replacing any result it already has.'],
+                ['unscreened', 'Only those in view with no result yet', 'Leaves results already on the other compounds untouched.'],
+                ['selected', 'Selected compounds only', 'Just the compounds currently selected and in view.']
             ];
             const countOf = (k) => (counts && counts[k] != null) ? counts[k] : null;
 
@@ -114,11 +120,12 @@ function (graph, opts) {
                 : ('<div style="border:1px solid rgba(251,191,36,0.45);background:rgba(251,191,36,0.08);'
                     + 'border-radius:10px;padding:13px 15px;">'
                     + '<div style="font:700 13px Arial;color:#fbbf24;">No search reference is available.</div>'
-                    + '<div style="' + note + 'margin-top:5px;">' + H(whyFailed(o.genomes))
-                    + (o.endpoint ? (' — asked ' + H(o.endpoint)) : '')
-                    + '. Nothing can be screened until the reference server answers, so there is '
-                    + 'nothing to choose here. This used to list the fields of the error as though '
-                    + 'they were genomes.</div></div>');
+                    + '<div style="' + note + 'margin-top:5px;">The reference server did not return a '
+                    + 'genome list — ' + H(whyFailed(o.genomes))
+                    + (o.endpoint ? (' from ' + H(o.endpoint)) : '')
+                    + '. Nothing can be screened until it answers. Check that the off-target service '
+                    + 'is running, or the <b style="color:#cfe4ef;">offtarget</b> endpoint in env.js '
+                    + 'if it has moved.</div></div>');
 
             panel.innerHTML = header
                 + '<div style="flex:1 1 auto;overflow:auto;padding:22px 24px 26px;">'
