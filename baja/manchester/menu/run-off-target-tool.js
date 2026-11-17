@@ -47,8 +47,18 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                 t.showOfftargets = true;
                 let range = t.gitVisibleTrackRange(graph);
                 let oligos = t.getOligosInRange(range.start, range.end);
-                // When invoked with selectedOnly, restrict to the selected oligos.
-                if (selectedOnly) oligos = oligos.filter((o) => o && (o.selected || o.highlight__));
+                // SCOPE. `selectedOnly` has always been a boolean for "just the selected
+                // ones"; it now also takes a word, so a caller can ask for the compounds that
+                // have never been screened -- "run off-targets on compounds with no off-target
+                // values" -- without first selecting them by hand and losing whatever
+                // selection the user had. true still means 'selected', so every existing
+                // caller is unchanged. The screened test is the one in baja/bio/compound-filter.js
+                // (screenedOf), which is what the filters and the report already agree on.
+                const __scope = (selectedOnly === true) ? 'selected'
+                    : ('' + (selectedOnly || '')).toLowerCase();
+                const __screened = (o) => !!(o && (o.offtargetsRun || o.offtarget != null));
+                if (__scope === 'selected') oligos = oligos.filter((o) => o && (o.selected || o.highlight__));
+                else if (__scope === 'unscreened') oligos = oligos.filter((o) => o && !__screened(o));
 
                 for (let o of oligos) {
                     o.offtarget = null;

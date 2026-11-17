@@ -96,10 +96,24 @@ function (graph, genegraph_panel_layout) {
         // and the Ask card shows a Go button for each. __track never comes from the model --
         // validate() drops any key that is not a declared parameter -- only from a choice.
         const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
-        // The track a report runs on: the one named or chosen, else the selected one IF it
-        // carries compounds, else the first that does. A report on an empty track is not what
-        // "generate aso report" asks for, even when that track is the selected one.
-        const reportTrack = (a) => (a && a.__track)
+        // The track a compound operation runs on: the one named or chosen, else the selected
+        // one IF it carries compounds, else the first that does. A report on -- or a screen of
+        // -- an empty track is not what was asked for, even when that track is the selected one.
+        // SCREENED, as baja/bio/compound-filter.js decides it (screenedOf). One predicate,
+        // so "has no off-target value" means the same thing to the screen, the filters and the
+        // report rather than three nearly-identical tests.
+        const otScreened = (o) => !!(o && (o.offtargetsRun || o.offtarget != null));
+        const screenPool = (a) => {
+            const t = compoundTrack(a);
+            if (!t) return { t: null, list: [] };
+            let list = (t.oligos || []).filter(Boolean);
+            const sc = (a && a.scope) || 'all';
+            if (sc === 'selected') list = list.filter((o) => o.selected || o.highlight__);
+            else if (sc === 'unscreened') list = list.filter((o) => !otScreened(o));
+            return { t: t, list: list };
+        };
+
+        const compoundTrack = (a) => (a && a.__track)
             || (a && a.track ? matchTrack(a.track) : null)
             || ((oneTrack() && (oneTrack().oligos || []).length) ? oneTrack() : null)
             || tracks().find((x) => (x.oligos || []).length) || null;
@@ -613,6 +627,87 @@ function (graph, genegraph_panel_layout) {
                     ? ('matching “' + a.query + '”') : '(all of them)')
             },
             {
+                // OFF-TARGET SCREENING FROM THE BOX. The screens have always been in Design >
+                // Off-targets; nothing in the catalogue reached them, so "run off-targets on
+                // compounds with no off-target values" came back as not something the editor
+                // does. The "no off-target values" part is a scope the screens did not have
+                // either: `unscreened` was added to them for this, so the compounds that have
+                // never been screened can be screened without first selecting them by hand.
+                name: 'run_offtarget_screen',
+                summary: 'RUN AN OFF-TARGET SCREEN on the compounds of a track: "run off-targets", '
+                    + '"screen these ASOs for off-targets", "run off-targets on compounds with no '
+                    + 'off-target values", "screen the selected compounds". Results attach to the '
+                    + 'compounds, so the design report and the off-target filters read them afterwards.',
+                needs: 'compounds', opens: true,
+                params: {
+                    scope: {
+                        type: 'enum', values: ['all', 'unscreened', 'selected'], default: 'all',
+                        about: 'which compounds. unscreened is the ones that have NO off-target value '
+                            + 'yet -- "compounds with no off-target values", "the ones that have not '
+                            + 'been screened", "whatever is missing". selected is the ones currently '
+                            + 'selected. all is every compound on the track'
+                    },
+                    method: {
+                        type: 'enum', values: ['full', 'seed', 'fuzzy'], default: 'full',
+                        about: 'full screens the whole antisense strand and is the default for an ASO. '
+                            + 'seed screens positions 2-8 of the guide, which is what drives siRNA '
+                            + 'off-target silencing. fuzzy is a tolerant edit-distance search that also '
+                            + 'finds near-matches, and it always covers every compound on the track'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                count: (a) => screenPool(a).list.length,
+                run: (a) => {
+                    const { t, list } = screenPool(a);
+                    if (!t) { result('No compounds on any open track to screen.'); return; }
+                    const m = a.method || 'full';
+                    if (m === 'fuzzy') {
+                        return exec('baja/data/aso-offtarget.js', '', window['env']['apiUrl'],
+                            graph, genegraph_panel_layout, t);
+                    }
+                    if (!list.length) { result('No compounds in that scope to screen.'); return; }
+                    // true keeps the tools' original meaning of 'selected'; the word is the new scope.
+                    const scope = (a.scope === 'selected') ? true
+                        : (a.scope === 'unscreened' ? 'unscreened' : false);
+                    return exec(m === 'seed'
+                        ? 'baja/manchester/menu/run-off-target-tool-seed-seq.js'
+                        : 'baja/manchester/menu/run-off-target-tool.js',
+                        graph, genegraph_panel_layout, scope, t);
+                },
+                preview: (a) => {
+                    if (a.track && !matchTrack(a.track)) return 'screen \u201c' + a.track + '\u201d for off-targets';
+                    const { t, list } = screenPool(a);
+                    const m = a.method || 'full';
+                    const how = { full: 'the full antisense strand', seed: 'the seed region (positions 2-8)',
+                        fuzzy: 'a fuzzy edit-distance search' }[m];
+                    const what = (m === 'fuzzy') ? 'every compound'
+                        : (list.length + ' ' + ({ unscreened: 'never-screened ', selected: 'selected ' }[a.scope] || '')
+                            + 'compound' + (list.length === 1 ? '' : 's'));
+                    return 'screen ' + what + (t ? (' on ' + (t.name || 'the track')) : '') + ' for off-targets, using ' + how;
+                },
+                argBlocker: (a) => {
+                    if (a.track && !matchTrack(a.track)) {
+                        return 'no single track matches \u201c' + a.track + '\u201d';
+                    }
+                    const { t, list } = screenPool(a);
+                    if (!t) return 'no open track carries compounds';
+                    // The fuzzy search takes no scope, so asking for one would run something
+                    // other than what was asked for. Said before the button, not after it.
+                    if ((a.method === 'fuzzy') && a.scope && a.scope !== 'all') {
+                        return 'the fuzzy search screens every compound on the track; it cannot be limited to the '
+                            + a.scope + ' ones. Use the full or seed screen for that';
+                    }
+                    if (!list.length) {
+                        if (a.scope === 'unscreened') {
+                            return 'every compound on ' + (t.name || 'that track') + ' has already been screened';
+                        }
+                        if (a.scope === 'selected') return 'no compounds are selected on ' + (t.name || 'that track');
+                        return 'no compounds on ' + (t.name || 'that track');
+                    }
+                    return '';
+                }
+            },
+            {
                 // "generate aso report" came back as "not something the editor can do", though
                 // Design > Therapeutics has written this report all along. The report itself is
                 // unchanged; it is reachable from the box now.
@@ -628,7 +723,7 @@ function (graph, genegraph_panel_layout) {
                     track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
                 },
                 run: (a) => {
-                    const t = reportTrack(a);
+                    const t = compoundTrack(a);
                     if (!t) { result('No compounds on any open track to report on.'); return; }
                     return exec('baja/manchester/menu/design-report.js', graph, genegraph_panel_layout, t);
                 },
@@ -637,7 +732,7 @@ function (graph, genegraph_panel_layout) {
                     // track: the blocker stops the run either way, but the line above it is
                     // what the user actually reads.
                     if (a.track && !matchTrack(a.track)) return 'write the design report for \u201c' + a.track + '\u201d';
-                    const t = reportTrack(a);
+                    const t = compoundTrack(a);
                     const n = t ? (t.oligos || []).length : 0;
                     return 'write the design report' + (t ? (' for ' + n + ' compound' + (n === 1 ? '' : 's')
                         + ' on ' + (t.name || 'the track')) : '');
