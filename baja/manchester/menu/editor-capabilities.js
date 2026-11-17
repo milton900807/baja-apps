@@ -189,6 +189,9 @@ function (graph, genegraph_panel_layout) {
         // The two engines the selection verbs are built on, loaded once.
         const VS = await exec('baja/data/variant-search.js', graph, { engineOnly: true });
         const F = await exec('baja/bio/compound-filter.js');
+        // Named places on the canvas, saved in localStorage. Created once; list() re-reads the
+        // store on every call, so preview() and choices() see bookmarks made since.
+        const BM = await exec('baja/lib/bookmarks.js', graph, genegraph_panel_layout);
 
         const vrows = () => {
             const out = [];
@@ -733,6 +736,79 @@ function (graph, genegraph_panel_layout) {
                     result('Removed ' + n + ' compound' + (n === 1 ? '' : 's') + '. Undo restores them.');
                 },
                 preview: (a) => 'delete the compounds: ' + F.describe(a) + offtargetNote(a)
+            },
+            {
+                // BOOKMARK THIS SITE. "bookmark this site dua" used to come back as "not something
+                // the editor can do ... likely a browser or application-level feature", because
+                // nothing in the catalogue saved a place. The name is whatever the user put after
+                // the verb, which is the part the planner has to be told to keep.
+                name: 'bookmark_site',
+                summary: 'SAVE THE CURRENT VIEW as a named bookmark, to come back to later: "bookmark '
+                    + 'this site dua", "bookmark this as the hotspot", "save this view as exon 7", '
+                    + '"remember this place". It records where the camera is now and changes nothing '
+                    + 'on the canvas.',
+                needs: 'track',
+                params: {
+                    name: {
+                        type: 'string', required: true,
+                        about: "what to call it, taken from the request itself: in \"bookmark this site "
+                            + "dua\" the name is \"dua\", in \"bookmark this as the hotspot\" it is \"the "
+                            + "hotspot\". Use the user's own words, without the words bookmark / save / "
+                            + "this site"
+                    }
+                },
+                run: (a) => {
+                    const r = BM.save(a.name);
+                    if (r.error) { result(r.error); return; }
+                    result('Bookmarked \u201c' + r.bm.name + '\u201d at ' + BM.where(r.bm)
+                        + (r.replaced ? ' \u2014 replaced the earlier one of that name.'
+                            : '. Say \u201cgo to ' + r.bm.name + '\u201d to come back.'));
+                },
+                preview: (a) => 'bookmark this view as \u201c' + a.name + '\u201d'
+            },
+            {
+                name: 'go_to_bookmark',
+                summary: 'GO BACK TO A SAVED BOOKMARK: "go to dua", "take me back to the hotspot", "go '
+                    + 'to my bookmark". Puts the camera back where it was when the bookmark was saved. '
+                    + 'With no name, or when several match, the bookmarks are offered to pick from. Use '
+                    + 'this only for a name that was bookmarked; a position such as c.778 is '
+                    + 'go_to_position, and a thing on the canvas is zoom_to_objects.',
+                needs: 'track',
+                params: {
+                    name: { type: 'string', about: "the bookmark's name when the request names one. Omit to be offered every bookmark" }
+                },
+                run: async (a) => {
+                    const b = a.__bm || (a.name ? (BM.find(a.name)[0] || null) : null);
+                    if (!b) { result(a.name ? ('No bookmark called \u201c' + a.name + '\u201d.') : 'No bookmarks saved yet.'); return; }
+                    await BM.go(b);
+                    result('Bookmark \u00b7 ' + b.name + ' (' + BM.where(b) + ').');
+                },
+                preview: (a) => 'go to the bookmark' + (a.name ? (' \u201c' + a.name + '\u201d') : ''),
+                choices: (a) => {
+                    if (a.__bm) return [];
+                    return (a.name ? BM.find(a.name) : BM.list()).map((b) => ({
+                        label: b.name, detail: BM.where(b) + ' \u00b7 ' + BM.when(b),
+                        args: Object.assign({}, a, { __bm: b })
+                    }));
+                },
+                choiceTitle: () => 'Go to which bookmark?',
+                argBlocker: (a) => {
+                    if (a.__bm) return '';
+                    const hits = a.name ? BM.find(a.name) : BM.list();
+                    if (!hits.length) {
+                        return a.name ? ('no bookmark called \u201c' + a.name + '\u201d')
+                            : 'no bookmarks saved yet: say \u201cbookmark this site <name>\u201d first';
+                    }
+                    return '';
+                }
+            },
+            {
+                name: 'open_bookmarks',
+                summary: 'OPEN THE BOOKMARKS PANEL: every saved bookmark, each with a GO and a Delete. '
+                    + '"show my bookmarks", "list my bookmarks", "manage bookmarks".',
+                opens: true, params: {},
+                run: () => { BM.open(); },
+                preview: () => 'open the bookmarks panel (' + BM.list().length + ' saved)'
             },
             {
                 // GOTO ONE POSITION, zoomed in far enough to read the bases. "goto c.778" was
