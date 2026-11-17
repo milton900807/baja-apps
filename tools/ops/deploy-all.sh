@@ -349,7 +349,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "show compound locations" \
     "flexigraph/gene-draw.js:BIG, OUTLINED, AND ONE" \
     "baja/manchester/menu/mark-compound-locations.js:FRAME THE TRANSCRIPT, because" \
-    "baja/manchester/menu/editor-capabilities.js:show_compound_locations"
+    "baja/manchester/menu/editor-capabilities.js:HIGHLIGHT THE COMPOUNDS"
   # "create mRNA track from DNM3" was refused as not something the editor can do, while the
   # track menu had offered Convert to mRNA all along. Both were right: the planner is handed
   # editor-capabilities.js as its entire vocabulary, so an operation missing from that file
