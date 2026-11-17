@@ -1,9 +1,9 @@
 function (graph, opts) {
 
-    // THE OFF-TARGET SCREEN'S OPTIONS, asked once, in the editor's own look.
+    // THE OFF-TARGET SCREEN'S OPTIONS, asked once, in the editor's own window.
     //   const choice = await exec('baja/manchester/menu/off-target-options.js', graph, {
     //       region: 'full' | 'seed',        which screen is about to run
-    //       genomes: <whatever /genomes returned>,
+    //       genomes: <whatever {apiUrl}/genomes returned>,
     //       endpoint: '<url>',              only so an error can say where it looked
     //       counts: { all, unscreened, selected },   optional, for the Run-on labels
     //       trackLabel: 'SPTLC2-201',
@@ -11,13 +11,15 @@ function (graph, opts) {
     //   });
     //   // -> { genome, scope: 'all'|'unscreened'|'selected', editDistance }  or null if cancelled
     //
-    // WHY THIS IS NOT THE OLD PANEL. The previous one was built from the legacy card/radio
-    // widgets and mounted into mainPanel, which means it REPLACED the canvas: a full-page
-    // light-grey form in an editor that is navy everywhere else, and the track gone while you
-    // chose a reference for it. This is an overlay, so the canvas stays where it was and
-    // closing it changes nothing.
+    // IT USES THE SHARED OVERLAY SHELL, baja/lib/canvas-overlay-panel.js, which is the
+    // editor's standard result window and is what off-target-summary.js already opens. The
+    // first version of this panel was its own position:fixed element, which is not the same
+    // thing: fixed positioning is relative to the nearest transformed ancestor rather than
+    // the viewport, so inside the editor's layout it sat off to the left with its header
+    // running off the edge of the screen. The shell fits itself to the gene-graph canvas and
+    // tracks it on resize, so there is one window shape in this app and this is it.
     //
-    // AND WHY THE REFERENCE LIST IS VALIDATED. The old panel did
+    // AND THE REFERENCE LIST IS VALIDATED. The panel this replaced did
     // `for (let a of Object.keys(available_genomes))` straight onto whatever GETJSON returned.
     // GETJSON hands back an error envelope rather than throwing, so when /genomes was down the
     // keys of that envelope became the list of things to choose from: headers, status,
@@ -27,6 +29,8 @@ function (graph, opts) {
     return (async () => {
         const o = opts || {};
         const ID = 'baja-offtarget-options';
+        const OV = await exec('baja/lib/canvas-overlay-panel.js');
+        const C = OV.colors;
         const H = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const fmt = (n) => (+n || 0).toLocaleString();
@@ -47,16 +51,15 @@ function (graph, opts) {
             const keys = Object.keys(res);
             if (!keys.length) return null;
             const real = keys.filter((k) => ENVELOPE.indexOf(('' + k).toLowerCase()) < 0);
-            // Every key an envelope field: that is the envelope, not a short genome list.
-            if (!real.length) return null;
+            if (!real.length) return null;     // every key an envelope field: that IS the envelope
             return real;
         };
+        // WHY IT FAILED, IN ONE SHORT CLAUSE. statusText is often the literal string "OK" even
+        // on a 404, which printed as "HTTP 404 OK", and the framework's message usually just
+        // restates the status and the URL that is already on screen. Neither is echoed.
         const whyFailed = (res) => {
-            if (!res) return 'the reference server returned nothing';
+            if (!res) return 'the server did not answer';
             if (typeof res === 'object') {
-                // statusText is often the literal string "OK" even on a 404, which printed as
-                // "HTTP 404 OK"; and the framework's message usually just restates the status
-                // and the URL that is already on screen. Neither is echoed verbatim.
                 const st = ('' + (res.statusText || '')).trim();
                 if (res.status != null) {
                     return 'HTTP ' + res.status + ((st && st.toUpperCase() !== 'OK') ? (' ' + st) : '');
@@ -71,120 +74,92 @@ function (graph, opts) {
         const region = (o.region === 'seed') ? 'seed' : 'full';
         const counts = o.counts || null;
         const D = o.defaults || {};
+        const countOf = (k) => (counts && counts[k] != null) ? counts[k] : null;
 
         let genome = (list && list.indexOf(D.genome) >= 0) ? D.genome : (list ? list[0] : '');
         let scope = ['all', 'unscreened', 'selected'].indexOf(D.scope) >= 0 ? D.scope : 'all';
         let editDistance = [0, 1, 2, 3].indexOf(+D.editDistance) >= 0 ? +D.editDistance : 0;
 
-        try { const old = document.getElementById(ID); if (old) old.remove(); } catch (e) { }
+        const seg = (on) => 'cursor:pointer;border-radius:9px;padding:9px 15px;font:700 12.5px ' + C.font
+            + ';text-align:left;'
+            + (on ? ('border:1px solid ' + C.accent + ';background:' + C.accent + ';color:#04202a;')
+                : ('border:1px solid ' + C.outline + ';background:transparent;color:' + C.text + ';'));
+        const lab = 'display:block;font:700 12px ' + C.font + ';color:' + C.dim
+            + ';letter-spacing:0.04em;text-transform:uppercase;margin:0 0 9px;';
+        const note = 'font:12px ' + C.font + ';color:' + C.dim + ';line-height:1.6;margin-top:8px;';
+
+        const scopes = [
+            // "All compounds · 1" on a track carrying 210 reads as a bug rather than as the
+            // zoom it is, so visible goes in the label and not only in the line above.
+            ['all', 'All visible compounds', 'Rerun every compound in view, replacing any result it already has.'],
+            ['unscreened', 'Only those in view with no result yet', 'Leaves results already on the other compounds untouched.'],
+            ['selected', 'Selected compounds only', 'Just the compounds currently selected and in view.']
+        ];
+
+        const refBody = list
+            ? ('<div id="ot-genomes" style="display:flex;flex-wrap:wrap;gap:8px;">'
+                + list.map((g, i) => '<button data-g="' + i + '" style="' + seg(g === genome) + '">' + H(g) + '</button>').join('')
+                + '</div>')
+            : ('<div style="border:1px solid rgba(255,180,162,0.5);background:rgba(255,180,162,0.08);'
+                + 'border-radius:10px;padding:13px 15px;">'
+                + '<div style="font:700 13px ' + C.font + ';color:' + C.warm + ';">No search reference is available.</div>'
+                + '<div style="' + note + 'margin-top:5px;">The server did not return a genome list — '
+                + H(whyFailed(o.genomes)) + (o.endpoint ? (' from ' + H(o.endpoint)) : '')
+                + '. Nothing can be screened until it answers. The indexed genomes come from the baja '
+                + 'app server itself, so check that it is serving <b style="color:' + C.text + ';">/genomes</b>.</div></div>');
+
+        const body = '<div style="max-width:760px;">'
+            + '<div style="font:12.5px ' + C.font + ';color:' + C.dim + ';margin:0 0 20px;">'
+            + (region === 'seed' ? 'Seed region, positions 2–8 of the guide' : 'Full antisense strand')
+            + (o.trackLabel ? (' · ' + H(o.trackLabel)) : '')
+            + ' · runs on the compounds currently <b style="color:' + C.text + ';">visible</b> on the track</div>'
+
+            + '<div style="margin-bottom:24px;"><span style="' + lab + '">Search reference</span>' + refBody + '</div>'
+
+            + '<div style="margin-bottom:24px;"><span style="' + lab + '">Run on</span>'
+            + '<div id="ot-scope" style="display:flex;flex-direction:column;gap:8px;">'
+            + scopes.map(([k, t, d]) => {
+                const n = countOf(k);
+                return '<button data-s="' + k + '" style="' + seg(k === scope) + '">'
+                    + H(t) + (n != null ? (' · ' + fmt(n)) : '')
+                    + '<div style="font:400 11.5px ' + C.font + ';opacity:0.75;margin-top:3px;">' + H(d) + '</div></button>';
+            }).join('')
+            + '</div></div>'
+
+            + '<div style="margin-bottom:22px;"><span style="' + lab + '">Edit distance</span>'
+            + '<div id="ot-ed" style="display:flex;gap:8px;">'
+            + [0, 1, 2, 3].map((n) => '<button data-e="' + n + '" style="' + seg(n === editDistance)
+                + 'min-width:54px;text-align:center;">' + n + '</button>').join('')
+            + '</div><div style="' + note + '">How many insertions, deletions or mismatches a hit may '
+            + 'carry. 0 finds exact matches only; each step up finds more and takes longer.</div></div>'
+
+            + '<div style="display:flex;gap:10px;align-items:center;padding-top:14px;'
+            + 'border-top:1px solid ' + C.rule + ';">'
+            + '<button id="ot-run" style="cursor:pointer;border-radius:9px;padding:10px 22px;font:700 13px '
+            + C.font + ';border:0;background:' + C.ok + ';color:' + C.okInk + ';">Run screen</button>'
+            + '<button id="ot-no" style="cursor:pointer;border-radius:9px;padding:10px 20px;font:700 13px '
+            + C.font + ';border:1px solid ' + C.outline + ';background:transparent;color:' + C.text + ';">Cancel</button>'
+            + '<div id="ot-say" style="margin-left:auto;font:12px ' + C.font + ';color:' + C.dim + ';"></div>'
+            + '</div></div>';
 
         return await new Promise((resolve) => {
-            const panel = document.createElement('div');
-            panel.id = ID;
-            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483300;background:#071a30;color:#e8f0fb;'
-                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
-
-            const seg = (on, disabled) => 'cursor:' + (disabled ? 'default' : 'pointer')
-                + ';border-radius:9px;padding:9px 15px;font:700 12.5px Arial;text-align:left;'
-                + (on ? 'border:1px solid #12c2e0;background:#12c2e0;color:#04202a;'
-                    : 'border:1px solid rgba(255,255,255,0.18);background:#0a1e3a;color:#c9d7e6;')
-                + (disabled ? 'opacity:0.4;' : '');
-            const label = 'display:block;font:700 12px Arial;color:#9fb3c8;letter-spacing:0.04em;'
-                + 'text-transform:uppercase;margin:0 0 9px;';
-            const note = 'font:12px Arial;color:#6b8299;line-height:1.6;margin-top:8px;';
-
-            const scopes = [
-                // "All compounds · 1" on a track carrying 210 reads as a bug rather than as the
-                // zoom it is, so visible goes in the label and not only in the subtitle above.
-                ['all', 'All visible compounds', 'Rerun every compound in view, replacing any result it already has.'],
-                ['unscreened', 'Only those in view with no result yet', 'Leaves results already on the other compounds untouched.'],
-                ['selected', 'Selected compounds only', 'Just the compounds currently selected and in view.']
-            ];
-            const countOf = (k) => (counts && counts[k] != null) ? counts[k] : null;
-
-            const header = '<div style="display:flex;align-items:center;gap:16px;padding:16px 24px;'
-                + 'border-bottom:1px solid rgba(255,255,255,0.08);background:#0b2545;flex:0 0 auto;">'
-                + '<div style="min-width:0;"><div style="font:700 18px Arial;">Off-target screen</div>'
-                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
-                + (region === 'seed' ? 'Seed region, positions 2–8 of the guide' : 'Full antisense strand')
-                + (o.trackLabel ? (' · ' + H(o.trackLabel)) : '')
-                + ' · runs on the compounds currently <b style="color:#cfe4ef;">visible</b> on the track</div></div>'
-                + '<button id="ot-x" style="margin-left:auto;cursor:pointer;border-radius:8px;padding:9px 16px;'
-                + 'font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;'
-                + 'color:#e8f0fb;flex:0 0 auto;">Close</button></div>';
-
-            const refBody = list
-                ? ('<div id="ot-genomes" style="display:flex;flex-wrap:wrap;gap:8px;">'
-                    + list.map((g, i) => '<button data-g="' + i + '" style="' + seg(g === genome) + '">' + H(g) + '</button>').join('')
-                    + '</div>')
-                : ('<div style="border:1px solid rgba(251,191,36,0.45);background:rgba(251,191,36,0.08);'
-                    + 'border-radius:10px;padding:13px 15px;">'
-                    + '<div style="font:700 13px Arial;color:#fbbf24;">No search reference is available.</div>'
-                    + '<div style="' + note + 'margin-top:5px;">The reference server did not return a '
-                    + 'genome list — ' + H(whyFailed(o.genomes))
-                    + (o.endpoint ? (' from ' + H(o.endpoint)) : '')
-                    + '. Nothing can be screened until it answers. Check that the off-target service '
-                    + 'is running, or the <b style="color:#cfe4ef;">offtarget</b> endpoint in env.js '
-                    + 'if it has moved.</div></div>');
-
-            panel.innerHTML = header
-                + '<div style="flex:1 1 auto;overflow:auto;padding:22px 24px 26px;">'
-                + '<div style="max-width:760px;margin:0 auto;">'
-
-                + '<div style="margin-bottom:26px;"><span style="' + label + '">Search reference</span>'
-                + refBody + '</div>'
-
-                + '<div style="margin-bottom:26px;"><span style="' + label + '">Run on</span>'
-                + '<div id="ot-scope" style="display:flex;flex-direction:column;gap:8px;">'
-                + scopes.map(([k, t, d]) => {
-                    const n = countOf(k);
-                    return '<button data-s="' + k + '" style="' + seg(k === scope) + '">'
-                        + H(t) + (n != null ? (' · ' + fmt(n)) : '')
-                        + '<div style="font:400 11.5px Arial;opacity:0.75;margin-top:3px;">' + H(d) + '</div></button>';
-                }).join('')
-                + '</div></div>'
-
-                + '<div><span style="' + label + '">Edit distance</span>'
-                + '<div id="ot-ed" style="display:flex;gap:8px;">'
-                + [0, 1, 2, 3].map((n) => '<button data-e="' + n + '" style="' + seg(n === editDistance)
-                    + 'min-width:54px;text-align:center;">' + n + '</button>').join('')
-                + '</div>'
-                + '<div style="' + note + '">How many insertions, deletions or mismatches a hit may carry. '
-                + '0 finds exact matches only; each step up finds more and takes longer.</div></div>'
-
-                + '</div></div>'
-
-                + '<div style="flex:0 0 auto;display:flex;gap:10px;padding:14px 24px;'
-                + 'border-top:1px solid rgba(255,255,255,0.08);background:#08203c;">'
-                + '<button id="ot-run" style="cursor:pointer;border-radius:9px;padding:10px 22px;font:700 13px Arial;'
-                + 'border:0;background:#22c55e;color:#04210f;">Run screen</button>'
-                + '<button id="ot-no" style="cursor:pointer;border-radius:9px;padding:10px 20px;font:700 13px Arial;'
-                + 'border:1px solid rgba(255,255,255,0.24);background:transparent;color:#cfe4ef;">Cancel</button>'
-                + '<div id="ot-say" style="margin-left:auto;align-self:center;font:12px Arial;color:#9fb3c8;"></div>'
-                + '</div>';
-
-            document.body.appendChild(panel);
-            const q = (s) => panel.querySelector(s);
-
-            const done = (val) => {
-                try { panel.remove(); } catch (e) { }
-                try { document.removeEventListener('keydown', onKey, true); } catch (e) { }
-                resolve(val);
-            };
-            const onKey = (e) => {
-                try { e.stopPropagation(); } catch (e2) { }
-                if (e.key === 'Escape') done(null);
-            };
-            document.addEventListener('keydown', onKey, true);
-            for (const ev of ['keyup', 'keypress', 'wheel']) {
-                panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
-            }
+            // The shell owns Escape, the Close button, resize and the canvas rect. Whichever
+            // way it closes, onClose runs exactly once, so `chosen` is what the caller gets:
+            // set by Run, and left null by every other exit.
+            let chosen = null;
+            const ov = OV.open({
+                id: ID,
+                title: 'Off-target screen',
+                body: body,
+                onClose: () => resolve(chosen)
+            });
+            const q = (s) => ov.panel.querySelector(s);
 
             const syncRun = () => {
                 const run = q('#ot-run');
                 const n = countOf(scope);
-                // Nothing to screen is said here rather than after the run returns having
-                // done nothing: an empty scope and a dead reference look identical afterwards.
+                // Nothing to screen is said here rather than after a run that did nothing: an
+                // empty scope and a dead reference look identical once the panel has closed.
                 const bad = !list ? 'no search reference' : ((n === 0) ? 'no compounds in that scope' : '');
                 run.disabled = !!bad;
                 run.style.opacity = bad ? '0.45' : '';
@@ -208,8 +183,7 @@ function (graph, opts) {
                 b.onclick = () => {
                     scope = b.getAttribute('data-s');
                     q('#ot-scope').querySelectorAll('button[data-s]').forEach((x) => {
-                        const on = x.getAttribute('data-s') === scope;
-                        x.style.cssText = seg(on);
+                        x.style.cssText = seg(x.getAttribute('data-s') === scope);
                     });
                     syncRun();
                 };
@@ -218,17 +192,18 @@ function (graph, opts) {
                 b.onclick = () => {
                     editDistance = +b.getAttribute('data-e');
                     q('#ot-ed').querySelectorAll('button[data-e]').forEach((x) => {
-                        x.style.cssText = seg(+x.getAttribute('data-e') === editDistance) + 'min-width:54px;text-align:center;';
+                        x.style.cssText = seg(+x.getAttribute('data-e') === editDistance)
+                            + 'min-width:54px;text-align:center;';
                     });
                     syncRun();
                 };
             });
 
-            q('#ot-no').onclick = () => done(null);
-            q('#ot-x').onclick = () => done(null);
+            q('#ot-no').onclick = () => ov.close();
             q('#ot-run').onclick = () => {
                 if (q('#ot-run').disabled) return;
-                done({ genome: genome, scope: scope, editDistance: editDistance, region: region });
+                chosen = { genome: genome, scope: scope, editDistance: editDistance, region: region };
+                ov.close();
             };
             syncRun();
         });

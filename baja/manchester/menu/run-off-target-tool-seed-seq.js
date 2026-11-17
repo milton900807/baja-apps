@@ -29,14 +29,19 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             return result;
         }
 
-        graph.setMessage("Loading off-target genomes... ")
-
-        let oep = window["env"]["offtarget"];
-        if (!oep || oep.length <= 0) {
-            oep = '/levenshtein'
-        }
-        let url = `${oep}/genomes`
-        let available_genomes = await GETJSON(url)
+        graph.setMessage("Loading indexed genomes from the server... ")
+        // THE SAME SOURCE THE OTHER RUNNER USES, and baja/manchester/menu/run-off-targets.js
+        // says why in as many words: the indexed genomes and the off-target search are served
+        // by the baja app server itself (apiUrl), and a separate off-target API is not to be
+        // reached for. This asked window.env.offtarget and fell back to a bare /levenshtein,
+        // which on a deployment that never mounted that service is a 404 -- so the panel had
+        // no reference to offer and no screen could be run from here, while the same screen
+        // started from the editor runner worked.
+        const __otBase = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';
+        let url = `${__otBase}/genomes`
+        let available_genomes = null;
+        try { available_genomes = __otBase ? await GETJSON(url) : null; }
+        catch (e) { available_genomes = e; }
 
         let containsRepeatedSequences = (dnaString) => {
             const regex = /(A{4,}|C{4,}|G{4,}|T{4,})/;
@@ -216,10 +221,7 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                         "runMode": returnMode
                     }
 
-                    let oep = window["env"]["offtarget"];
-                    if (!oep || oep.length <= 0) {
-                        oep = '/levenshtein'
-                    }
+                    let oep = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';   // apiUrl first -- see the genome lookup above
 
                     let uri = `${oep}/off-targets-file`;
                     r = await POSTJSON(obj, uri)
