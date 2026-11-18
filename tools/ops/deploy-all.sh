@@ -818,7 +818,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "compound arrows: stand down when the compound is visible" \
     "flexigraph/gene-draw.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
     "flexigraph/gene-draw2.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
-    "flexigraph/oligo.js:the label it was making way for should come back"
+    "flexigraph/oligo.js:COMPOUND_VISIBLE_PX in flexigraph/gene-draw.js"
   install_group "sequence labels: one per place" \
     "flexigraph/oligo.js:ONE SEQUENCE LABEL PER PLACE" \
     "baja/bio/track.js:Same idea for the per-compound sequence labels"
