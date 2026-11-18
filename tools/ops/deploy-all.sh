@@ -817,6 +817,10 @@ if [[ $DO_API -eq 1 ]]; then
   # arrows while the labels stayed suppressed, losing both at once.
   # The target row under each compound shows only the column that does not pair.
   # An annotation whose name is just a nucleotide run draws no label.
+  # The arrows hang from the top of the track and are translucent. Both renderers.
+  install_group "compound arrows: top of the track, translucent" \
+    "flexigraph/gene-draw.js:HUNG FROM THE TOP OF THE TRACK" \
+    "flexigraph/gene-draw2.js:Hung from the top of the track"
   install_group "annotations: no label for a sequence name" \
     "flexigraph/annotation.js:A NAME THAT IS JUST A SEQUENCE IS NOT A LABEL"
   install_group "chemistry: target row is the mismatch only" \
