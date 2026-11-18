@@ -812,6 +812,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/selected-off-target-genes.js:THE OFF-TARGET GENES OF THE SELECTED COMPOUNDS"
   # One sequence label per place on a tiled design. Both files: track.js empties the list
   # at the top of each frame, oligo.js checks and fills it.
+  # The arrows stand down once the compound is visible, and the sequence label comes back
+  # at the same threshold. All three together: gene-draw without oligo would hide the
+  # arrows while the labels stayed suppressed, losing both at once.
+  install_group "compound arrows: stand down when the compound is visible" \
+    "flexigraph/gene-draw.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
+    "flexigraph/gene-draw2.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
+    "flexigraph/oligo.js:the label it was making way for should come back"
   install_group "sequence labels: one per place" \
     "flexigraph/oligo.js:ONE SEQUENCE LABEL PER PLACE" \
     "baja/bio/track.js:Same idea for the per-compound sequence labels"
