@@ -153,35 +153,56 @@ function () {
             if (reg) { n = reg.bins[bin] = (reg.bins[bin] || 0) + 1; }
 
             const TIP = 10, STEM = 30, HW = 15, HH = 17;
+
+            // Hung from the top of the track and drawn see-through, for the reasons set out on
+            // the gene-draw.js copy of this shape. Same numbers, so a track looks the same
+            // whichever class drew it.
+            // The stem is shortened to whatever the track can hold, so the arrow never reaches
+            // above the top edge and into the track above it. A short track gets a short arrow
+            // rather than one that marks a neighbour's sequence.
+            let __sy = sy, __stem = STEM;
+            try {
+                const __baseY = grid.Y(tgraph.Y(0));
+                const __hPx = Math.abs(grid.screenHeight ? grid.screenHeight(tgraph.height) : 0) || 0;
+                if (isFinite(__baseY) && __hPx > 0) {
+                    // Shorter than the arrowhead itself: there is no arrow that both
+                    // fits and points at this track, and one drawn anyway would mark the
+                    // track above. A band that thin shows no compounds to point at either.
+                    if (__hPx <= TIP + 12) return;
+                    __stem = Math.max(8, Math.min(STEM, __hPx - TIP - 6));
+                    __sy = (__baseY - __hPx) + TIP + __stem + 2;
+                }
+            } catch (e) { __sy = sy; __stem = STEM; }
+            const ARROW_ALPHA = 0.55;
             if (n === 1) {
                 ctx.save();
                 try {
                     ctx.setLineDash([]);
                     ctx.shadowColor = 'transparent';
                     ctx.shadowBlur = 0;
-                    ctx.globalAlpha = 1;
+                    ctx.globalAlpha = ARROW_ALPHA;
                     ctx.lineCap = 'round';
                     // The dark pass first and wider, so the arrow keeps its edge over a pale
                     // exon and over a dark splice arc alike.
                     ctx.strokeStyle = 'rgba(15,23,42,0.85)';
                     ctx.lineWidth = 6;
                     ctx.beginPath();
-                    ctx.moveTo(sx, sy - TIP - STEM);
-                    ctx.lineTo(sx, sy - TIP);
+                    ctx.moveTo(sx, __sy - TIP - __stem);
+                    ctx.lineTo(sx, __sy - TIP);
                     ctx.stroke();
                     ctx.strokeStyle = c;
                     ctx.lineWidth = 3;
                     ctx.beginPath();
-                    ctx.moveTo(sx, sy - TIP - STEM);
-                    ctx.lineTo(sx, sy - TIP);
+                    ctx.moveTo(sx, __sy - TIP - __stem);
+                    ctx.lineTo(sx, __sy - TIP);
                     ctx.stroke();
                     // The head, drawn here rather than through a helper: this file has no
                     // arrowhead of its own, and a triangle is less to go wrong than a dependency.
                     const head = (fill, grow) => {
                         ctx.beginPath();
-                        ctx.moveTo(sx, sy - TIP + grow);
-                        ctx.lineTo(sx - HW / 2 - grow, sy - TIP - HH);
-                        ctx.lineTo(sx + HW / 2 + grow, sy - TIP - HH);
+                        ctx.moveTo(sx, __sy - TIP + grow);
+                        ctx.lineTo(sx - HW / 2 - grow, __sy - TIP - HH);
+                        ctx.lineTo(sx + HW / 2 + grow, __sy - TIP - HH);
                         ctx.closePath();
                         ctx.fillStyle = fill;
                         ctx.fill();
@@ -196,7 +217,7 @@ function () {
             if (n > 1) {
                 const label = '' + n;
                 const w = 14 + label.length * 7, h = 16;
-                const bx = sx - w / 2, by = sy - TIP - STEM - h - 4;
+                const bx = sx - w / 2, by = __sy - TIP - __stem - h - 4;
                 ctx.save();
                 try {
                     ctx.setLineDash([]);
