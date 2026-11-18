@@ -616,7 +616,9 @@ function () {
             let n = 1;
             if (reg) { n = reg.bins[bin] = (reg.bins[bin] || 0) + 1; }
 
-            const TIP = 10, STEM = 30, HW = 15, HH = 17;
+            // HW/HH are the arrowhead's width and height. Smaller than the stem is long,
+            // so the head reads as a point rather than a block sitting on the track.
+            const TIP = 10, STEM = 30, HW = 9, HH = 10;
 
             // HUNG FROM THE TOP OF THE TRACK, NOT STOOD ON THE BASELINE. Anchored just above
             // the baseline the arrows sat in the middle of everything the track draws there --
@@ -648,7 +650,7 @@ function () {
             // zoom they are a pointer to what is underneath, and an opaque one hides the thing
             // it is pointing at. The dark outline pass keeps enough edge to stay legible over a
             // pale exon and a dark splice arc alike.
-            const ARROW_ALPHA = 0.55;
+            const ARROW_ALPHA = 0.34;
             if (n === 1) {
                 ctx.save();
                 try {

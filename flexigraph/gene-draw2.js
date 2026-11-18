@@ -152,7 +152,9 @@ function () {
             let n = 1;
             if (reg) { n = reg.bins[bin] = (reg.bins[bin] || 0) + 1; }
 
-            const TIP = 10, STEM = 30, HW = 15, HH = 17;
+            // HW/HH are the arrowhead's width and height. Smaller than the stem is long,
+            // so the head reads as a point rather than a block sitting on the track.
+            const TIP = 10, STEM = 30, HW = 9, HH = 10;
 
             // Hung from the top of the track and drawn see-through, for the reasons set out on
             // the gene-draw.js copy of this shape. Same numbers, so a track looks the same
@@ -173,7 +175,7 @@ function () {
                     __sy = (__baseY - __hPx) + TIP + __stem + 2;
                 }
             } catch (e) { __sy = sy; __stem = STEM; }
-            const ARROW_ALPHA = 0.55;
+            const ARROW_ALPHA = 0.34;
             if (n === 1) {
                 ctx.save();
                 try {
@@ -207,7 +209,7 @@ function () {
                         ctx.fillStyle = fill;
                         ctx.fill();
                     };
-                    head('rgba(15,23,42,0.85)', 2);
+                    head('rgba(15,23,42,0.85)', 1.2);   // thinner underlay, for the smaller head
                     head(c, 0);
                 } catch (e) { }
                 ctx.restore();
