@@ -815,6 +815,9 @@ if [[ $DO_API -eq 1 ]]; then
   # The arrows stand down once the compound is visible, and the sequence label comes back
   # at the same threshold. All three together: gene-draw without oligo would hide the
   # arrows while the labels stayed suppressed, losing both at once.
+  # The target row under each compound shows only the column that does not pair.
+  install_group "chemistry: target row is the mismatch only" \
+    "flexigraph/chem-draw.js:ONLY THE COLUMN THAT DOES NOT PAIR"
   install_group "compound arrows: stand down when the compound is visible" \
     "flexigraph/gene-draw.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
     "flexigraph/gene-draw2.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
