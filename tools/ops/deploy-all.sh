@@ -816,6 +816,9 @@ if [[ $DO_API -eq 1 ]]; then
   # at the same threshold. All three together: gene-draw without oligo would hide the
   # arrows while the labels stayed suppressed, losing both at once.
   # The target row under each compound shows only the column that does not pair.
+  # An annotation whose name is just a nucleotide run draws no label.
+  install_group "annotations: no label for a sequence name" \
+    "flexigraph/annotation.js:A NAME THAT IS JUST A SEQUENCE IS NOT A LABEL"
   install_group "chemistry: target row is the mismatch only" \
     "flexigraph/chem-draw.js:ONLY THE COLUMN THAT DOES NOT PAIR"
   install_group "compound arrows: stand down when the compound is visible" \
