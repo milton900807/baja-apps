@@ -904,7 +904,19 @@ function () {
 
                 // While the location arrows are up, the sequence labels stay down -- see
                 // baja/manchester/menu/mark-compound-locations.js for why.
-                const __marksUp = (() => { try { return !!tgraph.__compoundMarksOn; } catch (e) { return false; } })();
+                const __marksUp = (() => {
+                    try {
+                        if (!tgraph.__compoundMarksOn) return false;
+                        // The arrows stand down once the compound is wide enough to see
+                        // (COMPOUND_VISIBLE_PX in flexigraph/gene-draw.js), and the label it was
+                        // making way for should come back at exactly that point -- otherwise
+                        // zooming in loses both the arrow and the sequence, which is the one
+                        // combination nobody asked for.
+                        const ax = graph.X(tgraph.X(this.xi)), bx = graph.X(tgraph.X(this.xf));
+                        if (isFinite(ax) && isFinite(bx) && Math.abs(bx - ax) >= 40) return false;
+                        return true;
+                    } catch (e) { return false; }
+                })();
                 if (this.__seqDisp && !__lettersOnBeads && !__marksUp && __seqHasRoom()) {
                     // IN REGISTER WITH THE BASES, when there is room for a letter per base:
                     // the target across the top and what will be synthesised underneath it,

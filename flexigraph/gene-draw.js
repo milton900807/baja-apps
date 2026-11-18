@@ -584,9 +584,21 @@ function () {
             let ctx = null;
             try { ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null; } catch (e) { ctx = null; }
             if (!ctx) return;
-            const sx = (graph.X(xs) + graph.X(xf)) / 2;
+            const __ax = graph.X(xs), __bx = graph.X(xf);
+            const sx = (__ax + __bx) / 2;
             const sy = graph.Y(y);
             if (!isFinite(sx) || !isFinite(sy)) return;
+            // AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE, THE ARROW IS NOISE. These marks
+            // exist for a view too wide to show the compounds -- at 571 kb a 20-mer is a
+            // fraction of a pixel and a track with 47 of them looks empty. Once the compound
+            // is drawn wide enough to see, the arrow points at something already on screen,
+            // and a row of them over a tiled design stands in front of the very thing it is
+            // announcing. Measured in SCREEN pixels off the mark's own span, which is the
+            // compound's span, so it follows the zoom rather than a zoom level guessed at.
+            // flexigraph/oligo.js uses the same threshold to decide when the per-compound
+            // sequence label may come back, so the two swap over at the same moment.
+            const COMPOUND_VISIBLE_PX = 40;
+            if (isFinite(__ax) && isFinite(__bx) && Math.abs(__bx - __ax) >= COMPOUND_VISIBLE_PX) return;
 
             // ONE ARROW PER PLACE. The registry lives on the track's graph and resets itself:
             // seeing an annotation twice means a new frame has started, because every mark is

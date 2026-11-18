@@ -121,9 +121,21 @@ function () {
         'CompoundMark': createIon((ctx, grid, tgraph, xs, xf, y, color, annotation) => {
             if (!ctx) return;
             const c = (annotation && annotation.color) || color || '#f59e0b';
-            const sx = (grid.X(tgraph.X(xs)) + grid.X(tgraph.X(xf))) / 2;
+            const __ax = grid.X(tgraph.X(xs)), __bx = grid.X(tgraph.X(xf));
+            const sx = (__ax + __bx) / 2;
             const sy = grid.Y(tgraph.Y(y));
             if (!isFinite(sx) || !isFinite(sy)) return;
+            // AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE, THE ARROW IS NOISE. These marks
+            // exist for a view too wide to show the compounds -- at 571 kb a 20-mer is a
+            // fraction of a pixel and a track with 47 of them looks empty. Once the compound
+            // is drawn wide enough to see, the arrow points at something already on screen,
+            // and a row of them over a tiled design stands in front of the very thing it is
+            // announcing. Measured in SCREEN pixels off the mark's own span, which is the
+            // compound's span, so it follows the zoom rather than a zoom level guessed at.
+            // flexigraph/oligo.js uses the same threshold to decide when the per-compound
+            // sequence label may come back, so the two swap over at the same moment.
+            const COMPOUND_VISIBLE_PX = 40;
+            if (isFinite(__ax) && isFinite(__bx) && Math.abs(__bx - __ax) >= COMPOUND_VISIBLE_PX) return;
 
             // ONE ARROW PER PLACE, counted per repaint. Seeing an annotation twice means a new
             // frame started, because each mark is drawn exactly once per pass; without the
