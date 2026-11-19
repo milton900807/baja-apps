@@ -959,6 +959,15 @@ if [[ $DO_API -eq 1 ]]; then
   # the aligner returns the blocks, the client puts them on the codons that encode them,
   # and match-layer draws and links them. The backend and the client go together -- an old
   # backend returns no blocks and the client draws nothing, silently.
+  # "remove rnaseq layers from X" now also finds the unlabelled bigwig traces, by their
+  # shape, and asks before taking anything it inferred or anything sweeping. The matcher,
+  # the removal, the card and the confirmation all go together: an old confirm.js reports
+  # no cancel, and an old capabilities file previews a different set than the one removed.
+  install_group "Remove rnaseq layers: found by shape, asked about first" \
+    "baja/bio/layer-match.js:the last resort is WHAT THE LAYER IS DRAWN AS" \
+    "baja/bio/remove-layers.js:ASKED FIRST WHEN THE MATCH IS A GUESS" \
+    "baja/lib/confirm.js:A CANCEL THAT CAN BE HEARD" \
+    "baja/manchester/menu/editor-capabilities.js:ONE DESCRIPTION OF WHICH LAYERS A REQUEST MEANS"
   install_group "Ask: compare the proteins, and draw where they are alike" \
     "py/bio/protein/align-proteins.py:THE BLOCKS THE ALIGNMENT IS MADE OF" \
     "baja/bio/protein/compare-proteins.js:THE ANSWER IS ALSO DRAWN" \

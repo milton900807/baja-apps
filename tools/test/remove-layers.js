@@ -21,15 +21,32 @@ const load = async (p, ...a) => {
     if (('' + p).indexOf('/py/bio/editor/plan.py') >= 0) return planReply;
     if (/librar/i.test('' + p) || /institute-rna-design/.test('' + p)) { opened.push('' + p); return { ok: true }; }
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
-    const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(path, 'utf8') + ')')(load, {});
+    const src = fs.readFileSync(path, 'utf8');
+    let f;
+    try { f = await new AF('exec', 'args', core + '\nreturn (' + src + ')')(load, {}); }
+    catch (e) { return await new AF('exec', 'args', core + '\n' + src)(load, {}); }
+    if (typeof f === 'function' && /^class[\s{]/.test(Function.prototype.toString.call(f))) return f;
     return f(...a);
 };
-global.lion_engine = { exec: (p, ...a) => load(p, ...a) };
+const stash = {};
+global.lion_engine = {
+    exec: (p, ...a) => load(p, ...a),
+    setStashed: (n, c) => { stash[n] = c; },
+    getStashed: (n) => stash[n] || null,
+    createIonFunction: (f) => f
+};
 
 let fails = 0;
 const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
 
 const L = (name, kind) => ({ name: name, data_type: kind });
+// WHAT A BIGWIG ACTUALLY LOADS AS: polygon points, no data_type, named after the file.
+// Nothing about it says RNA-seq except the shape of it.
+const peaks = (name, levels) => ({
+    name: name,
+    polygonpts: (levels || [0, -0.4, -0.9, -0.2, -0.7, -0.1, -0.5, -0.3, -0.8, 0])
+        .map((y, i) => ({ x: i * 50, y: y }))
+});
 const mkTrack = () => ({
     name: 'MAPK8IP3_mRNA', xi: 0, xf: 5000, getSelectedRanges: () => [],
     grid: { yi: 1, xi: 0, width: 10, height: -1 },
@@ -41,7 +58,41 @@ const mkTrack = () => ({
         L('MAPK8IP3_domains', 'CDD')
     ]
 });
+const mkBigwig = () => {
+    const t = mkTrack();
+    t.track_layers = [
+        peaks('GRCh38_brain_rep1'),
+        peaks('ENCFF002ABC'),
+        L('MAPK8IP3_motifs', 'SLIM'),
+        // A filled trace that is NOT RNA-seq: it says what it is, so it stays.
+        Object.assign(peaks('MAPK8IP3_secretion'), { data_type: 'SECRETION:POLY' }),
+        // A polygon that is a box, not a trace: two heights and four points.
+        { name: 'MAPK8IP3_box', polygonpts: [{ x: 0, y: 0 }, { x: 0, y: -1 }, { x: 9, y: -1 }, { x: 9, y: 0 }] }
+    ];
+    return t;
+};
 const names = (t) => t.track_layers.map((l) => l.name).join(', ');
+
+// A graph whose confirmation panel answers itself, so a removal that asks first can be
+// driven end to end. `answer` is 'yes', 'no', or null to leave the question hanging.
+let lastAsk = null;
+const mkGraph = (t, answer) => {
+    const g = {
+        track: [t], said: [], wake() { }, getTracks: () => [t],
+        setMessage(m) { this.said.push('' + m); },
+        setResultMessage(m) { this.said.push('' + m); },
+        showMenu(items) {
+            lastAsk = items.map((i) => '' + (i.label || '')).join(' ');
+            if (!answer) return;
+            const want = answer === 'yes' ? /^(remove|delete|clear)$/i : /^cancel$/i;
+            const row = items.find((i) => want.test('' + (i.label || '')));
+            if (row && row.click) row.click();
+        }
+    };
+    // confirm.js reads the graph off the stash, not from its caller.
+    try { lion_engine.setStashed('graph', g); } catch (e) { }
+    return g;
+};
 
 (async () => {
     // ---- the kind, not just the name -----------------------------------------------------
@@ -71,19 +122,70 @@ const names = (t) => t.track_layers.map((l) => l.name).join(', ');
 
     // ---- what it refuses to guess ----------------------------------------------------------
     t = mkTrack();
-    r = await load('baja/bio/remove-layers.js', { track: [t], wake() { }, setMessage() { } }, [t], { match: 'conservation' });
+    r = await load('baja/bio/remove-layers.js', { track: [t], wake() { }, setMessage() { } }, [t], { match: 'methylation' });
     ok(r.count === undefined && !!r.error && /Nothing matched/.test(r.error),
        'nothing matching removes nothing and says what IS there, rather than removing the '
        + 'nearest thing: ' + r.error.slice(0, 90));
     ok(t.track_layers.length === 5, 'with every layer still on the track');
 
-    // ---- everything, only when asked ---------------------------------------------------------
+    // ---- everything, only when asked, and only after being asked about ----------------------
     t = mkTrack();
-    r = await load('baja/bio/remove-layers.js', { track: [t], wake() { }, setMessage() { } }, [t], { match: 'all' });
-    ok(r.count === 5 && t.track_layers.length === 0, 'all means all: ' + r.count);
+    lastAsk = null;
+    let g1 = mkGraph(t, 'yes');
+    r = await load('baja/bio/remove-layers.js', g1, [t], { match: 'all' });
+    ok(r.pending === true && r.asked === 5, 'sweeping the track bare is put to the user first: '
+       + JSON.stringify({ pending: r.pending, asked: r.asked }));
+    ok(/Remove 5 layers/.test(lastAsk || '') && /MAPK8IP3_domains/.test(lastAsk || ''),
+       'and the question names every layer, so it can be answered: ' + (lastAsk || '').slice(0, 80));
+    ok(t.track_layers.length === 0, 'on yes they go: ' + t.track_layers.length + ' left');
     ok((t.__removedLayers || []).length === 5,
        'and they are kept on the track, so a mistaken "remove all" is not the end of an '
        + 'afternoon of loading');
+
+    // On no, nothing is touched. A confirmation that removes either way is not one.
+    t = mkTrack();
+    const gNo = mkGraph(t, 'no');
+    r = await load('baja/bio/remove-layers.js', gNo, [t], { match: 'all' });
+    ok(t.track_layers.length === 5, 'on no the track is untouched: ' + t.track_layers.length);
+    ok(gNo.said.join(' ').indexOf('Left them alone') >= 0,
+       'and the user is told so rather than left wondering: ' + gNo.said.join(' '));
+
+    // A dismissed panel answers nothing at all, so the promise must not be waiting on it.
+    t = mkTrack();
+    r = await Promise.race([
+        load('baja/bio/remove-layers.js', mkGraph(t, null), [t], { match: 'all' }),
+        new Promise((res) => setTimeout(() => res({ hung: true }), 150))
+    ]);
+    ok(r && r.pending === true && !r.hung,
+       'an unanswered question does not hang the card: ' + JSON.stringify(r && { p: r.pending, h: r.hung }));
+
+    // ---- layers matched by what they are DRAWN as -------------------------------------------
+    // A bigwig trace carries no data_type and is named after the file. Nothing about it says
+    // RNA-seq except the peaks, which is why "remove the rnaseq layers" found nothing.
+    t = mkBigwig();
+    lastAsk = null;
+    const gB = mkGraph(t, 'yes');
+    r = await load('baja/bio/remove-layers.js', gB, [t], { match: 'rnaseq' });
+    ok(r.pending === true && r.asked === 2 && r.guessed === 2,
+       'the two unlabelled traces are found by their shape: ' + JSON.stringify({ a: r.asked, g: r.guessed }));
+    ok(/drawn as a filled trace with peaks/.test(lastAsk || ''),
+       'and the question says they were matched by how they are drawn, not by name: '
+       + (lastAsk || '').slice(0, 120));
+    const left = t.track_layers.map((l) => l.name);
+    ok(left.indexOf('MAPK8IP3_secretion') >= 0,
+       'a trace that SAYS what it is keeps its own kind and stays: ' + left.join(', '));
+    ok(left.indexOf('MAPK8IP3_box') >= 0,
+       'and a polygon that is a box rather than peaks stays: ' + left.join(', '));
+    ok(left.indexOf('MAPK8IP3_motifs') >= 0, 'as do the motifs');
+    ok(left.length === 3, 'so only the two traces went: ' + left.join(', '));
+
+    // ---- "the tracklayers" is the same request as "the layers" ------------------------------
+    for (const word of ['tracklayers', 'track layers', 'the layers', 'layers']) {
+        const tw = mkTrack();
+        const rw = await load('baja/bio/remove-layers.js', mkGraph(tw, 'yes'), [tw], { match: word });
+        ok(tw.track_layers.length === 0, '"' + word + '" means all of them: '
+           + tw.track_layers.length + ' left');
+    }
 
     // ---- the card says WHICH before the button ------------------------------------------------
     t = mkTrack();
@@ -94,7 +196,17 @@ const names = (t) => t.track_layers.map((l) => l.name).join(', ');
     ok(/GRCh38illuminabrain1/.test(p.text) && /rna_protein_measured/.test(p.text),
        'the preview names every layer it is about to take: ' + p.text);
     ok(/remove 2 layers/.test(p.text), 'and how many: ' + p.text.slice(0, 40));
-    p = C.preview({ capability: 'remove_layers', args: { match: 'conservation' } });
+    // The card has to show the guess BEFORE the button, not only in the confirmation.
+    const tB = mkBigwig();
+    const C3 = await load('baja/manchester/menu/editor-capabilities.js',
+        { track: [tB], getTracks: () => [tB], setMessage() { }, setResultMessage() { } }, {});
+    const pB = C3.preview({ capability: 'remove_layers', args: { match: 'rnaseq' } });
+    ok(/GRCh38_brain_rep1 \(peaks\)/.test(pB.text),
+       'the card marks a layer matched by its shape: ' + pB.text);
+    ok(/you will be asked first/.test(pB.text),
+       'and says the question is coming: ' + pB.text);
+
+    p = C.preview({ capability: 'remove_layers', args: { match: 'methylation' } });
     ok(/nothing there matches/.test(p.text), 'or says nothing matches: ' + p.text);
 
     const bare = { name: 'empty', track_layers: [], xi: 0, xf: 10, getSelectedRanges: () => [],
@@ -175,7 +287,7 @@ const names = (t) => t.track_layers.map((l) => l.name).join(', ');
 
     const t4 = mkTrack();
     const r4 = await load('baja/bio/remove-layers.js',
-        { track: [t4], wake() { }, setMessage() { } }, [t4], { match: 'conservation' });
+        { track: [t4], wake() { }, setMessage() { } }, [t4], { match: 'methylation' });
     ok(/\[RNASeq\]/.test(r4.error || ''),
        'and when nothing matches, the layers are listed WITH their kinds, which is what a '
        + 'second attempt needs: ' + (r4.error || '').slice(0, 100));

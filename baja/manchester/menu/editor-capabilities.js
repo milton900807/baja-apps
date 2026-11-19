@@ -34,6 +34,11 @@ function (graph, genegraph_panel_layout) {
 
     return (async () => {
         const server = () => { try { return window['env']['apiUrl']; } catch (e) { return ''; } };
+        // ONE DESCRIPTION OF WHICH LAYERS A REQUEST MEANS, loaded once so the card that
+        // previews a removal and the removal itself cannot answer differently. Previews are
+        // synchronous, which is why it is awaited here rather than where it is used.
+        let LM = null;
+        try { LM = await exec('baja/bio/layer-match.js'); } catch (e) { LM = null; }
         const tracks = () => (graph.track || []).filter(Boolean);
         const hasSel = (t) => {
             try { return t && t.markstart != null && t.markend != null && t.markend > t.markstart && t.markstart >= 0; }
@@ -540,8 +545,12 @@ function (graph, genegraph_panel_layout) {
                             + 'SLIM, CDD, SEQSIM): the layer a user calls "the rna seq layer" '
                             + 'is often named something else entirely, and canvas_now is where '
                             + 'to find out what. A kind matches every layer of that kind. '
-                            + 'Failing both, the request\u2019s own words. Use "all" ONLY when '
-                            + 'the request asks for every layer to go'
+                            + 'Failing both, the request\u2019s own words. A request for RNA-seq, '
+                            + 'coverage, expression or peaks ALSO takes unlabelled layers that are '
+                            + 'drawn as a filled trace with peaks, which is what a bigwig loads as, '
+                            + 'and the user is asked before those go. Use "all" ONLY when the '
+                            + 'request asks for every layer to go; "layers" or "tracklayers" on '
+                            + 'their own mean the same thing'
                     },
                     track: {
                         type: 'string',
@@ -554,6 +563,16 @@ function (graph, genegraph_panel_layout) {
                     if (!t) { result('Which track? Name it, or click one first.'); return; }
                     const r = await exec('baja/bio/remove-layers.js', graph, [t], { match: a.match || '' });
                     if (r && r.error) result(r.error);
+                    else if (r && r.pending) {
+                        // The question is on the canvas; the removal happens when it is
+                        // answered. Saying "removed" here would be a report of something
+                        // that has not happened yet.
+                        result('Asked before removing ' + r.asked + ' layer' + (r.asked === 1 ? '' : 's')
+                            + ' from ' + (t.name || 'the track') + ': '
+                            + r.candidates.map((x) => x.name).join(', ')
+                            + (r.guessed ? ('. ' + r.guessed + ' of them matched by being drawn as a '
+                                + 'trace with peaks rather than by name.') : '.'));
+                    }
                     else if (r && r.removed) {
                         result('Removed ' + r.count + ' layer' + (r.count === 1 ? '' : 's')
                             + ' from ' + (t.name || 'the track') + ': '
@@ -568,26 +587,24 @@ function (graph, genegraph_panel_layout) {
                     // WHICH LAYERS, BY NAME, BEFORE THE BUTTON. A card that says "remove the
                     // rna seq layers" and takes four of them is a card that was not read.
                     let names = [];
+                    let guessed = 0;
                     try {
-                        if (t && Array.isArray(t.track_layers)) {
-                            const flat = (x) => ('' + x).toLowerCase().replace(/[^a-z0-9]+/g, '');
-                            const everything = !m || /^(all|every|everything)$/i.test(m);
-                            names = t.track_layers.filter((l) => {
-                                if (everything) return true;
-                                const dt = ('' + ((l && l.data_type) || '')).toUpperCase();
-                                if (/rna.?seq|expression|coverage/i.test(m) && dt === 'RNASEQ') return true;
-                                if (/motif|slim|elm/i.test(m) && dt === 'SLIM') return true;
-                                if (/domain|cdd|site/i.test(m) && dt === 'CDD') return true;
-                                if (/similar|homolog|map/i.test(m) && dt === 'SEQSIM') return true;
-                                const nm = ('' + ((l && l.name) || '')).toLowerCase();
-                                return nm.indexOf(m.toLowerCase()) >= 0 || flat(nm).indexOf(flat(m)) >= 0;
-                            }).map((l) => ('' + ((l && l.name) || '(unnamed)')));
+                        if (t && Array.isArray(t.track_layers) && LM) {
+                            const hits = LM.match(t.track_layers, m);
+                            guessed = hits.filter((h) => h.why === 'shape').length;
+                            names = hits.map((h) => LM.nameOf(h.layer)
+                                + (h.why === 'shape' ? ' (peaks)' : ''));
                         }
                     } catch (e) { names = []; }
                     if (!names.length) return 'remove ' + (m ? ('the ' + m + ' layers') : 'the layers') + where
                         + ': nothing there matches';
                     return 'remove ' + names.length + ' layer' + (names.length === 1 ? '' : 's')
-                        + where + ': ' + names.join(', ');
+                        + where + ': ' + names.join(', ')
+                        // SAID ON THE CARD, not only in the confirmation: a layer matched by
+                        // how it is drawn is a guess, and the user should see that before
+                        // pressing GO, not only after.
+                        + (guessed ? ('. ' + guessed + ' matched by being drawn as a trace with '
+                            + 'peaks rather than by name, so you will be asked first') : '');
                 },
                 argBlocker: (a) => {
                     const t = a.track ? matchTrack(a.track) : oneTrack();
