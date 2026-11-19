@@ -518,11 +518,54 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/rbp/rbp-competition.js', graph, genegraph_panel_layout, t, rangeOf(t)); }
             },
             {
+                // A SELECTION IS A SCOPE, NOT A PRECONDITION. "add rna binding proteins to the
+                // spag9_mrna" names the track it wants and selects nothing, and this refused
+                // it for want of a selection -- while the module behind it has run on a whole
+                // track all along. The same shape as load_protein_motifs: a selection narrows
+                // it, and without one it does the whole track.
                 name: 'rbp_profile',
-                summary: 'Run BajaCLIP over the selected sequence and draw the binding profile for '
-                    + 'every RNA binding protein, rather than picking a winner.',
-                needs: 'selection', params: {},
-                run: () => { const t = oneSelTrack(); return exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), null); }
+                summary: 'ADD THE RNA BINDING PROTEIN PROFILE TO A TRACK: BajaCLIP is run over '
+                    + 'the track\u2019s sequence and the per-position binding score is drawn as '
+                    + 'a layer, for every RNA binding protein rather than picking a winner. '
+                    + 'This is the answer to "add rna binding proteins to X", "show the RBP '
+                    + 'binding on this track", "where do RNA binding proteins bind", "add '
+                    + 'bajaclip", "draw the binding profile". WHEN A STRETCH OF SEQUENCE IS '
+                    + 'SELECTED it runs on the selection, because that is what someone who '
+                    + 'made a selection first is asking about; with nothing selected it does '
+                    + 'the whole track. For which single protein wins a site, use '
+                    + 'rbp_competition instead.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    }
+                },
+                run: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    // The selection if there is one on THAT track, else the whole of it: the
+                    // module takes null for the whole track.
+                    const r = hasSel(t) ? rangeOf(t) : null;
+                    return exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t, r, null);
+                },
+                preview: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const where = t ? (t.name || 'the track') : 'the track';
+                    return 'run BajaCLIP over ' + (t && hasSel(t) ? ('the selected stretch of ' + where)
+                        : ('the whole of ' + where)) + ' and draw the RNA binding protein profile on it';
+                },
+                argBlocker: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) {
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to run it on: there is more than one open';
+                    }
+                    return '';
+                }
             },
             {
                 name: 'splice_site_strength',

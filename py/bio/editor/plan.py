@@ -38,6 +38,7 @@ Resolves {"status":"OK", "steps":[{capability, args}], "explain", "unsupported",
 """
 from __future__ import annotations
 import json
+import re
 from typing import Any, Dict, List, Tuple
 
 from ion import works
@@ -153,6 +154,40 @@ Catalogue:
 """ % (MAX_STEPS, "%s")
 
 
+def _first_json_object(text: str) -> Dict[str, Any]:
+    """The first JSON object in a reply, whatever follows it.
+
+    json.loads refuses a document with anything after the value, so one stray line --
+    a second object, a note, a repeated answer -- took the whole request down with
+    "Extra data: line 13 column 1 (char 366)", which tells the user nothing they can
+    act on and loses a plan that had already been made.
+
+    response_format={"type": "json_object"} is supposed to prevent this and mostly
+    does. Mostly is not a thing to build on: the reply comes from a model through a
+    proxy, and the one that arrives is the one that has to be read.
+    """
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("the planner returned nothing")
+    # A fenced block, which some models add despite being asked for raw JSON.
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
+        t = re.sub(r"\s*```\s*$", "", t).strip()
+    dec = json.JSONDecoder()
+    # From the first brace: anything before it is prose, and raw_decode stops at the
+    # end of the first complete value instead of insisting it is the end of the text.
+    start = t.find("{")
+    if start < 0:
+        raise ValueError("the planner did not return JSON")
+    try:
+        obj, _end = dec.raw_decode(t[start:])
+    except json.JSONDecodeError as exc:
+        raise ValueError("the planner's answer could not be read as JSON (%s)" % exc.msg)
+    if not isinstance(obj, dict):
+        raise ValueError("the planner returned %s, not an object" % type(obj).__name__)
+    return obj
+
+
 def ask(model: str, request: str, catalogue: List[Dict[str, Any]],
         context: Any) -> Dict[str, Any]:
     client = OpenAI()
@@ -168,7 +203,7 @@ def ask(model: str, request: str, catalogue: List[Dict[str, Any]],
         messages=[{"role": "system", "content": SYS},
                   {"role": "user", "content": prompt}],
     )
-    return json.loads(r.choices[0].message.content)
+    return _first_json_object(r.choices[0].message.content)
 
 
 # --------------------------------------------------------------------------- validation ---

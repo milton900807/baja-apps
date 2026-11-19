@@ -974,6 +974,12 @@ if [[ $DO_API -eq 1 ]]; then
   # The exon match is shown as a picture of the two tracks rather than a table, and the
   # fields it reads from the searcher are the ones the searcher actually sends: t0/t1 and
   # coverage do not exist, which put NaN-NaN and 0.0% on every row.
+  # Two things that lost a request outright: a planner reply with anything after its JSON
+  # took the whole plan down, and "add rna binding proteins to the spag9_mrna" was refused
+  # for want of a selection it does not need.
+  install_group "A planner answer is read however it arrives; RBPs on a named track" \
+    "py/bio/editor/plan.py:The first JSON object in a reply, whatever follows it" \
+    "baja/manchester/menu/editor-capabilities.js:A SELECTION IS A SCOPE, NOT A PRECONDITION"
   install_group "Track comparisons are shown as a picture" \
     "baja/bio/compare-view.js:A FULL WINDOW, NOT A POPUP" \
     "baja/bio/compare-view.js:IT LEAVES AS A FILE" \
