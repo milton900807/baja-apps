@@ -219,6 +219,19 @@ return new Promise(async (resolve, reject) => {
         plots = [];
         sequence;
         markstart;
+        // MORE THAN ONE SELECTED REGION, WITHOUT MOVING THE ONE EVERYTHING READS.
+        //
+        // markstart/markend is a single range and is read in six hundred and fifty-odd
+        // places: every model, every designer, every export. Replacing it with a list would
+        // mean changing all of them correctly, in one go, with the ones that were missed
+        // silently acting on the wrong stretch of sequence.
+        //
+        // So the first region stays exactly where it was, in markstart/markend, and further
+        // regions go here. Everything that knows only about one selection goes on reading
+        // the first one and keeps working; anything that wants them all asks
+        // getSelectedRanges(). "select exon 15 and exon 16" is two steps, the second adding
+        // rather than replacing.
+        marks = [];
         markend;
         highlightstart;
         highlightend;
@@ -4399,6 +4412,98 @@ return new Promise(async (resolve, reject) => {
             this.showResizeBar = false;
             this.markend = null;
             this.markstart = null;
+            this.marks = [];
+        }
+
+        // EVERY SELECTED REGION, first one first.
+        //
+        // The order is the order they were made, because an operation that can only act on
+        // one of them acts on the first, and that is a rule someone can hold in their head.
+        getSelectedRanges() {
+            const out = [];
+            const add = (a, b) => {
+                const s = Math.min(+a, +b), e = Math.max(+a, +b);
+                if (!isFinite(s) || !isFinite(e) || e <= s || s < 0) return;
+                for (const r of out) { if (r.start === s && r.end === e) return; }
+                out.push({ start: s, end: e });
+            };
+            if (this.markstart != null && this.markend != null) add(this.markstart, this.markend);
+            for (const m of (this.marks || [])) { if (m) add(m.start, m.end); }
+            return out;
+        }
+
+        hasSelection() { return this.getSelectedRanges().length > 0; }
+
+        // ADD A REGION TO WHAT IS ALREADY SELECTED.
+        //
+        // With nothing selected yet this fills markstart/markend, so a first "add" behaves
+        // as an ordinary selection rather than leaving the primary empty and the region
+        // hiding in the list where single-range callers cannot see it.
+        //
+        // A region that touches or overlaps one already selected is MERGED into it rather
+        // than kept beside it: two ranges sharing a base would draw two sets of grab heads
+        // over the same stretch, and an operation iterating the ranges would count that
+        // sequence twice.
+        addMark(start, end) {
+            let s = Math.min(+start, +end), e = Math.max(+start, +end);
+            if (!isFinite(s) || !isFinite(e) || e <= s) return false;
+            if (s < 0) s = 0;
+            if (this.markstart == null || this.markend == null || this.markend <= this.markstart) {
+                this.markstart = s; this.markend = e;
+                this.marks = [];
+                return true;
+            }
+            if (!Array.isArray(this.marks)) this.marks = [];
+
+            // Merge against the primary first: it is the one every other reader sees, so a
+            // region that extends it has to extend IT and not sit in the list beside it.
+            if (s <= this.markend && e >= this.markstart) {
+                this.markstart = Math.min(this.markstart, s);
+                this.markend = Math.max(this.markend, e);
+                this.__mergeMarks();
+                return true;
+            }
+            for (const m of this.marks) {
+                if (!m) continue;
+                if (s <= m.end && e >= m.start) {
+                    m.start = Math.min(m.start, s); m.end = Math.max(m.end, e);
+                    this.__mergeMarks();
+                    return true;
+                }
+            }
+            this.marks.push({ start: s, end: e });
+            return true;
+        }
+
+        // Run after any merge, because joining two regions can bring a third into contact
+        // with the result.
+        __mergeMarks() {
+            if (!Array.isArray(this.marks) || !this.marks.length) return;
+            const all = this.marks.filter((m) => m && isFinite(m.start) && isFinite(m.end) && m.end > m.start)
+                .sort((a, b) => a.start - b.start);
+            const kept = [];
+            for (const m of all) {
+                if (this.markstart != null && this.markend != null
+                    && m.start <= this.markend && m.end >= this.markstart) {
+                    this.markstart = Math.min(this.markstart, m.start);
+                    this.markend = Math.max(this.markend, m.end);
+                    continue;
+                }
+                const last = kept[kept.length - 1];
+                if (last && m.start <= last.end) { last.end = Math.max(last.end, m.end); continue; }
+                kept.push({ start: m.start, end: m.end });
+            }
+            this.marks = kept;
+        }
+
+        // Back to one region, keeping the first. Used when a plain (non-adding) selection is
+        // made: that is a new selection, not an addition to the old one.
+        keepOneMark() { this.marks = []; }
+
+        selectedLength() {
+            let n = 0;
+            for (const r of this.getSelectedRanges()) n += (r.end - r.start);
+            return n;
         }
 
         removeAnnotationsByCount(count) {
@@ -5358,7 +5463,14 @@ return new Promise(async (resolve, reject) => {
 
                     } else if (screencell > 5) {
 
-                        for (let index = Math.floor(this.markstart); index < Math.floor(this.markend); index++) {
+                        // EVERY SELECTED REGION gets its letters, not only the first: a
+                        // second region that is selected and does not look selected is worse
+                        // than not being able to select it at all.
+                        const __lit = [];
+                        for (const __r of this.getSelectedRanges()) {
+                            for (let i = Math.floor(__r.start); i < Math.floor(__r.end); i++) __lit.push(i);
+                        }
+                        for (const index of __lit) {
                             let seq_index = index - Math.floor(this.xi);
                             if (seq_index < this.sequence.length && this.sequence[seq_index]) {
 
@@ -5468,6 +5580,27 @@ return new Promise(async (resolve, reject) => {
                 };
                 __drawGrabHead(screenStartX, 1);    // start head opens to the right
                 __drawGrabHead(screenEndX, -1);     // end head opens to the left
+
+                // THE OTHER REGIONS ARE MARKED THE SAME WAY. Drawn here, inside the block
+                // that already set up the geometry, so there is one description of what a
+                // selected region looks like. The first region's heads are the grabbable
+                // ones -- gene.js resizes by markstart/markend -- and these read as the
+                // same kind of thing because they are the same kind of thing.
+                for (const __r of (this.marks || [])) {
+                    if (!__r || !(__r.end > __r.start)) continue;
+                    try {
+                        __drawGrabHead(graph.X(this.grid.X(Math.floor(__r.start))), 1);
+                        __drawGrabHead(graph.X(this.grid.X(__r.end)), -1);
+                        drawString(
+                            ctx,
+                            Math.floor(__r.end - __r.start) + "",
+                            graph.X(this.grid.X(__r.end)),
+                            graph.Y(this.grid.Y(50)),
+                            'black',
+                            this.detail_ffont6
+                        );
+                    } catch (e) { }
+                }
 
                 // Deselect button — the same tropical orange as the two heads, on the same
                 // line, halfway between them. Dropping a selection had no visible control at

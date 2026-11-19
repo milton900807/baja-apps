@@ -881,6 +881,15 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:name: 'run_offtarget_screen'" \
     "baja/manchester/menu/run-off-target-tool.js:SCOPE, which arrives two ways" \
     "baja/manchester/menu/run-off-target-tool-seed-seq.js:SCOPE, which arrives two ways"
+  # More than one selected region on a track. All five or none: the track holds the extra
+  # regions and draws them, gene.js clears them, the capability adds them and the planner
+  # splits the request that asks for them. A track that can hold a second region while the
+  # clear still only drops the first would leave a selection nobody can see.
+  install_group "A track can hold more than one selected region" \
+    "baja/bio/track-flexi.js:MORE THAN ONE SELECTED REGION, WITHOUT MOVING THE ONE EVERYTHING READS" \
+    "flexigraph/gene.js:THE EXTRA REGIONS GO TOO" \
+    "baja/manchester/menu/editor-capabilities.js:IS TWO STEPS, the second one adding" \
+    "py/bio/editor/plan.py:SEVERAL REGIONS IS SEVERAL STEPS"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

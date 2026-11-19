@@ -10974,11 +10974,19 @@ pattern, GGGG | Required`
                 for (const t of (this.track || [])) {
                     try {
                         if (!t) continue;
+                        // THE EXTRA REGIONS GO TOO. A track can hold more than one selected
+                        // region now (the first in markstart/markend, the rest in marks), and
+                        // a clear that left the extras behind would leave the track looking
+                        // deselected while every "over the selection" step still ran over
+                        // them.
+                        const extras = Array.isArray(t.marks) ? t.marks.length : 0;
                         const has = (t.selectedRange && t.selectedRange())
-                            || (t.markstart != null && t.markend != null && t.markend > t.markstart);
+                            || (t.markstart != null && t.markend != null && t.markend > t.markstart)
+                            || extras > 0;
                         if (!has) continue;
                         t.markstart = null;
                         t.markend = null;
+                        t.marks = [];
                         t.showResizeBar = false;
                         n++;
                     } catch (e) { }

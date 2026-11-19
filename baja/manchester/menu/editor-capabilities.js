@@ -1293,7 +1293,16 @@ function (graph, genegraph_panel_layout) {
                     index: { type: 'number', about: 'which exon or intron, counting from 1 along the transcript' },
                     start: { type: 'number', about: 'with region=coordinates: the first base, counting from the start of the track' },
                     end: { type: 'number', about: 'with region=coordinates: the last base' },
-                    track: { type: 'string', about: 'which track, by name. Omit when there is only one, or to use the selected one' }
+                    track: { type: 'string', about: 'which track, by name. Omit when there is only one, or to use the selected one' },
+                    // "SELECT EXON 15 AND EXON 16" IS TWO STEPS, the second one adding.
+                    add: {
+                        type: 'boolean', default: false,
+                        about: 'true to ADD this region to what is already selected rather than '
+                            + 'replacing it. A request naming several regions at once -- "select '
+                            + 'exon 15 and exon 16", "select the 5\u2019 and 3\u2019 UTRs" -- is one '
+                            + 'step per region, the FIRST with add omitted and every one after it '
+                            + 'with add true. Regions that touch or overlap are merged into one'
+                    }
                 },
                 run: async (a) => {
                     const t = pickTrack(a);
@@ -1302,14 +1311,23 @@ function (graph, genegraph_panel_layout) {
                     if (!R) { result('Could not read the regions of ' + (t.name || 'that track') + '.'); return; }
                     const r = R.resolve(a);
                     if (r.error) { result(r.error); return; }
-                    // Clear first: a second region selection should REPLACE the first, not leave
-                    // a stale mark on another track that every later "over the selection" step
-                    // would then silently include.
-                    try {
-                        if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections();
-                    } catch (e) { }
-                    t.markstart = r.start;
-                    t.markend = r.end;
+                    const adding = !!a.add && typeof t.addMark === 'function'
+                        && t.markstart != null && t.markend != null && t.markend > t.markstart;
+                    if (!adding) {
+                        // Clear first: a second region selection should REPLACE the first, not leave
+                        // a stale mark on another track that every later "over the selection" step
+                        // would then silently include.
+                        try {
+                            if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections();
+                        } catch (e) { }
+                        try { if (typeof t.keepOneMark === 'function') t.keepOneMark(); } catch (e) { }
+                        t.markstart = r.start;
+                        t.markend = r.end;
+                    } else {
+                        // Added to this track, and nothing is cleared: clearing is what makes a
+                        // plain selection a replacement, and this is the opposite of that.
+                        t.addMark(r.start, r.end);
+                    }
                     t.showResizeBar = true;
                     // startX/endX are world coordinates and are what zoomToSelection reads; a
                     // selection made here should behave like one made by dragging. select_ is
@@ -1329,9 +1347,23 @@ function (graph, genegraph_panel_layout) {
                             cy + h * 3.6, cy - h * 2.2, 400);
                     } catch (e) { }
                     try { if (graph.wake) graph.wake(); } catch (e) { }
-                    result('Selected the ' + r.label + ' of ' + (t.name || 'the track') + ': '
+                    // WHICH ONE THE NEXT STEP WILL USE, said while the user can still change
+                    // it. An operation that takes a single region takes the FIRST, because
+                    // that is where markstart/markend still points and because a fixed rule is
+                    // one someone can hold in their head.
+                    let extra = '';
+                    try {
+                        const all = (typeof t.getSelectedRanges === 'function') ? t.getSelectedRanges() : [];
+                        if (all.length > 1) {
+                            extra = ' ' + all.length + ' regions are now selected on this track, '
+                                + (typeof t.selectedLength === 'function' ? t.selectedLength().toLocaleString() : '?')
+                                + ' nt in all. An operation that takes one region takes the first.';
+                        }
+                    } catch (e) { }
+                    result((adding ? 'Added the ' : 'Selected the ') + r.label + ' of '
+                        + (t.name || 'the track') + ': '
                         + (r.end - r.start).toLocaleString() + ' nt, ' + r.start.toLocaleString()
-                        + ' to ' + r.end.toLocaleString() + '.');
+                        + ' to ' + r.end.toLocaleString() + '.' + extra);
                 },
                 preview: (a) => {
                     const t = pickTrack(a);
@@ -1339,8 +1371,9 @@ function (graph, genegraph_panel_layout) {
                     const where = t ? (' of ' + (t.name || 'the track')) : '';
                     if (R) {
                         const r = R.resolve(a);
-                        if (!r.error) return 'select the ' + r.label + where + ': '
-                            + (r.end - r.start).toLocaleString() + ' nt';
+                        if (!r.error) return (a.add ? 'add the ' : 'select the ') + r.label + where + ': '
+                            + (r.end - r.start).toLocaleString() + ' nt'
+                            + (a.add ? ', keeping what is already selected' : '');
                     }
                     const what = ('' + (a.region || '')).replace(/_/g, ' ')
                         + ((a.index != null) ? (' ' + a.index) : '');

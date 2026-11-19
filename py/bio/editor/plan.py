@@ -87,27 +87,34 @@ Rules, in order of importance:
    that list. Read each parameter's `about`: it often says exactly how to express a
    common request. Omit a parameter rather than guessing it. Never invent a parameter.
 
-4. FEWEST STEPS THAT DO THE JOB. Most requests are one operation. Check whether a single
+4. SEVERAL REGIONS IS SEVERAL STEPS. "select exon 15 and exon 16", "select the 5' and
+   3' UTRs", "select exons 2 through 4" each name more than one region, and a selection
+   holds as many as it is given: one select_sequence_region per region, the first with
+   `add` omitted and every one after it with `add` true. This is not an exception to the
+   rule below -- it is the fewest steps that do the job, because one step cannot carry
+   two regions.
+
+5. FEWEST STEPS THAT DO THE JOB. Most requests are one operation. Check whether a single
    operation's parameters already cover the whole request before reaching for a second
    step: "load clinvar pathogenic snps and indels over the selection" is ONE load with
    its class and significance parameters filled, not a load followed by a selection.
    Use several steps only when the request genuinely has stages ("load clinvar, then
    select the ones in TP53").
 
-5. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
+6. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the
    operation marked answers_a_question and nothing else. A request to CHANGE what is
    selected or present is an action. A request that asks for both ("find the pathogenic
    ones and select them") is the question: its answer offers the selection afterwards.
 
-6. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
+7. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
    work. Only choose one when the request plainly asks for deletion ("remove", "delete",
    "get rid of"). Anything short of that, choose the selecting operation instead.
 
-7. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
+8. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
    it; the editor checks and reports it. Choose the operation the request asked for.
 
-8. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
+9. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
    nothing tidy-looking that was not requested.
 
 Catalogue:
