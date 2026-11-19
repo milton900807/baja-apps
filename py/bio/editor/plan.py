@@ -119,10 +119,13 @@ Rules, in order of importance:
 8. EVERY ONE OF THEM IS ONE STEP, NOT A REFUSAL. "iterate over all exons in A and find
    the closest sequence block that matches it on B" asks for a loop, and a loop over a
    track's own features is an operation, not something the user has to unroll by hand:
-   match_exons_across_tracks does exactly that. Reach for it whenever the request says
-   all, every, each or iterate ABOUT A TRACK'S EXONS, in place of planning one
-   search_region_in_track per exon or saying it cannot be done. search_region_in_track
-   stays the answer for ONE named region ("exon 16 of A").
+   match_regions_across_tracks does exactly that. Reach for it whenever the request says
+   all, every, each or iterate ABOUT A TRACK'S REGIONS, in place of planning one
+   search_region_in_track per region or saying it cannot be done, and set `features`
+   from the request's own word: exons, introns, 3' UTR, 5' UTR, coding sequence.
+   "compare the introns of A and B" and "does the 3' UTR of A match anything on B" are
+   this operation too. search_region_in_track stays the answer for ONE named region
+   ("exon 16 of A").
 
 9. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the

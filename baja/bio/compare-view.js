@@ -23,6 +23,17 @@ function (model) {
     // by how solid it is, not by its colour, which is already saying something else.
     //
     // The numbers are not thrown away: "Numbers" opens the same rows underneath.
+    //
+    // A FULL WINDOW, NOT A POPUP. A comparison is read across its whole width -- the point
+    // is where things sit relative to each other -- and a panel floating over the canvas
+    // gives it a third of the screen and puts the thing being explained behind it. It fills
+    // the window, redraws to fit when the window changes, and closes on Escape or Close.
+    //
+    // IT LEAVES AS A FILE. A figure like this ends up in a document or a talk, so it
+    // downloads: PDF through the jsPDF the shell already loads, and SVG, which is the same
+    // drawing as vector line work for anyone who wants to edit it. One drawing, written
+    // once: the PDF is the SVG rasterised at print resolution rather than a second renderer
+    // that would quietly drift away from what is on screen.
 
     return (async () => {
         const m = model || {};
@@ -33,13 +44,19 @@ function (model) {
         // One of these at a time.
         try { if (window.__bajaCompareView && window.__bajaCompareView.destroy) window.__bajaCompareView.destroy(); } catch (e) { }
 
-        const W = Math.max(720, Math.min(1180, Math.floor(window.innerWidth * 0.92)));
-        const PAD = 26;                       // left and right margin inside the picture
-        const LANE = 26;                      // lane height
-        const GAP = 168;                      // vertical space the ribbons run through
-        const TOP = 44;                       // room for the top lane's label
-        const H = TOP + LANE + GAP + LANE + 52;
-        const innerW = W - PAD * 2;
+        const PAD = 30;                       // left and right margin inside the picture
+        const LANE = 30;                      // lane height
+        const TOP = 48;                       // room for the top lane's label
+        // The picture fills the window and grows with it: the ribbons are the content, and
+        // on a wide screen the extra room goes to them rather than to margins.
+        let W = 0, H = 0, GAP = 0, innerW = 0;
+        const measure = () => {
+            W = Math.max(640, Math.floor(window.innerWidth - 56));
+            GAP = Math.max(150, Math.min(640, Math.floor(window.innerHeight - 282)));
+            H = TOP + LANE + GAP + LANE + 58;
+            innerW = W - PAD * 2;
+        };
+        measure();
 
         // Each track to its OWN scale: the two are different lengths and a shared scale
         // would squeeze the shorter one to a stub and say something untrue about where a
@@ -49,22 +66,25 @@ function (model) {
             const span = (hi - lo) || 1;
             return (x) => PAD + ((Math.max(lo, Math.min(hi, +x)) - lo) / span) * innerW;
         };
-        const sa = scale(A), sb = scale(B);
-        const yA = TOP, yB = TOP + LANE + GAP;
+        let sa = scale(A), sb = scale(B);
+        let yA = TOP, yB = TOP + LANE + GAP;
 
         const hue = (i) => (i * 47) % 360;
         const pct = (x) => (Math.round((+x || 0) * 1000) / 10).toFixed(1) + '%';
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const num = (x) => (Math.round(+x) || 0).toLocaleString();
 
+        const BTN = (id, label) =>
+            '<button type="button" data-id="' + id + '" style="background:transparent;'
+            + 'border:1px solid rgba(159,196,212,0.5);color:#eaf6f9;border-radius:7px;'
+            + 'padding:6px 13px;cursor:pointer;font:inherit;white-space:nowrap;">' + label + '</button>';
+
         const el = document.createElement('div');
         el.id = 'baja-compare-view';
         el.setAttribute('role', 'dialog');
-        el.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2147482400;'
-            + 'width:' + (W + 28) + 'px;max-width:96vw;max-height:92vh;overflow:auto;'
-            + 'background:rgba(10,37,64,0.985);border:1px solid #1aa3bd;border-radius:12px;padding:14px;'
-            + 'color:#eaf6f9;box-shadow:0 22px 60px rgba(4,16,30,0.6);'
-            + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13px;';
+        el.style.cssText = 'position:fixed;inset:0;z-index:2147482400;display:flex;flex-direction:column;'
+            + 'background:#0a2540;padding:16px 20px 12px 20px;overflow:auto;'
+            + 'color:#eaf6f9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13px;';
 
         // ---- the ribbons ---------------------------------------------------------------
         // WHERE EACH PERCENTAGE SITS, worked out before any of them is drawn. Ribbons bunch
@@ -74,7 +94,7 @@ function (model) {
         // heights in turn, neighbours never share one.
         const midX = (b) => (sa(Math.min(b.a.x1, b.a.x2)) + sa(Math.max(b.a.x1, b.a.x2))
             + sb(Math.min(b.b.x1, b.b.x2)) + sb(Math.max(b.b.x1, b.b.x2))) / 4;
-        const labelDy = (() => {
+        const computeLabelDy = () => {
             const order = blocks.map((b, i) => ({ i: i, x: midX(b) })).sort((p, q) => p.x - q.x);
             const dy = new Array(blocks.length).fill(0);
             let lastX = -1e9, step = 0;
@@ -86,7 +106,8 @@ function (model) {
                 lastX = o.x;
             }
             return dy;
-        })();
+        };
+        let labelDy = [];
 
         const ribbon = (b, i) => {
             const n = (b.n != null) ? (b.n - 1) : i;
@@ -154,13 +175,22 @@ function (model) {
             + 'text-anchor="end" font-size="10" fill="#9fc4d4">'
             + num(Math.min(+t.x1, +t.x2)) + ' – ' + num(Math.max(+t.x1, +t.x2)) + '</text>';
 
-        const svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" '
-            + 'style="display:block;max-width:100%;height:auto;">'
-            + lane(yA, A.name, A, 'above')
-            + lane(yB, B.name, B, 'below')
-            + (m.unmatched || []).map(notch).join('')
-            + blocks.map(ribbon).join('')
-            + '</svg>';
+        // Rebuilt rather than scaled, so text stays the same size whatever the window is.
+        const buildSvg = () => {
+            measure();
+            sa = scale(A); sb = scale(B);
+            yA = TOP; yB = TOP + LANE + GAP;
+            labelDy = computeLabelDy();
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" '
+                + 'viewBox="0 0 ' + W + ' ' + H + '" style="display:block;max-width:100%;height:auto;">'
+                + '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#07202f"></rect>'
+                + lane(yA, A.name, A, 'above')
+                + lane(yB, B.name, B, 'below')
+                + (m.unmatched || []).map(notch).join('')
+                + blocks.map(ribbon).join('')
+                + '</svg>';
+        };
+        const svg = buildSvg();
 
         const rows = (m.rows || []).map((r) =>
             '<tr><td style="padding:4px 10px 4px 0;color:#9fc4d4;white-space:nowrap;vertical-align:top;">'
@@ -172,18 +202,16 @@ function (model) {
             + '<div style="font-weight:700;font-size:15px;">' + esc(m.title || 'Tracks compared') + '</div>'
             + (m.summary ? ('<div style="font-size:12px;color:#cfe9f3;margin-top:3px;">' + esc(m.summary) + '</div>') : '')
             + '</div>'
-            + '<button type="button" data-id="numbers" style="background:transparent;border:1px solid rgba(159,196,212,0.5);'
-            + 'color:#eaf6f9;border-radius:7px;padding:5px 11px;cursor:pointer;font:inherit;">Numbers</button>'
-            + '<button type="button" data-id="close" style="background:transparent;border:1px solid rgba(159,196,212,0.5);'
-            + 'color:#eaf6f9;border-radius:7px;padding:5px 11px;cursor:pointer;font:inherit;">Close</button>'
+            + BTN('numbers', 'Numbers') + BTN('pdf', 'PDF') + BTN('svg', 'SVG') + BTN('close', 'Close')
             + '</div>'
-            + '<div style="background:rgba(4,16,30,0.5);border-radius:9px;padding:8px 0 2px 0;">' + svg + '</div>'
+            + '<div data-id="picture" style="background:#07202f;border-radius:9px;padding:8px 0 2px 0;">' + svg + '</div>'
             + '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#9fc4d4;padding:9px 4px 0 4px;">'
             + '<span>a solid ribbon is a match, and the darker it is the more identical</span>'
             + '<span>a dashed, crossed ribbon is reversed</span>'
             + '<span>a hollow notch matched nothing</span>'
             + '<span>crossing ribbons mean the blocks are in a different order on the two tracks</span>'
             + '</div>'
+            + '<div data-id="said" style="font-size:12px;color:#ffd9a0;padding:6px 4px 0 4px;min-height:16px;"></div>'
             + (rows ? ('<div data-id="numbers-panel" style="display:none;margin-top:10px;border-top:1px solid '
                 + 'rgba(159,196,212,0.22);padding-top:9px;max-height:40vh;overflow:auto;">'
                 + '<table style="width:100%;border-collapse:collapse;font-size:12px;">' + rows + '</table></div>') : '');
@@ -193,11 +221,99 @@ function (model) {
         const pop = { el: el, destroy: null };
         function close() {
             try { document.removeEventListener('keydown', onKey, true); } catch (e) { }
+            try { window.removeEventListener('resize', onResize); } catch (e) { }
             try { if (el.parentNode) el.parentNode.removeChild(el); } catch (e) { }
             if (window.__bajaCompareView === pop) window.__bajaCompareView = null;
         }
         const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
         document.addEventListener('keydown', onKey, true);
+
+        // ---- redraw to fit the window ---------------------------------------------------
+        // Rebuilt rather than stretched: a scaled-up drawing takes its text with it, and
+        // the labels are the half of this that carries the numbers.
+        let rt = null;
+        const onResize = () => {
+            if (rt) { try { clearTimeout(rt); } catch (e) { } }
+            rt = setTimeout(() => {
+                rt = null;
+                try {
+                    const host = el.querySelector('[data-id="picture"]');
+                    if (host) host.innerHTML = buildSvg();
+                } catch (e) { }
+            }, 120);
+        };
+        window.addEventListener('resize', onResize);
+
+        // ---- it leaves as a file ---------------------------------------------------------
+        const fileStem = ('' + (m.title || 'track-comparison'))
+            .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'track-comparison';
+
+        const svgText = () => {
+            const node = el.querySelector('[data-id="picture"] svg');
+            if (!node) return '';
+            // Standalone: the page's styles are not coming with it, and the drawing carries
+            // its own colours as attributes rather than relying on any of them.
+            return '<?xml version="1.0" encoding="UTF-8"?>\n' + node.outerHTML;
+        };
+
+        const saveBlob = (text, type, name) => {
+            try {
+                const blob = new Blob([text], { type: type });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    try { document.body.removeChild(a); } catch (e) { }
+                    try { URL.revokeObjectURL(url); } catch (e) { }
+                }, 400);
+                return true;
+            } catch (e) { return false; }
+        };
+
+        const say = (t) => { try { const n = el.querySelector('[data-id="said"]'); if (n) n.textContent = t || ''; } catch (e) { } };
+
+        // THE SAME DRAWING, rasterised at print resolution. jsPDF cannot place an SVG
+        // without a plugin the shell does not load, and writing the picture a second time
+        // in jsPDF's own primitives would be a second renderer to keep in step with this
+        // one. At 3x a 1,200 point figure is 3,600 pixels across, which prints cleanly.
+        const PDF_SCALE = 3;
+        const savePdf = async () => {
+            const node = el.querySelector('[data-id="picture"] svg');
+            if (!node) return;
+            const jsPDF = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : null;
+            if (!jsPDF) {
+                // Said, with the way out: the SVG is the same drawing and every browser
+                // prints one to PDF.
+                say('PDF needs jsPDF, which is not loaded on this page. Use SVG instead \u2014 it is the same drawing.');
+                return;
+            }
+            say('Making the PDF \u2026');
+            try {
+                const w = +node.getAttribute('width'), h = +node.getAttribute('height');
+                const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText());
+                const img = new Image();
+                const loaded = new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+                img.src = url;
+                await loaded;
+                const cv = document.createElement('canvas');
+                cv.width = Math.round(w * PDF_SCALE);
+                cv.height = Math.round(h * PDF_SCALE);
+                const cx = cv.getContext('2d');
+                cx.fillStyle = '#07202f';
+                cx.fillRect(0, 0, cv.width, cv.height);
+                cx.drawImage(img, 0, 0, cv.width, cv.height);
+                const pdf = new jsPDF({ orientation: (w >= h) ? 'landscape' : 'portrait',
+                    unit: 'pt', format: [w, h] });
+                pdf.addImage(cv.toDataURL('image/png'), 'PNG', 0, 0, w, h);
+                pdf.save(fileStem + '.pdf');
+                say('');
+            } catch (e) {
+                say('The PDF could not be made here (' + (e && e.message ? e.message : e)
+                    + '). SVG gives you the same drawing.');
+            }
+        };
         pop.destroy = close;
         window.__bajaCompareView = pop;
 
@@ -206,6 +322,14 @@ function (model) {
             if (!b) return;
             const id = b.getAttribute('data-id');
             if (id === 'close') { close(); return; }
+            if (id === 'pdf') { savePdf(); return; }
+            if (id === 'svg') {
+                const t = svgText();
+                if (!t || !saveBlob(t, 'image/svg+xml', fileStem + '.svg')) {
+                    say('The SVG could not be saved here.');
+                } else say('');
+                return;
+            }
             if (id === 'numbers') {
                 const panel = el.querySelector('[data-id="numbers-panel"]');
                 if (panel) panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';

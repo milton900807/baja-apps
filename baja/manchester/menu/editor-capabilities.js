@@ -728,21 +728,32 @@ function (graph, genegraph_panel_layout) {
                 // with "the editor cannot loop through exons automatically; you would need to
                 // search each exon individually" -- which is to say, do the editor's work by
                 // hand thirty times. The loop is the easy part.
-                name: 'match_exons_across_tracks',
-                summary: 'EVERY EXON OF ONE TRACK, MATCHED TO ITS CLOSEST BLOCK ON ANOTHER, '
-                    + 'AND DRAWN. Each exon of the first track is searched against the whole '
-                    + 'of the second, on both strands, and the best hit for each is kept, '
-                    + 'reported with its identity, position, score and how much of the exon it '
-                    + 'covers, and drawn on BOTH tracks with a two-headed arrow joining each '
-                    + 'exon to the block it matches. This is the answer to "iterate over all '
-                    + 'exons in A and find the closest sequence block that matches it on B", '
-                    + '"match the exons of A against B", "where does each exon of A land on '
-                    + 'B", "find the closest match for every exon". Use it, NOT '
-                    + 'search_region_in_track, when the request is about ALL the exons rather '
-                    + 'than one named one; and NOT compare_sequences, which aligns the two '
-                    + 'transcripts as wholes and so cannot say where an individual exon went.',
+                name: 'match_regions_across_tracks',
+                summary: 'EVERY REGION OF ONE KIND ON ONE TRACK, MATCHED TO ITS CLOSEST BLOCK '
+                    + 'ON ANOTHER, AND DRAWN. Each exon -- or intron, or either UTR, or the '
+                    + 'CDS -- of the first track is searched against the whole of the second, '
+                    + 'on both strands, and the best hit for each is kept, reported with its '
+                    + 'identity, position, score and how much of the region it covers, and '
+                    + 'drawn as a picture of the two tracks side by side with every pair '
+                    + 'joined, as well as on the tracks themselves. This is the answer to '
+                    + '"iterate over all exons in A and find the closest sequence block that '
+                    + 'matches it on B", "compare the introns of A and B", "match the exons of '
+                    + 'A against B", "does the 3\u2032 UTR of A match anything on B", "where '
+                    + 'does each exon of A land on B". Use it, NOT search_region_in_track, '
+                    + 'when the request is about ALL the regions of a kind rather than one '
+                    + 'named one; and NOT compare_sequences, which aligns the two transcripts '
+                    + 'as wholes and so cannot say where an individual exon or intron went.',
                 needs: 'track',
                 params: {
+                    features: {
+                        type: 'enum',
+                        values: ['exons', 'introns', 'five_prime_utr', 'three_prime_utr', 'cds', 'transcript'],
+                        default: 'exons',
+                        about: 'which regions of the first track to iterate over. Take it from '
+                            + 'the request\u2019s own word: "exons", "introns", "3\u2032 UTR", '
+                            + '"5\u2032 UTR", "coding sequence". The UTRs, the CDS and the '
+                            + 'whole transcript are single regions, so the run is one search'
+                    },
                     query_track: {
                         type: 'string',
                         about: 'the track whose EXONS are iterated over: the one named first, '
@@ -753,9 +764,9 @@ function (graph, genegraph_panel_layout) {
                         about: 'the track each exon is searched against: the one named second, '
                             + 'as in "matches it on mapk8ip3_mrna"'
                     },
-                    max_exons: {
+                    max_regions: {
                         type: 'number', default: 60,
-                        about: 'how many exons to do, from the first. Raise it only if the '
+                        about: 'how many regions to do, from the first. Raise it only if the '
                             + 'request asks for more than 60'
                     },
                     strands: {
@@ -767,14 +778,16 @@ function (graph, genegraph_panel_layout) {
                 run: async (a) => {
                     const qt = a.query_track ? matchTrack(a.query_track) : null;
                     const tt = a.target_track ? matchTrack(a.target_track) : null;
-                    if (!qt) { result('Which track\u2019s exons? Name it.'); return; }
-                    if (!tt) { result('Which track should each exon be searched against? Name it.'); return; }
-                    const out = await exec('baja/bio/match-exons.js', graph, qt, tt,
-                        { max_exons: a.max_exons || 60, strands: a.strands || 'both' });
+                    if (!qt) { result('Which track\u2019s regions? Name it.'); return; }
+                    if (!tt) { result('Which track should each one be searched against? Name it.'); return; }
+                    const out = await exec('baja/bio/match-regions.js', graph, qt, tt,
+                        { features: a.features || 'exons', max_regions: a.max_regions || 60,
+                          strands: a.strands || 'both' });
                     if (out && out.error) result(out.error);
                     else if (out && out.count != null) {
-                        result(out.count + ' of ' + out.of + ' exons of ' + (qt.name || 'the first track')
-                            + ' matched a block on ' + (tt.name || 'the other track') + ', drawn and linked.');
+                        result(out.count + ' of ' + out.of + ' ' + (out.plural || 'regions') + ' of '
+                            + (qt.name || 'the first track') + ' matched a block on '
+                            + (tt.name || 'the other track') + ', drawn and linked.');
                     }
                     return out;
                 },
@@ -783,35 +796,58 @@ function (graph, genegraph_panel_layout) {
                     const tt = a.target_track ? matchTrack(a.target_track) : null;
                     const q = qt ? (qt.name || 'a track') : 'a track';
                     const t = tt ? (tt.name || 'the other track') : 'the other track';
+                    const WORD = { exons: ['exon', 'exons'], introns: ['intron', 'introns'],
+                        five_prime_utr: ['5\u2032 UTR', '5\u2032 UTR'],
+                        three_prime_utr: ['3\u2032 UTR', '3\u2032 UTR'],
+                        cds: ['coding sequence', 'coding sequence'],
+                        transcript: ['transcript', 'transcript'] };
+                    const kind = WORD[a.features || 'exons'] ? (a.features || 'exons') : 'exons';
                     let n = null;
                     try {
                         const R = regionsNow(qt);
-                        if (R && R.exons) n = R.exons().length;
+                        if (R) {
+                            if (kind === 'exons') n = R.exons().length;
+                            else if (kind === 'introns') n = R.introns().length;
+                            else n = 1;
+                        }
                     } catch (e) { n = null; }
                     // HOW MANY SEARCHES, BEFORE THE BUTTON. This is one backend search per
-                    // exon, so a thirty-exon transcript is thirty of them: worth knowing
+                    // region, so a thirty-exon transcript is thirty of them: worth knowing
                     // before pressing GO rather than while waiting.
-                    return 'match ' + (n != null ? (n + ' exon' + (n === 1 ? '' : 's')) : 'every exon')
-                        + ' of ' + q + ' against ' + t + ', keep the closest block for each, and '
-                        + 'draw them joined'
-                        + (n != null ? (' \u00b7 ' + n + ' searches') : '');
+                    const what = (n != null && n !== 1)
+                        ? (n + ' ' + WORD[kind][1])
+                        : (n === 1 ? ('the ' + WORD[kind][0]) : ('every ' + WORD[kind][0]));
+                    return 'match ' + what + ' of ' + q + ' against ' + t
+                        + ', keep the closest block for each, and draw them joined'
+                        + (n != null ? (' \u00b7 ' + n + ' search' + (n === 1 ? '' : 'es')) : '');
                 },
                 argBlocker: (a) => {
                     const qt = a.query_track ? matchTrack(a.query_track) : null;
                     const tt = a.target_track ? matchTrack(a.target_track) : null;
                     if (!qt) {
-                        return 'say which track\u2019s exons to iterate over: open tracks are '
+                        return 'say which track\u2019s regions to iterate over: open tracks are '
                             + tracks().map((x) => x.name || '(unnamed)').join(', ');
                     }
                     if (!tt) {
-                        return 'say which track to search each exon against: open tracks are '
+                        return 'say which track to search each one against: open tracks are '
                             + tracks().map((x) => x.name || '(unnamed)').join(', ');
                     }
                     if (qt === tt) return 'those are the same track';
+                    // The track not having the region asked for is known here, and is worth
+                    // saying before the button: a non-coding transcript has no UTRs, and a
+                    // single-exon one has no introns.
                     try {
                         const R = regionsNow(qt);
-                        if (R && R.exons && !R.exons().length) {
-                            return (qt.name || 'that track') + ' has no annotated exons';
+                        const kind = a.features || 'exons';
+                        const nm = qt.name || 'that track';
+                        if (R) {
+                            if (kind === 'exons' && !R.exons().length) return nm + ' has no annotated exons';
+                            if (kind === 'introns' && !R.introns().length) {
+                                return nm + ' has no introns: it is a single-exon transcript';
+                            }
+                            if (kind === 'five_prime_utr' && !R.utr5()) return nm + ' has no 5\u2032 UTR';
+                            if (kind === 'three_prime_utr' && !R.utr3()) return nm + ' has no 3\u2032 UTR';
+                            if (kind === 'cds' && !R.cds()) return nm + ' has no annotated coding region';
                         }
                     } catch (e) { }
                     return '';

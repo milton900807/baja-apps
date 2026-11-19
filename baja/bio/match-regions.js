@@ -1,13 +1,22 @@
 function (graph, qtrack, ttrack, opts) {
 
-    // EVERY EXON OF ONE TRACK, MATCHED TO ITS CLOSEST BLOCK ON ANOTHER.
-    //   exec('baja/bio/match-exons.js', graph, spag9, mapk8ip3, { max_exons: 60 })
+    // EVERY REGION OF ONE KIND ON ONE TRACK, MATCHED TO ITS CLOSEST BLOCK ON ANOTHER.
+    //   exec('baja/bio/match-regions.js', graph, spag9, mapk8ip3, { features: 'exons' })
+    //
+    // EXONS ARE ONE KIND OF REGION, NOT THE ONLY ONE. The same question is worth asking of
+    // introns, of either UTR, of the CDS: "compare the introns", "does the 3' UTR match
+    // anything over there". Written for exons alone it would have been copied twice and the
+    // copies would have drifted, so the thing being iterated over is a parameter and the
+    // regions come from baja/bio/track-regions.js, which already knows what each one is --
+    // including that an intron is the gap between exons rather than an annotation a track
+    // carries, and that both are numbered along the transcript rather than along the
+    // coordinate line, so intron 1 follows exon 1 on a minus-strand track too.
     //
     // "iterate over all exons in A and find the closest sequence block that matches it on B"
     // was refused with "the editor cannot loop through exons automatically; you would need
     // to search each exon individually". Doing it by hand thirty times is exactly the work
     // the editor should be doing, and nothing about the loop is hard: it is the SAME search
-    // that answers it for one exon, run for each, with the best hit kept.
+    // that answers it for one region, run for each, with the best hit kept.
     //
     // ONE SEARCH PER EXON, not one alignment of the whole transcript. A single alignment of
     // two transcripts finds the one best path through both and says nothing about where exon
@@ -29,7 +38,30 @@ function (graph, qtrack, ttrack, opts) {
             if (!qtrack || !ttrack) { resolve({ error: 'two tracks are needed' }); return; }
             if (qtrack === ttrack) { resolve({ error: 'the two tracks are the same track' }); return; }
 
-            const MAX_EXONS = Math.max(1, Math.min(+(o.max_exons || 60), 200));
+            const MAX_EXONS = Math.max(1, Math.min(+(o.max_exons || o.max_regions || 60), 200));
+
+            // What is being iterated over. A list of regions for exons and introns; a single
+            // region for the CDS, either UTR or the whole transcript, where the loop runs
+            // once -- which is the same operation, not a special case.
+            const KIND = {
+                exons: { word: 'exon', plural: 'exons', list: (R) => R.exons() },
+                introns: { word: 'intron', plural: 'introns', list: (R) => R.introns() },
+                five_prime_utr: { word: '5\u2032 UTR', plural: '5\u2032 UTR', one: (R) => R.utr5() },
+                three_prime_utr: { word: '3\u2032 UTR', plural: '3\u2032 UTR', one: (R) => R.utr3() },
+                cds: { word: 'CDS', plural: 'CDS', one: (R) => R.cds() },
+                transcript: { word: 'transcript', plural: 'transcript', one: (R) => R.whole() }
+            };
+            const wantKey = ('' + (o.features || 'exons')).trim().toLowerCase()
+                .replace(/[\s-]+/g, '_').replace(/^(the_)/, '');
+            const KEYMAP = { exon: 'exons', intron: 'introns', utr5: 'five_prime_utr',
+                five_prime: 'five_prime_utr', '5_utr': 'five_prime_utr', utr3: 'three_prime_utr',
+                three_prime: 'three_prime_utr', '3_utr': 'three_prime_utr', coding: 'cds',
+                whole: 'transcript', gene: 'transcript' };
+            const key = KIND[wantKey] ? wantKey : (KIND[KEYMAP[wantKey]] ? KEYMAP[wantKey] : 'exons');
+            const K = KIND[key];
+            // "3' UTR 1" reads as though there were a second one. Only the kinds a track has
+            // several of are numbered.
+            const NAMED = (i) => K.list ? (K.word + ' ' + i) : K.word;
             const nameQ = '' + (qtrack.name || 'the first track');
             const nameT = '' + (ttrack.name || 'the other track');
 
@@ -42,9 +74,41 @@ function (graph, qtrack, ttrack, opts) {
 
             let R = null;
             try { R = await exec('baja/bio/track-regions.js', qtrack); } catch (e) { R = null; }
-            const exons = (R && R.exons) ? R.exons() : [];
+            if (!R) { resolve({ error: 'the regions of ' + nameQ + ' could not be read' }); return; }
+
+            // ONE SHAPE FOR EVERY KIND OF REGION. An exon comes back as the annotation that
+            // carries it, with xi/xf; an intron is derived rather than annotated and comes
+            // back as the span {start, end} it is; and the UTRs and the CDS come back as
+            // spans too. Reading xi off a span gives undefined, and the length of the
+            // sequence between undefined and undefined is nothing at all, which is how
+            // three introns became "too short to search (0 nt)".
+            const asRegion = (r) => {
+                if (!r) return null;
+                const a = isFinite(+r.xi) ? +r.xi : (isFinite(+r.start) ? +r.start : NaN);
+                const b = isFinite(+r.xf) ? +r.xf : (isFinite(+r.end) ? +r.end : NaN);
+                if (!isFinite(a) || !isFinite(b)) return null;
+                return { xi: Math.min(a, b), xf: Math.max(a, b) };
+            };
+
+            let exons = [];
+            if (K.list) exons = (K.list(R) || []).map(asRegion).filter(Boolean);
+            else {
+                const one = K.one(R);
+                // A region the track does not have is the answer, not a crash: a non-coding
+                // transcript has no CDS and no UTRs, and saying so is better than an empty
+                // picture.
+                if (!one || one.error || !isFinite(one.start)) {
+                    resolve({ error: (one && one.error) ? one.error
+                        : (nameQ + ' has no ' + K.word + ' to compare') });
+                    return;
+                }
+                const r1 = asRegion(one);
+                if (!r1) { resolve({ error: nameQ + ' has no ' + K.word + ' to compare' }); return; }
+                exons = [r1];
+            }
             if (!exons.length) {
-                resolve({ error: nameQ + ' has no annotated exons to iterate over' });
+                resolve({ error: nameQ + ' has no ' + K.plural + ' to iterate over'
+                    + (key === 'introns' ? ' (a single-exon transcript has none)' : '') });
                 return;
             }
 
@@ -79,7 +143,7 @@ function (graph, qtrack, ttrack, opts) {
                 let res = null;
                 try {
                     res = await exec('py/bio/search-region-in-track.py',
-                        { name: 'exon ' + n, seq: qseq, offset: a },
+                        { name: K.word + ' ' + n, seq: qseq, offset: a },
                         { name: nameT, seq: tseq, offset: lo },
                         { max_hits: 1, strands: (o.strands || 'both') });
                 } catch (e) { res = null; }
@@ -115,9 +179,11 @@ function (graph, qtrack, ttrack, opts) {
 
             if (!found.length) {
                 resolve({
-                    error: 'None of the ' + list.length + ' exons of ' + nameQ + ' matches anything on '
-                        + nameT + ' above the noise floor.'
-                        + (missed.length ? (' (' + missed.slice(0, 4).map((m) => 'exon ' + m.exon + ': ' + m.why).join('; ') + ')') : '')
+                    error: (K.list
+                        ? ('None of the ' + list.length + ' ' + K.plural + ' of ' + nameQ)
+                        : ('The ' + K.word + ' of ' + nameQ))
+                        + ' matches anything on ' + nameT + ' above the noise floor.'
+                        + (missed.length ? (' (' + missed.slice(0, 4).map((m) => NAMED(m.exon) + ': ' + m.why).join('; ') + ')') : '')
                 });
                 return;
             }
@@ -126,7 +192,10 @@ function (graph, qtrack, ttrack, opts) {
             let drawn = null;
             try {
                 const ML = await exec('baja/bio/match-layer.js');
-                const opt = { suffix: '_exon_matches', dataType: 'SEQSIM' };
+                // A short tag on the bar: e7 for an exon, i7 for an intron, the name itself
+                // for a one-off region, since "5' UTR 1" reads as though there were a second.
+                const LBL = (i) => K.list ? ((key === 'introns' ? 'i' : 'e') + i) : K.word;
+                const opt = { suffix: '_' + key + '_matches', dataType: 'SEQSIM' };
                 // Numbered by EXON, not by rank: the number on the bar has to be the number
                 // the user already uses for that exon, or the picture needs a key.
                 const qB = found.map((f) => ({ n: f.exon, x1: f.qx1, x2: f.qx2, identity: f.identity,
@@ -149,35 +218,43 @@ function (graph, qtrack, ttrack, opts) {
 
             // ---- the panel ----------------------------------------------------------------
             const pct = (x) => (Math.round((+x || 0) * 1000) / 10).toFixed(1) + '%';
+            const CAP = (t) => ('' + t).charAt(0).toUpperCase() + ('' + t).slice(1);
+            const TITLE = CAP(K.plural) + ' of ' + nameQ + ' matched on ' + nameT;
             const best = found.slice().sort((x, y) => y.score - x.score)[0];
             const strong = found.filter((f) => f.identity >= 0.8);
-            rows.push(['answer', found.length + ' of ' + list.length + ' exons of ' + nameQ
-                + ' match a block on ' + nameT + '. '
-                + (strong.length
-                    ? (strong.length + ' of them at 80% identity or better (exon'
-                        + (strong.length === 1 ? ' ' : 's ') + strong.map((f) => f.exon).join(', ') + '). ')
-                    : 'None reaches 80% identity. ')
-                + 'The closest is exon ' + best.exon + ' at ' + pct(best.identity)
-                + ' over ' + best.matched.toLocaleString() + ' nt.']);
+            rows.push(['answer', (K.list
+                ? (found.length + ' of ' + list.length + ' ' + K.plural + ' of ' + nameQ
+                    + ' match a block on ' + nameT + '. '
+                    + (strong.length
+                        ? (strong.length + ' of them at 80% identity or better (' + K.word
+                            + (strong.length === 1 ? ' ' : 's ') + strong.map((f) => f.exon).join(', ') + '). ')
+                        : 'None reaches 80% identity. ')
+                    + 'The closest is ' + K.word + ' ' + best.exon + ' at ' + pct(best.identity)
+                    + ' over ' + best.matched.toLocaleString() + ' nt.')
+                // One region is one sentence: "1 of 1 3' UTR match a block" is a count of
+                // something there is only one of.
+                : ('The ' + K.word + ' of ' + nameQ + ' matches a block on ' + nameT + ' at '
+                    + pct(best.identity) + ' over ' + best.matched.toLocaleString() + ' nt, '
+                    + pct(best.covers) + ' of it.'))]);
             for (const f of found) {
                 rows.push(['exon ' + f.exon + ' · ' + pct(f.identity),
                     f.len.toLocaleString() + ' nt at ' + f.qx1.toLocaleString() + '-' + f.qx2.toLocaleString()
                     + ' matches ' + nameT + ' ' + f.tx1.toLocaleString() + '-' + f.tx2.toLocaleString()
                     + (f.strand < 0 ? ' (reverse strand)' : '')
                     + ', score ' + Math.round(f.score)
-                    + ', covering ' + pct(f.covers) + ' of the exon.']);
+                    + ', covering ' + pct(f.covers) + ' of the ' + K.word + '.']);
             }
             if (missed.length) {
-                rows.push(['no match', missed.map((m) => 'exon ' + m.exon + ' (' + m.why + ')').join(', ') + '.']);
+                rows.push(['no match', missed.map((m) => NAMED(m.exon) + ' (' + m.why + ')').join(', ') + '.']);
             }
             if (exons.length > list.length) {
-                rows.push(['not searched', (exons.length - list.length) + ' further exons: '
+                rows.push(['not searched', (exons.length - list.length) + ' further ' + K.plural + ': '
                     + 'this stops at ' + MAX_EXONS + ' to keep one request from becoming hundreds of searches.']);
             }
-            rows.push(['how', 'Each exon was searched against the whole of ' + nameT + ' on both '
+            rows.push(['how', 'Each ' + K.word + ' was searched against the whole of ' + nameT + ' on both '
                 + 'strands, scored like blastn, and its best hit kept. A single alignment of the '
-                + 'two transcripts could not answer this: it finds one path through both, so an '
-                + 'exon can only land somewhere consistent with its neighbours, never out of '
+                + 'two transcripts could not answer this: it finds one path through both, so a '
+                + 'region can only land somewhere consistent with its neighbours, never out of '
                 + 'order and never reversed.']);
 
             // ---- the answer as a PICTURE ---------------------------------------------------
@@ -193,7 +270,7 @@ function (graph, qtrack, ttrack, opts) {
             let shown = null;
             try {
                 shown = await exec('baja/bio/compare-view.js', {
-                    title: 'Exons of ' + nameQ + ' matched on ' + nameT,
+                    title: TITLE,
                     summary: rows[0][1],
                     a: { name: nameQ, x1: extentOf(qtrack).x1, x2: extentOf(qtrack).x2 },
                     b: { name: nameT, x1: extentOf(ttrack).x1, x2: extentOf(ttrack).x2 },
@@ -207,7 +284,7 @@ function (graph, qtrack, ttrack, opts) {
                     unmatched: missed.map((x) => {
                         const ex = list[x.exon - 1];
                         if (!ex) return null;
-                        return { label: 'exon ' + x.exon, why: x.why,
+                        return { label: NAMED(x.exon), why: x.why,
                             a: { x1: Math.min(+ex.xi, +ex.xf), x2: Math.max(+ex.xi, +ex.xf) } };
                     }).filter(Boolean),
                     rows: rows
@@ -215,10 +292,10 @@ function (graph, qtrack, ttrack, opts) {
             } catch (e) { shown = null; }
 
             const help = {
-                title: 'Exons of ' + nameQ + ' matched on ' + nameT,
+                title: TITLE,
                 rows: rows,
                 note: 'Identity is over the matched block, and coverage says how much of the exon '
-                    + 'that block accounts for: a short perfect match inside a long exon reads as '
+                    + 'that block accounts for: a short perfect match inside a long ' + K.word + ' reads as '
                     + '100% identical and covers very little of it.'
             };
             // Only when the picture could not be drawn: two panels over each other is one
@@ -229,11 +306,13 @@ function (graph, qtrack, ttrack, opts) {
             }
             try { window.__bajaExonMatches = { found: found, missed: missed }; } catch (e) { }
             try {
-                graph.setMessage(found.length + ' of ' + list.length + ' exons matched'
+                graph.setMessage((K.list ? (found.length + ' of ' + list.length + ' ' + K.plural)
+                    : ('the ' + K.word)) + ' matched'
                     + ((drawn && drawn.blocks) ? (' · drawn and linked on both tracks') : ''));
             } catch (e) { }
 
-            resolve({ found: found, missed: missed, drawn: drawn, count: found.length, of: list.length });
+            resolve({ found: found, missed: missed, drawn: drawn, count: found.length,
+                of: list.length, features: key, word: K.word, plural: K.plural });
         } catch (e) {
             resolve({ error: ('' + (e && e.message ? e.message : e)) });
         }

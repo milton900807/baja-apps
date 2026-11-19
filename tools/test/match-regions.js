@@ -1,6 +1,6 @@
 // EVERY EXON OF ONE TRACK, MATCHED TO ITS CLOSEST BLOCK ON ANOTHER.
 //
-//     node tools/test/match-exons.js
+//     node tools/test/match-regions.js
 //
 // "iterate over all exons in spag9_mrna and find the closest sequence block that matches it
 // on mapk8ip3_mrna" was refused: "the editor cannot loop through exons automatically; you
@@ -72,7 +72,7 @@ const mk = (name, exons) => {
         }] };
     };
     searches = []; helpShown = null;
-    let r = await load('baja/bio/match-exons.js', graph, A, B, {});
+    let r = await load('baja/bio/match-regions.js', graph, A, B, {});
 
     ok(searches.length === 3, 'one search per exon that can be searched: ' + searches.length);
     ok(searches.every((s) => s.t.name === 'MAPK8IP3_mRNA' && s.t.seq.length > 1000),
@@ -125,6 +125,8 @@ const mk = (name, exons) => {
     // which flipped are shapes, and a list shows none of them.
     const view = document.getElementById('baja-compare-view');
     ok(!!view, 'a comparison view is opened, not a table');
+    ok(view && /inset:\s*0/.test(view.style.cssText),
+       'and it fills the window rather than floating over the thing it explains');
     ok(!helpShown, 'and the old text panel is NOT also opened over it');
     const svg = view ? view.querySelector('svg') : null;
     ok(!!svg, 'it draws something');
@@ -149,6 +151,29 @@ const mk = (name, exons) => {
     ok(!/NaN/.test(panel.textContent), 'with no NaN anywhere in them');
     try { view.querySelector('button[data-id="numbers"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
     ok(panel.style.display === 'block', 'and Numbers opens them');
+    // It leaves as a file: a figure like this ends up in a document or a talk.
+    ok(!!view.querySelector('button[data-id="pdf"]') && !!view.querySelector('button[data-id="svg"]'),
+       'it offers a PDF and an SVG');
+    let saved = null;
+    const realCreate = document.createElement.bind(document);
+    document.createElement = (t) => {
+        const n = realCreate(t);
+        if (('' + t).toLowerCase() === 'a') { n.click = () => { saved = n.download; }; }
+        return n;
+    };
+    try { window.URL.createObjectURL = () => 'blob:x'; window.URL.revokeObjectURL = () => { }; } catch (e) { }
+    view.querySelector('button[data-id="svg"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    ok(/^Exons-of-SPAG9-mRNA-matched-on-MAPK8IP3-mRNA\.svg$/.test(saved || ''),
+       'the SVG downloads under the comparison\u2019s own name: ' + saved);
+    document.createElement = realCreate;
+
+    // Without jsPDF the PDF button says so and points at the SVG, rather than doing nothing.
+    view.querySelector('button[data-id="pdf"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    const said = view.querySelector('[data-id="said"]');
+    ok(/jsPDF/.test((said && said.textContent) || '') && /SVG/.test((said && said.textContent) || ''),
+       'a missing jsPDF is said, with the way out: ' + ((said && said.textContent) || ''));
+
     try { view.querySelector('button[data-id="close"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
     ok(!document.getElementById('baja-compare-view'), 'Close puts it away');
 
@@ -167,31 +192,90 @@ const mk = (name, exons) => {
     pyReply = { status: 'OK', hits: [] };
     const A2 = mk('SPAG9_mRNA', [[100, 300], [500, 700]]);
     const B2 = mk('MAPK8IP3_mRNA', [[0, 2000]]);
-    r = await load('baja/bio/match-exons.js', graph, A2, B2, {});
+    r = await load('baja/bio/match-regions.js', graph, A2, B2, {});
     ok(!!r.error && /None of the 2 exons/.test(r.error),
        'nothing matching is said plainly rather than drawn as an empty layer: ' + r.error);
     ok(!(A2.track_layers || []).length, 'and nothing is drawn');
 
     // ---- a track with no exons ----------------------------------------------------------
     const bare = mk('plain', []);
-    r = await load('baja/bio/match-exons.js', graph, bare, B, {});
-    ok(/no annotated exons/.test(r.error || ''), 'a track with no exons is said: ' + r.error);
-    r = await load('baja/bio/match-exons.js', graph, A, A, {});
+    r = await load('baja/bio/match-regions.js', graph, bare, B, {});
+    ok(/no exons to iterate over/.test(r.error || ''), 'a track with no exons is said: ' + r.error);
+    r = await load('baja/bio/match-regions.js', graph, A, A, {});
     ok(/same track/.test(r.error || ''), 'and one track against itself: ' + r.error);
+
+    // ---- exons are one kind of region, not the only one ----------------------------------
+    // "compare the introns", "does the 3' UTR match anything over there" is the same
+    // question, and writing it for exons alone would have meant copying this twice.
+    const withUtr = () => {
+        const t = mk('SPAG9_mRNA', [[100, 300], [500, 700], [900, 1100]]);
+        // a coding span inside the exons, which is what gives a transcript its UTRs
+        t.annotations.push({ type: 'Translation', xi: 250, xf: 950 });
+        return t;
+    };
+    pyReply = (q) => ({ status: 'OK', hits: [{
+        rank: 1, start: 1500, end: 1700, query_start: +q.offset, query_end: +q.offset + 200,
+        identity: 0.81, score: 220, strand: '+', identical: 162, length: 200, gaps: 0,
+        query_coverage: 0.88
+    }] });
+
+    searches = [];
+    const U = withUtr();
+    let ru = await load('baja/bio/match-regions.js', graph, U, B, { features: 'introns' });
+    ok(ru.count === 2 && ru.word === 'intron',
+       'introns are iterated like exons: ' + JSON.stringify({ c: ru.count, w: ru.word }));
+    ok(searches.every((s2) => /^intron \d+$/.test('' + s2.q.name)),
+       'and go out named as introns: ' + searches.map((s2) => s2.q.name).join(', '));
+    let vv = document.getElementById('baja-compare-view');
+    ok(/Introns of SPAG9_mRNA/.test(vv ? vv.textContent : ''),
+       'the picture says what it is a picture of: ' + (vv ? vv.textContent.slice(0, 40) : ''));
+    try { vv.querySelector('button[data-id="close"]').click(); } catch (e) { }
+
+    // A single region is the same operation with the loop running once, not a special case.
+    searches = [];
+    ru = await load('baja/bio/match-regions.js', graph, U, B, { features: 'three_prime_utr' });
+    ok(ru.count === 1 && /UTR/.test(ru.word), 'the 3\u2032 UTR is one region, one search: '
+       + JSON.stringify({ c: ru.count, s: searches.length, w: ru.word }));
+    ok(searches.length === 1, 'exactly one search was made');
+    vv = document.getElementById('baja-compare-view');
+    const lbl = vv ? vv.textContent : '';
+    ok(/UTR/.test(lbl) && !/UTR 1/.test(lbl),
+       'and its bar is named for what it is, not numbered as though there were a second');
+    try { vv.querySelector('button[data-id="close"]').click(); } catch (e) { }
+
+    // A region the track does not have is the answer, not an empty picture.
+    const noncoding = mk('lncRNA', [[100, 300], [500, 700]]);
+    ru = await load('baja/bio/match-regions.js', graph, noncoding, B, { features: 'cds' });
+    ok(/no |has no/.test(ru.error || ''), 'a track with no CDS is told about: ' + ru.error);
+    const single = mk('one_exon', [[100, 900]]);
+    ru = await load('baja/bio/match-regions.js', graph, single, B, { features: 'introns' });
+    ok(/single-exon/.test(ru.error || ''),
+       'and a single-exon transcript has no introns, which is said in those words: ' + ru.error);
 
     // ---- the capability ------------------------------------------------------------------
     const C = await load('baja/manchester/menu/editor-capabilities.js', graph, {});
     const names = C.catalogue().map((c) => c.name);
-    ok(names.indexOf('match_exons_across_tracks') >= 0,
+    ok(names.indexOf('match_regions_across_tracks') >= 0,
        'the planner can reach it: it is in the catalogue');
-    const p = C.preview({ capability: 'match_exons_across_tracks',
+    const p = C.preview({ capability: 'match_regions_across_tracks',
         args: { query_track: 'SPAG9_mRNA', target_track: 'MAPK8IP3_mRNA' } });
     ok(!p.blocker, 'it runs with both tracks named: ' + (p.blocker || '(none)'));
     ok(/4 exons/.test(p.text) && /4 searches/.test(p.text),
        'and the card says how many searches that is before the button: ' + p.text);
-    const p2 = C.preview({ capability: 'match_exons_across_tracks', args: { query_track: 'SPAG9_mRNA' } });
+    const p2 = C.preview({ capability: 'match_regions_across_tracks', args: { query_track: 'SPAG9_mRNA' } });
     ok(/say which track to search/.test(p2.blocker || ''),
        'one track named is not enough, and it says so: ' + (p2.blocker || ''));
+
+    // The card counts the right things for the kind asked for, and refuses what the track
+    // does not have before the button rather than after it.
+    const pIn = C.preview({ capability: 'match_regions_across_tracks',
+        args: { query_track: 'SPAG9_mRNA', target_track: 'MAPK8IP3_mRNA', features: 'introns' } });
+    ok(/3 introns/.test(pIn.text) && /3 searches/.test(pIn.text),
+       'introns are counted as introns: ' + pIn.text);
+    const pU = C.preview({ capability: 'match_regions_across_tracks',
+        args: { query_track: 'SPAG9_mRNA', target_track: 'MAPK8IP3_mRNA', features: 'three_prime_utr' } });
+    ok(/no 3\u2032 UTR/.test(pU.blocker || ''),
+       'a track with no 3\u2032 UTR is refused before the button: ' + (pU.blocker || ''));
 
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);

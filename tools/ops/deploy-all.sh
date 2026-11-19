@@ -975,12 +975,13 @@ if [[ $DO_API -eq 1 ]]; then
   # fields it reads from the searcher are the ones the searcher actually sends: t0/t1 and
   # coverage do not exist, which put NaN-NaN and 0.0% on every row.
   install_group "Track comparisons are shown as a picture" \
-    "baja/bio/compare-view.js:A PICTURE OF HOW TWO TRACKS LINE UP" \
-    "baja/bio/match-exons.js:THE FIELDS THE SEARCHER ACTUALLY RETURNS"
+    "baja/bio/compare-view.js:A FULL WINDOW, NOT A POPUP" \
+    "baja/bio/compare-view.js:IT LEAVES AS A FILE" \
+    "baja/bio/match-regions.js:THE FIELDS THE SEARCHER ACTUALLY RETURNS"
   install_group "Two-headed arrows, and every exon matched in one step" \
     "baja/bio/track-layer.js:A HEAD AT BOTH ENDS" \
     "baja/bio/align-blocks.js:THE BLOCKS AN ALIGNMENT IS MADE OF" \
-    "baja/bio/match-exons.js:EVERY EXON OF ONE TRACK, MATCHED TO ITS CLOSEST BLOCK" \
+    "baja/bio/match-regions.js:EXONS ARE ONE KIND OF REGION, NOT THE ONLY ONE" \
     "baja/manchester/menu/compare-track-sequences.js:WHERE A UNIT OF THE COMPARED SEQUENCE SITS ON THE TRACK" \
     "baja/manchester/menu/editor-capabilities.js:ITERATING IS AN OPERATION, NOT A REASON TO REFUSE" \
     "py/bio/editor/plan.py:EVERY ONE OF THEM IS ONE STEP, NOT A REFUSAL"
