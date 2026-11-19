@@ -526,7 +526,7 @@ if [[ $DO_API -eq 1 ]]; then
   # The IDT order file. The hub is in the group above as well; whichever group gets there
   # first installs it and the other reports it current.
   install_group "IDT order file, and the IDT inline modification codes" \
-    "baja/chem/structure/idt/idt-format.js:INLINE_SUGARS" \
+    "baja/chem/structure/idt/idt-format.js:WHAT IS NOT IN THIS TABLE IS REFUSED, NOT GUESSED" \
     "manchester/io/download-hub.js:IDT order file"
   # The Research panel: Home > Tools > Research reads the indication-market store rather
   # than running any research. All four or none, so Home never gets a live tile with
@@ -643,7 +643,7 @@ if [[ $DO_API -eq 1 ]]; then
   # All of them or none: editor.js calling a module that is not there breaks the exon menu,
   # and a menu entry whose script is missing is worse than no entry.
   install_group "BajaSplice on an exon" \
-    "baja/bio/splicing/exon-ai-models.js:label: 'BajaSplice \\u25b8'" \
+    "baja/bio/splicing/exon-ai-models.js:The old LJSplice v2" \
     "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'" \
     "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
     "baja/bio/splicing/splicing-profile.js:Splicing profile — pick a magnitude mode" \
