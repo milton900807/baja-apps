@@ -71,6 +71,15 @@ function (graph, genegraph_panel_layout, tracks, options) {
 
         const minScore = (o.minScore == null) ? 30 : +o.minScore;
 
+        // The stretches to keep motifs inside, in the track's own coordinates. Empty means
+        // the whole track, which is what every caller before this one wanted.
+        const within = (Array.isArray(o.within) ? o.within : (o.within ? [o.within] : []))
+            .map((r) => (r && r.start != null)
+                ? { start: Math.min(+r.start, +r.end), end: Math.max(+r.start, +r.end) }
+                : null)
+            .filter((r) => r && isFinite(r.start) && isFinite(r.end) && r.end > r.start);
+        let outside = 0;
+
         // ---- the track's peptide, and where each residue sits on the genome -------------
         //
         // Lifted from baja/bio/protein/secretion-profile.js, the other model in this tree
@@ -229,7 +238,23 @@ function (graph, genegraph_panel_layout, tracks, options) {
             const spanOf = (a, b) => {
                 const x = posOf(a), y = posOf(b);
                 if (x < 0 || y < 0) return null;
-                return { x1: Math.min(x, y), x2: Math.max(x, y) + 2 };
+                const sp = { x1: Math.min(x, y), x2: Math.max(x, y) + 2 };
+                // WITHIN THE SELECTION, WHEN ONE WAS ASKED FOR.
+                //
+                // Dropped here, where a motif first becomes a position on the track, so all
+                // three stacks -- present, gained, lost -- obey it without three copies of
+                // the test. A motif is kept when any part of it falls inside any of the
+                // ranges: a motif straddling the edge of the selection is still a motif in
+                // the selection, and silently dropping it would be the worse answer of the
+                // two for someone who selected a domain boundary on purpose.
+                if (within && within.length) {
+                    let hit = false;
+                    for (const r of within) {
+                        if (sp.x2 >= r.start && sp.x1 <= r.end) { hit = true; break; }
+                    }
+                    if (!hit) { outside++; return null; }
+                }
+                return sp;
             };
 
             const vars = variantsOf(t);
@@ -372,6 +397,15 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 if (nL) rows.push(['lost (blue)', plural(nL, 'motif') + ' that the variant DESTROYS.']);
                 rows.push(['grey bars', plural(nM, 'motif') + ' in the protein scoring at least ' + minScore
                     + ', out of ' + (res.n || 0) + ' candidate instances found.']);
+                // SAID, NOT LEFT TO BE INFERRED. A layer drawn over a selection looks exactly
+                // like a layer drawn over a track that happens to have motifs only there.
+                if (within.length) {
+                    rows.push(['limited to the selection', 'Only motifs touching the selected '
+                        + (within.length === 1 ? 'region' : (within.length + ' regions'))
+                        + ' are drawn' + (outside ? (': ' + outside + ' elsewhere in the protein '
+                            + (outside === 1 ? 'was' : 'were') + ' left out') : '')
+                        + '. Run it again with no selection for the whole protein.']);
+                }
                 rows.push(['what a bar is', 'A regex match from the ELM catalogue, placed on the codons that encode it. '
                     + 'Overlapping matches stack upward, one lane each.']);
                 rows.push(['the score', 'An ordering among candidates, not a probability that a motif is real. '
@@ -381,6 +415,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 anchor.decor = {
                     callout: {
                         text: 'Linear motifs: ' + plural(nM, 'motif')
+                            + (within.length ? ' in the selection' : '')
                             + (nG ? ('  ·  ' + nG + ' gained (score is an upper bound)') : '')
                             + (nL ? ('  ·  ' + nL + ' lost') : ''),
                         x0: span ? span[0] : lo, x1: span ? span[1] : hi,
@@ -405,8 +440,10 @@ function (graph, genegraph_panel_layout, tracks, options) {
         const totG = per.reduce((a, p) => a + p.gained, 0);
         const totL = per.reduce((a, p) => a + p.lost, 0);
         say('Linear motifs: ' + done + ' track' + (done === 1 ? '' : 's')
+            + (within.length ? ' · within the selection' : '')
             + (totG ? (' · ' + totG + ' gained') : '')
             + (totL ? (' · ' + totL + ' lost') : '')
+            + (outside ? (' · ' + outside + ' outside it') : '')
             + (already ? (' · ' + already + ' already mapped') : '')
             + (skipped ? (' · ' + skipped + ' without a protein') : '')
             + (failed ? (' · ' + failed + ' failed') : ''));
@@ -415,6 +452,7 @@ function (graph, genegraph_panel_layout, tracks, options) {
             try { graph.setResultMessage(' Linear motifs: ' + reasons[0] + ' '); } catch (e) { }
             console.warn('[slim-motif-layer] failures:', reasons);
         }
-        return { done: done, skipped: skipped, empty: empty, already: already, failed: failed, per: per };
+        return { done: done, skipped: skipped, empty: empty, already: already, failed: failed,
+            per: per, within: within.length, outside: outside };
     })();
 }

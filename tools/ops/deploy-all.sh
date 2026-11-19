@@ -885,6 +885,12 @@ if [[ $DO_API -eq 1 ]]; then
   # regions and draws them, gene.js clears them, the capability adds them and the planner
   # splits the request that asks for them. A track that can hold a second region while the
   # clear still only drops the first would leave a selection nobody can see.
+  # Protein motifs from the Ask box, and limited to the selection when there is one. Both
+  # or neither: the capability passes `within` and the layer is what honours it, so a new
+  # capability against an old layer would quietly scan the whole protein instead.
+  install_group "Ask: load protein motifs, within the selection" \
+    "baja/manchester/menu/editor-capabilities.js:PROTEIN MOTIFS ARE A LAYER THE EDITOR ALREADY DRAWS" \
+    "baja/bio/protein/slim-motif-layer.js:WITHIN THE SELECTION, WHEN ONE WAS ASKED FOR"
   install_group "A track can hold more than one selected region" \
     "baja/bio/track-flexi.js:MORE THAN ONE SELECTED REGION, WITHOUT MOVING THE ONE EVERYTHING READS" \
     "flexigraph/gene.js:THE EXTRA REGIONS GO TOO" \

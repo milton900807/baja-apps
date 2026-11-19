@@ -475,6 +475,113 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
             },
             {
+                // PROTEIN MOTIFS ARE A LAYER THE EDITOR ALREADY DRAWS, and "load protein
+                // motifs" was answered with "nothing in the editor does that" because the
+                // catalogue is the only thing a typed request can reach.
+                name: 'load_protein_motifs',
+                summary: 'LOAD SHORT LINEAR MOTIFS (SLiMs) onto a track as a layer: the ELM '
+                    + 'catalogue of recognition tags matched against the track\u2019s own '
+                    + 'translation and placed on the codons that encode them. This is the '
+                    + 'answer to "load protein motifs", "show the motifs", "find linear '
+                    + 'motifs", "ELM motifs", "SLiMs", "what motifs are in this protein". '
+                    + 'WHEN A STRETCH OF SEQUENCE IS SELECTED it loads only the motifs '
+                    + 'touching the selection, because that is what someone who made a '
+                    + 'selection first is asking about; with nothing selected it does the '
+                    + 'whole protein. A motif is a regex match and most matches in any '
+                    + 'protein are not real, which is why the score is a ranking and the '
+                    + 'layer says so.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    },
+                    whole_track: {
+                        type: 'boolean', default: false,
+                        about: 'true to scan the WHOLE protein even though a stretch is '
+                            + 'selected. Only for a request that says so ("over the whole '
+                            + 'track", "everywhere", "ignore the selection"); a plain request '
+                            + 'with a selection on screen means the selection'
+                    },
+                    min_score: {
+                        type: 'number', default: 30,
+                        about: 'the lowest motif score to draw, 0 to 100. Raise it for a '
+                            + 'request that asks for the strongest or best-scoring motifs only'
+                    },
+                    variants: {
+                        type: 'string',
+                        about: 'protein-space variants to test for motifs gained or lost, comma '
+                            + 'separated, as the request writes them ("R578C"). Only when the '
+                            + 'request names one; genomic coordinates are not translated here'
+                    }
+                },
+                run: async (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    // The selection decides the scope unless the request overrode it. Every
+                    // selected region counts, not just the first: a track can hold several
+                    // now, and a user who selected two exons means both.
+                    let within = [];
+                    if (!a.whole_track) {
+                        try {
+                            within = (typeof t.getSelectedRanges === 'function')
+                                ? t.getSelectedRanges()
+                                : (hasSel(t) ? [rangeOf(t)] : []);
+                        } catch (e) { within = []; }
+                    }
+                    const vars = ('' + (a.variants || '')).split(',')
+                        .map((x) => x.trim()).filter(Boolean);
+                    const r = await exec('baja/bio/protein/slim-motif-layer.js', graph,
+                        genegraph_panel_layout, [t], {
+                            within: within,
+                            minScore: (a.min_score == null ? 30 : a.min_score),
+                            variants: vars,
+                            // Re-run rather than skip: the layer is idempotent by track, so
+                            // asking again over a selection would otherwise report "already
+                            // mapped" and leave the whole-protein layer in place, which is
+                            // the opposite of what was asked for.
+                            redo: true
+                        });
+                    if (r && r.skipped && !r.done) {
+                        result((t.name || 'That track') + ' has no protein translation, so there '
+                            + 'is nothing to find motifs in.');
+                    }
+                    return r;
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    let n = 0;
+                    try {
+                        n = (!a.whole_track && t && typeof t.getSelectedRanges === 'function')
+                            ? t.getSelectedRanges().length : 0;
+                    } catch (e) { n = 0; }
+                    return 'load the protein motifs on ' + (t ? (t.name || 'the track') : 'the track')
+                        + (n ? (n === 1 ? ', within the selected region' : (', within the '
+                            + n + ' selected regions')) : ', over the whole protein')
+                        + ((a.min_score != null && a.min_score !== 30) ? (', scoring at least ' + a.min_score) : '');
+                },
+                argBlocker: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) {
+                        return a.track
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track: there is more than one open';
+                    }
+                    // Said before the button rather than after a run that draws nothing.
+                    const hasOrf = (() => {
+                        try { return !!(t.orf && t.orf.cdsi && t.orf.cdsi.length); } catch (e) { return false; }
+                    })();
+                    if (!hasOrf) {
+                        return (t.name || 'that track') + ' has no protein translation on it, so '
+                            + 'there are no protein motifs to find';
+                    }
+                    return '';
+                }
+            },
+
+            {
                 name: 'mirna_sites',
                 summary: 'Scan the selected sequence for canonical microRNA seed sites (6mer, 7mer-A1, '
                     + '7mer-m8, 8mer-1a) from the de-targeting miRNA set, and annotate the hits. '
