@@ -174,6 +174,40 @@ function (graph, track, snp) {
                 }
             });
 
+        // HIDE INFO, AND ONLY WHILE THERE IS SOMETHING TO HIDE.
+        //
+        // More information leaves a callout pinned to the variant, which is the point of it:
+        // it marks the variant on the canvas afterwards. There was no way to take it off
+        // again except the bulk toggle below, which acts on every highlighted variant across
+        // every track -- not what someone wants when one callout is in the way of reading the
+        // sequence under it.
+        //
+        // The condition is read when the menu is built, which is when the user is looking at
+        // the thing they want gone, so an entry offering to hide a callout that is not there
+        // cannot appear. The callout draws when there is annotation text and showAnnotation
+        // has not been set false, undefined included -- the same test snpindel.js draws by,
+        // because a menu that disagrees with the canvas about what is on screen is worse than
+        // no menu entry at all.
+        const infoShowing = () => {
+            try { return !!(snp && snp.annotation && snp.showAnnotation !== false); }
+            catch (e) { return false; }
+        };
+        if (infoShowing()) {
+            menuList.push(
+                {
+                    label: "Hide information",
+                    click: async (scx, scy) => {
+                        // Only this variant's callout. The text is kept, so More information
+                        // does not have to look it up again to bring it back.
+                        try { snp.showAnnotation = false; } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                        graph.showSideMenu(null)
+                    },
+                    move: () => {
+                    }
+                });
+        }
+
         menuList.push(
             {
                 label: "Toggle annotations on selected variants",

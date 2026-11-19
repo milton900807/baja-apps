@@ -223,7 +223,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/compound-ai-filter.js:Captions, not rows" \
     "baja/manchester/menu/map-off-targets.js:Captions, not rows" \
     "baja/manchester/menu/selected-sequence-menu.js:header: true" \
-    "baja/manchester/menu/snp-menu.js:header: true" \
+    "baja/manchester/menu/snp-menu.js:HIDE INFO, AND ONLY WHILE THERE IS SOMETHING TO HIDE" \
     "baja/manchester/menu/track-layers-side-menu.js:header: true" \
     "baja/manchester/menu/menu-for-single-aso.js:header: true" \
     "baja/manchester/menu/allele-selective-design.js:header: true" \
