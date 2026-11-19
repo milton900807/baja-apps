@@ -1690,18 +1690,28 @@ return new Promise(async (resolve, reject) => {
                             ctx.bezierCurveTo(lx0, ly0 + ldy * 0.45, lx1, ly1 - ldy * 0.45, lx1, ly1);
                             ctx.stroke();
 
-                            // The head sits at the far end and points the way the curve is
-                            // going, which is toward the other track whichever way round the
-                            // two of them are on screen.
+                            // A HEAD AT BOTH ENDS. A single head reads as "this came from
+                            // here and went there", which is a claim about direction that a
+                            // sequence match does not make: the two blocks correspond, and
+                            // neither is the source of the other. Two heads say that.
+                            //
+                            // Each points the way the curve runs at its own end, which is
+                            // toward the other track whichever way round the two of them are
+                            // on screen. lk.oneWay is there for an arrow that does mean a
+                            // direction; nothing drawing matches uses it.
                             const lhead = (+lk.head || 6);
                             const ldir = (ldy >= 0) ? 1 : -1;
                             try { ctx.setLineDash([]); } catch (e) { }
-                            ctx.beginPath();
-                            ctx.moveTo(lx1, ly1);
-                            ctx.lineTo(lx1 - lhead * 0.6, ly1 - ldir * lhead);
-                            ctx.lineTo(lx1 + lhead * 0.6, ly1 - ldir * lhead);
-                            ctx.closePath();
-                            ctx.fill();
+                            const headAt = (hx, hy, dir) => {
+                                ctx.beginPath();
+                                ctx.moveTo(hx, hy);
+                                ctx.lineTo(hx - lhead * 0.6, hy - dir * lhead);
+                                ctx.lineTo(hx + lhead * 0.6, hy - dir * lhead);
+                                ctx.closePath();
+                                ctx.fill();
+                            };
+                            headAt(lx1, ly1, ldir);
+                            if (!lk.oneWay) headAt(lx0, ly0, -ldir);
                             ctx.restore();
                         } catch (e) { }
                     }

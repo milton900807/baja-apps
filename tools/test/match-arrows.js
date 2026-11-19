@@ -106,6 +106,21 @@ const mkTrack = (name, xi, len, gridXi, gridW) => ({
     ok(/ML\.link\(qLayer, qt, target,/.test(fs.readFileSync('baja/bio/search-region.js', 'utf8')),
        'and the search links the region it searched with to each place it found');
 
+    // ---- a head at BOTH ends ----------------------------------------------------------
+    // A single head reads as "this came from here and went there", which is a claim about
+    // direction that a sequence match does not make: the two blocks correspond, and neither
+    // is the source of the other.
+    const src = fs.readFileSync('baja/bio/track-layer.js', 'utf8');
+    ok(/A HEAD AT BOTH ENDS/.test(src), 'the renderer says why both ends carry one');
+    ok(/headAt\(lx1, ly1, ldir\);/.test(src) && /headAt\(lx0, ly0, -ldir\);/.test(src),
+       'and draws one at each end, each pointing the way the curve runs there');
+
+    // Not asserted by running draw(): the layer's draw needs a live canvas and a graph,
+    // and a stub that silently draws nothing would pass this whichever way the code went.
+    // The two source assertions above are what pin it.
+    ok(!/if \(!lk\.oneWay\) headAt\(lx1/.test(src),
+       'and the far head is unconditional: it is the NEAR one an explicit one-way arrow drops');
+
     console.log(fails ? '\n' + fails + ' assertion(s) failed' : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })();

@@ -723,6 +723,102 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // ITERATING IS AN OPERATION, NOT A REASON TO REFUSE. "iterate over all exons
+                // in A and find the closest sequence block that matches it on B" was answered
+                // with "the editor cannot loop through exons automatically; you would need to
+                // search each exon individually" -- which is to say, do the editor's work by
+                // hand thirty times. The loop is the easy part.
+                name: 'match_exons_across_tracks',
+                summary: 'EVERY EXON OF ONE TRACK, MATCHED TO ITS CLOSEST BLOCK ON ANOTHER, '
+                    + 'AND DRAWN. Each exon of the first track is searched against the whole '
+                    + 'of the second, on both strands, and the best hit for each is kept, '
+                    + 'reported with its identity, position, score and how much of the exon it '
+                    + 'covers, and drawn on BOTH tracks with a two-headed arrow joining each '
+                    + 'exon to the block it matches. This is the answer to "iterate over all '
+                    + 'exons in A and find the closest sequence block that matches it on B", '
+                    + '"match the exons of A against B", "where does each exon of A land on '
+                    + 'B", "find the closest match for every exon". Use it, NOT '
+                    + 'search_region_in_track, when the request is about ALL the exons rather '
+                    + 'than one named one; and NOT compare_sequences, which aligns the two '
+                    + 'transcripts as wholes and so cannot say where an individual exon went.',
+                needs: 'track',
+                params: {
+                    query_track: {
+                        type: 'string',
+                        about: 'the track whose EXONS are iterated over: the one named first, '
+                            + 'as in "all exons in spag9_mrna"'
+                    },
+                    target_track: {
+                        type: 'string',
+                        about: 'the track each exon is searched against: the one named second, '
+                            + 'as in "matches it on mapk8ip3_mrna"'
+                    },
+                    max_exons: {
+                        type: 'number', default: 60,
+                        about: 'how many exons to do, from the first. Raise it only if the '
+                            + 'request asks for more than 60'
+                    },
+                    strands: {
+                        type: 'enum', values: ['both', 'plus'], default: 'both',
+                        about: 'both strands unless the request says otherwise: two transcripts '
+                            + 'can carry the same element reversed'
+                    }
+                },
+                run: async (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : null;
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    if (!qt) { result('Which track\u2019s exons? Name it.'); return; }
+                    if (!tt) { result('Which track should each exon be searched against? Name it.'); return; }
+                    const out = await exec('baja/bio/match-exons.js', graph, qt, tt,
+                        { max_exons: a.max_exons || 60, strands: a.strands || 'both' });
+                    if (out && out.error) result(out.error);
+                    else if (out && out.count != null) {
+                        result(out.count + ' of ' + out.of + ' exons of ' + (qt.name || 'the first track')
+                            + ' matched a block on ' + (tt.name || 'the other track') + ', drawn and linked.');
+                    }
+                    return out;
+                },
+                preview: (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : null;
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    const q = qt ? (qt.name || 'a track') : 'a track';
+                    const t = tt ? (tt.name || 'the other track') : 'the other track';
+                    let n = null;
+                    try {
+                        const R = regionsNow(qt);
+                        if (R && R.exons) n = R.exons().length;
+                    } catch (e) { n = null; }
+                    // HOW MANY SEARCHES, BEFORE THE BUTTON. This is one backend search per
+                    // exon, so a thirty-exon transcript is thirty of them: worth knowing
+                    // before pressing GO rather than while waiting.
+                    return 'match ' + (n != null ? (n + ' exon' + (n === 1 ? '' : 's')) : 'every exon')
+                        + ' of ' + q + ' against ' + t + ', keep the closest block for each, and '
+                        + 'draw them joined'
+                        + (n != null ? (' \u00b7 ' + n + ' searches') : '');
+                },
+                argBlocker: (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : null;
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    if (!qt) {
+                        return 'say which track\u2019s exons to iterate over: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    if (!tt) {
+                        return 'say which track to search each exon against: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    if (qt === tt) return 'those are the same track';
+                    try {
+                        const R = regionsNow(qt);
+                        if (R && R.exons && !R.exons().length) {
+                            return (qt.name || 'that track') + ' has no annotated exons';
+                        }
+                    } catch (e) { }
+                    return '';
+                }
+            },
+
+            {
                 // SEARCHING IS NOT COMPARING, AND THE REFUSAL WAS RIGHT ABOUT THAT. "compare
                 // exon 16 of one transcript with any other part of another and rank the
                 // results" was turned down because compare_sequences aligns two things and

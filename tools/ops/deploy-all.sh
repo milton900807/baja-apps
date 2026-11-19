@@ -967,6 +967,17 @@ if [[ $DO_API -eq 1 ]]; then
   # next redraw tick, so both the layer menu and the remove operation looked like they did
   # nothing. track.js remembers the delete; both removers have to tell it, so all three
   # files go together.
+  # Two heads on every match arrow, the browser comparison drawing what it found, and
+  # iterating over a track's exons as one operation. The renderer, the shared block finder
+  # and the callers go together: an old renderer draws one head, and an old planner has no
+  # rule pointing at the new operation.
+  install_group "Two-headed arrows, and every exon matched in one step" \
+    "baja/bio/track-layer.js:A HEAD AT BOTH ENDS" \
+    "baja/bio/align-blocks.js:THE BLOCKS AN ALIGNMENT IS MADE OF" \
+    "baja/bio/match-exons.js:EVERY EXON OF ONE TRACK, MATCHED TO ITS CLOSEST BLOCK" \
+    "baja/manchester/menu/compare-track-sequences.js:WHERE A UNIT OF THE COMPARED SEQUENCE SITS ON THE TRACK" \
+    "baja/manchester/menu/editor-capabilities.js:ITERATING IS AN OPERATION, NOT A REASON TO REFUSE" \
+    "py/bio/editor/plan.py:EVERY ONE OF THEM IS ONE STEP, NOT A REFUSAL"
   install_group "A layer deleted on a child track stays deleted" \
     "baja/bio/track.js:A LAYER DELETED ON A CHILD TRACK STAYS DELETED" \
     "baja/bio/remove-layers.js:A CHILD TRACK MIRRORS ITS PARENT" \
