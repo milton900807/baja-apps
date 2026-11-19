@@ -955,6 +955,14 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:COMPARING IS NOT SELECTING"
   # Arrows between the matched blocks on two tracks: the renderer's third pass, the one
   # description of a matched region that hangs them, and the two tools that ask for them.
+  # Comparing two proteins now draws where they are alike as well as reporting how much:
+  # the aligner returns the blocks, the client puts them on the codons that encode them,
+  # and match-layer draws and links them. The backend and the client go together -- an old
+  # backend returns no blocks and the client draws nothing, silently.
+  install_group "Ask: compare the proteins, and draw where they are alike" \
+    "py/bio/protein/align-proteins.py:THE BLOCKS THE ALIGNMENT IS MADE OF" \
+    "baja/bio/protein/compare-proteins.js:THE ANSWER IS ALSO DRAWN" \
+    "baja/bio/match-layer.js:LINK TWO DRAWN SETS TOGETHER, block n to block n"
   install_group "Matched blocks are linked by arrows" \
     "baja/bio/track-layer.js:THIRD PASS: ARROWS TO THE MATCHING BLOCK ON ANOTHER TRACK" \
     "baja/bio/match-layer.js:LINK TWO DRAWN SETS TOGETHER, block n to block n" \

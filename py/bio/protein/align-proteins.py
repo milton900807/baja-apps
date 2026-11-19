@@ -31,6 +31,20 @@ MATRIX_NAME = "BLOSUM62"
 OPEN_GAP = -11.0
 EXTEND_GAP = -1.0
 
+# THE BLOCKS THE ALIGNMENT IS MADE OF, so the comparison can be DRAWN and not only
+# reported. One identity for a whole pair says how alike they are; it cannot say WHERE,
+# and where is what a track is for. These are the stretches the alignment holds together:
+# the columns walked once, broken wherever a gap runs longer than a few residues.
+#
+# A short gap does not end a block. Splitting at every single gap shatters one conserved
+# domain into twenty fragments, each too small to mean anything and each drawing its own
+# bar and its own arrow, which is worse than drawing nothing. A run of more than
+# MAX_INNER_GAP is a real discontinuity and does end it.
+MIN_BLOCK = 8            # residues; shorter than this is noise in any protein pair
+MAX_INNER_GAP = 5        # a gap run up to this long is carried inside a block
+MIN_BLOCK_IDENTITY = 0.35
+MAX_BLOCKS = 12
+
 
 def _clean(s):
     return "".join(c for c in str(s or "").upper() if c.isalpha())
@@ -61,7 +75,91 @@ def _columns(alignment):
     return "", ""
 
 
-def _pair(a, b, al, matrix):
+def _segments(alignment, la, lb):
+    """The ungapped segments of one alignment, as ((a0,a1),(b0,b1)) half-open pairs.
+
+    Taken from Biopython's own `aligned`, which gives them in SEQUENCE coordinates.
+    Walking the formatted strings instead loses where a LOCAL alignment started: the
+    columns begin partway into each protein, and counting from zero puts every block
+    that many residues to the left -- on a track, squarely on the wrong codons.
+    """
+    try:
+        pairs = []
+        blocks_a, blocks_b = alignment.aligned
+        for (a0, a1), (b0, b1) in zip(blocks_a, blocks_b):
+            a0, a1, b0, b1 = int(a0), int(a1), int(b0), int(b1)
+            if a1 <= a0 or b1 <= b0:
+                continue
+            if a1 > la or b1 > lb:
+                continue
+            pairs.append(((a0, a1), (b0, b1)))
+        return pairs
+    except Exception:
+        return []
+
+
+def _blocks(alignment, sa, sb, matrix, opts):
+    """Where two proteins are alike, on each one's own residues (0-based, inclusive).
+
+    A short gap does not end a block. Splitting at every single gap shatters one
+    conserved domain into twenty fragments, each too small to mean anything and each
+    drawing its own bar and its own arrow, which is worse than drawing nothing. A run
+    longer than MAX_INNER_GAP on either side is a real discontinuity and does end it.
+    """
+    min_len = int(opts.get("min_block") or MIN_BLOCK)
+    max_gap = int(opts.get("max_inner_gap") or MAX_INNER_GAP)
+    min_id = float(opts.get("min_block_identity") or MIN_BLOCK_IDENTITY)
+    cap = int(opts.get("max_blocks") or MAX_BLOCKS)
+
+    segs = _segments(alignment, len(sa), len(sb))
+    if not segs:
+        return []
+
+    merged = []
+    for (a0, a1), (b0, b1) in segs:
+        if merged:
+            (pa0, pa1), (pb0, pb1) = merged[-1]
+            if (a0 - pa1) <= max_gap and (b0 - pb1) <= max_gap:
+                merged[-1] = ((pa0, a1), (pb0, b1))
+                continue
+        merged.append(((a0, a1), (b0, b1)))
+
+    out = []
+    for (a0, a1), (b0, b1) in merged:
+        n = min(a1 - a0, b1 - b0)
+        if n < min_len:
+            continue
+        ident = simil = 0
+        for k in range(n):
+            x, y = sa[a0 + k], sb[b0 + k]
+            if x == y:
+                ident += 1
+                simil += 1
+            else:
+                try:
+                    if matrix[x, y] > 0:
+                        simil += 1
+                except Exception:
+                    pass
+        if not n or (ident / n) < min_id:
+            continue
+        out.append({
+            "a0": a0, "a1": a1 - 1, "b0": b0, "b1": b1 - 1,
+            "columns": n, "identical": ident, "similar": simil,
+            "identity": ident / n, "similarity": simil / n,
+        })
+
+    # Best first by how much conserved sequence each block actually accounts for, capped,
+    # then put back in order along A so the numbering reads left to right on the track.
+    out.sort(key=lambda d: -d["identical"])
+    out = out[:cap]
+    out.sort(key=lambda d: d["a0"])
+    for i, d in enumerate(out):
+        d["n"] = i + 1
+    return out
+
+
+def _pair(a, b, al, matrix, opts):
     """One pair, as blastp would report it."""
     if not a["seq"] or not b["seq"]:
         return {"a": a["name"], "b": b["name"], "error": "one of them has no protein"}
@@ -105,6 +203,9 @@ def _pair(a, b, al, matrix):
         "coverage_b": (used / lb) if lb else 0.0,
         "len_a": la, "len_b": lb,
         "alignment": {"a": top[:4000], "b": bot[:4000], "truncated": len(top) > 4000},
+        # Where the two are alike, not just how much: residue ranges on each protein,
+        # 0-based and inclusive, for the caller to put on the tracks.
+        "blocks": _blocks(best, a["seq"], b["seq"], matrix, opts),
     }
 
 
@@ -132,7 +233,7 @@ try:
         pairs = []
         for i in range(len(seqs)):
             for j in range(i + 1, len(seqs)):
-                pairs.append(_pair(seqs[i], seqs[j], al, matrix))
+                pairs.append(_pair(seqs[i], seqs[j], al, matrix, opts))
         works.resolve({
             "status": "OK",
             "engine": "biopython PairwiseAligner, %s, gap %d/%d, %s"
