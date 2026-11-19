@@ -61,7 +61,56 @@ function (graph, query, target, opts) {
 
             const hits = res.hits || [];
             const pct = (x) => (Math.round((+x || 0) * 1000) / 10).toFixed(1) + '%';
+
+            // ---- DRAWN, NOT JUST LISTED ----------------------------------------------------
+            //
+            // "does exon 16 match sequence space on spag9" is a question with a yes or no in
+            // it, and the yes is only worth having if the places it refers to can be seen.
+            // The hits go on the track that was searched, and the region that was searched
+            // WITH goes on its own track in the same colours: without that, the answer names
+            // a source the user has to find for themselves.
+            const ML = await exec('baja/bio/match-layer.js');
+            const DATA_TYPE = 'SEQHIT';
+            if (hits.length) {
+                ML.draw(target, hits.map((h, i) => ({
+                    n: i + 1, x1: h.start, x2: h.end,
+                    inverted: (h.strand === '-'), identity: h.identity
+                })), { suffix: '_matches', dataType: DATA_TYPE });
+                // The query region, marked as block 0 so its colour is its own and cannot be
+                // mistaken for one of the hits.
+                ML.draw(qt, [{
+                    n: 0, x1: Math.min(query.start, query.end), x2: Math.max(query.start, query.end),
+                    label: (query.label || 'query') + ' \u2192 ' + hits.length
+                        + ' hit' + (hits.length === 1 ? '' : 's'),
+                    color: 'hsla(0, 0%, 45%, 0.35)'
+                }], { suffix: '_searched', dataType: DATA_TYPE });
+            } else {
+                ML.clear(target, DATA_TYPE);
+                ML.clear(qt, DATA_TYPE);
+            }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+
             const rows = [];
+            // THE ANSWER FIRST. The request is usually a question -- does this match anything
+            // over there -- and a list of coordinates is not an answer to it until someone
+            // has read all of them and decided. The verdict says what the numbers add up to;
+            // the rows below it are the evidence.
+            const best = hits[0];
+            rows.push(['answer', !hits.length
+                ? ('No. Nothing in ' + (target.name || 'that track') + ' matches '
+                    + (query.label || 'that region') + ' above the noise floor.')
+                : ('Yes. ' + hits.length + ' region' + (hits.length === 1 ? '' : 's') + ' of '
+                    + (target.name || 'that track') + ' match ' + (query.label || 'that region')
+                    + ', the best ' + pct(best.identity) + ' identical over '
+                    + (best.length || 0).toLocaleString() + ' bases at '
+                    + best.start.toLocaleString() + '\u2013' + best.end.toLocaleString()
+                    + (best.strand === '-' ? ' on the opposite strand' : '')
+                    + ', covering ' + pct(best.query_coverage) + ' of it.'
+                    + (hits.length > 1 ? (' They are drawn on ' + (target.name || 'the track')
+                        + ', numbered, with the region searched with marked on '
+                        + (qt.name || 'its own track') + '.')
+                        : ' It is drawn on the track, with the region searched with marked on '
+                        + (qt.name || 'its own track') + '.'))]);
             if (!hits.length) {
                 rows.push(['no hits', 'Nothing in ' + (target.name || 'that track') + ' matches '
                     + (query.label || 'that region') + ' above the noise floor (score '

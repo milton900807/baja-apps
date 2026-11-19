@@ -26,7 +26,12 @@ const load = async (p, ...a) => {
     if (('' + p).indexOf('search-region-in-track.py') >= 0) { pyCalls.push(a); return pyReply; }
     if (('' + p).indexOf('decor-help') >= 0) { helpShown = a[0] && a[0].decor && a[0].decor.help; return true; }
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
-    const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(path, 'utf8') + ')')(load, {});
+    const src = fs.readFileSync(path, 'utf8');
+    // track-layer.js is a STATEMENT body that returns its own value, not an expression;
+    // the engine handles both and so must anything that loads the real one.
+    let f;
+    try { f = await new AF('exec', 'args', core + '\nreturn (' + src + ')')(load, {}); }
+    catch (e) { return await new AF('exec', 'args', core + '\n' + src)(load, {}); }
     return f(...a);
 };
 global.lion_engine = { exec: (p, ...a) => load(p, ...a) };
@@ -35,8 +40,9 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
 
 const mkTrack = (name, seq) => ({
-    name: name, xi: 1000, xf: 1000 + seq.length, __seq: seq,
+    name: name, xi: 1000, xf: 1000 + seq.length, __seq: seq, sequence: seq, track_layers: [],
     grid: { yi: 1, xi: 0, width: 10, height: -1 }, getSelectedRanges: () => [],
+    addLayer(l) { this.track_layers.push(l); },
     getSequenceRange(a, b) { return this.__seq.slice(Math.max(0, a - this.xi), Math.max(0, b - this.xi)); }
 });
 
@@ -134,6 +140,28 @@ print(json.dumps(r))
     ok(pyCalls[0][2].strands === 'both', 'both strands by default');
 
     const text = (helpShown.rows || []).map((x) => x.join(' ')).join(' | ');
+
+    // THE ANSWER FIRST. The request is usually a question, and a list of coordinates is not
+    // an answer to it until someone has read all of them and decided.
+    ok(/^answer Yes\./.test((helpShown.rows[0] || []).join(' ')),
+       'it answers the question before listing the evidence: '
+       + (helpShown.rows[0] || []).join(' ').slice(0, 90));
+    ok(/100\.0% identical over 170 bases at 1,600/.test(text),
+       'with the numbers in the answer, not only in the rows below it');
+
+    // DRAWN. A yes is only worth having if the places it refers to can be seen.
+    const onTarget = B.track_layers.filter((l) => l.data_type === 'SEQHIT')[0];
+    const onQuery = A.track_layers.filter((l) => l.data_type === 'SEQHIT')[0];
+    ok(!!onTarget && onTarget.intervals.length === 2,
+       'the hits are drawn on the track that was searched');
+    ok(onTarget.intervals[0].x1 === 1600 && onTarget.intervals[0].x2 === 1770,
+       'where they actually are: ' + (onTarget ? onTarget.intervals[0].x1 : '?'));
+    ok(!!onQuery && onQuery.intervals.length === 1 && onQuery.intervals[0].x1 === 1100,
+       'and the region that was searched WITH is marked on its own track, or the answer '
+       + 'names a source the user has to go and find');
+    ok(/\u21c4/.test(onTarget.intervals[1].t),
+       'an inverted hit is marked on the bar: ' + onTarget.intervals[1].t);
+
     ok(/#1/.test(text) && /#2/.test(text), 'both hits are listed, ranked');
     ok(/1,600/.test(text), 'with where each one is: ' + text.slice(0, 60));
     ok(/opposite strand/.test(text), 'and a minus-strand hit says so');
@@ -149,6 +177,12 @@ print(json.dumps(r))
     const t2 = (helpShown.rows || []).map((x) => x.join(' ')).join(' ');
     ok(/above the noise floor/.test(t2),
        'no hits says why nothing was reported rather than showing an empty list: ' + t2.slice(0, 80));
+    ok(/^answer No\./.test((helpShown.rows[0] || []).join(' ')),
+       'and answers the question with a No rather than leaving it to be inferred: '
+       + (helpShown.rows[0] || []).join(' ').slice(0, 60));
+    ok(!B.track_layers.filter((l) => l.data_type === 'SEQHIT').length,
+       'with nothing drawn, and any earlier map of this search cleared off: an old layer '
+       + 'left behind would be read as the answer to the new question');
 
     // ---- what it refuses -------------------------------------------------------------------
     r = await load('baja/bio/search-region.js', graph, { track: A, start: 1100, end: 1270 }, A, {});

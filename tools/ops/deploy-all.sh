@@ -925,7 +925,8 @@ if [[ $DO_API -eq 1 ]]; then
   # the search. A client half without the python half asks for a script that is not there.
   install_group "Ask: search one region against a whole track" \
     "baja/manchester/menu/editor-capabilities.js:SEARCHING IS NOT COMPARING, AND THE REFUSAL WAS RIGHT" \
-    "baja/bio/search-region.js:ONE REGION, SEARCHED AGAINST A WHOLE TRACK, HITS RANKED" \
+    "baja/bio/search-region.js:DRAWN, NOT JUST LISTED" \
+    "baja/bio/match-layer.js:ONE WAY TO DRAW A SET OF MATCHING REGIONS ON A TRACK" \
     "py/bio/search-region-in-track.py:TWO DIFFERENT MASKS, and neither is a base" \
     "py/bio/editor/plan.py:FINDING IS NOT COMPARING"
   # The similarity map: layers on both tracks. The capability, the client module and the
@@ -941,6 +942,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask: draw a map of the similar regions between two tracks" \
     "baja/manchester/menu/editor-capabilities.js:A MAP IS DRAWN, NOT REPORTED" \
     "baja/bio/similarity-map.js:A MAP OF WHERE TWO TRACKS ARE THE SAME, DRAWN ON BOTH OF THEM" \
+    "baja/bio/match-layer.js:ONE WAY TO DRAW A SET OF MATCHING REGIONS ON A TRACK" \
     "py/bio/search-region-in-track.py:FOR A MAP, GAPS HAVE TO BE EXPENSIVE"
   install_group "Ask: compare the proteins between the mRNA tracks" \
     "baja/manchester/menu/editor-capabilities.js:THE mRNA TRACKS, WITHOUT BEING NAMED ONE BY ONE" \

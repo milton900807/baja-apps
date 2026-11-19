@@ -110,9 +110,11 @@ Rules, in order of importance:
 7. FINDING IS NOT COMPARING. compare_sequences aligns two things and says how similar
    they are. search_region_in_track takes ONE region and finds where it turns up in
    another track, ranked. "compare exon 16 of A with any other part of B and rank the
-   results", "where else does this appear", "find this in that track" are all the second
-   one: the giveaway is "any other part", "where", "find", "rank", or anything asking
-   for places rather than for a single number.
+   results", "where else does this appear", "find this in that track", "DOES exon 16 of
+   A match sequence space on B" are all the second one: the giveaway is "any other
+   part", "where", "find", "rank", "does X match", or anything asking for places, or
+   for a yes or no about them, rather than for a single number. It answers the question
+   and draws what it found.
 
 8. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the

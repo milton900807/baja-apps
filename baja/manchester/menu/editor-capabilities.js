@@ -668,16 +668,20 @@ function (graph, genegraph_panel_layout) {
                 // and how good each place is. Different question, so a different operation
                 // rather than a looser version of that one.
                 name: 'search_region_in_track',
-                summary: 'TAKE ONE REGION AND FIND WHERE ELSE IT TURNS UP, ranked best first: '
-                    + 'a named region of one track is searched against the whole of another '
-                    + 'track, and every place it matches is reported with its score, its '
-                    + 'identity, where it sits and how much of the region it accounts for. '
-                    + 'This is the answer to "compare exon 16 of A with any other part of B '
-                    + 'and rank the results", "where else does this exon appear", "find this '
-                    + 'region in that track", "search this sequence against that one", "is '
-                    + 'there anything like this elsewhere". Use it, NOT compare_sequences, '
-                    + 'whenever the request is about finding or ranking places rather than '
-                    + 'about how similar two things are. Both strands are searched.',
+                summary: 'TAKE ONE REGION AND FIND WHERE ELSE IT TURNS UP, ranked best first '
+                    + 'AND DRAWN: a named region of one track is searched against the whole of '
+                    + 'another track; every place it matches is reported with its score, its '
+                    + 'identity, where it sits and how much of the region it accounts for, and '
+                    + 'the matches are drawn on the track that was searched with the region '
+                    + 'itself marked on its own track. It also ANSWERS a yes-or-no question '
+                    + 'outright before listing the evidence. This is the answer to "compare '
+                    + 'exon 16 of A with any other part of B and rank the results", "does exon '
+                    + '16 of A match sequence space on B", "where else does this exon appear", '
+                    + '"find this region in that track", "search this sequence against that '
+                    + 'one", "is there anything like this elsewhere". Use it, NOT '
+                    + 'compare_sequences, whenever the request is about finding, ranking or '
+                    + 'asking WHETHER something matches, rather than about how similar two '
+                    + 'whole things are. Both strands are searched.',
                 needs: 'track',
                 params: {
                     region: {
