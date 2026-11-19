@@ -899,6 +899,19 @@ if [[ $DO_API -eq 1 ]]; then
   # compare-track-sequences.js has never been listed here before.
   # Put tracks together, and the mRNA-track group selector. The capability and the layout
   # module go together: the capability resolves which tracks, the module is what moves them.
+  # The fly, across every backend table that names a species. All or none, deliberately:
+  # a species known to the gene lookup and not to the off-target screen resolves for one
+  # and vanishes for the other, which looks like a broken screen rather than a missing
+  # name. Five of these files have never been listed here before.
+  install_group "Drosophila is a species the backend knows" \
+    "py/bio/karyotype.py:Drosophila melanogaster, UCSC dm6" \
+    "py/bio/gene-locus.py:Drosophila melanogaster, UCSC dm6" \
+    "py/bio/build-karyotype.py:Drosophila melanogaster. Its chromosomes are named" \
+    "py/sequence/prompt-to-transcript.py:Drosophila keeps FlyBase ids rather than ENS" \
+    "py/sequence/offtarget/uniqueness-gradient.py:\"fly\": [\"fly_cdna\"]" \
+    "py/sequence/extract-entities.py:Ensembl serves the fly under this name today" \
+    "py/sequence/extract-entities-file.py:Ensembl serves the fly under this name today" \
+    "py/bio/genome-sequence.py:Listed so a fly request is answered with what is missing"
   install_group "Ask: put tracks together, lined up" \
     "baja/bio/put-tracks-together.js:WHICH WAY IS DOWN" \
     "baja/manchester/menu/editor-capabilities.js:MOVING TRACKS IS NOT MERGING THEM"

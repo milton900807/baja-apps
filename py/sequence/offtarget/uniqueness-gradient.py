@@ -85,6 +85,8 @@ SPECIES_INDEX = {
     "rhesus": ["monkey_rhesus_cdna"],
     "rhesus macaque": ["monkey_rhesus_cdna"],
     "yeast": ["yeast_cdna"],
+    "fly": ["fly_cdna"],
+    "drosophila": ["fly_cdna"],
 }
 
 _LUT = np.full(256, 255, dtype=np.uint8)

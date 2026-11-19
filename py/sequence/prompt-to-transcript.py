@@ -53,12 +53,19 @@ YEAST_TRANSCRIPT_RE = re.compile(
     r"|Y[A-P][LR]\d{3}[WC](?:-[A-Z])?|Q\d{4})$")
 
 
+# Drosophila keeps FlyBase ids rather than ENS* ones: FBtr0070000 for a transcript,
+# FBgn for its gene. Ensembl serves the fly under these, so a fly transcript that is not
+# recognised here is a fly transcript that silently never resolves.
+FLYBASE_TRANSCRIPT_RE = re.compile(r"^FBtr\d{7,}$", re.I)
+
+
 class _TranscriptRe(object):
-    """Either shape. Yeast ids are case-sensitive keys (tP(UGG)A_tRNA), so the match is on
-    the id as given."""
+    """Any of the shapes. Yeast ids are case-sensitive keys (tP(UGG)A_tRNA), so the match
+    is on the id as given."""
     def match(self, tid):
         t = str(tid or "")
-        return ENSEMBL_TRANSCRIPT_RE.match(t) or YEAST_TRANSCRIPT_RE.match(t)
+        return (ENSEMBL_TRANSCRIPT_RE.match(t) or YEAST_TRANSCRIPT_RE.match(t)
+                or FLYBASE_TRANSCRIPT_RE.match(t))
 
 
 TRANSCRIPT_RE = _TranscriptRe()
@@ -76,6 +83,7 @@ SPECIES_INDEX = {
     "yeast": ["yeast_cdna", "yeast_ncrna"],
     "cynomolgus monkey": ["monkey_cyno_cdna"],
     "rhesus macaque": ["monkey_rhesus_cdna"],
+    "fly": ["fly_cdna", "fly_ncrna"],
 }
 
 SPECIES_ALIASES = {
@@ -97,6 +105,10 @@ SPECIES_ALIASES = {
     "cerevisiae": "yeast", "saccharomyces": "yeast", "budding yeast": "yeast",
     "baker's yeast": "yeast", "bakers yeast": "yeast", "brewer's yeast": "yeast",
     "sce": "yeast", "sgd": "yeast", "saccer3": "yeast", "r64": "yeast", "s288c": "yeast",
+    "drosophila": "fly", "drosophila melanogaster": "fly", "d. melanogaster": "fly",
+    "d melanogaster": "fly", "melanogaster": "fly", "dmel": "fly", "dme": "fly",
+    "fruit fly": "fly", "fruitfly": "fly", "vinegar fly": "fly", "flies": "fly",
+    "dm6": "fly", "bdgp6": "fly", "flybase": "fly", "fb": "fly",
 }
 
 # ---------------------------------------------------------------------------

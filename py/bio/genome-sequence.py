@@ -37,6 +37,9 @@ GENOME = {
     "human": "data/genome/GRCh38.primary_assembly.genome.fa",
     "mouse": "data/genome/Mus_musculus.GRCm39.dna.primary_assembly.fa",
     "yeast": "data/genome/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa",
+    # Listed so a fly request is answered with what is missing rather than with "no genome
+    # on this server for fly", which reads as the species not being known at all.
+    "fly": "data/genome/Drosophila_melanogaster.BDGP6.46.dna.toplevel.fa",
 }
 
 # A window wider than this is not legible anyway -- the caller only asks when a base is
@@ -112,7 +115,10 @@ species = (str(works.param(4) or "human").strip().lower() or "human")
 if not chrom or end < start or start < 1:
     out["error"] = "a chromosome and a 1-based start<=end are required"
 elif species not in GENOME:
-    out["error"] = ('no genome on this server for "%s" -- human, mouse and yeast are held' % species)
+    # Named from the table, so adding a genome above cannot leave this sentence listing
+    # the old set.
+    out["error"] = ('no genome on this server for "%s" -- %s %s held'
+                    % (species, ", ".join(sorted(GENOME)), "is" if len(GENOME) == 1 else "are"))
 else:
     path = first_existing(GENOME[species])
     if not path:

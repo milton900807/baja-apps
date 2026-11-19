@@ -36,6 +36,11 @@ SYNONYMS = {
     "yeast": ["yeast", "saccharomyces cerevisiae", "s cerevisiae", "scerevisiae", "cerevisiae",
               "saccharomyces", "sc", "sgd", "saccer3", "saccer", "r64", "s288c", "budding yeast",
               "baker s yeast", "bakers yeast", "brewer s yeast"],
+    # Drosophila melanogaster, UCSC dm6 / Ensembl BDGP6. "fly" on its own is the name
+    # people type; the rest are what they type when they are being precise, or pasting.
+    "fly": ["fly", "flies", "drosophila", "drosophila melanogaster", "d melanogaster",
+            "dmelanogaster", "dmel", "melanogaster", "fruit fly", "fruitfly", "fruit flies",
+            "vinegar fly", "dm6", "bdgp6", "flybase", "fb"],
 }
 
 text = str(works.param(1) or "").strip()
@@ -66,8 +71,10 @@ if not text:
 else:
     species = resolve(text)
     if not species:
-        out["error"] = ('"%s" is not a species this holds chromosomes for. '
-                        "Try human, mouse, rat, dog or yeast." % text)
+        # Listed from the table rather than written out, so adding a species above cannot
+        # leave this sentence quietly naming the old set.
+        out["error"] = ('"%s" is not a species this holds chromosomes for. Try %s.'
+                        % (text, ", ".join(sorted(SYNONYMS))))
     else:
         path = first_existing(os.path.join(DIR, "%s.json" % species))
         if not os.path.exists(path):

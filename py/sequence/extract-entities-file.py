@@ -43,6 +43,9 @@ ENSEMBL_SPECIES = {
     "mouse": "mus_musculus",
     "rat": "rattus_norvegicus",
     "dog": "canis_lupus_familiaris",
+    # Ensembl serves the fly under this name today, so this one needs nothing built.
+    "fly": "drosophila_melanogaster",
+    "drosophila": "drosophila_melanogaster",
 }
 ENSEMBL_REST = "https://rest.ensembl.org"
 

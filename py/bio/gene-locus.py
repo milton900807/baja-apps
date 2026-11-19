@@ -43,6 +43,9 @@ GFF = {
     "rat": "reference_data/rat.annotation.gff3.bgz",
     "dog": "reference_data/dog.annotation.gff3.bgz",
     "yeast": "reference_data/yeast.annotation.gff3.bgz",
+    # Not on the server until someone puts it there, and that is said plainly below rather
+    # than the species being treated as unknown, which reads as "flies are not supported".
+    "fly": "reference_data/fly.annotation.gff3.bgz",
 }
 
 # THE SAME NAMES py/bio/karyotype.py ACCEPTS.
@@ -59,6 +62,11 @@ SYNONYMS = {
     "yeast": ["yeast", "saccharomyces cerevisiae", "s cerevisiae", "scerevisiae", "cerevisiae",
               "saccharomyces", "sc", "sgd", "saccer3", "saccer", "r64", "s288c", "budding yeast",
               "baker s yeast", "bakers yeast", "brewer s yeast"],
+    # Drosophila melanogaster, UCSC dm6 / Ensembl BDGP6. "fly" on its own is the name
+    # people type; the rest are what they type when they are being precise, or pasting.
+    "fly": ["fly", "flies", "drosophila", "drosophila melanogaster", "d melanogaster",
+            "dmelanogaster", "dmel", "melanogaster", "fruit fly", "fruitfly", "fruit flies",
+            "vinegar fly", "dm6", "bdgp6", "flybase", "fb"],
 }
 
 

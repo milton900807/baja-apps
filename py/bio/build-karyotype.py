@@ -49,10 +49,14 @@ SPECIES = [
     ("rat", "rn7"),
     ("dog", "canFam6"),
     ("yeast", "sacCer3"),
+    # Drosophila melanogaster. Its chromosomes are named 2L, 2R, 3L, 3R, 4, X, Y rather
+    # than 1..N, so PRIMARY below has to admit them or the build drops every one.
+    ("fly", "dm6"),
 ]
 
-# chr1..chrN, X, Y, M -- and the Roman numerals yeast is numbered in.
-PRIMARY = re.compile(r"^chr(\d+|X|Y|M|[IVX]+)$")
+# chr1..chrN, X, Y, M -- the Roman numerals yeast is numbered in, and the fly's arms,
+# whose chromosomes are 2L, 2R, 3L, 3R, 4, X, Y: a digit followed by an arm letter.
+PRIMARY = re.compile(r"^chr(\d+[LR]?|X|Y|M|[IVX]+)$")
 
 ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
 
