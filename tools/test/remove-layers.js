@@ -16,8 +16,11 @@ window.env = { apiUrl: 'https://gene.clinic' };
 const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
-let planReply = null, opened = [];
+let planReply = null, opened = [], failPath = null;
 const load = async (p, ...a) => {
+    // core.js declares its own `exec`, which shadows the parameter every module is handed,
+    // so a module is always reached through lion_engine.exec: a stub has to go here.
+    if (failPath && ('' + p).indexOf(failPath) >= 0) throw new Error('404 ' + p);
     if (('' + p).indexOf('/py/bio/editor/plan.py') >= 0) return planReply;
     if (/librar/i.test('' + p) || /institute-rna-design/.test('' + p)) { opened.push('' + p); return { ok: true }; }
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
@@ -84,7 +87,11 @@ const mkGraph = (t, answer) => {
         showMenu(items) {
             lastAsk = items.map((i) => '' + (i.label || '')).join(' ');
             if (!answer) return;
-            const want = answer === 'yes' ? /^(remove|delete|clear)$/i : /^cancel$/i;
+            // The chooser offers one row per layer plus "Remove all N of them"; the plain
+            // confirmation offers "Remove". Either way, yes takes the lot.
+            const want = answer === 'yes'
+                ? /^(remove all \d+ of them|remove|delete|clear)$/i
+                : /^(cancel|done)$/i;
             const row = items.find((i) => want.test('' + (i.label || '')));
             if (row && row.click) row.click();
         }
@@ -168,9 +175,11 @@ const mkGraph = (t, answer) => {
     r = await load('baja/bio/remove-layers.js', gB, [t], { match: 'rnaseq' });
     ok(r.pending === true && r.asked === 2 && r.guessed === 2,
        'the two unlabelled traces are found by their shape: ' + JSON.stringify({ a: r.asked, g: r.guessed }));
-    ok(/drawn as a filled trace with peaks/.test(lastAsk || ''),
-       'and the question says they were matched by how they are drawn, not by name: '
-       + (lastAsk || '').slice(0, 120));
+    ok(/is the RNA-seq to remove/.test(lastAsk || '') && /drawn as a filled trace/.test(lastAsk || ''),
+       'and each is offered on its own row, since what is drawn as a trace is not always '
+       + 'RNA-seq: ' + (lastAsk || '').slice(0, 150));
+    ok(/GRCh38_brain_rep1/.test(lastAsk || '') && /points/.test(lastAsk || ''),
+       'named, with how many points it has, which is the evidence for calling it a trace');
     const left = t.track_layers.map((l) => l.name);
     ok(left.indexOf('MAPK8IP3_secretion') >= 0,
        'a trace that SAYS what it is keeps its own kind and stays: ' + left.join(', '));
@@ -178,6 +187,54 @@ const mkGraph = (t, answer) => {
        'and a polygon that is a box rather than peaks stays: ' + left.join(', '));
     ok(left.indexOf('MAPK8IP3_motifs') >= 0, 'as do the motifs');
     ok(left.length === 3, 'so only the two traces went: ' + left.join(', '));
+
+    // Picking one leaves the rest: the whole reason each gets its own row.
+    t = mkBigwig();
+    lastAsk = null;
+    const gPick = {
+        track: [t], said: [], wake() { }, getTracks: () => [t],
+        setMessage(m) { this.said.push('' + m); },
+        showMenu(items) {
+            lastAsk = items.map((i) => '' + (i.label || '')).join(' | ');
+            const row = items.find((i) => /^Remove ENCFF002ABC/.test('' + (i.label || '')));
+            if (row && row.click) row.click();
+        }
+    };
+    lion_engine.setStashed('graph', gPick);
+    await load('baja/bio/remove-layers.js', gPick, [t], { match: 'rnaseq' });
+    const after = t.track_layers.map((l) => l.name);
+    ok(after.indexOf('ENCFF002ABC') < 0 && after.indexOf('GRCh38_brain_rep1') >= 0,
+       'taking one trace leaves the other, which is why each is its own row: ' + after.join(', '));
+
+    // ---- when nothing is labelled, show what IS drawn as a trace ----------------------------
+    // "there is nothing here" is plainly wrong when the peaks are on the screen. The last
+    // resort is every trace layer, whatever it calls itself, for the user to choose from.
+    const tAll = mkTrack();
+    tAll.track_layers = [
+        Object.assign(peaks('MAPK8IP3_secretion'), { data_type: 'SECRETION:POLY' }),
+        Object.assign(peaks('MAPK8IP3_rna_protein'), { data_type: 'rna-protein' }),
+        L('MAPK8IP3_motifs', 'SLIM')
+    ];
+    lastAsk = null;
+    const gAll = mkGraph(tAll, null);
+    const rAll = await load('baja/bio/remove-layers.js', gAll, [tAll], { match: 'rnaseq' });
+    ok(rAll.pending === true && rAll.asked === 2,
+       'both labelled traces are offered rather than reporting nothing: ' + JSON.stringify({ a: rAll.asked }));
+    ok(/SECRETION:POLY/.test(lastAsk || '') && /rna-protein/.test(lastAsk || ''),
+       'each with its own kind shown, so a wrong one is not picked by accident: '
+       + (lastAsk || '').slice(0, 160));
+    ok(/MAPK8IP3_motifs/.test(lastAsk || '') === false,
+       'and a layer that is not drawn as a trace is not offered at all');
+
+    // ---- a matcher that did not reach the server is SAID -------------------------------------
+    const tNo = mkTrack();
+    failPath = 'layer-match.js';
+    const rNo = await load('baja/bio/remove-layers.js',
+        { track: [tNo], wake() { }, setMessage() { } }, [tNo], { match: 'rnaseq' });
+    failPath = null;
+    ok(/layer-match\.js/.test(rNo.error || '') && /Nothing was removed/.test(rNo.error || ''),
+       'a missing matcher is named, not reported as "nothing matched", which is the very '
+       + 'symptom it exists to fix: ' + (rNo.error || ''));
 
     // ---- "the tracklayers" is the same request as "the layers" ------------------------------
     for (const word of ['tracklayers', 'track layers', 'the layers', 'layers']) {
@@ -203,7 +260,7 @@ const mkGraph = (t, answer) => {
     const pB = C3.preview({ capability: 'remove_layers', args: { match: 'rnaseq' } });
     ok(/GRCh38_brain_rep1 \(peaks\)/.test(pB.text),
        'the card marks a layer matched by its shape: ' + pB.text);
-    ok(/you will be asked first/.test(pB.text),
+    ok(/asked which of them to take/.test(pB.text),
        'and says the question is coming: ' + pB.text);
 
     p = C.preview({ capability: 'remove_layers', args: { match: 'methylation' } });

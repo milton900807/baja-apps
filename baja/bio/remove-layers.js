@@ -32,7 +32,17 @@ function (graph, tracks, opts) {
             const ts = (tracks || []).filter(Boolean);
             if (!ts.length) { resolve({ error: 'no track to take layers off' }); return; }
 
-            const LM = await exec('baja/bio/layer-match.js');
+            // SAID OUT LOUD WHEN IT CANNOT BE LOADED. Falling back to "nothing matched" here
+            // produces exactly the symptom this code exists to fix -- peaks on the screen and
+            // a card saying there is nothing there -- and hides the real cause, which is a
+            // file that did not reach the server.
+            let LM = null;
+            try { LM = await exec('baja/bio/layer-match.js'); } catch (e) { LM = null; }
+            if (!LM || typeof LM.match !== 'function') {
+                resolve({ error: 'The layer matcher (baja/bio/layer-match.js) could not be loaded, '
+                    + 'so which layers you mean cannot be worked out. Nothing was removed.' });
+                return;
+            }
 
             // What would go, per track, and why it was matched.
             const plan = [];
@@ -70,11 +80,15 @@ function (graph, tracks, opts) {
                 }
             }
 
-            const apply = () => {
+            // `only` limits it to one layer, for the chooser below; otherwise everything that
+            // was matched goes.
+            const apply = (only) => {
+                try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
                 const removed = [], kept = [];
                 for (const p of plan) {
                     const layers = Array.isArray(p.track.track_layers) ? p.track.track_layers.slice() : [];
-                    const go = p.hits.map((h) => h.layer).filter((l) => layers.indexOf(l) >= 0);
+                    const go = p.hits.map((h) => h.layer)
+                        .filter((l) => layers.indexOf(l) >= 0 && (!only || l === only));
                     const stay = layers.filter((l) => go.indexOf(l) < 0);
                     for (const l of go) {
                         removed.push({
@@ -109,15 +123,93 @@ function (graph, tracks, opts) {
             // Asked about when the match is a guess from the drawing, or when the request
             // sweeps the track bare. A layer named or kinded outright is what the user asked
             // for and goes without a second question.
-            const guessed = candidates.filter((c) => c.why === 'shape');
+            const guessed = candidates.filter((c) => c.why === 'shape' || c.why === 'polygon');
             const sweeping = candidates.some((c) => c.why === 'all');
             const ask = (o.confirm === true)
                 || (o.confirm !== false && (guessed.length > 0 || sweeping));
 
             if (!ask) { resolve(apply()); return; }
 
-            const what = candidates.map((c) => c.name + (c.why === 'shape' ? ' (peaks)' : '')).join(', ');
             const where = ts.map((t) => t.name || 'a track').join(' and ');
+
+            // ONE ROW PER LAYER, NOT ONE YES-OR-NO. What is drawn as a trace is not always
+            // RNA-seq: the same shape carries a secretion profile, a transfer plateau, a
+            // conservation curve. A single "remove these 4?" makes the user accept layers
+            // they did not mean in order to lose the one they did, so each is offered on its
+            // own, with its kind and how many points it has, and the menu comes back with
+            // whatever is left until the user is done.
+            const perLayer = guessed.length > 0 && typeof graph.showMenu === 'function';
+            if (perLayer) {
+                const gone = [];
+                const layerOf = (c) => {
+                    for (const p of plan) {
+                        for (const h of p.hits) {
+                            if (LM.nameOf(h.layer) === c.name && gone.indexOf(h.layer) < 0) return h.layer;
+                        }
+                    }
+                    return null;
+                };
+                const show = () => {
+                    const left = candidates.filter((c) => {
+                        const l = layerOf(c);
+                        return l && gone.indexOf(l) < 0;
+                    });
+                    if (!left.length) {
+                        try {
+                            graph.setMessage(gone.length
+                                ? ('Removed ' + gone.length + ' layer' + (gone.length === 1 ? '' : 's')
+                                    + ': ' + gone.map((l) => LM.nameOf(l)).join(', ') + '.')
+                                : 'Left them alone: nothing was removed.');
+                        } catch (e) { }
+                        return;
+                    }
+                    const items = [];
+                    items.push({ type: 'text', label: '\u26a0  Which of these on ' + where
+                        + ' is the RNA-seq to remove?', move: () => { }, click: () => { } });
+                    items.push({ type: 'text', label: '      Each is drawn as a filled trace. '
+                        + 'Pick one and the rest stay; undo puts any of them back.',
+                        move: () => { }, click: () => { } });
+                    items.push({ type: 'separator', label: '', move: () => { }, click: () => { } });
+                    for (const c of left) {
+                        const l = layerOf(c);
+                        const pts = LM.tracePoints(l).length;
+                        items.push({
+                            label: 'Remove ' + c.name + (c.kind ? (' [' + c.kind + ']') : '')
+                                + ' \u00b7 ' + pts + ' points',
+                            emphasis: 'danger',
+                            move: () => { },
+                            click: () => { apply(l); gone.push(l); show(); }
+                        });
+                    }
+                    if (left.length > 1) {
+                        items.push({ type: 'separator', label: '', move: () => { }, click: () => { } });
+                        items.push({
+                            label: 'Remove all ' + left.length + ' of them',
+                            emphasis: 'danger', move: () => { },
+                            click: () => { for (const c of left) { const l = layerOf(c); if (l) { apply(l); gone.push(l); } } show(); }
+                        });
+                    }
+                    items.push({ label: gone.length ? 'Done' : 'Cancel', move: () => { },
+                        click: () => {
+                            try {
+                                graph.setMessage(gone.length
+                                    ? ('Removed ' + gone.length + ' layer' + (gone.length === 1 ? '' : 's')
+                                        + ': ' + gone.map((l) => LM.nameOf(l)).join(', ') + '.')
+                                    : 'Left them alone: nothing was removed.');
+                            } catch (e) { }
+                        } });
+                    graph.showMenu(items, 0, 0, 620);
+                };
+                show();
+                resolve({ pending: true, asked: candidates.length, candidates: candidates,
+                    guessed: guessed.length, perLayer: true, removed: null });
+                return;
+            }
+
+            // No menu to draw on: one question for the lot, which is better than acting on a
+            // guess without asking at all.
+            const what = candidates.map((c) => c.name
+                + (c.why === 'shape' || c.why === 'polygon' ? ' (peaks)' : '')).join(', ');
             const msg = 'Remove ' + candidates.length + ' layer' + (candidates.length === 1 ? '' : 's')
                 + ' from ' + where + ': ' + what + '.'
                 + (guessed.length

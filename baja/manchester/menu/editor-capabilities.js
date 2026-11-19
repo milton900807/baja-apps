@@ -588,12 +588,16 @@ function (graph, genegraph_panel_layout) {
                     // rna seq layers" and takes four of them is a card that was not read.
                     let names = [];
                     let guessed = 0;
+                    // Said rather than shown as "nothing matches", which is the symptom this
+                    // matcher exists to remove and would hide its own absence.
+                    if (!LM) return 'cannot work out which layers you mean: '
+                        + 'baja/bio/layer-match.js did not load';
                     try {
                         if (t && Array.isArray(t.track_layers) && LM) {
                             const hits = LM.match(t.track_layers, m);
-                            guessed = hits.filter((h) => h.why === 'shape').length;
+                            guessed = hits.filter((h) => h.why === 'shape' || h.why === 'polygon').length;
                             names = hits.map((h) => LM.nameOf(h.layer)
-                                + (h.why === 'shape' ? ' (peaks)' : ''));
+                                + ((h.why === 'shape' || h.why === 'polygon') ? ' (peaks)' : ''));
                         }
                     } catch (e) { names = []; }
                     if (!names.length) return 'remove ' + (m ? ('the ' + m + ' layers') : 'the layers') + where
@@ -604,7 +608,8 @@ function (graph, genegraph_panel_layout) {
                         // how it is drawn is a guess, and the user should see that before
                         // pressing GO, not only after.
                         + (guessed ? ('. ' + guessed + ' matched by being drawn as a trace with '
-                            + 'peaks rather than by name, so you will be asked first') : '');
+                            + 'peaks rather than by name, so you will be asked which of them to '
+                            + 'take, one at a time') : '');
                 },
                 argBlocker: (a) => {
                     const t = a.track ? matchTrack(a.track) : oneTrack();

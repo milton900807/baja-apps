@@ -38,16 +38,26 @@ function () {
         // Words that say the request is about coverage data, whatever the layer calls itself.
         const COVERAGE_WORDS = /\b(rna.?seq|rnaseq|expression|coverage|reads|bigwig|peaks?|tracks? of reads)\b/;
 
-        const MIN_POINTS = 8;        // fewer than this is a shape, not a trace
+        const MIN_POINTS = 4;        // fewer than this is a shape, not a trace
         const MIN_LEVELS = 3;        // a flat or two-step outline is a box, not peaks
+
+        // A trace's points live in polygonpts (addPolygonPoint) or in pts (addPoint),
+        // depending on which loader built it. Looking in only one of them is how a layer
+        // with peaks plainly on the screen comes back as "nothing there matches".
+        const tracePoints = (l) => {
+            if (!l) return [];
+            if (Array.isArray(l.polygonpts) && l.polygonpts.length) return l.polygonpts;
+            if (Array.isArray(l.pts) && l.pts.length) return l.pts;
+            return [];
+        };
 
         // A FILLED TRACE WITH PEAKS. Counting points is not enough: a rectangle drawn as a
         // polygon has four, and a baseline drawn across a region has many, all at the same
         // height. What makes it coverage is that the height keeps changing.
         const looksLikeCoverage = (l) => {
             if (!l) return false;
-            const pts = l.polygonpts;
-            if (!Array.isArray(pts) || pts.length < MIN_POINTS) return false;
+            const pts = tracePoints(l);
+            if (pts.length < MIN_POINTS) return false;
             const levels = {};
             let n = 0;
             for (const p of pts) {
@@ -71,6 +81,13 @@ function () {
         // -> [{ layer, why }] where why is 'all' | 'kind' | 'name' | 'shape'. The order is the
         // order of certainty: a kind is what the layer says it is, a name is what the user
         // pointed at, a shape is a guess from how it is drawn.
+        // EVERY LAYER THAT IS DRAWN AS A TRACE, whatever it calls itself. This is the last
+        // thing tried, and only when the request asked for coverage and nothing else answered
+        // at all: at that point "there is nothing here" is plainly wrong -- the peaks are on
+        // the screen -- and the useful move is to show what IS drawn as a trace and let the
+        // user say which of them is the RNA-seq they meant.
+        const anyTrace = (layers) => (layers || []).filter((l) => l && looksLikeCoverage(l));
+
         const match = (layers, want) => {
             const list = (layers || []).filter(Boolean);
             const w = ('' + (want || '')).trim().toLowerCase();
@@ -101,16 +118,21 @@ function () {
                 if (!why && wantsCoverage && unlabelledOrCoverage(l) && looksLikeCoverage(l)) why = 'shape';
                 if (why) out.push({ layer: l, why: why });
             }
+            if (!out.length && wantsCoverage) {
+                return anyTrace(list).map((l) => ({ layer: l, why: 'polygon' }));
+            }
             return out;
         };
 
         const nameOf = (l) => '' + ((l && l.name) || '(unnamed)');
         const describe = (l) => {
             const k = '' + ((l && l.data_type) || '');
-            return nameOf(l) + (k ? (' [' + k + ']') : (looksLikeCoverage(l) ? ' [peaks]' : ''));
+            const n = tracePoints(l).length;
+            return nameOf(l) + (k ? (' [' + k + ']') : '')
+                + (looksLikeCoverage(l) ? (' [' + n + ' points, peaks]') : '');
         };
 
         return { match: match, looksLikeCoverage: looksLikeCoverage, nameOf: nameOf,
-                 describe: describe, KINDS: KINDS };
+                 describe: describe, anyTrace: anyTrace, tracePoints: tracePoints, KINDS: KINDS };
     })();
 }
