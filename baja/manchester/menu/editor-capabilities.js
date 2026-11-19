@@ -52,6 +52,23 @@ function (graph, genegraph_panel_layout) {
             const all = tracks();
             return (all.length === 1) ? all[0] : null;
         };
+        // THE TRACKS AN OPERATION ACROSS TRACKS ACTS ON. Named in the request, else the
+        // selected ones, else every open track when there are exactly two -- which is the
+        // case where "both tracks" can only mean one thing.
+        const comparands = (a) => {
+            const named = ('' + ((a && a.tracks) || '')).split(',').map((x) => x.trim()).filter(Boolean);
+            if (named.length) {
+                const out = [];
+                for (const n of named) { const t = matchTrack(n); if (t && out.indexOf(t) < 0) out.push(t); }
+                if (out.length >= 2) return out;
+            }
+            const sel = selTracks();
+            if (sel.length >= 2) return sel;
+            const all = tracks();
+            if (all.length === 2) return all.slice();
+            try { if (graph.selectedTracks && graph.selectedTracks.length >= 2) return graph.selectedTracks.slice(); } catch (e) { }
+            return all.length === 1 ? all.slice() : [];
+        };
         const oneSelTrack = () => {
             const s = selTracks();
             return (s.length === 1) ? s[0] : null;
@@ -474,6 +491,95 @@ function (graph, genegraph_panel_layout) {
                 needs: 'selection', params: {},
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
             },
+            {
+                // COMPARING IS NOT SELECTING. "compare the sequences between exon 16 on both
+                // tracks" was read as two selections, because selecting was the only thing in
+                // the catalogue that mentioned a region on a track. The comparison existed all
+                // along, on the Selection > Tracks > Compare menu, and could not be asked for.
+                name: 'compare_sequences',
+                summary: 'ALIGN THE SEQUENCES OF TWO OR MORE TRACKS AND REPORT THEIR IDENTITY: '
+                    + 'a local alignment per pair, the percent identical, how much of each '
+                    + 'sequence the alignment covers, and the alignment itself to read. This is '
+                    + 'the answer to "compare these tracks", "compare the sequences", "how '
+                    + 'similar are these two", "align these", "what is the identity between '
+                    + 'them", "what is different between them". It does NOT select anything: a '
+                    + 'request to COMPARE is this operation, not a pair of selections. Name a '
+                    + 'region (exon 16, the 3\u2019 UTR) to compare just that stretch of each '
+                    + 'track, which is what a request mentioning one means.',
+                needs: 'track',
+                // NOT marked `answers`: that flag routes the card into the variant-question
+                // path, which is a different thing entirely. This runs and opens its report.
+                params: {
+                    region: {
+                        type: 'enum',
+                        values: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'coordinates'],
+                        about: 'the stretch of each track to compare, when the request names '
+                            + 'one ("exon 16 on both tracks"). Omit to compare whole sequences'
+                    },
+                    index: { type: 'number', about: 'which exon or intron, counting from 1 along the transcript' },
+                    start: { type: 'number', about: 'with region=coordinates: the first base' },
+                    end: { type: 'number', about: 'with region=coordinates: the last base' },
+                    mode: {
+                        type: 'enum', values: ['protein', 'nucleotide', 'coding'], default: 'protein',
+                        about: 'protein compares the translated ORFs, which is the right default '
+                            + 'for two genes. nucleotide compares the coding sequence, or the '
+                            + 'track\u2019s own bases when it has no ORF. coding compares both '
+                            + 'over the same residues and counts silent against replacing '
+                            + 'changes. A named region is always compared as nucleotides'
+                    },
+                    tracks: {
+                        type: 'string',
+                        about: 'the tracks to compare, by name, comma separated. Omit for the '
+                            + 'selected tracks, or when exactly two are open'
+                    }
+                },
+                run: async (a) => {
+                    const ts = comparands(a);
+                    if (ts.length < 2) {
+                        result('Two tracks are needed to compare. Name them, or open two.');
+                        return;
+                    }
+                    // One region per track, resolved on each track's own coordinates: exon 16
+                    // of one transcript is not at the same place as exon 16 of another, and
+                    // comparing one track's exon against the other's whole sequence would
+                    // report a believable number for the wrong question.
+                    let ranges = [];
+                    const missing = [];
+                    if (a.region) {
+                        for (const t of ts) {
+                            const R = await regionsOf(t);
+                            const r = R ? R.resolve(a) : { error: 'no regions' };
+                            if (r.error) { missing.push((t.name || 'a track') + ': ' + r.error); ranges.push(null); }
+                            else ranges.push({ start: r.start, end: r.end, label: r.label });
+                        }
+                        if (missing.length) {
+                            result('Cannot compare that region: ' + missing.join('; '));
+                            return;
+                        }
+                    }
+                    return exec('baja/manchester/menu/compare-track-sequences.js', graph, ts,
+                        { mode: (a.mode || 'protein'), ranges: ranges });
+                },
+                preview: (a) => {
+                    const ts = comparands(a);
+                    const names = ts.map((t) => t.name || 'a track');
+                    const what = a.region
+                        ? (('' + a.region).replace(/_/g, ' ') + ((a.index != null) ? (' ' + a.index) : ''))
+                        : ({ protein: 'the translated ORFs', coding: 'the coding sequences' }[a.mode] || 'the sequences');
+                    return 'compare ' + what + ' of ' + (names.length ? names.join(' and ') : 'the tracks')
+                        + ' and report the identity between them';
+                },
+                argBlocker: (a) => {
+                    const ts = comparands(a);
+                    if (ts.length < 2) {
+                        return ts.length
+                            ? 'two tracks are needed to compare: only ' + (ts[0].name || 'one') + ' is here'
+                            : 'two tracks are needed to compare, and none could be identified';
+                    }
+                    return '';
+                }
+            },
+
             {
                 // PROTEIN MOTIFS ARE A LAYER THE EDITOR ALREADY DRAWS, and "load protein
                 // motifs" was answered with "nothing in the editor does that" because the

@@ -85,7 +85,10 @@ function (graph, tracks, opts) {
             } catch (e) { return ''; }
         };
         // Which alignments a run makes. 'aa' = peptides, 'nt' = nucleotides.
-        const KINDS = mode === 'coding' ? ['aa', 'nt'] : (mode === 'protein' ? ['aa'] : ['nt']);
+        // A range comparison is nucleotide by nature, whatever mode was asked for.
+        const KINDS = (Array.isArray(o.ranges) && o.ranges.some((r) => r && r.start != null))
+            ? ['nt']
+            : (mode === 'coding' ? ['aa', 'nt'] : (mode === 'protein' ? ['aa'] : ['nt']));
         // Coding mode: the peptide and the CDS come from ONE walk of cdsi, so residue k is codon k
         // and the codon alignment can be read straight off the peptide alignment.
         const codingPair = (t) => {
@@ -102,9 +105,45 @@ function (graph, tracks, opts) {
             }
             return aa.length ? { aa: aa.join(''), nt: nt.join('') } : null;
         };
+        // A STRETCH OF EACH TRACK RATHER THAN ALL OF IT.
+        //
+        // "compare the sequences between exon 16 on both tracks" is a question about exon 16,
+        // not about the genes: aligning the whole of both and reporting 99% identical answers
+        // a question nobody asked and hides the handful of bases that differ in the exon.
+        // o.ranges is one range per track, in the same order as `tracks`, and only nucleotide
+        // comparison honours it -- a region of DNA has no peptide of its own, and silently
+        // translating an arbitrary stretch would be inventing a reading frame.
+        const ranges = Array.isArray(o.ranges) ? o.ranges : [];
+        const rangeOfTrack = (i) => {
+            const r = ranges[i];
+            if (!r || r.start == null || r.end == null) return null;
+            const a = Math.min(+r.start, +r.end), b = Math.max(+r.start, +r.end);
+            return (isFinite(a) && isFinite(b) && b > a) ? { start: a, end: b, label: r.label || '' } : null;
+        };
+        const basesIn = (t, r) => {
+            try {
+                if (!t.getSequenceRange) return '';
+                return ('' + (t.getSequenceRange(r.start, r.end) || '')).toUpperCase().replace(/[^ACGTUN]/g, '');
+            } catch (e) { return ''; }
+        };
+
         const items = tks.map((t, i) => {
             const name = ('' + (t.name || ('track ' + (i + 1)))).trim();
             const it = { name, seqs: {}, what: [] };
+            const rg = rangeOfTrack(i);
+            if (rg) {
+                // The region wins outright: nothing below should quietly substitute the
+                // whole track for a request about one exon.
+                const b = basesIn(t, rg);
+                if (b) {
+                    it.seqs = { nt: b };
+                    it.what = b.length.toLocaleString() + ' nt'
+                        + (rg.label ? (', ' + rg.label) : ', the selected region');
+                } else {
+                    it.what = '';
+                }
+                return it;
+            }
             if (mode === 'coding') {
                 const cp = codingPair(t);
                 if (cp) { it.seqs = cp; it.what = cp.aa.length.toLocaleString() + ' aa · ' + cp.nt.length.toLocaleString() + ' nt coding sequence'; }

@@ -101,20 +101,26 @@ Rules, in order of importance:
    Use several steps only when the request genuinely has stages ("load clinvar, then
    select the ones in TP53").
 
-6. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
+6. COMPARING IS NOT SELECTING. "compare the sequences between exon 16 on both tracks",
+   "how similar are these", "what is different between them" ask for a COMPARISON and
+   are answered by compare_sequences, with the region named if the request names one.
+   Selecting that region on each track is not a compromise, it is a different request:
+   it leaves the user looking at two highlighted stretches and no answer.
+
+7. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the
    operation marked answers_a_question and nothing else. A request to CHANGE what is
    selected or present is an action. A request that asks for both ("find the pathogenic
    ones and select them") is the question: its answer offers the selection afterwards.
 
-7. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
+8. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
    work. Only choose one when the request plainly asks for deletion ("remove", "delete",
    "get rid of"). Anything short of that, choose the selecting operation instead.
 
-8. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
+9. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
    it; the editor checks and reports it. Choose the operation the request asked for.
 
-9. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
+10. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
    nothing tidy-looking that was not requested.
 
 Catalogue:

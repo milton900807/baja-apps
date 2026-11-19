@@ -892,6 +892,15 @@ if [[ $DO_API -eq 1 ]]; then
   # four or none: the renderer records the rectangle, addInterval hands the interval back,
   # the two layers carry it, and the hit test reads it. An old renderer with a new hit test
   # records nothing, and every bar falls to the fallback path.
+  # Comparing two tracks from the Ask box, over a named region if the request names one.
+  # All three or none: the capability passes `ranges`, compare-track-sequences is what
+  # honours them, and a new capability against the old module would compare whole tracks
+  # and report a believable number for the wrong question.
+  # compare-track-sequences.js has never been listed here before.
+  install_group "Ask: compare the sequences of two tracks" \
+    "baja/manchester/menu/editor-capabilities.js:COMPARING IS NOT SELECTING" \
+    "baja/manchester/menu/compare-track-sequences.js:A STRETCH OF EACH TRACK RATHER THAN ALL OF IT" \
+    "py/bio/editor/plan.py:COMPARING IS NOT SELECTING"
   install_group "Layer bars are hit where they were painted" \
     "baja/bio/track-layer.js:WHERE THIS BAR ACTUALLY LANDED" \
     "baja/manchester/menu/mouse-over-highlight.js:THE TEST IS AGAINST THE RECTANGLE THAT WAS PAINTED" \
