@@ -175,11 +175,13 @@ const mkGraph = (t, answer) => {
     r = await load('baja/bio/remove-layers.js', gB, [t], { match: 'rnaseq' });
     ok(r.pending === true && r.asked === 2 && r.guessed === 2,
        'the two unlabelled traces are found by their shape: ' + JSON.stringify({ a: r.asked, g: r.guessed }));
-    ok(/is the RNA-seq to remove/.test(lastAsk || '') && /drawn as a filled trace/.test(lastAsk || ''),
+    ok(/is the RNA-seq to remove/.test(lastAsk || '') && /drawn as a FILLED polygon/.test(lastAsk || ''),
        'and each is offered on its own row, since what is drawn as a trace is not always '
        + 'RNA-seq: ' + (lastAsk || '').slice(0, 150));
-    ok(/GRCh38_brain_rep1/.test(lastAsk || '') && /points/.test(lastAsk || ''),
-       'named, with how many points it has, which is the evidence for calling it a trace');
+    ok(/GRCh38_brain_rep1 \u00b7 filled/.test(lastAsk || '') && /points/.test(lastAsk || '')
+       && /name reads like a read file/.test(lastAsk || ''),
+       'each named with what about it points at read coverage, which is what the user can '
+       + 'actually judge: ' + (lastAsk || '').slice(150, 330));
     const left = t.track_layers.map((l) => l.name);
     ok(left.indexOf('MAPK8IP3_secretion') >= 0,
        'a trace that SAYS what it is keeps its own kind and stays: ' + left.join(', '));
@@ -226,6 +228,32 @@ const mkGraph = (t, answer) => {
     ok(/MAPK8IP3_motifs/.test(lastAsk || '') === false,
        'and a layer that is not drawn as a trace is not offered at all');
 
+    // ---- filled first, then the other properties --------------------------------------------
+    // The order Jeff asked for: a FILLED polygon is what the eye reads as a coverage track,
+    // and the rest of what is known about the layer is reported, not used as a gate.
+    const tF = mkTrack();
+    const stroked = peaks('MAPK8IP3_rna_protein_measured');
+    stroked.polygon_type = 'line';            // the measured arm is stroked, not filled
+    const filled = peaks('ENCFF999XYZ');
+    tF.track_layers = [stroked, filled, L('MAPK8IP3_motifs', 'SLIM')];
+    lastAsk = null;
+    const rF = await load('baja/bio/remove-layers.js', mkGraph(tF, null), [tF], { match: 'rnaseq' });
+    ok(rF.asked === 1 && rF.candidates[0].name === 'ENCFF999XYZ',
+       'a stroked trace is not a filled one and is not offered: '
+       + rF.candidates.map((c) => c.name).join(', '));
+    ok(/filled/.test(lastAsk || '') && /name reads like a read file/.test(lastAsk || ''),
+       'and what is offered says why: ' + (lastAsk || '').slice(120, 260));
+
+    // Likeliest first, so the row under the pointer is the one meant.
+    const tR = mkTrack();
+    const plain = peaks('layer_7');
+    const named = peaks('GRCh38_brain_rnaseq');
+    tR.track_layers = [plain, named];
+    const rR = await load('baja/bio/remove-layers.js', mkGraph(tR, null), [tR], { match: 'rnaseq' });
+    ok(rR.candidates[0].name === 'GRCh38_brain_rnaseq',
+       'the one whose other properties point at RNA-seq is offered first: '
+       + rR.candidates.map((c) => c.name).join(', '));
+
     // ---- a matcher that did not reach the server is SAID -------------------------------------
     const tNo = mkTrack();
     failPath = 'layer-match.js';
@@ -258,8 +286,8 @@ const mkGraph = (t, answer) => {
     const C3 = await load('baja/manchester/menu/editor-capabilities.js',
         { track: [tB], getTracks: () => [tB], setMessage() { }, setResultMessage() { } }, {});
     const pB = C3.preview({ capability: 'remove_layers', args: { match: 'rnaseq' } });
-    ok(/GRCh38_brain_rep1 \(peaks\)/.test(pB.text),
-       'the card marks a layer matched by its shape: ' + pB.text);
+    ok(/GRCh38_brain_rep1 \(filled, \d+ points, peaks\)/.test(pB.text),
+       'the card gives the strongest reasons before the button: ' + pB.text.slice(0, 120));
     ok(/asked which of them to take/.test(pB.text),
        'and says the question is coming: ' + pB.text);
 
@@ -271,7 +299,36 @@ const mkGraph = (t, answer) => {
     const C2 = await load('baja/manchester/menu/editor-capabilities.js',
         { track: [bare], getTracks: () => [bare], setMessage() { }, setResultMessage() { } }, {});
     p = C2.preview({ capability: 'remove_layers', args: { match: 'rna seq' } });
-    ok(/has no layers on it/.test(p.blocker || ''), 'a track with no layers is said before the button');
+    ok(/has no layers on it/.test(p.blocker || ''), 'a track with no layers is said before the button: '
+       + (p.blocker || ''));
+
+    // ---- no track named, several open ---------------------------------------------------
+    // "remove rnaseq layers" with three tracks open refused: "say which track to take layers
+    // off: there is more than one open". The editor can see which tracks carry one.
+    const ta = mkBigwig(); ta.name = 'MAPK8IP3_mRNA';
+    const tb = mkBigwig(); tb.name = 'SPAG9_mRNA';
+    const tc = mkTrack(); tc.name = 'MAPK8IP3'; tc.track_layers = [L('MAPK8IP3_motifs', 'SLIM')];
+    const gM = { track: [ta, tb, tc], said: [], wake() { }, getTracks: () => [ta, tb, tc],
+        setMessage(m) { this.said.push('' + m); }, setResultMessage(m) { this.said.push('' + m); },
+        showMenu(items) { lastAsk = items.map((i) => '' + (i.label || '')).join(' | '); } };
+    lion_engine.setStashed('graph', gM);
+    const CM = await load('baja/manchester/menu/editor-capabilities.js', gM, {});
+    const pM = CM.preview({ capability: 'remove_layers', args: { match: 'RNASeq' } });
+    ok(!pM.blocker, 'it no longer refuses for want of a track name: ' + (pM.blocker || '(none)'));
+    ok(/MAPK8IP3_mRNA/.test(pM.text) && /SPAG9_mRNA/.test(pM.text),
+       'both tracks that carry one are named: ' + pM.text.slice(0, 120));
+    ok(!/on MAPK8IP3$/m.test(pM.text) && (pM.text.match(/MAPK8IP3_motifs/g) || []).length === 0,
+       'and the track that carries none is left out of it');
+
+    lastAsk = null;
+    await pM.capability.run(pM.args);
+    ok(/MAPK8IP3_mRNA/.test(lastAsk || '') && /SPAG9_mRNA/.test(lastAsk || ''),
+       'and the question covers both tracks at once: ' + (lastAsk || '').slice(0, 100));
+
+    // A named track still wins over the sweep.
+    const pOne = CM.preview({ capability: 'remove_layers', args: { match: 'RNASeq', track: 'SPAG9_mRNA' } });
+    ok(/SPAG9_mRNA/.test(pOne.text) && !/MAPK8IP3/.test(pOne.text),
+       'naming one keeps it to that one: ' + pOne.text.slice(0, 90));
 
     // ---- and the shelf no longer answers a removal ---------------------------------------------
     // The planner's own words carry "data layers", which is what the shelf matched on.

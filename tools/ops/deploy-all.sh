@@ -971,6 +971,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track.js:A LAYER DELETED ON A CHILD TRACK STAYS DELETED" \
     "baja/bio/remove-layers.js:A CHILD TRACK MIRRORS ITS PARENT" \
     "baja/manchester/menu/track-layer-popup.js:A CHILD TRACK MIRRORS ITS PARENT"
+  # Filled polygons are asked about first and the rest of what is known about a layer is
+  # reported beside it, and a removal with no track named now acts on every track that has
+  # one instead of refusing. The matcher and the capability go together: the capability
+  # calls evidence() and resolves the tracks through the matcher.
+  install_group "Remove rnaseq: filled polygons first, across every track" \
+    "baja/bio/layer-match.js:FILLED POLYGONS FIRST" \
+    "baja/bio/remove-layers.js:WHY THIS ONE LOOKS LIKE RNA-SEQ, on the row itself" \
+    "baja/manchester/menu/editor-capabilities.js:WHICH TRACKS A REMOVAL ACTS ON"
   install_group "Remove rnaseq layers: found by shape, asked about first" \
     "baja/bio/layer-match.js:the last resort is WHAT THE LAYER IS DRAWN AS" \
     "baja/bio/remove-layers.js:ASKED FIRST WHEN THE MATCH IS A GUESS" \

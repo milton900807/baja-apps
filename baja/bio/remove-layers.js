@@ -172,16 +172,19 @@ function (graph, tracks, opts) {
                     const items = [];
                     items.push({ type: 'text', label: '\u26a0  Which of these on ' + where
                         + ' is the RNA-seq to remove?', move: () => { }, click: () => { } });
-                    items.push({ type: 'text', label: '      Each is drawn as a filled trace. '
-                        + 'Pick one and the rest stay; undo puts any of them back.',
+                    items.push({ type: 'text', label: '      Each of these is drawn as a FILLED '
+                        + 'polygon with peaks; what follows each name is what else about it points '
+                        + 'at read coverage. Likeliest first. Pick one and the rest stay; undo '
+                        + 'puts any of them back.',
                         move: () => { }, click: () => { } });
                     items.push({ type: 'separator', label: '', move: () => { }, click: () => { } });
                     for (const c of left) {
                         const l = layerOf(c);
-                        const pts = LM.tracePoints(l).length;
+                        // WHY THIS ONE LOOKS LIKE RNA-SEQ, on the row itself. "Remove layer 3"
+                        // asks the user to take the editor's word for it; the properties that
+                        // made it a candidate are what they can actually judge.
                         items.push({
-                            label: 'Remove ' + c.name + (c.kind ? (' [' + c.kind + ']') : '')
-                                + ' \u00b7 ' + pts + ' points',
+                            label: 'Remove ' + c.name + ' \u00b7 ' + LM.evidence(l).join(', '),
                             emphasis: 'danger',
                             move: () => { },
                             click: () => { apply(l); gone.push(l); show(); }

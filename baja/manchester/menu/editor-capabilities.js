@@ -39,6 +39,20 @@ function (graph, genegraph_panel_layout) {
         // synchronous, which is why it is awaited here rather than where it is used.
         let LM = null;
         try { LM = await exec('baja/bio/layer-match.js'); } catch (e) { LM = null; }
+
+        // WHICH TRACKS A REMOVAL ACTS ON: the one named, else the one that is selected or
+        // the only one open, else EVERY open track that actually carries a matching layer.
+        // Refusing with "say which track" when the editor can see exactly which tracks have
+        // one is work handed back to the user for nothing.
+        const removalTracks = (a) => {
+            const m = '' + ((a && a.match) || '');
+            if (a && a.track) { const t = matchTrack(a.track); return t ? [t] : []; }
+            const one = oneTrack();
+            if (one) return [one];
+            if (!LM) return [];
+            return tracks().filter((t) => Array.isArray(t.track_layers)
+                && t.track_layers.length && LM.match(t.track_layers, m).length);
+        };
         const tracks = () => (graph.track || []).filter(Boolean);
         const hasSel = (t) => {
             try { return t && t.markstart != null && t.markend != null && t.markend > t.markstart && t.markstart >= 0; }
@@ -559,30 +573,36 @@ function (graph, genegraph_panel_layout) {
                     }
                 },
                 run: async (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
-                    if (!t) { result('Which track? Name it, or click one first.'); return; }
-                    const r = await exec('baja/bio/remove-layers.js', graph, [t], { match: a.match || '' });
+                    // ACROSS EVERY TRACK THAT HAS ONE when none is named. "remove rnaseq
+                    // layers" with three tracks open used to refuse, saying to name a track,
+                    // which is work the editor can do: it can see which tracks carry a layer
+                    // that matches and take it off those. A named track still wins.
+                    const ts = removalTracks(a);
+                    if (!ts.length) { result('Which track? Name it, or click one first.'); return; }
+                    const t = ts[0];
+                    const r = await exec('baja/bio/remove-layers.js', graph, ts, { match: a.match || '' });
                     if (r && r.error) result(r.error);
                     else if (r && r.pending) {
                         // The question is on the canvas; the removal happens when it is
                         // answered. Saying "removed" here would be a report of something
                         // that has not happened yet.
                         result('Asked before removing ' + r.asked + ' layer' + (r.asked === 1 ? '' : 's')
-                            + ' from ' + (t.name || 'the track') + ': '
+                            + ' from ' + ts.map((x) => x.name || 'a track').join(' and ') + ': '
                             + r.candidates.map((x) => x.name).join(', ')
                             + (r.guessed ? ('. ' + r.guessed + ' of them matched by being drawn as a '
                                 + 'trace with peaks rather than by name.') : '.'));
                     }
                     else if (r && r.removed) {
                         result('Removed ' + r.count + ' layer' + (r.count === 1 ? '' : 's')
-                            + ' from ' + (t.name || 'the track') + ': '
+                            + ' from ' + ts.map((x) => x.name || 'a track').join(' and ') + ': '
                             + r.removed.map((x) => x.name).join(', ') + '.');
                     }
                     return r;
                 },
                 preview: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
-                    const where = ' from ' + (t ? (t.name || 'the track') : 'the track');
+                    const ts = removalTracks(a);
+                    const where = ' from ' + (ts.length
+                        ? ts.map((x) => x.name || 'a track').join(' and ') : 'the track');
                     const m = ('' + (a.match || '')).trim();
                     // WHICH LAYERS, BY NAME, BEFORE THE BUTTON. A card that says "remove the
                     // rna seq layers" and takes four of them is a card that was not read.
@@ -593,11 +613,18 @@ function (graph, genegraph_panel_layout) {
                     if (!LM) return 'cannot work out which layers you mean: '
                         + 'baja/bio/layer-match.js did not load';
                     try {
-                        if (t && Array.isArray(t.track_layers) && LM) {
+                        for (const t of ts) {
+                            if (!Array.isArray(t.track_layers)) continue;
                             const hits = LM.match(t.track_layers, m);
-                            guessed = hits.filter((h) => h.why === 'shape' || h.why === 'polygon').length;
-                            names = hits.map((h) => LM.nameOf(h.layer)
-                                + ((h.why === 'shape' || h.why === 'polygon') ? ' (peaks)' : ''));
+                            guessed += hits.filter((h) => h.why === 'shape' || h.why === 'polygon').length;
+                            for (const h of hits) {
+                                names.push(LM.nameOf(h.layer)
+                                    // The three strongest reasons: the full list belongs on
+                                    // the chooser, where there is room to read it.
+                                    + ((h.why === 'shape' || h.why === 'polygon')
+                                        ? (' (' + LM.evidence(h.layer).slice(0, 3).join(', ') + ')') : '')
+                                    + (ts.length > 1 ? (' on ' + (t.name || 'a track')) : ''));
+                            }
                         }
                     } catch (e) { names = []; }
                     if (!names.length) return 'remove ' + (m ? ('the ' + m + ' layers') : 'the layers') + where
@@ -612,15 +639,25 @@ function (graph, genegraph_panel_layout) {
                             + 'take, one at a time') : '');
                 },
                 argBlocker: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
-                    if (!t) {
-                        return a.track
-                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
-                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
-                            : 'say which track to take layers off: there is more than one open';
+                    const ts = removalTracks(a);
+                    if (!ts.length) {
+                        if (a.track) {
+                            return 'no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                        }
+                        // Not "which track?": with nothing matching anywhere, naming one
+                        // would not help, and saying what IS there is what a retry needs.
+                        const any = tracks().filter((x) => Array.isArray(x.track_layers) && x.track_layers.length);
+                        if (!any.length) return 'none of the open tracks has any layers on it';
+                        return 'nothing matching \u201c' + (a.match || 'that') + '\u201d is on any open track. '
+                            + any.map((x) => (x.name || 'a track') + ': '
+                                + x.track_layers.map((l) => (LM ? LM.describe(l) : (l && l.name) || '?')).join(', ')).join(' \u00b7 ');
                     }
-                    if (!Array.isArray(t.track_layers) || !t.track_layers.length) {
-                        return (t.name || 'that track') + ' has no layers on it';
+                    // Resolved to a track that carries nothing at all: said before the button
+                    // rather than after it.
+                    if (!ts.some((x) => Array.isArray(x.track_layers) && x.track_layers.length)) {
+                        return ts.map((x) => x.name || 'that track').join(' and ')
+                            + ' has no layers on it';
                     }
                     return '';
                 }
