@@ -98,6 +98,12 @@ function (graph, tracks, opts) {
                     }
                     for (const l of stay) kept.push(LM.nameOf(l));
                     if (go.length) {
+                        // A CHILD TRACK MIRRORS ITS PARENT'S LAYERS EVERY REDRAW, so a layer
+                        // taken off here is pushed straight back on the next tick unless the
+                        // track is told it was the user who took it (baja/bio/track.js).
+                        for (const l of go) {
+                            try { if (p.track.noteLayerRemoved) p.track.noteLayerRemoved(l); } catch (e) { }
+                        }
                         // NOTHING IS DESTROYED THAT CANNOT BE PUT BACK. The layers are held on
                         // the track they came off, so an undo has something to restore and a
                         // mistaken "remove all" is not the end of an afternoon's loading.

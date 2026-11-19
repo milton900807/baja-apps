@@ -963,6 +963,14 @@ if [[ $DO_API -eq 1 ]]; then
   # shape, and asks before taking anything it inferred or anything sweeping. The matcher,
   # the removal, the card and the confirmation all go together: an old confirm.js reports
   # no cancel, and an old capabilities file previews a different set than the one removed.
+  # A layer deleted on a child track was mirrored straight back by syncFromParent on the
+  # next redraw tick, so both the layer menu and the remove operation looked like they did
+  # nothing. track.js remembers the delete; both removers have to tell it, so all three
+  # files go together.
+  install_group "A layer deleted on a child track stays deleted" \
+    "baja/bio/track.js:A LAYER DELETED ON A CHILD TRACK STAYS DELETED" \
+    "baja/bio/remove-layers.js:A CHILD TRACK MIRRORS ITS PARENT" \
+    "baja/manchester/menu/track-layer-popup.js:A CHILD TRACK MIRRORS ITS PARENT"
   install_group "Remove rnaseq layers: found by shape, asked about first" \
     "baja/bio/layer-match.js:the last resort is WHAT THE LAYER IS DRAWN AS" \
     "baja/bio/remove-layers.js:ASKED FIRST WHEN THE MATCH IS A GUESS" \

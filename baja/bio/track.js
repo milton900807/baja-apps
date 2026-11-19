@@ -5378,6 +5378,30 @@ return new Promise(async (resolve, reject) => {
       return '';
     }
 
+    // A LAYER DELETED ON A CHILD TRACK STAYS DELETED.
+    //
+    // A mirrored layer is re-pushed by syncFromParent on the very next redraw tick, so a
+    // delete that only spliced track_layers looked like it did nothing whatever: the
+    // function ran, the layer came straight back, and nothing anywhere said so. The hash
+    // is remembered here and skipped by the push below.
+    //
+    // UNTIL THE PARENT'S OWN LAYER CHANGES. The hash covers the layer's name, kind and how
+    // many intervals and points it holds, so reloading or editing it on the parent makes a
+    // new hash: that is new data and it does come back, which is what a user who loads it
+    // again expects. The mirror carries the PARENT's hash in __syncHash and its own points
+    // are remapped to child coordinates, so recomputing one here would not match -- the
+    // stored hash is the one to keep.
+    noteLayerRemoved(l) {
+      try {
+        if (!l) return;
+        const h = l.__syncHash || this._syncHash(l, 'layer');
+        if (!h) return;
+        this.__syncRemoved = this.__syncRemoved || [];
+        if (this.__syncRemoved.indexOf(h) < 0) this.__syncRemoved.push(h);
+        if (this.__syncRemoved.length > 200) this.__syncRemoved = this.__syncRemoved.slice(-200);
+      } catch (e) { }
+    }
+
     // Per-draw diff sync: hash every syncable parent object, remove child mirrors whose
     // source hash is gone, and push a fresh read-only copy for any parent hash not yet
     // present on the child. Driven each redraw tick by the engine's syncChildTracks().
@@ -5580,6 +5604,9 @@ return new Promise(async (resolve, reject) => {
         try {
           const __h = this._syncHash(tl, 'layer');
           if (present.has(__h)) continue;
+          // Deleted here by the user: not mirrored again until the parent's own layer
+          // changes. Without this the next redraw undoes every layer delete on a child.
+          if (this.__syncRemoved && this.__syncRemoved.indexOf(__h) >= 0) continue;
           let ttl = Object.assign(new TrackLayer(), JSON.parse(JSON.stringify(tl)));
           let ivs = [];
           for (let iv of (tl.intervals || [])) {

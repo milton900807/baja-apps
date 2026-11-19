@@ -192,7 +192,15 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
                 const take = (target, tname, tkind) => {
                     const a = list();
                     let n = 0;
-                    for (let i = a.length - 1; i >= 0; i--) { if (same(a[i], target, tname, tkind)) { a.splice(i, 1); n++; } }
+                    for (let i = a.length - 1; i >= 0; i--) {
+                        if (!same(a[i], target, tname, tkind)) continue;
+                        // A CHILD TRACK MIRRORS ITS PARENT'S LAYERS EVERY REDRAW. Splicing the
+                        // array is not enough on one: the next tick pushes the layer back and
+                        // the delete looks like it did nothing (baja/bio/track.js).
+                        try { if (track.noteLayerRemoved) track.noteLayerRemoved(a[i]); } catch (e) { }
+                        a.splice(i, 1);
+                        n++;
+                    }
                     return n;
                 };
                 const what = mate ? ('the layers "' + nm + '" and "' + nameOf(mate) + '"') : ('the layer "' + nm + '"');
