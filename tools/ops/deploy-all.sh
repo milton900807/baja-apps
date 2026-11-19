@@ -919,6 +919,15 @@ if [[ $DO_API -eq 1 ]]; then
   # capability picks the tracks and routes protein work to the client module, which calls
   # the python aligner. A client half without the python half asks a script that is not
   # there, falls back to the browser every time, and nothing says why.
+  # One region searched against a whole track, hits ranked. Both halves or neither: the
+  # capability resolves the region and the two tracks, the client module carries the
+  # target's left edge so hits come back in real coordinates, and the python script does
+  # the search. A client half without the python half asks for a script that is not there.
+  install_group "Ask: search one region against a whole track" \
+    "baja/manchester/menu/editor-capabilities.js:SEARCHING IS NOT COMPARING, AND THE REFUSAL WAS RIGHT" \
+    "baja/bio/search-region.js:ONE REGION, SEARCHED AGAINST A WHOLE TRACK, HITS RANKED" \
+    "py/bio/search-region-in-track.py:ONE ALIGNMENT IS ONE HIT" \
+    "py/bio/editor/plan.py:FINDING IS NOT COMPARING"
   install_group "Ask: compare the proteins between the mRNA tracks" \
     "baja/manchester/menu/editor-capabilities.js:THE mRNA TRACKS, WITHOUT BEING NAMED ONE BY ONE" \
     "baja/bio/protein/compare-proteins.js:COMPARE THE PROTEINS OF THESE TRACKS, ALIGNED ON THE BACKEND" \

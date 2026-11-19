@@ -519,6 +519,87 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
             },
             {
+                // SEARCHING IS NOT COMPARING, AND THE REFUSAL WAS RIGHT ABOUT THAT. "compare
+                // exon 16 of one transcript with any other part of another and rank the
+                // results" was turned down because compare_sequences aligns two things and
+                // says how similar they are; this asks where in one track a region turns up,
+                // and how good each place is. Different question, so a different operation
+                // rather than a looser version of that one.
+                name: 'search_region_in_track',
+                summary: 'TAKE ONE REGION AND FIND WHERE ELSE IT TURNS UP, ranked best first: '
+                    + 'a named region of one track is searched against the whole of another '
+                    + 'track, and every place it matches is reported with its score, its '
+                    + 'identity, where it sits and how much of the region it accounts for. '
+                    + 'This is the answer to "compare exon 16 of A with any other part of B '
+                    + 'and rank the results", "where else does this exon appear", "find this '
+                    + 'region in that track", "search this sequence against that one", "is '
+                    + 'there anything like this elsewhere". Use it, NOT compare_sequences, '
+                    + 'whenever the request is about finding or ranking places rather than '
+                    + 'about how similar two things are. Both strands are searched.',
+                needs: 'track',
+                params: {
+                    region: {
+                        type: 'enum',
+                        values: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'coordinates'],
+                        about: 'the region to search WITH, on the query track ("exon 16 of X")'
+                    },
+                    index: { type: 'number', about: 'which exon or intron, counting from 1 along the transcript' },
+                    start: { type: 'number', about: 'with region=coordinates: the first base' },
+                    end: { type: 'number', about: 'with region=coordinates: the last base' },
+                    query_track: {
+                        type: 'string',
+                        about: 'the track the REGION belongs to: the one named first, as in '
+                            + '"exon 16 of mapk8ip3_mrna". Omit when only one track is open'
+                    },
+                    target_track: {
+                        type: 'string',
+                        about: 'the track to SEARCH: the one named second, as in "any other '
+                            + 'part of spag9_mrna"'
+                    },
+                    max_hits: {
+                        type: 'number', default: 8,
+                        about: 'how many places to report, best first. Raise it only if the '
+                            + 'request asks for more'
+                    }
+                },
+                run: async (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : oneTrack();
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    if (!qt) { result('Which track is the region on? Name it.'); return; }
+                    if (!tt) { result('Which track should be searched? Name it.'); return; }
+                    const R = await regionsOf(qt);
+                    const r = R ? R.resolve(a) : { error: 'the regions of that track could not be read' };
+                    if (r.error) { result(r.error); return; }
+                    const out = await exec('baja/bio/search-region.js', graph,
+                        { track: qt, start: r.start, end: r.end, label: r.label }, tt,
+                        { max_hits: a.max_hits || 8 });
+                    if (out && out.error) result(out.error);
+                    return out;
+                },
+                preview: (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : oneTrack();
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    const what = a.region
+                        ? (('' + a.region).replace(/_/g, ' ') + ((a.index != null) ? (' ' + a.index) : ''))
+                        : 'that region';
+                    return 'search ' + what + ' of ' + (qt ? (qt.name || 'the track') : 'the track')
+                        + ' against all of ' + (tt ? (tt.name || 'the other track') : 'the other track')
+                        + ' and rank what it finds';
+                },
+                argBlocker: (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : oneTrack();
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    const open = () => tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    if (!qt) return 'no single track matches \u201c' + (a.query_track || '') + '\u201d: open tracks are ' + open();
+                    if (!tt) return a.target_track
+                        ? ('no single track matches \u201c' + a.target_track + '\u201d: open tracks are ' + open())
+                        : 'name the track to search against';
+                    if (qt === tt) return 'the region and the track to search are the same track: name a different one';
+                    return '';
+                }
+            },
+
+            {
                 // MOVING TRACKS IS NOT MERGING THEM. "put spag9_mRNA and MAPK8IP3_mRNA
                 // together" was answered with the across-tracks library and a note that
                 // combining tracks into one is not something the editor does. Nobody asked

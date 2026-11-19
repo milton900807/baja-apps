@@ -107,20 +107,27 @@ Rules, in order of importance:
    Selecting that region on each track is not a compromise, it is a different request:
    it leaves the user looking at two highlighted stretches and no answer.
 
-7. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
+7. FINDING IS NOT COMPARING. compare_sequences aligns two things and says how similar
+   they are. search_region_in_track takes ONE region and finds where it turns up in
+   another track, ranked. "compare exon 16 of A with any other part of B and rank the
+   results", "where else does this appear", "find this in that track" are all the second
+   one: the giveaway is "any other part", "where", "find", "rank", or anything asking
+   for places rather than for a single number.
+
+8. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the
    operation marked answers_a_question and nothing else. A request to CHANGE what is
    selected or present is an action. A request that asks for both ("find the pathogenic
    ones and select them") is the question: its answer offers the selection afterwards.
 
-8. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
+9. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
    work. Only choose one when the request plainly asks for deletion ("remove", "delete",
    "get rid of"). Anything short of that, choose the selecting operation instead.
 
-9. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
+10. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
    it; the editor checks and reports it. Choose the operation the request asked for.
 
-10. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
+11. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
    nothing tidy-looking that was not requested.
 
 Catalogue:
