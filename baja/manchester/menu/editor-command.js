@@ -507,7 +507,17 @@ function (graph, genegraph_panel_layout, options) {
                         for (const [lib, re] of SHELVES) { if (re.test(t)) return lib; }
                         return null;
                     };
-                    const library = shelfFor(ask) || shelfFor(unsupported.join(' ')) || null;
+                    // NOT FOR A REQUEST TO TAKE SOMETHING AWAY. A shelf of data that can be
+                    // LOADED is the opposite of the answer to "remove the rna seq layers",
+                    // and offering it reads as not having understood the request at all --
+                    // which, when the planner has already said so in its own words, is worse
+                    // than the plain refusal. The planner's words are what tripped this:
+                    // "no operation exists to delete data layers from tracks" carries the
+                    // word data, and the shelf matched on it.
+                    const TAKING_AWAY = /\b(remove|removing|delete|deleting|clear|clearing|unload|hide|hiding|get rid of|take off|turn off|drop)\b/i;
+                    const library = TAKING_AWAY.test('' + (ask || ''))
+                        ? null
+                        : (shelfFor(ask) || shelfFor(unsupported.join(' ')) || null);
                     if (library) {
                         let p = null;
                         try { p = CAP.preview({ capability: 'open_library', args: { library: library } }); }

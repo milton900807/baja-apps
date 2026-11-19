@@ -519,6 +519,89 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
             },
             {
+                // UNLOADING HAD NO OPERATION WHILE LOADING HAD ONE. "remove the rna seq
+                // layers from mapk8ip3_mrna" was answered by opening the shelf of data that
+                // can be loaded onto a track, which is the opposite of what was asked.
+                name: 'remove_layers',
+                summary: 'TAKE DATA LAYERS OFF A TRACK: the layers matching what the request '
+                    + 'names are removed from it. This is the answer to "remove the rna seq '
+                    + 'layers from X", "take the motifs off this track", "delete the '
+                    + 'similarity map", "clear the layers", "get rid of the conservation '
+                    + 'track". It removes LAYERS, not tracks and not sequence, and it names '
+                    + 'every layer it takes so the user can see what went. Nothing else is '
+                    + 'touched. Prefer naming what to remove; removing everything is only for '
+                    + 'a request that says so.',
+                needs: 'track',
+                params: {
+                    match: {
+                        type: 'string',
+                        about: 'what to remove, in the request\u2019s own words: "rna seq", '
+                            + '"motifs", "domains", "similarity", "splicing", or part of a '
+                            + 'layer\u2019s name. Use "all" ONLY when the request asks for '
+                            + 'every layer to go'
+                    },
+                    track: {
+                        type: 'string',
+                        about: 'which track to take them off, by name. Omit for the selected '
+                            + 'one, or when only one is open'
+                    }
+                },
+                run: async (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const r = await exec('baja/bio/remove-layers.js', graph, [t], { match: a.match || '' });
+                    if (r && r.error) result(r.error);
+                    else if (r && r.removed) {
+                        result('Removed ' + r.count + ' layer' + (r.count === 1 ? '' : 's')
+                            + ' from ' + (t.name || 'the track') + ': '
+                            + r.removed.map((x) => x.name).join(', ') + '.');
+                    }
+                    return r;
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const where = ' from ' + (t ? (t.name || 'the track') : 'the track');
+                    const m = ('' + (a.match || '')).trim();
+                    // WHICH LAYERS, BY NAME, BEFORE THE BUTTON. A card that says "remove the
+                    // rna seq layers" and takes four of them is a card that was not read.
+                    let names = [];
+                    try {
+                        if (t && Array.isArray(t.track_layers)) {
+                            const flat = (x) => ('' + x).toLowerCase().replace(/[^a-z0-9]+/g, '');
+                            const everything = !m || /^(all|every|everything)$/i.test(m);
+                            names = t.track_layers.filter((l) => {
+                                if (everything) return true;
+                                const dt = ('' + ((l && l.data_type) || '')).toUpperCase();
+                                if (/rna.?seq|expression|coverage/i.test(m) && dt === 'RNASEQ') return true;
+                                if (/motif|slim|elm/i.test(m) && dt === 'SLIM') return true;
+                                if (/domain|cdd|site/i.test(m) && dt === 'CDD') return true;
+                                if (/similar|homolog|map/i.test(m) && dt === 'SEQSIM') return true;
+                                const nm = ('' + ((l && l.name) || '')).toLowerCase();
+                                return nm.indexOf(m.toLowerCase()) >= 0 || flat(nm).indexOf(flat(m)) >= 0;
+                            }).map((l) => ('' + ((l && l.name) || '(unnamed)')));
+                        }
+                    } catch (e) { names = []; }
+                    if (!names.length) return 'remove ' + (m ? ('the ' + m + ' layers') : 'the layers') + where
+                        + ': nothing there matches';
+                    return 'remove ' + names.length + ' layer' + (names.length === 1 ? '' : 's')
+                        + where + ': ' + names.join(', ');
+                },
+                argBlocker: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) {
+                        return a.track
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to take layers off: there is more than one open';
+                    }
+                    if (!Array.isArray(t.track_layers) || !t.track_layers.length) {
+                        return (t.name || 'that track') + ' has no layers on it';
+                    }
+                    return '';
+                }
+            },
+
+            {
                 // A MAP IS DRAWN, NOT REPORTED. "draw a map that compares the regions of high
                 // sequence similarity between two tracks" asks for something on the canvas:
                 // a layer on each track, one bar per block, matching colours, so the pairs
