@@ -396,6 +396,58 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // COPYING A TRACK IS AN ORDINARY THING TO WANT. Keep the original whole and
+                // cut the copy down to the part being worked on, which is why the name
+                // usually says what the copy is for ("pathogenic").
+                name: 'copy_track',
+                summary: 'COPY A TRACK to a new track with a name of its own, holding the same '
+                    + 'sequence, annotations, variants, compounds and data layers. This is the '
+                    + 'answer to "copy this track", "duplicate this track", "make a copy called '
+                    + 'X", "save this as a new track". The copy is separate: editing it, or '
+                    + 'deleting things from it, leaves the original untouched, which is the '
+                    + 'whole reason to make one. It appears under the original and is selected.',
+                needs: 'track',
+                params: {
+                    name: {
+                        type: 'string',
+                        about: 'what to call the copy, when the request says ("called pathogenic", '
+                            + '"as pathogenic"). Omit it and the copy is named after the original '
+                            + 'with _copy on the end'
+                    },
+                    track: {
+                        type: 'string',
+                        about: 'the track to copy, by name, as given in canvas_now. Omit it for '
+                            + '"this track", "the selected track", or when only one is open'
+                    }
+                },
+                run: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('No single track matches that, so there is nothing to copy.'); return; }
+                    return exec('baja/bio/copy-track.js', graph, t, a.name || '', genegraph_panel_layout)
+                        .then((r) => { if (r && r.error) result(r.error); return r; });
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    return 'copy ' + (t ? (t.name || 'that track') : ('\u201c' + (a.track || '') + '\u201d'))
+                        + ' to a new track'
+                        + (a.name ? (' called \u201c' + a.name + '\u201d') : '');
+                },
+                argBlocker: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) {
+                        return a.track
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to copy: there is more than one open';
+                    }
+                    if (typeof t.copyTrack !== 'function') {
+                        return (t.name || 'that track') + ' is not a kind of track that can be copied';
+                    }
+                    return '';
+                }
+            },
+
+            {
                 name: 'design_oligos',
                 summary: 'Open the oligo tiling designer, which walks a modality across the target '
                     + 'and scores the candidates. Opens a dialog to set the parameters; it does not '

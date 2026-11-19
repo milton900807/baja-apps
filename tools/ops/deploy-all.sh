@@ -458,6 +458,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-regions.js:COORDINATES ARE GENOMIC ORDER, ORIENTATION IS NOT" \
     "py/bio/editor/plan.py:THE CATALOGUE IS SENT IN, NOT WRITTEN HERE" \
     "py/bio/editor/variant-question.py:EVERY VERDICT IS INDEXED, NOT NAMED"
+  install_group "Ask: a shelf instead of a dead end, and copying a track" \
+    "baja/manchester/menu/editor-command.js:A SHELF BEATS A REFUSAL, AND THE CATALOGUE ALREADY SAYS SO" \
+    "py/bio/editor/plan.py:A NAME YOU CANNOT PLACE IS THE STRONGEST REASON TO OPEN THE SHELF" \
+    "baja/manchester/menu/editor-capabilities.js:COPYING A TRACK IS AN ORDINARY THING TO WANT" \
+    "baja/bio/copy-track.js:COPY A TRACK, AS ITS OWN TRACK ON THE CANVAS" \
+    "baja/bio/track-flexi.js:A COPY OF THIS TRACK, SEPARATE FROM IT"
   install_group "baja-project: progress bar first, Add to a fundraising campaign" \
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \

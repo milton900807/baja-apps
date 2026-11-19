@@ -2562,6 +2562,82 @@ return new Promise(async (resolve, reject) => {
             return -1;
         }
 
+        // A COPY OF THIS TRACK, SEPARATE FROM IT.
+        //
+        // "copy this track to a new track called pathogenic" is how someone keeps the
+        // original intact while cutting the copy down -- and the point of it is entirely
+        // lost if the two share their contents, because deleting the benign variants from
+        // the copy would delete them from the original too. So every collection is rebuilt
+        // rather than referenced: the arrays are new, and so is each item in them.
+        //
+        // Object.create(prototype) and not new, for the same reason copyLayers gives: these
+        // constructors take arguments a copy does not have, and every own value is assigned
+        // over anyway. An item's back-reference to its track is re-pointed at the copy, or
+        // an edit made through the item would still reach across to the original.
+        copyTrack(newName) {
+            const name = ('' + (newName == null ? '' : newName)).trim()
+                || ((this.name || 'track') + '_copy');
+            const copy = new Track(name, this.xi, this.xf, this.y, this.strand);
+
+            // What the track IS. Sequence and coordinates first, then the identity the data
+            // layers look a track up by: a copy that loses transcriptID silently matches
+            // nothing in a BED, which looks like the copy having no data rather than no name.
+            copy.sequence = this.sequence;
+            copy.chr = this.chr;
+            copy.species = this.species;
+            copy.transcriptID = this.transcriptID;
+            copy.geneID = this.geneID;
+            copy.description = this.description;
+            copy.track_type = this.track_type;
+            copy.targetPhase = this.targetPhase;
+            copy.trackRef = this.trackRef;
+
+            const dup = (item) => {
+                if (!item || typeof item !== 'object') return item;
+                let c;
+                const Klass = (item.constructor && item.constructor !== Object) ? item.constructor : null;
+                try { c = Klass ? Object.assign(Object.create(Klass.prototype), item) : Object.assign({}, item); }
+                catch (e) { c = Object.assign({}, item); }
+                // Anything pointing back at the track it came from now points at the copy.
+                for (const k of ['track', '__track', 'parentTrack']) {
+                    try { if (c[k] === this) c[k] = copy; } catch (e) { }
+                }
+                return c;
+            };
+            const dupAll = (list) => (Array.isArray(list) ? list.map(dup) : []);
+
+            copy.annotations = dupAll(this.annotations);
+            copy.oligos = dupAll(this.oligos);
+            copy.snpindels = dupAll(this.snpindels);
+            copy.structures = dupAll(this.structures);
+            copy.genomicsCoord = Array.isArray(this.genomicsCoord) ? this.genomicsCoord.slice() : [];
+            try { copy.highlight_features = Object.assign({}, this.highlight_features || {}); } catch (e) { }
+            // The data layers have a copier of their own, which knows which classes must keep
+            // their painter; it marks each copy's name with a star.
+            try { copy.track_layers = this.copyLayers() || []; } catch (e) { copy.track_layers = []; }
+            for (const l of copy.track_layers) {
+                try { if (l && l.track === this) l.track = copy; } catch (e) { }
+            }
+
+            // What the user can see of it: same width and left edge, one track lower, so the
+            // copy appears under the original rather than on top of it.
+            copy.grid.xi = this.grid.xi;
+            copy.grid.yi = this.grid.yi + Math.abs(this.grid.height) + 1;
+            copy.grid.width = this.grid.width;
+            copy.grid.height = this.grid.height;
+            try { copy.grid.setxmin(this.grid.xmin); copy.grid.setxmax(this.grid.xmax); } catch (e) { }
+            try { copy.grid.rescale(); } catch (e) { }
+
+            // Carried last, and only the display flags: whether a copy shows its layers or
+            // its variants should match what was on screen when it was asked for.
+            for (const k of ['showPlots', 'showName', 'showSnpIndels', 'showLayers',
+                'showOfftargets', 'showOligoMap', 'showArc', 'showAnnotaions',
+                'hideTrackCoords', 'showResizeBar', 'showTrackRefMap']) {
+                try { copy[k] = this[k]; } catch (e) { }
+            }
+            return copy;
+        }
+
         copyLayers() {
             let copyTrackLayer = (layer) => {
                 if (layer instanceof AttributionLayer) {

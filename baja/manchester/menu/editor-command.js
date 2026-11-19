@@ -479,6 +479,64 @@ function (graph, genegraph_panel_layout, options) {
                 // or returned steps this side refused. Rendering a plan card around zero
                 // runnable steps read as "One operation" with a refusal underneath it.
                 if (!good.length) {
+                    // A SHELF BEATS A REFUSAL, AND THE CATALOGUE ALREADY SAYS SO.
+                    //
+                    // "run ml motilf" came back as "Nothing in the editor does that", with a
+                    // note that the name is not one of the four models. That is true and it is
+                    // not an answer: the request is plainly about running a model, and there
+                    // is a shelf of them one click away. open_library exists for exactly this
+                    // and the planner is told to reach for it, but a planner is a reading of a
+                    // sentence and a misread leaves the user at a dead end. So when nothing can
+                    // run and the request is recognisably about a KIND of thing on a shelf,
+                    // the shelf opens. A name it cannot place is the strongest reason to show
+                    // the list, not a reason to withhold it.
+                    //
+                    // Judged on the user's own words first, then on whatever the planner said
+                    // it could not do -- that is where an unknown model name ends up.
+                    const SHELVES = [
+                        ['ml_models', /\b(ml|machine[ -]?learning|models?|predicts?|prediction|motifs?|clip|bajaclip|splice(net)?|bajasplice|psi(net)?|bajair|primers?|djprimer|binding|rbp|score|inference)\b/i],
+                        ['data', /\b(data|datasets?|tracks? from|load|clinvar|gnomad|conservation|phylop|expression|annotations?)\b/i],
+                        ['design_modalities', /\b(modality|modalities|design space|aso|sirna|gapmer|exon skipping|oligo)\b/i],
+                        ['chemistry', /\b(chemistry|backbone|2'?-?o-?me|moe|lna|phosphorothioate)\b/i],
+                        ['clinical_compounds', /\b(clinical|trial|approved|compounds?|drugs?)\b/i],
+                        ['drawing', /\b(draw|annotate|label|shape|arrow)\b/i]
+                    ];
+                    const shelfFor = (text) => {
+                        const t = '' + (text || '');
+                        if (!t.trim()) return null;
+                        for (const [lib, re] of SHELVES) { if (re.test(t)) return lib; }
+                        return null;
+                    };
+                    const library = shelfFor(ask) || shelfFor(unsupported.join(' ')) || null;
+                    if (library) {
+                        let p = null;
+                        try { p = CAP.preview({ capability: 'open_library', args: { library: library } }); }
+                        catch (e) { p = null; }
+                        if (p && p.ok) {
+                            // Said before it opens, because a shelf appearing unasked is
+                            // confusing without the sentence that explains it. The words the
+                            // planner used are kept: they are usually the specific part the
+                            // user got wrong, and the shelf is where to correct it.
+                            out.innerHTML = card(
+                                '<div style="font:700 13.5px Arial;color:#e8f0fb;">Nothing here runs that by name, '
+                                + 'so here is the shelf it would be on.</div>'
+                                + warn
+                                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
+                                + 'Going to ' + H(p.text || library)
+                                + '. Pick from there, or <a id="ec-all" href="#" style="color:#7fb0e8;">'
+                                + 'see everything it can do</a>.</div>'
+                                + dismissRow('ec-x1'));
+                            wireDismiss('ec-x1');
+                            const all0 = q('#ec-all');
+                            if (all0) all0.onclick = (e) => { try { e.preventDefault(); } catch (e2) { } showAll(); };
+                            (async () => {
+                                try { await p.capability.run(p.args); }
+                                catch (e) { try { result('Could not open the library: ' + ((e && e.message) || e)); } catch (e2) { } }
+                            })();
+                            return;
+                        }
+                    }
+
                     out.innerHTML = card(
                         '<div style="font:700 13.5px Arial;color:#e8f0fb;">Nothing in the editor does that.</div>'
                         + bad.map((x) => '<div style="font:12.5px Arial;color:#fca5a5;margin-top:7px;">'
