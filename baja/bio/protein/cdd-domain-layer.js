@@ -190,7 +190,10 @@ function (graph, genegraph_panel_layout, tracks, options) {
                     if (!p || !p.rec) continue;
                     graph.__cddIntervals.push({
                         track: tr, kind: kind, x1: p.x1, x2: p.x2, y: p.y,
-                        barPx: p.barPx || 12, rec: p.rec
+                        // The layer draws through its OWN tgraph and records each bar's
+                        // painted rectangle on the interval; both travel so the hit test can
+                        // ask where the bar went rather than work out where it should be.
+                        barPx: p.barPx || 12, layer: p.layer || null, iv: p.iv || null, rec: p.rec
                     });
                 }
             } catch (e) { }
@@ -297,14 +300,14 @@ function (graph, genegraph_panel_layout, tracks, options) {
                     // protein: as a full-strength labelled bar it drowns the specific domains inside
                     // it. It is kept, very faint and unlabelled; the hover panel still names it.
                     const faint = /transcript/i.test(sp.nm);
-                    layer.addInterval(sp.x1, sp.x2, y, sp.nm);
+                    const ivD = layer.addInterval(sp.x1, sp.x2, y, sp.nm);
                     try { layer.setIntervalColor(sp.x1, sp.x2, y, sp.nm, colorOf(sp.nm, faint ? 0.05 : 0.26)); } catch (e) { }
                     if (faint) {
                         const iv = (layer.intervals || []).find((v) => v.x1 === sp.x1 && v.x2 === sp.x2);
                         if (iv) iv.noLabel = true;
                     }
                     placedD.push({
-                        x1: sp.x1, x2: sp.x2, y: y, barPx: 12,
+                        x1: sp.x1, x2: sp.x2, y: y, barPx: 12, layer: layer, iv: ivD,
                         rec: Object.assign({ __kind: 'domain', name: sp.nm, faint: faint }, sp.rec || {})
                     });
                 }
@@ -381,10 +384,10 @@ function (graph, genegraph_panel_layout, tracks, options) {
                         // is what decides whether anything is seen at all.
                         const lane = Math.max(0, Math.round((slayer.getYByOverlapCount(g, g + 2) - 0.05) / 0.08));
                         const y = SITE_BASE + lane * SITE_STEP;
-                        slayer.addInterval(g, g + 2, y, nm);
+                        const ivS = slayer.addInterval(g, g + 2, y, nm);
                         try { slayer.setIntervalColor(g, g + 2, y, nm, colorOf(nm, 0.6)); } catch (e) { }
                         placedS.push({
-                            x1: g, x2: g + 2, y: y, barPx: 10,
+                            x1: g, x2: g + 2, y: y, barPx: 10, layer: slayer, iv: ivS,
                             rec: Object.assign({ __kind: 'site', name: nm, residue: ('' + p).trim() }, s || {})
                         });
                     }

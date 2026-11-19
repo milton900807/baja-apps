@@ -412,8 +412,15 @@ return new Promise(async (resolve, reject) => {
                     this.intervals.push({ x1: x1, x2: x2, y: y, t: t });
                 }
                 this.lastedit = new Date().getTime();
+                // HANDED BACK, so a caller that has to hit-test this bar later can hold the
+                // interval itself rather than looking it up by x and y -- two bars can share
+                // a span, and that lookup answered for the wrong one.
+                return this.intervals[this.intervals.length - 1];
 
             }
+            // Already there: hand back the one that is, for the same reason.
+            return this.intervals.find((iv) => iv.x1 === x1 && iv.x2 === x2
+                && (!__stack || (iv.y === y && iv.t === t))) || null;
         }
 
         setIntervalColor(x1, x2, y, t, color) {
@@ -1468,6 +1475,23 @@ return new Promise(async (resolve, reject) => {
                         px = Math.max(1, px);
                         height = (height < 0) ? -px : px;
                     }
+                    // WHERE THIS BAR ACTUALLY LANDED, in screen pixels, recorded as it is
+                    // drawn.
+                    //
+                    // Hit tests used to re-derive this from the interval's world y through
+                    // the TRACK's tgraph. A layer has its own tgraph with its own y range --
+                    // the track's runs -1.5..1.5 and a layer's 0..1 -- so the same y came out
+                    // somewhere else entirely, and clicks landed on motifs in a band floating
+                    // above the track while the bars themselves could not be hit at all. It
+                    // also read the drawn y as the bar's centre when the renderer treats it
+                    // as an edge. Both go away if the hit test uses the rectangle that was
+                    // painted instead of trying to work out where it must have gone.
+                    try {
+                        int.__px = {
+                            x: Math.min(x, x + width), y: Math.min(y, y + height),
+                            w: Math.abs(width), h: Math.abs(height)
+                        };
+                    } catch (e) { }
                     if (this.highlight) {
                         ctx.fillStyle = "magenta";
                         ctx.strokeStyle = "magenta";
@@ -1862,6 +1886,23 @@ return new Promise(async (resolve, reject) => {
                         px = Math.max(1, px);
                         height = (height < 0) ? -px : px;
                     }
+                    // WHERE THIS BAR ACTUALLY LANDED, in screen pixels, recorded as it is
+                    // drawn.
+                    //
+                    // Hit tests used to re-derive this from the interval's world y through
+                    // the TRACK's tgraph. A layer has its own tgraph with its own y range --
+                    // the track's runs -1.5..1.5 and a layer's 0..1 -- so the same y came out
+                    // somewhere else entirely, and clicks landed on motifs in a band floating
+                    // above the track while the bars themselves could not be hit at all. It
+                    // also read the drawn y as the bar's centre when the renderer treats it
+                    // as an edge. Both go away if the hit test uses the rectangle that was
+                    // painted instead of trying to work out where it must have gone.
+                    try {
+                        int.__px = {
+                            x: Math.min(x, x + width), y: Math.min(y, y + height),
+                            w: Math.abs(width), h: Math.abs(height)
+                        };
+                    } catch (e) { }
                     if (this.highlight) {
                         ctx.fillStyle = "magenta";
                         ctx.strokeStyle = "magenta";

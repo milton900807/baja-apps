@@ -2005,21 +2005,48 @@ function (graph, genegraph_panel_layout) {
                         // (tgraph.__pepMidUpPx); when the letters are not drawn there is nothing to hit.
                         // A CLICK ON A LINEAR MOTIF. slim-motif-layer registers every
                         // interval it draws on graph.__slimIntervals with the record behind
-                        // it. Vertical test is annHit's idiom: both sides in SCREEN pixels,
-                        // graph.Y(tg.Y(iv.y)) against graph.Y(y). Guarded entirely on that
-                        // registry, so nothing here can reach exon, SNP, lasso or zoom.
+                        // it. Guarded entirely on that registry, so nothing here can reach
+                        // exon, SNP, lasso or zoom.
+                        //
+                        // THE TEST IS AGAINST THE RECTANGLE THAT WAS PAINTED. It used to map
+                        // the interval's world y through the TRACK's tgraph, and a layer draws
+                        // through its OWN -- the track's y range is -1.5..1.5 and the layer's
+                        // is 0..1, so the same number came out somewhere else entirely. With
+                        // dozens of motif lanes the wrongly-placed bands covered a tall stripe
+                        // ABOVE the track: clicking up there in the right x range opened
+                        // motifs, and clicking on the bars themselves did not. It also treated
+                        // the drawn y as the bar's centre when the renderer treats it as an
+                        // edge. Neither can happen against a rectangle the renderer recorded
+                        // as it drew it.
+                        //
+                        // The fallback is the old arithmetic, now through the LAYER's tgraph:
+                        // it is what a bar that has not been painted yet this frame has, and
+                        // it is at least the right grid.
                         let __slimHit = null;
                         try {
                             const reg = graph.__slimIntervals;
                             if (reg && reg.length) {
-                                const tg = track.tgraph;
+                                const xPx = graph.X(track.tgraph.X(xw));
                                 const yPx = graph.Y(y);
                                 let best = Infinity;
                                 for (const e of reg) {
                                     if (e.track !== track) continue;
-                                    if (xw < Math.min(e.x1, e.x2) || xw > Math.max(e.x1, e.x2)) continue;
-                                    const d = Math.abs(graph.Y(tg.Y(e.y)) - yPx);
-                                    if (d > ((e.barPx / 2) + 3)) continue;
+                                    const px = e.iv && e.iv.__px;
+                                    let d;
+                                    if (px && px.h >= 0) {
+                                        if (xPx < px.x || xPx > px.x + px.w) continue;
+                                        // Inside the bar is distance 0; just outside it is how
+                                        // far outside, so the nearest of two stacked lanes wins
+                                        // rather than whichever was registered first.
+                                        d = (yPx < px.y) ? (px.y - yPx)
+                                            : ((yPx > px.y + px.h) ? (yPx - px.y - px.h) : 0);
+                                        if (d > 3) continue;
+                                    } else {
+                                        if (xw < Math.min(e.x1, e.x2) || xw > Math.max(e.x1, e.x2)) continue;
+                                        const ltg = (e.layer && e.layer.tgraph) || track.tgraph;
+                                        d = Math.abs(graph.Y(ltg.Y(e.y)) - yPx);
+                                        if (d > ((e.barPx / 2) + 3)) continue;
+                                    }
                                     if (d < best) { best = d; __slimHit = e.rec; }
                                 }
                             }
@@ -2038,18 +2065,33 @@ function (graph, genegraph_panel_layout) {
                         // that is within range of both is a press aimed at the small thing: the
                         // domain is reachable anywhere along its hundred residues, the site only
                         // here. Without this the domain answers every click on its own sites.
+                        //
+                        // AGAINST THE PAINTED RECTANGLE, for the same reason as the motifs
+                        // above: a layer has its own tgraph and its own y range, so mapping
+                        // the interval's y through the TRACK's put the band somewhere the bar
+                        // is not.
                         let __cddHit = null;
                         try {
                             const reg = graph.__cddIntervals;
                             if (reg && reg.length) {
-                                const tg = track.tgraph;
+                                const xPx = graph.X(track.tgraph.X(xw));
                                 const yPx = graph.Y(y);
                                 let best = Infinity, bestKind = '';
                                 for (const e of reg) {
                                     if (e.track !== track) continue;
-                                    if (xw < Math.min(e.x1, e.x2) || xw > Math.max(e.x1, e.x2)) continue;
-                                    const d = Math.abs(graph.Y(tg.Y(e.y)) - yPx);
-                                    if (d > ((e.barPx / 2) + 3)) continue;
+                                    const px = e.iv && e.iv.__px;
+                                    let d;
+                                    if (px && px.h >= 0) {
+                                        if (xPx < px.x || xPx > px.x + px.w) continue;
+                                        d = (yPx < px.y) ? (px.y - yPx)
+                                            : ((yPx > px.y + px.h) ? (yPx - px.y - px.h) : 0);
+                                        if (d > 3) continue;
+                                    } else {
+                                        if (xw < Math.min(e.x1, e.x2) || xw > Math.max(e.x1, e.x2)) continue;
+                                        const ltg = (e.layer && e.layer.tgraph) || track.tgraph;
+                                        d = Math.abs(graph.Y(ltg.Y(e.y)) - yPx);
+                                        if (d > ((e.barPx / 2) + 3)) continue;
+                                    }
                                     const beatsIt = (d < best)
                                         || (e.kind === 'site' && bestKind !== 'site' && d <= best + 6);
                                     if (beatsIt) { best = d; bestKind = e.kind; __cddHit = e.rec; }

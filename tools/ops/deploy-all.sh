@@ -888,6 +888,15 @@ if [[ $DO_API -eq 1 ]]; then
   # Protein motifs from the Ask box, and limited to the selection when there is one. Both
   # or neither: the capability passes `within` and the layer is what honours it, so a new
   # capability against an old layer would quietly scan the whole protein instead.
+  # The vertical half of the hit test, for both layers that use the registry idiom. All
+  # four or none: the renderer records the rectangle, addInterval hands the interval back,
+  # the two layers carry it, and the hit test reads it. An old renderer with a new hit test
+  # records nothing, and every bar falls to the fallback path.
+  install_group "Layer bars are hit where they were painted" \
+    "baja/bio/track-layer.js:WHERE THIS BAR ACTUALLY LANDED" \
+    "baja/manchester/menu/mouse-over-highlight.js:THE TEST IS AGAINST THE RECTANGLE THAT WAS PAINTED" \
+    "baja/bio/protein/slim-motif-layer.js:The interval itself travels with the record" \
+    "baja/bio/protein/cdd-domain-layer.js:painted rectangle on the interval"
   install_group "Ask: load protein motifs, within the selection" \
     "baja/manchester/menu/editor-capabilities.js:PROTEIN MOTIFS ARE A LAYER THE EDITOR ALREADY DRAWS" \
     "baja/bio/protein/slim-motif-layer.js:WITHIN THE SELECTION, WHEN ONE WAS ASKED FOR"

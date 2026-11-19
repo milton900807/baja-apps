@@ -209,8 +209,10 @@ function (graph, genegraph_panel_layout, tracks, options) {
                 const label = labelOf ? labelOf(sp) : sp.nm;
                 // Colour goes in with the bar. setIntervalColor finds a bar by span alone,
                 // so with lanes sharing a span it painted the first one twice.
-                layer.addInterval(sp.x1, sp.x2, y, label, color(sp));
-                placed.push({ x1: sp.x1, x2: sp.x2, y: y, rec: sp.rec });
+                const iv = layer.addInterval(sp.x1, sp.x2, y, label, color(sp));
+                // The interval itself travels with the record, so the hit test can ask where
+                // the bar was drawn instead of working out where it should have gone.
+                placed.push({ x1: sp.x1, x2: sp.x2, y: y, rec: sp.rec, iv: iv });
             }
             return placed;
         };
@@ -307,6 +309,10 @@ function (graph, genegraph_panel_layout, tracks, options) {
                         graph.__slimIntervals.push({
                             track: tr, kind: kind, x1: p.x1, x2: p.x2, y: p.y,
                             barPx: +layer.barHeightPx || 9,
+                            // For the hit test: the layer draws through its OWN tgraph, whose
+                            // y range is not the track's, and records each bar's painted
+                            // rectangle on the interval.
+                            layer: layer, iv: p.iv,
                             rec: Object.assign({}, p.rec, { caveats: (meta && meta.caveats) || [], n_total: meta && meta.n })
                         });
                     }
