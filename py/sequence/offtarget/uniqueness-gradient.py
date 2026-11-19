@@ -1,0 +1,579 @@
+"""Uniqueness / repeat gradient along a transcript.
+
+For every window of size k (3-30) sliding along a transcript, score two things
+that fail independently and are therefore never collapsed into one number
+before the caller sees both:
+
+  complexity  intrinsic repetitiveness of the window itself: composition
+              entropy, longest homopolymer, strongest tandem periodicity
+              (chance-corrected), DUST-style triplet redundancy. Needs no
+              reference and is defined for every k from 3 to 30.
+
+  flankPy     pyrimidine (C+T) fraction either side, and `ppt`/`pptRun`, the best
+              pyrimidine tract and longest unbroken pyrimidine run 5-40 nt UPSTREAM.
+              That upstream tract is the polypyrimidine signal a 3' splice site reads,
+              and it is what an antisense Alu's poly-T arm supplies.
+
+  flankAu     AU fraction of the sequence either side of the window, the window
+              itself excluded, plain and 1/distance-weighted. Reported, never folded
+              into the score: it answers site accessibility, not usability.
+
+  off/on      occurrences of the window elsewhere, from the existing 2-bit
+              off-target indexes (see README.md in this directory). Hits in the
+              contig set carrying the on-target gene symbol are counted as
+              on-target -- that covers both the transcript itself and its
+              orthologue in each other species -- and everything else is
+              off-target.
+
+The composite `score` is complexity x 1/(1+worst off-target across species), so
+a window scores well only when it is both locally clean and absent elsewhere.
+
+This deliberately reuses `search.py`'s index rather than carrying its own
+reference data: baja-server already builds and refreshes those indexes per
+species, they are 2-bit packed and mmap'd, and their contigs already carry gene
+symbols.
+
+Params (from JS via exec, after the EngineMonitor):
+  param(1) : transcript sequence (string)
+  param(2) : window size k, 3-30. Default 20.
+  param(3) : species list, e.g. ["human","mouse","rat","dog","cyno"], or raw
+             index names. Default ["human"].
+  param(4) : on-target gene symbol. Strongly recommended: without it the
+             transcript's own gene counts as an off-target and the whole track
+             looks non-unique.
+  param(5) : stride in nt between scored windows. Default 1 for exact mode.
+  param(6) : mode, "exact" (default) or "editdistance".
+  param(7) : edit distance 0-3, editdistance mode only. Default 2.
+  param(8) : flank size in nt for the local-AU track, 0 to turn it off. Default 30,
+             the window over which local AU predicts miRNA site efficacy.
+  param(9) : maximum scored windows. Default 4000; the stride is derived from it so a
+             long pre-mRNA returns in reasonable time with a drawable number of points.
+
+Resolves {mode, k, stride, nWindows, species, gradient (JSON), warnings}.
+"""
+
+import json
+import os
+import sys
+import warnings as warnings_module
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import search as ots            # noqa: E402  index loading, decoding, search
+
+K_MIN, K_MAX = 3, 30
+MIN_MEANINGFUL_K = 12           # below this, see the note in `warnings`
+MAX_PERIOD = 6
+EDITDIST_MAX_WINDOWS = 400      # editdistance mode is ~0.1 s/window/species
+MAX_WINDOWS = 2000              # scored windows per run, whatever the sequence length.
+                                # A track is ~2000 px wide, so more points than this are
+                                # drawn on top of each other, and every one of them costs
+                                # bytes in a response the client has to parse in one piece.
+
+# Species -> off-target index names. Mirrors SPECIES_INDEX in
+# py/sequence/prompt-to-transcript.py; keep the two in sync, as with the
+# _ALIASES table in search.py.
+SPECIES_INDEX = {
+    "human": ["human_cdna", "human_all_transcripts", "human_cdna_all"],
+    "mouse": ["mouse_cdna"],
+    "rat": ["rat_cdna"],
+    "dog": ["dog_cdna"],
+    "cyno": ["monkey_cyno_cdna"],
+    "cynomolgus monkey": ["monkey_cyno_cdna"],
+    "nhp": ["monkey_cyno_cdna", "monkey_rhesus_cdna"],
+    "rhesus": ["monkey_rhesus_cdna"],
+    "rhesus macaque": ["monkey_rhesus_cdna"],
+    "yeast": ["yeast_cdna"],
+}
+
+_LUT = np.full(256, 255, dtype=np.uint8)
+for _c, _v in (("A", 0), ("C", 1), ("G", 2), ("T", 3), ("U", 3),
+               ("a", 0), ("c", 1), ("g", 2), ("t", 3), ("u", 3)):
+    _LUT[ord(_c)] = _v
+
+
+# --- sequence helpers ---------------------------------------------------------
+def encode(seq):
+    """ACGT/acgt/U -> 0..3, anything else -> 255."""
+    return _LUT[np.frombuffer(str(seq).encode("ascii", "replace"), dtype=np.uint8)]
+
+
+def rolling_codes(codes, w):
+    """2-bit packed code of every w-window; -1 where the window holds an N."""
+    n = len(codes) - w + 1
+    if n <= 0:
+        return np.zeros(0, dtype=np.int64)
+    acc = np.zeros(n, dtype=np.int64)
+    bad = np.zeros(n, dtype=bool)
+    for j in range(w):
+        seg = codes[j:j + n]
+        acc = (acc << 2) | (seg & 3).astype(np.int64)
+        bad |= seg == 255
+    acc[bad] = -1
+    return acc
+
+
+# --- intrinsic complexity -----------------------------------------------------
+AU_SET = (0, 3)          # A, T/U
+PY_SET = (1, 3)          # C, T/U -- pyrimidines
+
+
+def flanking_au(codes, k, starts=None, flank=30, bases=AU_SET):
+    """AU fraction of the sequence FLANKING each window, the window itself excluded.
+
+    This is the miRNA-context variable, not a repeat measure: local AU near a seed
+    match is the established determinant of site efficacy (Grimson 2007), read as a
+    proxy for weaker secondary structure and so better access to the site. It is
+    reported on its own rather than folded into `complexity`, because measured across
+    149 human 3'UTRs it is AU that separates 8mer from 7mer-m8 site contexts
+    (0.599 vs 0.561, p=0.0006) while the complexity composite does not (p=0.12): the
+    tandem, homopolymer and DUST terms dilute the compositional signal to nothing.
+
+    Returns (plain, weighted). `plain` is the AU fraction over `flank` nt each side.
+    `weighted` applies the 1/distance weighting of the TargetScan context+ local_AU
+    feature, so bases nearest the site count most. Both ignore ambiguous bases, and
+    both renormalise at the sequence ends, where fewer flanking bases exist.
+    """
+    n_win = len(codes) - k + 1
+    if n_win <= 0:
+        return np.zeros(0), np.zeros(0)
+    starts = np.arange(n_win) if starts is None else np.asarray(starts, dtype=np.int64)
+    want = np.isin(codes, np.asarray(bases))
+    is_au = np.where(codes == 255, np.nan, want.astype(float))
+    n = len(codes)
+
+    m = len(starts)
+    plain_num = np.zeros(m); plain_den = np.zeros(m)
+    wt_num = np.zeros(m); wt_den = np.zeros(m)
+    # One pass per offset: 30 vector operations, which is cheaper than it looks and far
+    # easier to check than an index-juggling convolution.
+    for j in range(1, flank + 1):
+        w = 1.0 / j
+        for idx in (starts - j, starts + k - 1 + j):
+            ok = (idx >= 0) & (idx < n)
+            vals = np.zeros(m); valid = np.zeros(m, dtype=bool)
+            vals[ok] = np.nan_to_num(is_au[idx[ok]])
+            valid[ok] = ~np.isnan(is_au[idx[ok]])
+            plain_num += np.where(valid, vals, 0.0)
+            plain_den += valid
+            wt_num += np.where(valid, vals * w, 0.0)
+            wt_den += valid * w
+    with np.errstate(invalid="ignore", divide="ignore"):
+        plain = np.where(plain_den > 0, plain_num / plain_den, np.nan)
+        weighted = np.where(wt_den > 0, wt_num / wt_den, np.nan)
+    return plain, weighted
+
+
+def upstream_ppt(codes, k, starts=None, lo=5, hi=40, tract=15):
+    """The polypyrimidine tract 5' of each window, as a splice model would read it.
+
+    A PPT is a run of pyrimidines a short way UPSTREAM of a 3' splice site, not a
+    pyrimidine-rich neighbourhood either side of it, so this is deliberately
+    asymmetric and deliberately a tract rather than a mean: `score` is the best
+    pyrimidine fraction of any `tract`-nt stretch inside the window [start-hi,
+    start-lo), and `run` is the longest unbroken pyrimidine run in the same region.
+    An antisense Alu's poly-T arm is what this is built to find.
+
+    ASSUMES THE SEQUENCE IS IN TRANSCRIPT ORIENTATION. On a minus-strand gene the
+    caller must hand over the reverse complement, or "upstream" is the wrong end.
+    """
+    n_win = len(codes) - k + 1
+    if n_win <= 0:
+        return np.zeros(0), np.zeros(0)
+    starts = np.arange(n_win) if starts is None else np.asarray(starts, dtype=np.int64)
+    is_py = np.isin(codes, np.asarray(PY_SET)) & (codes != 255)
+    cum = np.concatenate([[0], np.cumsum(is_py)])
+    n = len(codes)
+
+    # best pyrimidine fraction of any tract-length stretch in the upstream region
+    offs = np.arange(0, (hi - lo) - tract + 1)
+    if offs.size == 0:
+        offs = np.array([0])
+    i = (starts[:, None] - hi) + offs[None, :]
+    ok = (i >= 0) & (i + tract <= n)
+    i_safe = np.clip(i, 0, max(n - tract, 0))
+    frac = (cum[i_safe + tract] - cum[i_safe]) / float(tract)
+    frac = np.where(ok, frac, np.nan)
+    # Windows near the sequence start have no upstream region at all, so their row is
+    # entirely NaN. That is the right answer, not a problem, and nanmax warns about it
+    # on every run; the warning would land on stderr of a script whose stdout is parsed.
+    with np.errstate(invalid="ignore"), warnings_module.catch_warnings():
+        warnings_module.simplefilter("ignore", RuntimeWarning)
+        score = np.nanmax(frac, axis=1) if frac.size else np.full(len(starts), np.nan)
+
+    # longest unbroken pyrimidine run in the same region
+    width = hi - lo
+    j = (starts[:, None] - hi) + np.arange(width)[None, :]
+    inside = (j >= 0) & (j < n)
+    R = np.where(inside, is_py[np.clip(j, 0, n - 1)], False)
+    best = np.zeros(len(starts), dtype=np.int32)
+    run = np.zeros(len(starts), dtype=np.int32)
+    for c in range(width):
+        run = np.where(R[:, c], run + 1, 0)
+        best = np.maximum(best, run)
+    return score, best
+
+
+def window_complexity(codes, k, starts=None):
+    """Per-window metrics, oriented so 1.0 = complex and 0.0 = repetitive.
+
+    `starts` selects which windows to score. Pass it: the previous version built the
+    full sliding-window array and let the caller subsample afterwards, which on a
+    550 kb pre-mRNA meant 550,000 windows and a ~210 MB peak to produce the few
+    thousand values anything downstream could use.
+    """
+    n_win = len(codes) - k + 1
+    if n_win <= 0:
+        raise ValueError("sequence (%d nt) shorter than the window (%d)" % (len(codes), k))
+    starts = np.arange(n_win) if starts is None else np.asarray(starts, dtype=np.int64)
+    W = codes[starts[:, None] + np.arange(k)]
+    has_n = (W == 255).any(axis=1)
+    Wc = np.where(W == 255, 0, W)
+
+    counts = np.stack([(Wc == b).sum(axis=1) for b in range(4)], axis=1).astype(float)
+    p = counts / max(k, 1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        terms = np.where(p > 0, p * np.log(p), 0.0)
+    entropy = -terms.sum(axis=1) / np.log(min(4, k))
+
+    same = Wc[:, 1:] == Wc[:, :-1]
+    best = np.ones(Wc.shape[0], dtype=np.int32)
+    run = np.ones(Wc.shape[0], dtype=np.int32)
+    for j in range(same.shape[1]):
+        run = np.where(same[:, j], run + 1, 1)
+        best = np.maximum(best, run)
+    homo = best
+
+    tandem = np.zeros(Wc.shape[0])
+    period = np.zeros(Wc.shape[0], dtype=np.int8)
+    for pr in range(1, min(MAX_PERIOD, k - 1) + 1):
+        frac = (Wc[:, pr:] == Wc[:, :-pr]).mean(axis=1)
+        better = frac > tandem
+        tandem = np.where(better, frac, tandem)
+        period = np.where(better, pr, period)
+    # Random sequence matches position+p a quarter of the time, so chance-correct
+    # before penalising: raw 0.42 at period 6 is noise, not a repeat.
+    tandem_adj = np.clip((tandem - 0.25) / 0.75, 0, 1)
+
+    if k >= 4:
+        trip = Wc[:, :-2].astype(np.int32) * 16 + Wc[:, 1:-1] * 4 + Wc[:, 2:]
+        s = np.sort(trip, axis=1)
+        eq = s[:, 1:] == s[:, :-1]
+        dust = np.zeros(Wc.shape[0])
+        run = np.ones(Wc.shape[0], dtype=np.int32)
+        for j in range(eq.shape[1]):
+            run = np.where(eq[:, j], run + 1, 1)
+            dust += np.where(eq[:, j], run - 1, 0)
+        n_trip = trip.shape[1]
+        dust = dust / (n_trip * (n_trip - 1) / 2) if n_trip > 1 else dust
+    else:
+        dust = np.zeros(Wc.shape[0])
+
+    au_self = ((Wc == 0) | (Wc == 3)).mean(axis=1)
+    py_self = ((Wc == 1) | (Wc == 3)).mean(axis=1)
+    homo_term = 1.0 - np.clip((homo - 4) / max(k - 4, 1), 0, 1)
+    composite = (0.35 * entropy + 0.25 * (1.0 - tandem_adj)
+                 + 0.20 * homo_term + 0.20 * (1.0 - dust))
+    composite = np.where(has_n, np.nan, np.clip(composite, 0, 1))
+    return {"complexity": composite, "entropy": entropy, "maxHomopolymer": homo, "au": au_self, "py": py_self,
+            "tandemFraction": tandem, "tandemPeriod": period, "dust": dust,
+            "hasAmbiguous": has_n}
+
+
+# --- reference occurrence -----------------------------------------------------
+def open_index(name):
+    return ots.load_index(ots.resolve_index_dir(name))
+
+
+def resolve_species(entry):
+    """A species key -> the first index name that actually exists on disk."""
+    names = SPECIES_INDEX.get(str(entry).strip().lower(), [str(entry)])
+    for n in names:
+        try:
+            ots.resolve_index_dir(n)
+            return n
+        except KeyError:
+            continue
+    return None
+
+
+def exact_counts(idx, qcodes, k, starts, on_symbol):
+    """Exact occurrences of each window, split on-target / off-target.
+
+    Seeded off the index's W-mer CSR rather than scanning the whole reference:
+    a linear 2-bit sweep is ~30x more work on a 440 Mbp transcriptome. When the
+    window is long enough to carry two disjoint seeds (k >= 2W) the two
+    candidate position sets are intersected first, which drops the candidate
+    volume by ~4^W and leaves almost nothing to verify.
+    """
+    W = idx["W"]
+    off_csr = idx["offsets"]
+    pos = idx["positions"]
+    coff = idx["contig_off"]
+    symbols = idx["symbols"]
+
+    seed = rolling_codes(qcodes, W)
+    on = np.zeros(len(starts), dtype=np.int64)
+    off = np.zeros(len(starts), dtype=np.int64)
+    examples = {}
+
+    for i, s in enumerate(starts):
+        s = int(s)
+        if s >= len(seed) or seed[s] < 0:
+            on[i] = off[i] = -1
+            continue
+        c0 = int(seed[s])
+        cand = np.asarray(pos[off_csr[c0]:off_csr[c0 + 1]], dtype=np.int64)
+        if k >= 2 * W and (s + W) < len(seed) and seed[s + W] >= 0:
+            c1 = int(seed[s + W])
+            other = np.asarray(pos[off_csr[c1]:off_csr[c1 + 1]], dtype=np.int64) - W
+            cand = np.intersect1d(cand, other, assume_unique=False)
+        if cand.size == 0:
+            continue
+
+        win = ots._decode_windows(idx, cand, k)
+        hit = (win == qcodes[s:s + k][None, :]).all(axis=1)
+        cand = cand[hit]
+        if cand.size == 0:
+            continue
+
+        ci = np.searchsorted(coff, cand, side="right") - 1
+        inside = (cand + k) <= coff[ci + 1]
+        cand, ci = cand[inside], ci[inside]
+        if cand.size == 0:
+            continue
+        # N-runs are excluded from the seed index at build time, but the tail of
+        # a window can still overlap one; decoding maps N to A, so verify.
+        ok = np.array([ots._window_ok(idx, int(a), int(a) + k) for a in cand])
+        cand, ci = cand[ok], ci[ok]
+
+        if on_symbol:
+            is_on = np.array([symbols[int(c)] == on_symbol for c in ci], dtype=bool)
+        else:
+            is_on = np.zeros(len(ci), dtype=bool)
+        on[i] = int(is_on.sum())
+        off[i] = int(len(ci) - on[i])
+        if off[i] and len(examples) < 50:
+            j = int(np.flatnonzero(~is_on)[0])
+            examples[int(s)] = {"contig": idx["names"][int(ci[j])],
+                                "start": int(cand[j] - coff[int(ci[j])])}
+    return on, off, examples
+
+
+def editdistance_counts(index_name, seq, k, starts, dist, on_symbol):
+    """Mismatch-tolerant counts, delegated wholesale to search.py."""
+    oligos = [{"id": int(s), "synthesisSequence": seq[int(s):int(s) + k]}
+              for s in starts]
+    res = ots.search([index_name], oligos, int(dist), "+-")
+    by_id = {str(o.get("id")): o for o in res.get("oligoQuery", [])}
+    on = np.zeros(len(starts), dtype=np.int64)
+    off = np.zeros(len(starts), dtype=np.int64)
+    idx = open_index(index_name)
+    sym_of = dict(zip(idx["names"], idx["symbols"]))
+    for i, s in enumerate(starts):
+        rec = by_id.get(str(int(s)))
+        if not rec:
+            on[i] = off[i] = -1
+            continue
+        for h in rec.get("offtarget", []) or []:
+            if on_symbol and sym_of.get(h.get("chr"), "") == on_symbol:
+                on[i] += 1
+            else:
+                off[i] += 1
+    return on, off, {}
+
+
+# --- entry point --------------------------------------------------------------
+def run(sequence, k=20, species=None, on_symbol=None, stride=None,
+        mode="exact", dist=2, flank=30, max_windows=None, progress=lambda p: None):
+    warnings = []
+    k = int(k)
+    if not K_MIN <= k <= K_MAX:
+        raise ValueError("window size must be %d-%d, got %d" % (K_MIN, K_MAX, k))
+    if k < MIN_MEANINGFUL_K:
+        warnings.append({
+            "scope": "k",
+            "reason": ("k=%d: a reference of R bases holds any k-mer about R/4^k "
+                       "times by chance, so off-target counts at this window size "
+                       "describe the alphabet rather than the transcript. The "
+                       "complexity track is still meaningful." % k)})
+
+    seq = "".join(str(sequence).split()).upper().replace("U", "T")
+    codes = encode(seq)
+    if len(codes) < k:
+        raise ValueError("sequence (%d nt) shorter than the window (%d)" % (len(codes), k))
+
+    n_win = len(codes) - k + 1
+    mode = (mode or "exact").lower()
+
+    # Which windows to score is settled first, and everything after it works on that
+    # subset. A DNM3-scale pre-mRNA is ~550 kb, so scoring every window means 550,000
+    # of them: a few hundred MB of metrics, a Python loop of that length per species in
+    # exact_counts, a JSON payload of tens of MB, and a track layer with more polygon
+    # points than the screen has pixels. Nothing downstream can use more than a few
+    # thousand, so the stride is capped to deliver about that many.
+    cap = int(max_windows) if max_windows else MAX_WINDOWS
+    if mode == "editdistance":
+        cap = min(cap, EDITDIST_MAX_WINDOWS)      # ~0.1 s per window per species
+    if stride:
+        stride = max(1, int(stride))
+    else:
+        stride = max(1, -(-n_win // cap))         # ceil, so n_win/stride <= cap
+    starts = np.arange(0, n_win, stride)
+    if stride > 1:
+        warnings.append({
+            "scope": "stride",
+            "reason": ("%d windows at k=%d; scoring every %d nt (%d windows) so the "
+                       "result stays usable. Pass an explicit stride to override, or "
+                       "highlight a region to scan it at full resolution."
+                       % (n_win, k, stride, len(starts)))})
+
+    comp = window_complexity(codes, k, starts)
+    flank = int(flank) if flank else 0
+    if flank > 0:
+        au_plain, au_weighted = flanking_au(codes, k, starts=starts, flank=flank)
+        py_plain, _ = flanking_au(codes, k, starts=starts, flank=flank, bases=PY_SET)
+    else:
+        au_plain = au_weighted = py_plain = np.full(len(starts), np.nan)
+    ppt_score, ppt_run = upstream_ppt(codes, k, starts=starts)
+
+    species = species or ["human"]
+    if isinstance(species, str):
+        species = [s for s in species.replace(",", " ").split() if s]
+
+    per_species, used = {}, []
+    for n, entry in enumerate(species):
+        index_name = resolve_species(entry)
+        if index_name is None:
+            warnings.append({"scope": str(entry),
+                             "reason": "no off-target index on this server for "
+                                       "'%s'; it is skipped" % entry})
+            continue
+        try:
+            if mode == "editdistance":
+                on, off, ex = editdistance_counts(index_name, seq, k, starts,
+                                                  dist, on_symbol)
+            else:
+                idx = open_index(index_name)
+                if k < idx["W"]:
+                    warnings.append({
+                        "scope": str(entry),
+                        "reason": "k=%d is below the index seed length W=%d, so "
+                                  "windows cannot be seeded; reference counts are "
+                                  "omitted for this species" % (k, idx["W"])})
+                    continue
+                on, off, ex = exact_counts(idx, codes, k, starts, on_symbol)
+        except Exception as exc:                        # noqa: BLE001
+            warnings.append({"scope": str(entry),
+                             "reason": "%s: %s" % (exc.__class__.__name__, exc)})
+            continue
+        per_species[str(entry)] = {"index": index_name,
+                                   "on": on.tolist(), "off": off.tolist(),
+                                   "examples": ex}
+        used.append(str(entry))
+        progress(int(100 * (n + 1) / max(len(species), 1)))
+
+    complexity = comp["complexity"]
+    if per_species:
+        offs = np.vstack([np.asarray(v["off"], dtype=float) for v in per_species.values()])
+        offs = np.where(offs < 0, np.nan, offs)
+        worst = np.nanmax(offs, axis=0)
+        uniqueness = 1.0 / (1.0 + np.nan_to_num(worst, nan=0.0))
+        ons = np.vstack([np.asarray(v["on"], dtype=float) for v in per_species.values()])
+        conserved = (ons >= 1).sum(axis=0).astype(int)
+    else:
+        worst = np.full(len(starts), np.nan)
+        uniqueness = np.full(len(starts), np.nan)
+        conserved = np.zeros(len(starts), dtype=int)
+        warnings.append({"scope": "reference",
+                         "reason": "no reference index was scanned; the score is "
+                                   "the complexity track alone"})
+
+    # AU is reported, never folded into the score. It answers a different question
+    # (site accessibility) from the one the score answers (is this window usable and
+    # unique), and quietly mixing it in would change what every existing number means.
+    score = complexity * uniqueness if per_species else complexity
+
+    def clean(a, nd=3):
+        """Floats to `nd` places; NaN to null. 3 places is past the precision of
+        anything that reads this and saves a fifth of the payload over 4."""
+        return [None if (x is None or (isinstance(x, float) and np.isnan(x))) else
+                (round(float(x), nd) if isinstance(x, float) else x) for x in a]
+
+    def sparse(a):
+        """Counts as {n, idx, val}, listing only non-zero entries.
+
+        Off-target counts are almost all zero -- that is the point of the track -- so
+        dense arrays spend most of their bytes writing "0" over and over. On five
+        species this was 120 KB of a 387 KB response, and the response has to arrive
+        and parse as a single piece.
+        """
+        arr = np.asarray(a)
+        nz = np.flatnonzero(arr != 0)
+        return {"n": int(arr.size), "idx": [int(i) for i in nz],
+                "val": [int(arr[i]) for i in nz]}
+
+    gradient = {
+        # 1-based window start. The centre is position + (k-1)/2, so it is derived on
+        # the client rather than sent as a second array of the same length.
+        "position": [int(s) + 1 for s in starts],
+        "complexity": clean(complexity),
+        "au": clean(comp["au"]),
+        "py": clean(comp["py"]),
+        "flankAu": clean(au_plain),
+        "flankPy": clean(py_plain),
+        "ppt": clean(ppt_score),
+        "pptRun": [int(x) for x in ppt_run],
+        "flankAuWeighted": clean(au_weighted),
+        "uniqueness": clean(uniqueness),
+        "worstOffTarget": sparse(np.nan_to_num(worst, nan=0.0).astype(int)),
+        "speciesOnTarget": [int(c) for c in conserved],
+        "score": clean(score),
+        "encoding": "count arrays are {n, idx, val}; only non-zero entries are listed",
+        "perSpecies": {kk: {"index": v["index"], "on": sparse(v["on"]),
+                            "off": sparse(v["off"]), "examples": v["examples"]}
+                       for kk, v in per_species.items()},
+    }
+    return {"mode": mode, "k": k, "stride": stride, "flank": flank,
+            "nWindows": int(len(starts)),
+            "sequenceLength": len(seq), "species": used, "geneSymbol": on_symbol,
+            "editDistance": int(dist) if mode == "editdistance" else 0,
+            "gradient": json.dumps(gradient), "warnings": warnings}
+
+
+def _main_cli(argv):
+    """Testing entry point: uniqueness-gradient.py <fasta> <k> <species> [symbol]"""
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("fasta")
+    ap.add_argument("--k", type=int, default=20)
+    ap.add_argument("--species", default="human")
+    ap.add_argument("--gene", default=None)
+    ap.add_argument("--stride", type=int, default=None)
+    ap.add_argument("--mode", default="exact")
+    ap.add_argument("--dist", type=int, default=2)
+    ap.add_argument("--flank", type=int, default=30)
+    ap.add_argument("--max-windows", type=int, default=None)
+    a = ap.parse_args(argv)
+    seq = "".join(l.strip() for l in open(a.fasta) if not l.startswith(">"))
+    out = run(seq, a.k, a.species.split(","), a.gene, a.stride, a.mode, a.dist,
+              a.flank, a.max_windows)
+    g = json.loads(out.pop("gradient"))
+    print(json.dumps(out, indent=2))
+    return g
+
+
+if __name__ == "__main__":
+    try:
+        from ion import works
+    except ImportError:
+        _main_cli(sys.argv[1:])
+    else:
+        result = run(works.param(1), works.param(2) or 20, works.param(3),
+                     works.param(4), works.param(5), works.param(6) or "exact",
+                     works.param(7) or 2,
+                     30 if works.param(8) is None else works.param(8),
+                     works.param(9), progress=works.progress)
+        works.progress(100)
+        works.resolve(result)

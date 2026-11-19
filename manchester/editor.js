@@ -170,10 +170,10 @@ function (path, config) {
         // `style`. The showWidget call below stays as the handshake that says the dashboard
         // is mounted.
         //
-        // Same API as before: set(pct) / setNews(list) / done(). setNews is kept so the caller
-        // below does not change, and now does nothing: the news is not part of a loader.
+        // API: set(pct) / done(). There was a setNews(list) too, feeding a "The Baja Times"
+        // newspaper; the newspaper is gone and so is it.
         const loadingPaper = (() => {
-            const noop = { set: () => { }, setNews: () => { }, done: () => { } };
+            const noop = { set: () => { }, done: () => { } };
             try {
                 if (typeof document === 'undefined' || !document.body) return noop;
                 if (document.getElementById('baja-loading-notice')) return noop;
@@ -235,7 +235,6 @@ function (path, config) {
                             pctEl.textContent = Math.round(v) + '%';
                         } catch (e) { }
                     },
-                    setNews: () => { },
                     done: () => {
                         if (gone) return;
                         gone = true;
@@ -293,19 +292,6 @@ function (path, config) {
             //         console.warn('subscription check failed; leaving the editor unrestricted', e);
             //     }
             // }
-            // News headlines for the startup newspaper shown INSIDE the progress bar while
-            // the editor loads (server-installed via get-news.py; the widget falls back to
-            // its own defaults if this is empty). Fetched here so it's ready when the bar
-            // first renders; it auto-hides the moment loading reaches 100%.
-            let __newsMsgs = [];
-            try {
-                let __nem = new EngineMonitor(() => { });
-                let __nr = await exec('py/bio/get-news.py', __nem);
-                try { __newsMsgs = JSON.parse(__nr.messages) || []; } catch (e) { __newsMsgs = []; }
-            } catch (e) { __newsMsgs = []; }
-            // The paper is already on screen with a placeholder headline; give it the real ones.
-            try { loadingPaper.setNews(__newsMsgs); } catch (e) { }
-
             // Thin loading progress bar at the very top of the page, sitting behind the top
             // component buttons (replaces the old full-screen progress widget + newspaper). A fixed
             // 3px bar whose fill tracks 0→100%, then fades out and removes itself.
@@ -328,8 +314,8 @@ function (path, config) {
                 progressBar = (pct) => {
                     try {
                         const p = Math.max(0, Math.min(100, +pct || 0));
-                        // One callback drives both: the newspaper's own bar while it is up, and
-                        // the thin bar at the top of the page that outlives it.
+                        // One callback drives both: the corner loading card while it is up,
+                        // and the thin bar at the top of the page that outlives it.
                         try { loadingPaper.set(p); if (p >= 100) loadingPaper.done(); } catch (e) { }
                         if (!__ensurePb()) return;
                         __pbFill.style.width = p + '%';
@@ -2413,52 +2399,6 @@ function (path, config) {
                     return out;
                 })();
 
-                // Installed news/message list (server-side; seeded on first install). Rendered as
-                // a dismissible NEWSPAPER card centered over the canvas at startup, so the gene
-                // graph keeps its full screen real estate — no permanent top panel.
-                // __newsMsgs was already fetched at startup and is shown inside the
-                // progress-bar newspaper while the editor loads.
-
-                const __showNewspaper = (messages) => {
-                    try {
-                        const esc = (s) => ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                        const old = document.getElementById('baja-news-overlay');
-                        if (old) old.remove();
-                        let dateStr = '';
-                        try { dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); } catch (e) { }
-                        const articles = (messages || []).map((m, i) =>
-                            '<div style="' + (i > 0 ? 'border-top:1px solid #cbb6a0; padding-top:10px; margin-top:10px;' : '') + '">'
-                            + '<div style="font-size:17px; font-weight:700; line-height:1.3;">' + esc(m) + '</div>'
-                            + '</div>'
-                        ).join('');
-                        const wrap = document.createElement('div');
-                        wrap.id = 'baja-news-overlay';
-                        wrap.style.cssText = 'position:fixed; z-index:99999; left:50%; top:46%; transform:translate(-50%,-50%); width:min(560px,86vw); cursor:pointer;';
-                        wrap.innerHTML =
-                            '<div style="background:#f6f1e3; color:#1a1a1a; border:2px solid #1a1a1a; box-shadow:0 16px 48px rgba(0,0,0,0.42); padding:20px 24px; font-family:Georgia,\'Times New Roman\',serif;">'
-                            + '<div style="text-align:center; border-bottom:4px double #1a1a1a; padding-bottom:8px; margin-bottom:12px;">'
-                            + '<div style="font-size:34px; font-weight:900; letter-spacing:1px; font-variant:small-caps; line-height:1;">The Baja Times</div>'
-                            + '<div style="font-size:11px; text-transform:uppercase; letter-spacing:2px; color:#555; margin-top:6px;">' + esc(dateStr) + ' &nbsp;&bull;&nbsp; Genomics Edition</div>'
-                            + '</div>'
-                            + articles
-                            + '<div style="text-align:center; font-size:10px; color:#8a8172; margin-top:14px; border-top:1px solid #cbb6a0; padding-top:8px; font-family:system-ui,sans-serif;">click to dismiss</div>'
-                            + '</div>';
-                        const __dismiss = () => {
-                            try { wrap.remove(); } catch (e) { }
-                            try { document.removeEventListener('mousedown', __onDoc, true); } catch (e) { }
-                        };
-                        const __onDoc = (ev) => {
-                            try { if (!wrap.contains(ev.target)) __dismiss(); } catch (e) { __dismiss(); }
-                        };
-                        wrap.addEventListener('click', __dismiss);
-                        document.body.appendChild(wrap);
-                        // Click anywhere outside the newspaper to dismiss it (added on the next
-                        // tick so the click that opened it doesn't immediately close it).
-                        setTimeout(() => { try { document.addEventListener('mousedown', __onDoc, true); } catch (e) { } }, 0);
-                        setTimeout(__dismiss, 20000);
-                    } catch (e) { }
-                };
-
                 // ---- Recorder / playback, for one account ------------------------------------
                 //
                 // These record a session as a demo.js script and replay one. They are authoring
@@ -2699,6 +2639,30 @@ function (path, config) {
                                                         try { graph.hideMenu(); } catch (e) { }
                                                         try { graph.showSideMenu(null); } catch (e) { }
                                                         const n = (graph.track || []).length;
+                                                        // THE TRACK A DESIGN RUNS ON. A design is per track, so the
+                                                        // card has to resolve one: the clicked track, the only one
+                                                        // open, or the only one carrying a selection. Nothing is
+                                                        // opened on a guess when several are equally plausible.
+                                                        const __designTrack = () => {
+                                                            try {
+                                                                const all = (graph.track || []).filter(Boolean);
+                                                                if (graph.selectedTrack && all.indexOf(graph.selectedTrack) >= 0) return graph.selectedTrack;
+                                                                if (all.length === 1) return all[0];
+                                                                const sel = all.filter((t) => t.markstart != null
+                                                                    && t.markend != null && t.markend > t.markstart);
+                                                                if (sel.length === 1) return sel[0];
+                                                            } catch (e) { }
+                                                            return null;
+                                                        };
+                                                        const __openDesign = (preset) => {
+                                                            const t = __designTrack();
+                                                            if (!t) {
+                                                                try { graph.setMessage(' Click the track you want to design on first. '); } catch (e) { }
+                                                                return;
+                                                            }
+                                                            return exec('baja/manchester/menu/track-design-menu.js',
+                                                                graph, t, genegraph_panel_layout, preset || null);
+                                                        };
                                                         exec('baja/lib/shelf.js', {
                                                             id: 'baja-tracks-library',
                                                             title: 'Tracks',
@@ -2753,6 +2717,57 @@ function (path, config) {
                                                                     badge: 'Clipboard',
                                                                     blurb: 'Merge the tracks from a copied graph into this canvas, alongside whatever is already here. Nothing on the canvas is replaced.',
                                                                     open: () => exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'paste')
+                                                                },
+                                                                // DESIGN, reachable from Tools > Track rather than only by
+                                                                // clicking the track itself. The first card is the whole
+                                                                // library -- therapeutics, assay, off-targets, compounds,
+                                                                // clinical -- and the rest open one designer directly, so
+                                                                // the modalities are visible here instead of being two
+                                                                // clicks inside a shelf nobody knew to open.
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Design library',
+                                                                    badge: 'Everything',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Every designer for one track in one place: the ASO and siRNA therapeutics, the primer and probe assay designers, off-target screening, the compounds already on the track, and the clinical reference library.',
+                                                                    open: () => __openDesign(null)
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Gapmer ASO',
+                                                                    badge: 'Therapeutic',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'RNase H gapmer ASOs tiled over the selected sequence, or the whole track when nothing is selected. Opens its Default / Advanced dialog before it runs.',
+                                                                    open: () => __openDesign('gapmer')
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Steric-blocking ASO',
+                                                                    badge: 'Therapeutic',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Steric-blocking and splice-switching ASOs, for moving an exon in or out rather than degrading the transcript.',
+                                                                    open: () => __openDesign('steric')
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'siRNA',
+                                                                    badge: 'Therapeutic',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Double-stranded RISC siRNA duplexes designed across the target, scored and ranked.',
+                                                                    open: () => __openDesign('sirna')
+                                                                },
+                                                                {
+                                                                    section: 'Design on a track',
+                                                                    title: 'Primer probes',
+                                                                    badge: 'Assay',
+                                                                    ready: n > 0,
+                                                                    readyNote: 'load a track first',
+                                                                    blurb: 'Assay design over the track: primer3, the in-house djPrimer scorer, or exon-exon junction probes.',
+                                                                    open: () => __openDesign('assay')
                                                                 }
                                                             ]
                                                         });
@@ -3180,188 +3195,8 @@ function (path, config) {
                                                                                 name: track.name
                                                                             };
 
-                                                                            const models = [
-                                                                                {
-                                                                                    // The BajaSplice models (py/bajasplice-lib, py/bajair-lib), run on THIS
-                                                                                    // exon, in place of the old LJSplice v2 window. Each entry hands the track
-                                                                                    // and the exon to the same script the Models library runs, so nothing asks
-                                                                                    // for a second click on the track.
-                                                                                    label: 'BajaSplice \u25b8',
-                                                                                    click: async (xwc, ywc) => {
-                                                                                        if (!selectedTrack) {
-                                                                                            graph.setMessage(" No track selected ");
-                                                                                            return;
-                                                                                        }
-                                                                                        const lo = Math.min(+annotation.xi, +annotation.xf);
-                                                                                        const hi = Math.max(+annotation.xi, +annotation.xf);
-                                                                                        // Which end is which flips with the strand (the same rule cis-attribution.js uses).
-                                                                                        const plus = +selectedTrack.strand >= 0;
-                                                                                        const acceptorAt = Math.round(plus ? +annotation.xi : +annotation.xf);
-                                                                                        const donorAt = Math.round(plus ? +annotation.xf : +annotation.xi);
-                                                                                        const run = (path, ...args) => {
-                                                                                            try { graph.showSideMenu(null); } catch (e) { }
-                                                                                            Promise.resolve(exec(path, graph, genegraph_panel_layout, selectedTrack, ...args))
-                                                                                                .catch((e) => { try { graph.setMessage(' BajaSplice: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } });
-                                                                                        };
-                                                                                        // Opened AT THE POINTER, not in the side panel. This list is reached by clicking
-                                                                                        // an item in a floating menu, so sending it to the top-left panel moves the
-                                                                                        // reader's eye off the exon they just clicked and leaves the floating session
-                                                                                        // behind it looking abandoned. openMenuAtPointer (flexigraph/gene.js) draws the
-                                                                                        // same list in the same style where the click happened; showSideMenu stays as
-                                                                                        // the fallback for a graph that does not have it.
-                                                                                        const __bajaSplice = [
-                                                                                            {
-                                                                                                label: 'Splice-site strength (SpliceNet)',
-                                                                                                click: () => run('baja/bio/splicing/splicing-profile.js', { start: lo, end: hi }, 'sites'),
-                                                                                                move: () => log('')
-                                                                                            },
-                                                                                            {
-                                                                                                label: 'Exon inclusion, PSI (PSINet)',
-                                                                                                click: () => run('baja/bio/splicing/splicing-profile.js', null, 'psi'),
-                                                                                                move: () => log('')
-                                                                                            },
-                                                                                            {
-                                                                                                label: 'Cis-regulatory windows at the acceptor',
-                                                                                                click: () => run('baja/bio/splicing/cis-attribution.js', { site: acceptorAt, which: 'acceptor' }),
-                                                                                                move: () => log('')
-                                                                                            },
-                                                                                            {
-                                                                                                label: 'Cis-regulatory windows at the donor',
-                                                                                                click: () => run('baja/bio/splicing/cis-attribution.js', { site: donorAt, which: 'donor' }),
-                                                                                                move: () => log('')
-                                                                                            },
-                                                                                            {
-                                                                                                label: 'Intron retention (BajaIR)',
-                                                                                                click: () => run('baja/bio/splicing/intron-retention.js'),
-                                                                                                move: () => log('')
-                                                                                            }
-                                                                                        ];
-                                                                                        if (graph.openMenuAtPointer) graph.openMenuAtPointer(__bajaSplice, 'BajaSplice');
-                                                                                        else graph.showSideMenu(__bajaSplice);
-                                                                                    },
-                                                                                    move: () => log('')
-                                                                                },
-
-                                                                                {
-                                                                                    label: 'Phylon',
-
-                                                                                    click: async (xwc, ywc) => {
-                                                                                        async function runCrypticExonFinder({ graph, selectedTrack, annotation, exec, infoPrompt, scriptPath }) {
-                                                                                            if (!selectedTrack) {
-                                                                                                graph.setMessage(" No track selected ");
-                                                                                                return;
-                                                                                            }
-
-                                                                                            graph.showSideMenu(null);
-
-                                                                                            const xi = annotation.xi - 4;
-                                                                                            const xf = annotation.xf + 4;
-
-                                                                                            const r = await exec(
-                                                                                                scriptPath,
-                                                                                                selectedTrack.getSequenceRange(xi, xf),
-                                                                                                selectedTrack.chr,
-                                                                                                xi,
-                                                                                                xf,
-                                                                                                selectedTrack.strand
-                                                                                            );
-
-                                                                                            const cryptic_exons = await exec('baja/bio/splicing/cryptic-exons');
-                                                                                            const g = cryptic_exons.generateCrypticExons(r, { xiAnchor: xi });
-
-                                                                                            for (let cry of g) selectedTrack.add(cry);
-
-                                                                                            if (r && r.status === "file_downloading") {
-                                                                                                infoPrompt("Model building; this only needs to happen once but may take several minutes");
-                                                                                                return;
-                                                                                            }
-                                                                                        }
-
-                                                                                        const submenu = [
-                                                                                            {
-                                                                                                label: 'Human',
-                                                                                                click: async () => {
-                                                                                                    await runCrypticExonFinder({
-                                                                                                        graph,
-                                                                                                        selectedTrack,
-                                                                                                        annotation,
-                                                                                                        exec,
-                                                                                                        infoPrompt,
-                                                                                                        scriptPath: 'py/splicing/cryptic-exon-finder.py'
-                                                                                                    });
-                                                                                                },
-                                                                                                move: () => log('')
-                                                                                            },
-                                                                                            {
-                                                                                                label: 'Mouse',
-                                                                                                click: async () => {
-                                                                                                    await runCrypticExonFinder({
-                                                                                                        graph,
-                                                                                                        selectedTrack,
-                                                                                                        annotation,
-                                                                                                        exec,
-                                                                                                        infoPrompt,
-                                                                                                        scriptPath: 'py/splicing/cryptic-exon-finder-mm9.py'
-                                                                                                    });
-                                                                                                },
-                                                                                                move: () => log('')
-                                                                                            }
-                                                                                        ];
-
-                                                                                        graph.showSideMenu(submenu);
-                                                                                    },
-                                                                                    move: () => log('')
-                                                                                },
-
-                                                                                {
-                                                                                    label: 'Secondary structure',
-                                                                                    click: async (xwc, ywc) => {
-                                                                                        if (!selectedTrack) {
-                                                                                            infoPrompt(" No track selected ");
-                                                                                            return;
-                                                                                        }
-
-                                                                                        selectedTrack.markstart = annotation.xi;
-                                                                                        selectedTrack.markend = annotation.xf;
-
-                                                                                        let sequence = selectedTrack.getHighlightedSequence();
-                                                                                        if (sequence.length > 7000) {
-                                                                                            infoPrompt(" Sequence is too long for the prediction tool (>7kb)");
-                                                                                            return;
-                                                                                        }
-
-                                                                                        let lb = null;
-                                                                                        let engineMonitor = new EngineMonitor((msg) => {
-                                                                                            lb.setHTML(msg);
-                                                                                        });
-
-                                                                                        CurrentLayout.setComponent('buttonMenuPanel', {
-                                                                                            wid: 'html',
-                                                                                            refCallback: createIon((p) => {
-                                                                                                lb = p;
-                                                                                            }),
-                                                                                            data: '<font color="blue"> Generating secondary structure.... </font>'
-                                                                                        });
-
-                                                                                        let t = await selectedTrack.createSecondaryStructure(
-                                                                                            selectedTrack.markstart,
-                                                                                            selectedTrack.getHighlightedSequence(),
-                                                                                            selectedTrack.name,
-                                                                                            engineMonitor
-                                                                                        );
-                                                                                        t.anchorX = selectedTrack.markstart;
-                                                                                        t.xindex_start = selectedTrack.markstart;
-                                                                                        t.tgraph.yi = selectedTrack.tgraph.yi;
-                                                                                        t.anchorY = selectedTrack.tgraph.yi;
-
-                                                                                        setTimeout(async () => {
-                                                                                            graph.showSideMenu(null);
-                                                                                            graph.setCenterMessage(" Secondary structure is complete ");
-                                                                                        }, 10000);
-                                                                                    },
-                                                                                    move: () => log('')
-                                                                                }
-                                                                            ];
+                                                                            const models = await exec('baja/bio/splicing/exon-ai-models.js',
+                                                                                graph, genegraph_panel_layout, selectedTrack, annotation);
 
                                                                             graph.showSideMenu(models);
 
@@ -3964,17 +3799,6 @@ function (path, config) {
                     if (!__reapplied && __refitTries < 30) setTimeout(__refitAfterMount, 200);
                 };
                 setTimeout(__refitAfterMount, 150);
-
-                // Show the installed news as a newspaper overlay at startup (click / auto-dismiss),
-                // keeping full screen space for the graph.
-                // The newspaper now appears INSIDE the startup progress bar while loading
-                // (and auto-hides at 100%), so the separate post-load overlay is disabled to
-                // avoid showing it twice. (__showNewspaper is kept for manual/other use.)
-                // try {
-                //     if (__newsMsgs && __newsMsgs.length) {
-                //         setTimeout(() => { try { __showNewspaper(__newsMsgs); } catch (e) { } }, 600);
-                //     }
-                // } catch (e) { }
 
                 // Second access gate — same free-tier exemption as the one at the top of the
                 // file. Missing this one would let a free user open the editor and then get

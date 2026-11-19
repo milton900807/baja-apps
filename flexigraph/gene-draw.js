@@ -584,9 +584,21 @@ function () {
             let ctx = null;
             try { ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null; } catch (e) { ctx = null; }
             if (!ctx) return;
-            const sx = (graph.X(xs) + graph.X(xf)) / 2;
+            const __ax = graph.X(xs), __bx = graph.X(xf);
+            const sx = (__ax + __bx) / 2;
             const sy = graph.Y(y);
             if (!isFinite(sx) || !isFinite(sy)) return;
+            // AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE, THE ARROW IS NOISE. These marks
+            // exist for a view too wide to show the compounds -- at 571 kb a 20-mer is a
+            // fraction of a pixel and a track with 47 of them looks empty. Once the compound
+            // is drawn wide enough to see, the arrow points at something already on screen,
+            // and a row of them over a tiled design stands in front of the very thing it is
+            // announcing. Measured in SCREEN pixels off the mark's own span, which is the
+            // compound's span, so it follows the zoom rather than a zoom level guessed at.
+            // flexigraph/oligo.js uses the same threshold to decide when the per-compound
+            // sequence label may come back, so the two swap over at the same moment.
+            const COMPOUND_VISIBLE_PX = 40;
+            if (isFinite(__ax) && isFinite(__bx) && Math.abs(__bx - __ax) >= COMPOUND_VISIBLE_PX) return;
 
             // ONE ARROW PER PLACE. The registry lives on the track's graph and resets itself:
             // seeing an annotation twice means a new frame has started, because every mark is
@@ -604,10 +616,45 @@ function () {
             let n = 1;
             if (reg) { n = reg.bins[bin] = (reg.bins[bin] || 0) + 1; }
 
-            const TIP = 10, STEM = 30, HW = 15, HH = 17;
+            // HW/HH are the arrowhead's width and height. Smaller than the stem is long,
+            // so the head reads as a point rather than a block sitting on the track.
+            const TIP = 10, STEM = 30, HW = 9, HH = 10;
+
+            // HUNG FROM THE TOP OF THE TRACK, NOT STOOD ON THE BASELINE. Anchored just above
+            // the baseline the arrows sat in the middle of everything the track draws there --
+            // variants, exon numbers, the sequence -- and pointed into the busiest band on
+            // screen. The top edge is empty, and an arrow hanging from it still points down at
+            // the compound it marks.
+            //
+            // Falls back to the old anchor on a track too short to hold the arrow, where
+            // hanging it from the top would put the head below the baseline and mark the wrong
+            // place; a track that small has little else drawn in the way either.
+            // The stem is shortened to whatever the track can hold, so the arrow never reaches
+            // above the top edge and into the track above it. A short track gets a short arrow
+            // rather than one that marks a neighbour's sequence.
+            let __sy = sy, __stem = STEM;
+            try {
+                const __baseY = graph.Y(tgraph.Y(0));
+                const __hPx = Math.abs(graph.screenHeight ? graph.screenHeight(tgraph.height) : 0) || 0;
+                if (isFinite(__baseY) && __hPx > 0) {
+                    // Shorter than the arrowhead itself: there is no arrow that both
+                    // fits and points at this track, and one drawn anyway would mark the
+                    // track above. A band that thin shows no compounds to point at either.
+                    if (__hPx <= TIP + 12) return;
+                    __stem = Math.max(8, Math.min(STEM, __hPx - TIP - 6));
+                    __sy = (__baseY - __hPx) + TIP + __stem + 2;
+                }
+            } catch (e) { __sy = sy; __stem = STEM; }
+
+            // TRANSLUCENT, so the arrows sit over the track rather than on top of it: at this
+            // zoom they are a pointer to what is underneath, and an opaque one hides the thing
+            // it is pointing at. The dark outline pass keeps enough edge to stay legible over a
+            // pale exon and a dark splice arc alike.
+            const ARROW_ALPHA = 0.34;
             if (n === 1) {
                 ctx.save();
                 try {
+                    ctx.globalAlpha = ARROW_ALPHA;
                     ctx.setLineDash([]);
                     ctx.shadowColor = 'transparent';
                     ctx.shadowBlur = 0;
@@ -617,19 +664,21 @@ function () {
                     ctx.strokeStyle = 'rgba(15,23,42,0.85)';
                     ctx.lineWidth = 6;
                     ctx.beginPath();
-                    ctx.moveTo(sx, sy - TIP - STEM);
-                    ctx.lineTo(sx, sy - TIP);
+                    ctx.moveTo(sx, __sy - TIP - __stem);
+                    ctx.lineTo(sx, __sy - TIP);
                     ctx.stroke();
                     ctx.strokeStyle = c;
                     ctx.lineWidth = 3;
                     ctx.beginPath();
-                    ctx.moveTo(sx, sy - TIP - STEM);
-                    ctx.lineTo(sx, sy - TIP);
+                    ctx.moveTo(sx, __sy - TIP - __stem);
+                    ctx.lineTo(sx, __sy - TIP);
                     ctx.stroke();
+                    // Math.PI/2 turns the arrowhead, which is drawn pointing right, to point
+                    // down. Drawn INSIDE the save, so it carries the same alpha as the stem --
+                    // outside it the head came out solid over a see-through shaft.
+                    try { graph.drawArrowhead(sx, __sy - TIP, Math.PI / 2, HW, HH, c); } catch (e) { }
                 } catch (e) { }
                 ctx.restore();
-                // Math.PI/2 turns the arrowhead, which is drawn pointing right, to point down.
-                try { graph.drawArrowhead(sx, sy - TIP, Math.PI / 2, HW, HH, c); } catch (e) { }
             }
 
             // The count, redrawn as the cluster grows so the last value standing is the total.
@@ -637,7 +686,7 @@ function () {
             if (n > 1) {
                 const label = '' + n;
                 const w = 14 + label.length * 7, h = 16;
-                const bx = sx - w / 2, by = sy - TIP - STEM - h - 4;
+                const bx = sx - w / 2, by = __sy - TIP - __stem - h - 4;
                 ctx.save();
                 try {
                     ctx.setLineDash([]);

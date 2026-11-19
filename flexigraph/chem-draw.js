@@ -675,10 +675,20 @@ function () {
                     ctx.fillStyle = 'rgba(224,138,0,0.20)';
                     ctx.fillRect(Math.round(cx - per / 2), sy + R + 1, Math.max(1, Math.round(per)), 14);
                 }
-                if (tb) {
+                // ONLY THE COLUMN THAT DOES NOT PAIR, which is what the row was for. Every
+                // other column is a base pairing with its complement -- true by construction,
+                // and saying so twenty times under every compound is twenty letters that
+                // carry no information. On a tiled design, where the compounds step along one
+                // base at a time, those rows become a wall of small grey sequence under the
+                // whole track and bury the one column that matters.
+                //
+                // The highlight above still marks the mismatched column, so a design with
+                // nothing to discriminate now draws nothing here at all, which is the honest
+                // picture: there is no allele-selective base to point at.
+                if (tb && bad) {
                     ctx.font = 'bold ' + Math.max(8, Math.min(13, Math.round(R * 1.35))) + 'px "Segoe UI", Arial, sans-serif';
                     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-                    ctx.fillStyle = bad ? '#b45309' : 'rgba(15,23,42,0.55)';
+                    ctx.fillStyle = '#b45309';
                     ctx.fillText(tb, cx, sy + R + 3);
                 }
             }

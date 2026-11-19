@@ -556,6 +556,46 @@ function (graph, genegraph_panel_layout, options) {
                 // A single question is answered rather than planned.
                 if (good.length === 1 && !bad.length && good[0].p.answers) { answer(good[0].step, ask); return; }
 
+                // ONE GO PER TRACK. A one-track operation that fits several open tracks -- "goto
+                // c.778" with three transcripts open, where c.778 is a different place on each --
+                // lists them, each with its own Go, instead of refusing until a track is named.
+                if (good.length === 1 && good[0].p.choices && !good[0].p.blocker) {
+                    // Long lists (forty pathogenic variants) scroll, and stop at CHOICE_MAX with a
+                    // note to narrow the words rather than drawing hundreds of buttons.
+                    const CHOICE_MAX = 40;
+                    const p0 = good[0].p, ch = p0.choices.slice(0, CHOICE_MAX);
+                    out.innerHTML = card(
+                        '<div style="font:700 13px Arial;color:#7fb0e8;">' + (p0.choiceTitle ? H(p0.choiceTitle)
+                            : (H(p0.text.replace(/^(\S+)/, (w) => w.charAt(0).toUpperCase() + w.slice(1))) + ' — on which track?')) + '</div>'
+                        + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:5px;">from “' + H(ask) + '”'
+                        + (p0.choiceTitle ? '' : (' · ' + ch.length + ' open tracks have it'))
+                        + (p0.choices.length > CHOICE_MAX ? (' · showing the first ' + CHOICE_MAX + '; add a word to narrow it') : '') + '</div>'
+                        + '<div style="max-height:46vh;overflow-y:auto;">'
+                        + ch.map((o, i) => '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.08);">'
+                            + '<div style="min-width:0;flex:1 1 auto;"><div style="font:700 12.5px Arial;color:#e8f0fb;">' + H(o.label) + '</div>'
+                            + (o.detail ? ('<div style="font:11px Arial;color:#6b8299;margin-top:3px;">' + H(o.detail) + '</div>') : '')
+                            + '</div>'
+                            + '<button id="ec-c' + i + '" style="cursor:pointer;border-radius:8px;padding:8px 16px;font:700 12.5px Arial;'
+                            + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;flex:0 0 auto;">GO</button></div>').join('')
+                        + '</div>'
+                        + warn
+                        + '<div style="display:flex;gap:10px;margin-top:13px;"><button id="ec-no" style="' + btn + '">Cancel</button></div>');
+                    q('#ec-no').onclick = () => {
+                        if (HOST) { done(0); return; }
+                        out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { }
+                    };
+                    ch.forEach((o, i) => {
+                        const b = q('#ec-c' + i);
+                        if (b) b.onclick = async () => {
+                            b.disabled = true;
+                            close();
+                            try { await p0.capability.run(o.args); done(1); }
+                            catch (e) { result(p0.capability.name + ': ' + (e && e.message ? e.message : e)); done(0); }
+                        };
+                    });
+                    return;
+                }
+
                 const danger = good.some((x) => x.p.destructive);
                 // A LATER STEP'S PRECONDITION IS USUALLY THE EARLIER STEP'S OUTPUT. "select the
                 // 3' UTR, then run BajaCLIP on it" has no selection at the moment the plan is
@@ -697,6 +737,12 @@ function (graph, genegraph_panel_layout, options) {
                         let now = null;
                         try { now = CAP.preview(x.step); } catch (e) { now = null; }
                         if (now && now.ok && now.blocker) { failed = now.capability.name + ': ' + now.blocker; break; }
+                        // Inside a multi-step plan there is no card to ask on: a step that fits
+                        // several tracks stops the plan and names them.
+                        if (now && now.ok && now.choices) {
+                            failed = now.capability.name + ': more than one track fits (' + now.choices.map((o) => o.label).join(', ') + '): name the one you mean';
+                            break;
+                        }
                         try { await (now && now.ok ? now.capability.run(now.args) : x.p.capability.run(x.p.args)); ran++; }
                         catch (e) { failed = (x.p.capability.name + ': ' + (e && e.message ? e.message : e)); break; }
                     }

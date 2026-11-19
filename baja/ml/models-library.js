@@ -17,7 +17,7 @@ function (graph, genegraph_panel_layout, tracks) {
     // links out — then an explicit "Load this data" to run it. Closing returns to the editor.
     //
     // Every figure and caveat below is taken from the model libraries' own documentation
-    // (py/bajair-lib, py/bajaclip-lib, py/bajasplice-lib), not estimated here. Where a library
+    // (py/bajair-lib, py/bajaclip-lib, py/bajanmd-lib, py/bajasplice-lib), not estimated here. Where a library
     // states a limitation, it is repeated rather than smoothed over — a model shelf that only
     // lists capabilities invites people to over-read the output.
 

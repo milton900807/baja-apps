@@ -6,68 +6,202 @@ return (async () => {
     //   P.download({ title, subtitle, meta: [[k, v], …], columns: [...],
     //                rows: [[...], …], filename: 'report.pdf' });
     //
+    //   PROSE, for a written report rather than a table:
+    //   P.download({ title, subtitle, markdown: '## Heading\n\nText…', filename: 'report.pdf' });
+    //   `markdown` takes the same small subset baja/lib/report-view.js renders on screen --
+    //   #/##/### headings, - and 1. lists, **bold**, *italic*, `code` -- so the file and the
+    //   panel show the same document. `blocks: [{k:'h2'|'h3'|'p'|'li'|'rule', t, n}]` is the
+    //   same thing pre-parsed. Both may be combined with meta and a table, in that order.
+    //
     // Same reasoning as baja/io/xlsx-writer.js: a report that leaves the building has to
     // open cleanly in whatever the recipient uses, and a file that opens with a warning
     // fails exactly where it matters. So this writes the format properly -- a catalog, a
     // page tree, a font resource, content streams and a real xref -- rather than something
     // PDF-shaped.
     //
-    // Deliberately narrow: Helvetica, black text, one column of key/values and one table,
+    // Deliberately narrow: Helvetica, black text, key/values, flowing prose and one table,
     // paginated. No images, no embedded fonts, no compression. That covers a run report,
     // and every one of those omissions is a thing that could be wrong in a file someone
     // else has to open.
+    //
+    // There is also a LOW-LEVEL page builder, for a report that has to draw rather than
+    // tabulate -- a map of a track with the oligos on it, say:
+    //
+    //   const d = P.doc();            // d.W, d.H, d.M are the page box and margin
+    //   d.text(x, y, 'label', { size: 9, bold: true, align: 'center', rgb: [0,0,0] });
+    //   d.rect(x, y, w, h, { fill: [0.2,0.5,0.8], stroke: [0,0,0], lw: 0.5 });
+    //   d.line(x1, y1, x2, y2, { lw: 0.6, rgb: [0.4,0.4,0.4] });
+    //   d.page();                     // start another one
+    //   d.download('map.pdf');
+    //
+    // PDF coordinates: x rightward, y UPWARD from the bottom-left corner of the page.
+    // Colours are [r, g, b] in 0..1. Both APIs write the same kind of file, and both go
+    // through the same text escaping and the same Helvetica metrics below.
 
     const PAGE_W = 612, PAGE_H = 792;          // US Letter at 72 dpi
     const M = 48;                              // margin
     const enc = new TextEncoder();
 
-    // PDF strings are Latin-1 with three characters that must be escaped. Anything outside
-    // Latin-1 is transliterated where there is an obvious equivalent and dropped otherwise:
-    // a '?' in the middle of a sequence would read as data.
+    // TEXT GOES OUT AS ASCII, and that is not a simplification -- it is the only range that
+    // survives the trip. The file is serialised with TextEncoder, which is UTF-8, while the
+    // fonts declare WinAnsiEncoding, which is one byte per glyph. So a character above 0x7F
+    // leaves here as two bytes and arrives as two wrong glyphs: a bullet came out as 'A·'.
+    // Everything outside ASCII is therefore transliterated where there is an honest
+    // equivalent, and dropped otherwise -- a '?' in the middle of a sequence would read as
+    // data. Accented letters fold to their base letter, which keeps a name readable instead
+    // of punching a hole in it.
     const TRANSLIT = {
         '–': '-', '—': '-', '‘': "'", '’': "'",
         '“': '"', '”': '"', '…': '...', '·': '-',
         '≤': '<=', '≥': '>=', '→': '->', '°': ' deg',
-        '′': "'", '″': '"', '×': 'x', '−': '-'
+        '′': "'", '″': '"', '×': 'x', '−': '-',
+        '•': '-', '‑': '-', '\u00a0': ' ', 'µ': 'u', 'μ': 'u',
+        '±': '+/-', '≈': '~', '≠': '!=', '™': '(TM)', '®': '(R)', '©': '(C)',
+        'Δ': 'delta', 'α': 'alpha', 'β': 'beta', 'γ': 'gamma', '′': "'"
     };
-    const pdfText = (v) => {
-        let s = '' + (v == null ? '' : v);
-        s = s.replace(/[–—‘’“”…·≤≥→°′″×−]/g,
-            (c) => TRANSLIT[c] || '');
-        s = s.replace(/[^\x20-\xFF]/g, '');
-        return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    const FOLD = {
+        a: 'àáâãäå', c: 'ç', e: 'èéêë', i: 'ìíîï', n: 'ñ', o: 'òóôõö', u: 'ùúûü', y: 'ýÿ',
+        A: 'ÀÁÂÃÄÅ', C: 'Ç', E: 'ÈÉÊË', I: 'ÌÍÎÏ', N: 'Ñ', O: 'ÒÓÔÕÖ', U: 'ÙÚÛÜ', Y: 'Ý'
     };
+    for (const base of Object.keys(FOLD)) { for (const ch of FOLD[base]) TRANSLIT[ch] = base; }
+    TRANSLIT['ß'] = 'ss'; TRANSLIT['æ'] = 'ae'; TRANSLIT['Æ'] = 'AE'; TRANSLIT['ø'] = 'o'; TRANSLIT['Ø'] = 'O';
+    // The text as it will LOOK: transliterated, not yet escaped. Widths are measured on this
+    // and never on the escaped form -- an escape adds a backslash that is not a glyph, so
+    // measuring '\\(MOE\\)' put a visible gap after every parenthesis.
+    const asciiOf = (v) => ('' + (v == null ? '' : v))
+        .replace(/[^\x20-\x7E]/g, (c) => (TRANSLIT[c] != null ? TRANSLIT[c] : ''));
+    // The text as it will be WRITTEN. Applied once, by T(), so callers pass plain strings:
+    // escaping an already-escaped string turns \\( into a literal backslash on the page.
+    const pdfText = (v) => asciiOf(v)
+        .replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 
-    // Helvetica advance widths, per 1000 units, for the printable Latin-1 range. Without
-    // these every column would be laid out as if each glyph were the same width, and a
-    // proportional font makes that visibly wrong within one line.
-    const W = (() => {
-        const w = new Array(256).fill(556);
-        const set = (str, v) => { for (const ch of str) w[ch.charCodeAt(0)] = v; };
-        set(' !', 278); set('"', 355); set('#$', 556); set('%', 889); set('&', 667);
-        set("'", 191); set('()', 333); set('*', 389); set('+', 584); set(',.', 278);
-        set('-', 333); set('/', 278); set('0123456789', 556); set(':;', 278);
-        set('<=>', 584); set('?', 556); set('@', 1015);
-        set('ABDEHKNOPQRSUVXY', 722); set('C', 722); set('FG', 667); set('IJ', 278);
-        set('LT', 611); set('M', 833); set('W', 944); set('Z', 611);
-        set('[]', 278); set('\\', 278); set('^', 469); set('_', 556); set('`', 333);
-        set('abcdeghknopqsuvxyz', 556); set('f', 278); set('ij', 222); set('l', 222);
-        set('m', 833); set('r', 333); set('t', 278); set('w', 722);
-        w[32] = 278;
+    // ADVANCE WIDTHS PER 1000 UNITS, for Helvetica and Helvetica-Bold, as the AFM files give
+    // them. Two tables, because bold is not regular scaled by a constant -- 'o' is 556 regular
+    // and 611 bold while '1' is 556 in both -- and a single fudged table drifts: measuring
+    // bold with regular widths ran words together ("discriminatethe variant"), and inflating
+    // every bold glyph by a flat percentage opened gaps in the other direction. Without the
+    // right numbers a proportional font is laid out as if it were monospace, and it shows
+    // inside one line.
+    const mkWidths = (spec, dflt) => {
+        const w = new Array(256).fill(dflt);
+        for (const [chars, v] of spec) { for (const ch of chars) w[ch.charCodeAt(0)] = v; }
         return w;
-    })();
-    const widthOf = (s, size) => {
+    };
+    const W = mkWidths([
+        [' ', 278], ['!', 278], ['"', 355], ['#$', 556], ['%', 889], ['&', 667], ["'", 191],
+        ['()', 333], ['*', 389], ['+', 584], [',', 278], ['-', 333], ['.', 278], ['/', 278],
+        ['0123456789', 556], [':;', 278], ['<=>', 584], ['?', 556], ['@', 1015],
+        ['AB', 667], ['CDGHNOQRUVX', 722], ['E', 667], ['F', 611], ['G', 778], ['I', 278],
+        ['J', 500], ['K', 667], ['L', 556], ['M', 833], ['O', 778], ['P', 667], ['Q', 778],
+        ['S', 667], ['T', 611], ['V', 667], ['W', 944], ['XY', 667], ['Z', 611],
+        ['[]', 278], ['\\', 278], ['^', 469], ['_', 556], ['`', 333],
+        ['abdeghnopqu', 556], ['c', 500], ['f', 278], ['ij', 222], ['k', 500], ['l', 222],
+        ['m', 833], ['r', 333], ['s', 500], ['t', 278], ['vxyz', 500], ['w', 722],
+        ['{', 334], ['|', 260], ['}', 334], ['~', 584]
+    ], 556);
+    const WB = mkWidths([
+        [' ', 278], ['!', 333], ['"', 474], ['#$', 556], ['%', 889], ['&', 722], ["'", 238],
+        ['()', 333], ['*', 389], ['+', 584], [',', 278], ['-', 333], ['.', 278], ['/', 278],
+        ['0123456789', 556], [':;', 333], ['<=>', 584], ['?', 611], ['@', 975],
+        ['ABCDHKUX', 722], ['E', 667], ['F', 611], ['G', 778], ['I', 278], ['J', 556],
+        ['L', 611], ['M', 833], ['NQR', 722], ['O', 778], ['P', 667], ['S', 667], ['T', 611],
+        ['VY', 667], ['W', 944], ['Z', 611],
+        ['[]', 333], ['\\', 278], ['^', 584], ['_', 556], ['`', 333],
+        ['abcekrsv', 556], ['bdghnopqu', 611], ['f', 333], ['ij', 278], ['l', 278],
+        ['m', 889], ['r', 389], ['t', 333], ['wxy', 556], ['w', 778], ['z', 500],
+        ['{', 389], ['|', 280], ['}', 389], ['~', 584]
+    ], 556);
+
+    const widthOf = (v, size, bold) => {
+        const s = asciiOf(v);
+        const tbl = bold ? WB : W;
         let t = 0;
-        for (let i = 0; i < s.length; i++) t += (W[s.charCodeAt(i) & 0xFF] || 556);
+        for (let i = 0; i < s.length; i++) t += (tbl[s.charCodeAt(i) & 0xFF] || 556);
         return t * size / 1000;
     };
     // Cut to fit rather than let a long sequence run off the page edge, which is the one
     // failure a reader cannot recover from -- an overflowing cell simply is not there.
-    const clip = (s, size, max) => {
+    const clip = (v, size, max) => {
+        const s = asciiOf(v);
         if (widthOf(s, size) <= max) return s;
         let out = s;
         while (out.length > 1 && widthOf(out + '...', size) > max) out = out.slice(0, -1);
         return out + '...';
+    };
+
+    // ASCII, for the reason given above pdfText: a real bullet glyph cannot survive a UTF-8
+    // serialisation into a WinAnsi font, and a dash that renders beats a bullet that does not.
+    const BULLET = '-';
+
+    // One line of markdown into runs of text, with the emphasis resolved. Bold becomes the
+    // bold font; italic and code have no font here, so they keep their text and lose their
+    // markers rather than printing the asterisks and backticks literally.
+    const inlineRuns = (src) => {
+        const out = [];
+        let rest = '' + (src == null ? '' : src);
+        const re = /\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*/;
+        let m;
+        while ((m = rest.match(re))) {
+            if (m.index > 0) out.push({ t: rest.slice(0, m.index), b: false });
+            if (m[1] != null) out.push({ t: m[1], b: true });
+            else out.push({ t: (m[2] != null ? m[2] : m[3]), b: false });
+            rest = rest.slice(m.index + m[0].length);
+        }
+        if (rest) out.push({ t: rest, b: false });
+        return out.length ? out : [{ t: '', b: false }];
+    };
+
+    // Word-wrap those runs to a width, keeping each word's weight so that each is measured
+    // against the table for the font it will actually be drawn in.
+    const runWidth = (t, size, bold) => widthOf(t, size, bold);
+    const wrapRuns = (runs, size, maxW) => {
+        const words = [];
+        for (const r of runs) {
+            for (const part of ('' + r.t).split(/(\s+)/)) {
+                if (part !== '') words.push({ t: part, b: r.b, sp: /^\s+$/.test(part) });
+            }
+        }
+        const lines = [];
+        let cur = [], w = 0;
+        const flush = () => {
+            while (cur.length && cur[cur.length - 1].sp) cur.pop();
+            if (cur.length) lines.push(cur);
+            cur = []; w = 0;
+        };
+        for (const wd of words) {
+            const ww = runWidth(wd.t, size, wd.b);
+            if (!wd.sp && cur.length && w + ww > maxW) flush();
+            if (wd.sp && !cur.length) continue;              // never start a line on a space
+            cur.push(wd); w += ww;
+        }
+        flush();
+        return lines.length ? lines : [[]];
+    };
+
+    // The same markdown subset baja/lib/report-view.js renders, one block per line.
+    const mdBlocks = (src) => {
+        const out = [];
+        for (const raw of ('' + (src == null ? '' : src)).split(/\r?\n/)) {
+            const line = raw.trimEnd();
+            if (!line.trim()) continue;
+            let m;
+            if ((m = line.match(/^\s*###\s+(.*)$/))) out.push({ k: 'h3', t: m[1] });
+            else if ((m = line.match(/^\s*##\s+(.*)$/))) out.push({ k: 'h2', t: m[1] });
+            else if ((m = line.match(/^\s*#\s+(.*)$/))) out.push({ k: 'h1', t: m[1] });
+            else if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) out.push({ k: 'li', t: m[1] });
+            else if ((m = line.match(/^\s*(\d+)\.\s+(.*)$/))) out.push({ k: 'li', t: m[2], n: m[1] });
+            else out.push({ k: 'p', t: line });
+        }
+        return out;
+    };
+
+    const BLOCK = {
+        h1: { size: 15, bold: true, above: 15, below: 6 },
+        h2: { size: 13, bold: true, above: 14, below: 5, rule: true },
+        h3: { size: 11, bold: true, above: 11, below: 3 },
+        p: { size: 9.5, bold: false, above: 3, below: 3 },
+        li: { size: 9.5, bold: false, above: 1, below: 1, indent: 16 },
+        rule: { size: 0, bold: false, above: 6, below: 6, rule: true }
     };
 
     const build = (spec) => {
@@ -79,8 +213,8 @@ return (async () => {
         // Column widths from the content, proportional, then scaled to the text width.
         const avail = PAGE_W - 2 * M;
         const want = columns.map((c, i) => {
-            let m = widthOf(pdfText(c), 8);
-            for (const r of rows) m = Math.max(m, widthOf(pdfText(r[i] == null ? '' : r[i]), 8));
+            let m = widthOf(c, 8, true);
+            for (const r of rows) m = Math.max(m, widthOf(r[i] == null ? '' : r[i], 8));
             return Math.min(m + 10, avail * 0.42);
         });
         const total = want.reduce((a, b) => a + b, 0) || 1;
@@ -111,12 +245,53 @@ return (async () => {
             y -= 13;
         }
 
+        // ---- prose ----------------------------------------------------------------
+        let blocks = (o.blocks && o.blocks.length) ? o.blocks
+            : (o.markdown ? mdBlocks(o.markdown) : []);
+        // A generated report usually opens with its own title, and it was handed to us as
+        // `title` as well. Printing both puts the same line on the page twice, so a leading
+        // heading that says what the title says is dropped.
+        if (blocks.length && (blocks[0].k === 'h1' || blocks[0].k === 'h2') && o.title) {
+            const flat = (x) => pdfText(x).toLowerCase().replace(/[^a-z0-9]+/g, '');
+            if (flat(blocks[0].t) === flat(o.title)) blocks = blocks.slice(1);
+        }
+        if (blocks.length) {
+            if (meta.length) y -= 6;
+            const runLine = (x, yy, size, lineRuns, forceBold) => {
+                let cx = x;
+                for (const wd of lineRuns) {
+                    const bold = forceBold || wd.b;
+                    if (!wd.sp) T(cx, yy, size, bold, wd.t);
+                    cx += runWidth(wd.t, size, bold);
+                }
+            };
+            for (const blk of blocks) {
+                const st = BLOCK[blk.k] || BLOCK.p;
+                y -= st.above;
+                if (blk.k === 'rule') {
+                    need(10); line(M, y, PAGE_W - M, 0.6, 0.55); y -= st.below; continue;
+                }
+                const indent = st.indent || 0;
+                const lines = wrapRuns(inlineRuns(blk.t), st.size, avail - indent);
+                for (let i = 0; i < lines.length; i++) {
+                    need(st.size + 5);
+                    // The marker sits on the first line only, so a wrapped item stays indented
+                    // under its own text rather than under the bullet.
+                    if (blk.k === 'li' && i === 0) T(M + 3, y, st.size, false, blk.n ? (blk.n + '.') : BULLET);
+                    runLine(M + indent, y, st.size, lines[i], st.bold);
+                    y -= st.size + 3.5;
+                }
+                if (st.rule) { y -= 2; need(6); line(M, y, PAGE_W - M, 0.6, 0.55); y -= 3; }
+                y -= st.below;
+            }
+        }
+
         if (columns.length) {
             y -= 10;
             const header = () => {
                 let x = M;
                 for (let i = 0; i < columns.length; i++) {
-                    T(x, y, 8, true, clip(pdfText(columns[i]), 8, colW[i] - 4));
+                    T(x, y, 8, true, clip(columns[i], 8, colW[i] - 4));
                     x += colW[i];
                 }
                 y -= 4; line(M, y, PAGE_W - M, 0.7, 0.45); y -= 11;
@@ -127,7 +302,7 @@ return (async () => {
                 let x = M;
                 for (let i = 0; i < columns.length; i++) {
                     const cell = (r[i] == null) ? '' : ('' + r[i]);
-                    T(x, y, 8, false, clip(pdfText(cell), 8, colW[i] - 4));
+                    T(x, y, 8, false, clip(cell, 8, colW[i] - 4));
                     x += colW[i];
                 }
                 y -= 11;
@@ -137,8 +312,8 @@ return (async () => {
         return pages;
     };
 
-    const bytes = (spec) => {
-        const pages = build(spec);
+    // Pages (each an array of content-stream operators) -> the bytes of a PDF file.
+    const serialize = (pages) => {
         const objs = [];                                  // 1-based; objs[i] is object i+1
         const push = (s) => { objs.push(s); return objs.length; };
 
@@ -172,6 +347,75 @@ return (async () => {
         return enc.encode(out);
     };
 
+    const bytes = (spec) => serialize(build(spec));
+
+    // Hand a byte array to the browser as a download.
+    const saveBytes = (data, filename) => {
+        const blob = new Blob([data], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'report.pdf';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            try { URL.revokeObjectURL(url); } catch (e) { }
+            try { if (a.parentNode) a.parentNode.removeChild(a); } catch (e) { }
+        }, 250);
+    };
+
+    // ---- the low-level page builder ------------------------------------------------
+    //
+    // Text, lines and rectangles at page coordinates, and nothing else. A caller that
+    // needs a drawing -- a track map with oligos along it -- gets the page box and the
+    // text metrics and places things itself; a caller that wants a table keeps using
+    // build()/download() above.
+    const doc = () => {
+        const pages = [];
+        let ops = [];
+        const col = (c) => (Array.isArray(c) ? c : [0, 0, 0]).map((v) => (+v || 0).toFixed(3)).join(' ');
+        const api = {
+            W: PAGE_W, H: PAGE_H, M: M,
+            // Width of a string when set at this size, and the same string cut to fit.
+            width: (str, size, bold) => widthOf(pdfText(str), size || 9),
+            clip: (str, size, max) => clip(pdfText(str), size || 9, max),
+            // Finish this page and start the next one. A page with nothing on it is dropped.
+            page: () => { if (ops.length) pages.push(ops); ops = []; return api; },
+            text: (x, y, str, o) => {
+                const s = o || {};
+                const size = s.size || 9;
+                let t = pdfText(str);
+                if (s.max != null) t = clip(t, size, s.max);
+                let px = x;
+                if (s.align === 'center') px = x - widthOf(t, size) / 2;
+                else if (s.align === 'right') px = x - widthOf(t, size);
+                ops.push(col(s.rgb) + ' rg BT /' + (s.bold ? 'F2' : 'F1') + ' ' + size + ' Tf '
+                    + px.toFixed(2) + ' ' + y.toFixed(2) + ' Td (' + t + ') Tj ET 0 0 0 rg');
+                return api;
+            },
+            line: (x1, y1, x2, y2, o) => {
+                const s = o || {};
+                ops.push(col(s.rgb) + ' RG ' + (s.lw || 0.5) + ' w '
+                    + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' m '
+                    + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' l S 0 0 0 RG');
+                return api;
+            },
+            // A rectangle with its lower-left corner at (x, y). Filled, stroked or both.
+            rect: (x, y, w, h, o) => {
+                const s = o || {};
+                const box = x.toFixed(2) + ' ' + y.toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re';
+                if (s.fill && s.stroke) ops.push(col(s.fill) + ' rg ' + col(s.stroke) + ' RG ' + (s.lw || 0.5) + ' w ' + box + ' B 0 0 0 rg 0 0 0 RG');
+                else if (s.fill) ops.push(col(s.fill) + ' rg ' + box + ' f 0 0 0 rg');
+                else ops.push(col(s.stroke) + ' RG ' + (s.lw || 0.5) + ' w ' + box + ' S 0 0 0 RG');
+                return api;
+            },
+            pageCount: () => pages.length + (ops.length ? 1 : 0),
+            bytes: () => serialize(ops.length ? pages.concat([ops]) : pages),
+            download: (filename) => { saveBytes(api.bytes(), filename); return api; }
+        };
+        return api;
+    };
+
     const download = (spec) => {
         const blob = new Blob([bytes(spec)], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
@@ -186,5 +430,5 @@ return (async () => {
         }, 250);
     };
 
-    return { bytes, download };
+    return { bytes, download, doc, saveBytes };
 })();

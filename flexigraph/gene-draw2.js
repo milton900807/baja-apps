@@ -104,6 +104,154 @@ function () {
     }
 
     return {
+        // A DOWN ARROW OVER THE TRACK, marking where something sits. BIG, OUTLINED, AND ONE
+        // PER PLACE -- the same mark flexigraph/gene-draw.js draws, and it has to be here too.
+        //
+        // mark-compound-locations.js adds CompoundMark annotations, and a plain track draws
+        // them through annotation.js -> gene-draw.js. A FLEXI track does not: it draws every
+        // annotation through annotation2.js's drawPlot(), which resolves its shapes from THIS
+        // file. With no entry here, shapeFunction was null and drawPlot fell through to its
+        // fallback -- the first five characters of the name in 9px black -- so "show me where
+        // the compounds are" marked the track with something effectively invisible, on exactly
+        // the tracks the question gets asked about. Same geometry and same colours as the
+        // gene-draw.js version, so a track looks the same whichever class drew it.
+        //
+        // The signature differs from that file's: here the context comes first and xs/xf/y are
+        // RAW track coordinates, mapped through grid.X(tgraph.X(..)) as every shape here does.
+        'CompoundMark': createIon((ctx, grid, tgraph, xs, xf, y, color, annotation) => {
+            if (!ctx) return;
+            const c = (annotation && annotation.color) || color || '#f59e0b';
+            const __ax = grid.X(tgraph.X(xs)), __bx = grid.X(tgraph.X(xf));
+            const sx = (__ax + __bx) / 2;
+            const sy = grid.Y(tgraph.Y(y));
+            if (!isFinite(sx) || !isFinite(sy)) return;
+            // AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE, THE ARROW IS NOISE. These marks
+            // exist for a view too wide to show the compounds -- at 571 kb a 20-mer is a
+            // fraction of a pixel and a track with 47 of them looks empty. Once the compound
+            // is drawn wide enough to see, the arrow points at something already on screen,
+            // and a row of them over a tiled design stands in front of the very thing it is
+            // announcing. Measured in SCREEN pixels off the mark's own span, which is the
+            // compound's span, so it follows the zoom rather than a zoom level guessed at.
+            // flexigraph/oligo.js uses the same threshold to decide when the per-compound
+            // sequence label may come back, so the two swap over at the same moment.
+            const COMPOUND_VISIBLE_PX = 40;
+            if (isFinite(__ax) && isFinite(__bx) && Math.abs(__bx - __ax) >= COMPOUND_VISIBLE_PX) return;
+
+            // ONE ARROW PER PLACE, counted per repaint. Seeing an annotation twice means a new
+            // frame started, because each mark is drawn exactly once per pass; without the
+            // reset the counts would climb on every repaint.
+            let reg = null;
+            try {
+                if (!tgraph.__cmReg) tgraph.__cmReg = { bins: {}, seen: new Set() };
+                reg = tgraph.__cmReg;
+                if (reg.seen.has(annotation)) { reg.bins = {}; reg.seen = new Set(); }
+                reg.seen.add(annotation);
+            } catch (e) { reg = null; }
+            const BIN = 20;
+            const bin = Math.round(sx / BIN);
+            let n = 1;
+            if (reg) { n = reg.bins[bin] = (reg.bins[bin] || 0) + 1; }
+
+            // HW/HH are the arrowhead's width and height. Smaller than the stem is long,
+            // so the head reads as a point rather than a block sitting on the track.
+            const TIP = 10, STEM = 30, HW = 9, HH = 10;
+
+            // Hung from the top of the track and drawn see-through, for the reasons set out on
+            // the gene-draw.js copy of this shape. Same numbers, so a track looks the same
+            // whichever class drew it.
+            // The stem is shortened to whatever the track can hold, so the arrow never reaches
+            // above the top edge and into the track above it. A short track gets a short arrow
+            // rather than one that marks a neighbour's sequence.
+            let __sy = sy, __stem = STEM;
+            try {
+                const __baseY = grid.Y(tgraph.Y(0));
+                const __hPx = Math.abs(grid.screenHeight ? grid.screenHeight(tgraph.height) : 0) || 0;
+                if (isFinite(__baseY) && __hPx > 0) {
+                    // Shorter than the arrowhead itself: there is no arrow that both
+                    // fits and points at this track, and one drawn anyway would mark the
+                    // track above. A band that thin shows no compounds to point at either.
+                    if (__hPx <= TIP + 12) return;
+                    __stem = Math.max(8, Math.min(STEM, __hPx - TIP - 6));
+                    __sy = (__baseY - __hPx) + TIP + __stem + 2;
+                }
+            } catch (e) { __sy = sy; __stem = STEM; }
+            const ARROW_ALPHA = 0.34;
+            if (n === 1) {
+                ctx.save();
+                try {
+                    ctx.setLineDash([]);
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = ARROW_ALPHA;
+                    ctx.lineCap = 'round';
+                    // The dark pass first and wider, so the arrow keeps its edge over a pale
+                    // exon and over a dark splice arc alike.
+                    ctx.strokeStyle = 'rgba(15,23,42,0.85)';
+                    ctx.lineWidth = 6;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, __sy - TIP - __stem);
+                    ctx.lineTo(sx, __sy - TIP);
+                    ctx.stroke();
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, __sy - TIP - __stem);
+                    ctx.lineTo(sx, __sy - TIP);
+                    ctx.stroke();
+                    // The head, drawn here rather than through a helper: this file has no
+                    // arrowhead of its own, and a triangle is less to go wrong than a dependency.
+                    const head = (fill, grow) => {
+                        ctx.beginPath();
+                        ctx.moveTo(sx, __sy - TIP + grow);
+                        ctx.lineTo(sx - HW / 2 - grow, __sy - TIP - HH);
+                        ctx.lineTo(sx + HW / 2 + grow, __sy - TIP - HH);
+                        ctx.closePath();
+                        ctx.fillStyle = fill;
+                        ctx.fill();
+                    };
+                    head('rgba(15,23,42,0.85)', 1.2);   // thinner underlay, for the smaller head
+                    head(c, 0);
+                } catch (e) { }
+                ctx.restore();
+            }
+
+            // The count, redrawn as the cluster grows so the last value standing is the total.
+            if (n > 1) {
+                const label = '' + n;
+                const w = 14 + label.length * 7, h = 16;
+                const bx = sx - w / 2, by = __sy - TIP - __stem - h - 4;
+                ctx.save();
+                try {
+                    ctx.setLineDash([]);
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = 'rgba(15,23,42,0.92)';
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    const r = 5;
+                    ctx.moveTo(bx + r, by);
+                    ctx.lineTo(bx + w - r, by);
+                    ctx.arcTo(bx + w, by, bx + w, by + r, r);
+                    ctx.lineTo(bx + w, by + h - r);
+                    ctx.arcTo(bx + w, by + h, bx + w - r, by + h, r);
+                    ctx.lineTo(bx + r, by + h);
+                    ctx.arcTo(bx, by + h, bx, by + h - r, r);
+                    ctx.lineTo(bx, by + r);
+                    ctx.arcTo(bx, by, bx + r, by, r);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 11px system-ui, -apple-system, Roboto, Arial, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, sx, by + h / 2 + 0.5);
+                } catch (e) { }
+                ctx.restore();
+            }
+        }),
         'UserAnnotation': createIon((ctx, grid, tgraph, xs, xf, y, color, annotation) => {
             color = annotation.color;
             rawVerticalLine(ctx, grid.X(tgraph.X(xs)), grid.Y(tgraph.Y(y)), 0.13, '#9fe0e8', 0.5);

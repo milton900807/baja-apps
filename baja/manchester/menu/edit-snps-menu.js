@@ -33,6 +33,13 @@ function (graph, genegraph_panel_layout, selectedTrack) {
             }
         },
         {
+            label: 'Variant designer', move: () => { }, click: () => {
+                // Every variant ranked by divergence from the reference, with compounds and GO.
+                if (graph.hideMenu) graph.hideMenu();
+                exec('baja/manchester/menu/variant-designer.js', graph, genegraph_panel_layout, track);
+            }
+        },
+        {
             label: 'Download', move: () => { }, click: () => {
                 if (graph.hideMenu) graph.hideMenu();
                 downloadSnps();

@@ -830,7 +830,94 @@ function () {
                 // both, offset from the compound it belongs to, which reads as a second
                 // oligo rather than as a caption for this one.
                 const __lettersOnBeads = !!(this.__chemGeom && this.__chemGeom.letters);
-                if (this.__seqDisp && !__lettersOnBeads) {
+
+                // ONE SEQUENCE LABEL PER PLACE. Nothing here checked whether a label landed on
+                // one already drawn, so a tiled design -- twenty compounds stepping a base at a
+                // time across the same window -- printed twenty sequences over each other and
+                // over the beads, unreadable at exactly the zoom where the set is being
+                // compared. flexigraph/annotation.js already does this for annotation names:
+                // keep the boxes drawn this frame and skip any that would overlap one. The
+                // first label at a spot wins, so what survives is a readable ladder; compounds
+                // stacked in their own lanes keep their labels, because their boxes do not
+                // overlap in y.
+                //
+                // THE LIST IS PER FRAME, AND WHO EMPTIES IT MATTERS. baja/bio/track.js clears
+                // it at the top of each draw, beside the annotation one -- that pass owns the
+                // frame and is the authoritative signal. Where nothing clears it (track-flexi.js
+                // also draws oligos and has no such pass), seeing the same compound twice means
+                // a new frame has begun, since each is drawn exactly once per pass; and the
+                // length is capped so that even an unstable set of compounds loses labels for
+                // one frame rather than for good. A list that grew without bound would collide
+                // with rectangles from frames nobody is looking at any more, and every label
+                // would quietly disappear.
+                const __seqRects = (() => {
+                    try {
+                        if (!Array.isArray(tgraph.__seqLabelRects)) tgraph.__seqLabelRects = [];
+                        const rects = tgraph.__seqLabelRects;
+                        let reg = tgraph.__seqLabelReg;
+                        if (!reg) reg = tgraph.__seqLabelReg = { seen: new Set(), t: 0 };
+                        const now = Date.now();
+                        // Three ways to know the frame has turned over, because no one of them
+                        // covers every caller. The list being empty means track.js just cleared
+                        // it. Seeing the same compound twice means a new pass, since each is
+                        // drawn once per pass. And a GAP since the last check means the same:
+                        // within a pass these run back to back, between passes there is at
+                        // least a frame. The gap is what rescues a caller that neither clears
+                        // the list nor redraws the same objects -- without it, rects from a
+                        // frame nobody is looking at keep colliding with every new label and
+                        // the whole row disappears for good.
+                        if (rects.length === 0 || reg.seen.has(this) || (now - (reg.t || 0)) > 8) {
+                            reg.seen = new Set();
+                            rects.length = 0;
+                        }
+                        reg.t = now;
+                        reg.seen.add(this);
+                        return rects;
+                    } catch (e) { return null; }
+                })();
+                // Defensive by design: anything unexpected answers "there is room", so a fault
+                // in the bookkeeping can never silently erase every label on the canvas.
+                const __seqHasRoom = () => {
+                    if (!__seqRects) return true;
+                    try {
+                        const sxi = graph.X(tgraph.X(this.xi)), sxf = graph.X(tgraph.X(this.xf));
+                        if (!isFinite(sxi) || !isFinite(sxf)) return true;
+                        let x0 = Math.min(sxi, sxf), x1 = Math.max(sxi, sxf);
+                        // The pill can be wider than the compound it labels, so claim the room
+                        // it will actually take rather than the compound's own span.
+                        const nCh = Math.max(('' + (this.__seqDisp || '')).length,
+                            ('' + (this.__seqDisp2 || '')).length);
+                        const wText = nCh * 6 + 20;
+                        if ((x1 - x0) < wText) { const cx = (x0 + x1) / 2; x0 = cx - wText / 2; x1 = cx + wText / 2; }
+                        const cy = graph.Y(tgraph.Y(y)) + (this.labelOffsetY || 0)
+                            + (this.__seqBelow !== false ? 16 : -16);
+                        if (!isFinite(cy)) return true;
+                        const h = this.__seqDisp2 ? 26 : 14;
+                        const y0 = cy - h / 2, y1 = cy + h / 2;
+                        for (const r of __seqRects) {
+                            if (x0 < r.x1 && x1 > r.x0 && y0 < r.y1 && y1 > r.y0) return false;
+                        }
+                        __seqRects.push({ x0: x0, y0: y0, x1: x1, y1: y1 });
+                        return true;
+                    } catch (e) { return true; }
+                };
+
+                // While the location arrows are up, the sequence labels stay down -- see
+                // baja/manchester/menu/mark-compound-locations.js for why.
+                const __marksUp = (() => {
+                    try {
+                        if (!tgraph.__compoundMarksOn) return false;
+                        // The arrows stand down once the compound is wide enough to see
+                        // (COMPOUND_VISIBLE_PX in flexigraph/gene-draw.js), and the label it was
+                        // making way for should come back at exactly that point -- otherwise
+                        // zooming in loses both the arrow and the sequence, which is the one
+                        // combination nobody asked for.
+                        const ax = graph.X(tgraph.X(this.xi)), bx = graph.X(tgraph.X(this.xf));
+                        if (isFinite(ax) && isFinite(bx) && Math.abs(bx - ax) >= 40) return false;
+                        return true;
+                    } catch (e) { return false; }
+                })();
+                if (this.__seqDisp && !__lettersOnBeads && !__marksUp && __seqHasRoom()) {
                     // IN REGISTER WITH THE BASES, when there is room for a letter per base:
                     // the target across the top and what will be synthesised underneath it,
                     // so the pairing -- and any mismatch in it -- is read off the drawing

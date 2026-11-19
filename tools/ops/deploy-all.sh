@@ -43,7 +43,14 @@ APPS_DIR="${APPS_DIR:-/opt/baja-apps}"
 PORT="${PORT:-8080}"
 BRANCH="${BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/milton900807/baja-apps"
-REF="${REF:-58a43bbeb0aa643b86abf2733b95a20de9b21023}"
+# THE COMMIT THE FILES ARE FETCHED FROM, which is not necessarily the commit this script
+# came from. It cannot be: a pin can never name the commit that sets it. So bump it when
+# you add a group, and fetch the script itself at the SAME commit you bump it to --
+# downloading the script at an older ref hands you an older pin and the new group is
+# fetched at a ref that predates it, where every marker fails and install_group skips the
+# whole group with one line and a zero exit. That is not a loud failure. It reads as a
+# clean run.
+REF="${REF:-3b908a352d5bfc36020ee7cee765ad00397179d5}"
 DO_API=1; DO_WEB=0; DO_RESTART=1; DO_MENU=1
 
 while [[ $# -gt 0 ]]; do case "$1" in
@@ -163,6 +170,15 @@ fi
 #   cpd/baja-project.js, cpd/baja-analytics.js
 #       the progress bar goes up before the megabytes of code load, and tells the home
 #       page's "Opening..." card it can go; Build > Add to a fundraising campaign
+#   baja/manchester/menu/run-off-targets.js, run-off-target-tool.js, run-off-target-tool-seed-seq.js
+#       an off-target run asks whether to rerun all compounds or only those with no result yet
+#   baja/io/pdf-writer.js, baja/io/aso-report-pdf.js, manchester/io/download-hub.js
+#       (and baja/chem/structure/idt/idt-format.js)
+#       the detailed ASO report is drawn in the browser: a page per compound, a map of the
+#       track broken into rows with the 5' and 3' ends marked, and a zoomed panel for each
+#       window where compounds pile up on a variant
+#       the download hub also offers an IDT order file, and the IDT formatter writes the
+#       inline codes (+A, mA, rA, fA) instead of dropping or mangling them
 #
 # Each FILE:MARKER pair is downloaded from REF and installed only if it carries its marker,
 # so a REF that predates the change is said and skipped rather than installing an older
@@ -290,9 +306,22 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "cis-regulatory: a bin too small to scramble is said, not swallowed" \
     "baja/bio/splicing/cis-attribution.js:THE SMALLEST BIN THAT MEASURES ANYTHING" \
     "py/bio/splice/cis-profile.py:The smallest bin that measures anything"
+  # THE MARKERS HERE MOVED when the Exon -> AI Models list stopped being inline. This group
+  # was written against the inline copy in each file -- "in place of the old LJSplice v2
+  # window" in editor.js, openMenuAtPointer(__bajaSplice in menu-factory.js -- and neither
+  # phrase exists any more: both files now call baja/bio/splicing/exon-ai-models.js, which
+  # is the one definition of that list. Left as they were, both markers fail and this group
+  # skips silently, which is the failure this file keeps being bitten by.
+  #
+  # The guarantee is unchanged: these two files reach the box offering BajaSplice rather
+  # than LJSplice v2. It is just carried by the call now, so the markers name the call.
+  # That makes this group a narrower repeat of "BajaSplice on an exon", which ships the
+  # same two files plus the module and the python behind it -- kept rather than deleted
+  # because a group that re-asserts a guarantee costs one curl and removing one is a
+  # judgement about someone else's intent.
   install_group "BajaSplice in place of LJSplice v2, opened at the pointer" \
-    "manchester/editor.js:in place of the old LJSplice v2 window" \
-    "baja/manchester/menu/menu-factory.js:openMenuAtPointer(__bajaSplice"
+    "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
+    "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'"
   install_group "editor loading notice" \
     "manchester/editor.js:baja-loading-notice"
   # Ask: the toolbar box, the catalogue of operations it may choose from, the planner that
@@ -328,8 +357,20 @@ if [[ $DO_API -eq 1 ]]; then
     "manchester/editor.js:No track check here"
   install_group "show compound locations" \
     "flexigraph/gene-draw.js:BIG, OUTLINED, AND ONE" \
-    "baja/manchester/menu/mark-compound-locations.js:FRAME THE TRANSCRIPT, because" \
-    "baja/manchester/menu/editor-capabilities.js:show_compound_locations"
+    "flexigraph/gene-draw2.js:the same mark flexigraph/gene-draw.js draws" \
+    "baja/manchester/menu/mark-compound-locations.js:ANNOTATION HAS TO BE ASKED FOR" \
+    "baja/manchester/menu/editor-capabilities.js:HIGHLIGHT THE COMPOUNDS"
+  # "create mRNA track from DNM3" was refused as not something the editor can do, while the
+  # track menu had offered Convert to mRNA all along. Both were right: the planner is handed
+  # editor-capabilities.js as its entire vocabulary, so an operation missing from that file
+  # cannot be reached from the box however plainly it is asked for.
+  #
+  # ONE FILE, and the marker is the new capability's own name rather than a phrase the older
+  # groups already match. Those are shared by both versions of the file, so a box still
+  # holding the 25-operation copy would pass their served-check and the box would go on
+  # refusing the request with nothing to show why.
+  install_group "Ask: splice a track into an mRNA" \
+    "baja/manchester/menu/editor-capabilities.js:convert_to_mrna"
   # A request in flight has to look like one: the only sign was grey 12px text, so a slow
   # answer read as a box that had ignored Enter -- and a second Enter execs a second copy of
   # the module, which used to start a second request beside the first.
@@ -468,6 +509,25 @@ if [[ $DO_API -eq 1 ]]; then
     "cpd/baja-project.js:__bajaOpening"
   install_group "baja-analytics: progress bar first" \
     "cpd/baja-analytics.js:__bajaOpening"
+  # Off-targets: rerun all, or only the compounds that have no off-target result yet. The
+  # three runners are independent of one another, so each is its own group.
+  install_group "off-targets: rerun all or only compounds without (editor runner)" \
+    "baja/manchester/menu/run-off-targets.js:__hasOffResult"
+  install_group "off-targets: rerun all or only compounds without (tool panel)" \
+    "baja/manchester/menu/run-off-target-tool.js:onlyMissing"
+  install_group "off-targets: rerun all or only compounds without (seed tool panel)" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:onlyMissing"
+  # The detailed ASO report. All three together: the hub calls the report module, which
+  # needs the page builder the writer only gained for this.
+  install_group "detailed ASO report with a track map" \
+    "baja/io/pdf-writer.js:the low-level page builder" \
+    "baja/io/aso-report-pdf.js:THE DETAILED ASO REPORT, drawn rather than tabulated" \
+    "manchester/io/download-hub.js:aso-report-pdf.js"
+  # The IDT order file. The hub is in the group above as well; whichever group gets there
+  # first installs it and the other reports it current.
+  install_group "IDT order file, and the IDT inline modification codes" \
+    "baja/chem/structure/idt/idt-format.js:INLINE_SUGARS" \
+    "manchester/io/download-hub.js:IDT order file"
   # The Research panel: Home > Tools > Research reads the indication-market store rather
   # than running any research. All four or none, so Home never gets a live tile with
   # nothing behind it.
@@ -529,8 +589,15 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/annotation/tile-variant.js:AND WHICH STRAND THE RECORD IS WRITTEN ON" \
     "py/bio/allele-selective-targets.py:def context_for("
   # Linear motifs (ELM) on a peptide track, and what a variant does to them.
-  # All four or none: the catalogue entry and the track menu would both open onto a
+  # All seven or none: the catalogue entry and the track menu would both open onto a
   # layer that is not there, and the layer would call a scan that is not there.
+  #
+  # The three baja/bio/protein files used to share one pair, space-joined before the
+  # marker. install_group reads everything left of the first colon as ONE filename, so
+  # that pair asked for a path with spaces in it, the download failed, and the whole
+  # group took the "not at REF; skipped" branch -- silently, every run, which is why
+  # models-catalogue.js never reached the server. One pair per file, each with a marker
+  # of its own.
   install_group "linear motifs (ELM)" \
     "baja/bio/protein/slim-motif-layer.js:SHORT LINEAR MOTIFS AS A LAYER" \
     "baja/bio/protein/slim-motif-panel.js:The description window for one linear motif" \
@@ -539,6 +606,92 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/protein/slim-scan.py:SLIM scan -- short linear motifs" \
     "baja/manchester/menu/mouse-over-highlight.js:LINEAR MOTIFS (ELM), the sibling" \
     "baja/ml/models-catalogue.js:title: 'Linear motifs', badge: 'ELM', ready: true"
+  # Transposons / repeats on a track, under Data -> Repeats. The loader asks Ensembl for
+  # the elements over the track's region and labels each sense or antisense TO THE GENE,
+  # which is the field that matters: an antisense SINE presents a poly-T tract that reads
+  # as a polypyrimidine tract, so a cryptic 3' splice site can be selected downstream of
+  # it, and the same element the other way round does not do that.
+  #
+  # This group is larger than the feature because of what it found: of the ten scripts the
+  # Data toolbar opens, exactly one was under deploy management. The rest are whatever the
+  # original install left on the box, drifting from git ever since. Shipping the new
+  # toolbar alone would point its OTHER items at those stale copies, so the toolbar moves
+  # together with everything it opens. That is the point of the group, and it is a bigger
+  # change than adding a menu entry: it brings the whole Data menu up to date at once.
+  install_group "repeats track and the Data menu it joins" \
+    "baja/data/repeat-track.js:Transposable elements and repeats on a track, as annotations" \
+    "py/bio/repeats/ensembl-repeats.py:Repeat / transposable-element features for a region, from Ensembl" \
+    "baja/data/data-loading-toolbar.js:Data toolbar (menu bar) docked in the button panel" \
+    "baja/data/bed-hits.js:Transcript-keyed BED hits" \
+    "baja/data/layer-sets.js:Every /bd/ interval dataset that can be dropped onto a track as a layer" \
+    "baja/data/load-variants.js:Load variants from a major variant database" \
+    "baja/data/patents.js:Patents — click a track, read patent_hg38_transcript_hits.bed.gz" \
+    "baja/data/rnaseq-library.js:RNASeq Library — every RNASeq dataset under BIG_DATA/RNASeq" \
+    "baja/lib/shelf.js:Reusable \"bookshelf\" overlay" \
+    "baja/manchester/menu/protein-domains.js:Protein Domains: prompt the user to SELECT A TRACK" \
+    "baja/manchester/menu/track-layers-side-menu.js:MENUS AT THE POINTER, NOT IN THE CORNER"
+
+  # BajaSplice under Exon -> AI Models: splice-site strength, PSI, the cis-regulatory
+  # windows at the acceptor and at the donor, and intron retention. The submenu replaces
+  # the old LJSplice v2 window, which posted to /ljdonor TF-serving; these run through
+  # exec into bajasplice-lib instead. None of this chain had ever been installed, which
+  # is why the server still offered LJSplice: the code was in git, not on the box.
+  # The list itself now lives in ONE file, baja/bio/splicing/exon-ai-models.js, which both
+  # menu-factory.js and manchester/editor.js call. It had been inlined in both, and only
+  # menu-factory.js was updated to BajaSplice -- while editor.js is the copy that actually
+  # ships, so the editor kept offering LJSplice v2.
+  # All of them or none: editor.js calling a module that is not there breaks the exon menu,
+  # and a menu entry whose script is missing is worse than no entry.
+  install_group "BajaSplice on an exon" \
+    "baja/bio/splicing/exon-ai-models.js:label: 'BajaSplice \\u25b8'" \
+    "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'" \
+    "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
+    "baja/bio/splicing/splicing-profile.js:Splicing profile — pick a magnitude mode" \
+    "baja/bio/splicing/cis-attribution.js:Cis-regulatory attribution — pick the tool" \
+    "baja/bio/splicing/intron-retention.js:Intron-retention propensity (BajaIR) as a track layer" \
+    "baja/bio/splicing/cryptic-exons.js:generateCrypticExons" \
+    "py/bio/splice/splicing-profile.py:Splicing profile for a raw sequence, via the bajasplice-lib models" \
+    "py/bio/splice/cis-profile.py:Cis-regulatory profile around one splice site, via bajasplice-lib" \
+    "py/bio/splice/intron-retention.py:Intron-retention propensity for a gene, via bajair"
+  # BajaNMD under Exon -> AI Models: what including or skipping a cassette exon does to
+  # the transcript, and the steric-block ASOs that switch it. A sibling model family to
+  # BajaSplice, so it ships as its own group rather than being folded into that one: the
+  # two share only the menu file.
+  #
+  # The library's modules are listed one by one, the way py/ion-lib/indication_store.py
+  # is, so the entry scripts' sys.path fallback finds them even on a box where the
+  # package has not been pip-installed into the venv. If it HAS been installed there, the
+  # installed copy wins and these are inert.
+  #
+  # All of them or none: a menu entry whose script is missing is worse than no entry, and
+  # an entry script whose library is missing fails at import with nothing useful on screen.
+  #
+  # The three Machine Learning Models surfaces ride in THIS group, not in the groups that
+  # already carry them for other reasons. models-catalogue.js also ships with the ELM and
+  # uniqueness groups, so either of those could put the BajaNMD card on a box where
+  # bajanmd.js never arrived -- the card would open onto a missing script, which is the
+  # exact failure this group's all-or-none rule exists to prevent. Listing it here as well
+  # means the card and the script it opens travel together; whichever group runs first
+  # installs the same file and the others are inert.
+  install_group "BajaNMD on an exon" \
+    "baja/bio/splicing/exon-ai-models.js:BajaNMD (py/bajanmd-lib): the consequence of a cassette exon" \
+    "baja/bio/splicing/bajanmd.js:BajaNMD: what including or skipping a cassette exon" \
+    "baja/ml/models-catalogue.js:title: 'NMD consequence of a cassette exon', badge: 'BajaNMD'" \
+    "baja/ml/institute-of-models-library.js:headline: 'What including or skipping a cassette exon does" \
+    "baja/lib/library-of-libraries.js:BajaCLIP, BajaSplice, BajaIR, BajaNMD and " \
+    "py/bio/nmd/bajanmd-exons.py:BajaNMD: every cassette exon of a gene" \
+    "py/bio/nmd/bajanmd-aso.py:BajaNMD: steric-block ASOs designed to skip one exon" \
+    "py/bajanmd-lib/bajanmd/__init__.py:BajaNMD: what happens to a transcript when a cassette exon" \
+    "py/bajanmd-lib/bajanmd/consequence.py:NMD consequence of every cassette-eligible exon of a gene" \
+    "py/bajanmd-lib/bajanmd/design.py:Steric-block ASOs that push a cassette exon toward being skipped" \
+    "py/bajanmd-lib/bajanmd/offtarget.py:Off-target screening for designed oligos"
+  # Uniqueness / repeat gradient on a transcript track. All three or none: the catalogue
+  # entry would otherwise open onto a loader that is not there, and the loader would
+  # call a scorer that is not there.
+  install_group "uniqueness / repeat gradient" \
+    "baja/data/uniqueness-gradient.js:Uniqueness / repeat gradient laid over a transcript track" \
+    "py/sequence/offtarget/uniqueness-gradient.py:Uniqueness / repeat gradient along a transcript" \
+    "baja/ml/models-catalogue.js:title: 'Uniqueness / repeat gradient', badge: 'k-mer'" 
   # THE COMPOUND SEQUENCE LABEL SPANS TWO FILES, so they ship together or not at all.
   # oligo.js decides what a compound spells out and where; the renderer that draws it in
   # register with the beads, drawAlignedSeqLabel, lives on the graph in gene.js. Shipped
@@ -628,6 +781,106 @@ if [[ $DO_API -eq 1 ]]; then
     "py/analytics/indication-browse.py:Reading the indication-market store" \
     "baja/research.js:baja-research" \
     "baja/home.js:data-door=\"research\""
+  # Remove SNPs by phase: the remove-SNPs menu lists each phase on the track (or selection)
+  # and deletes every SNP/indel of the one chosen.
+  install_group "remove SNPs by phase" \
+    "baja/manchester/menu/remove-snps-menu.js:REMOVE BY PHASE"
+  # Ask: "goto c.778" goes to the base on each track it exists on, zoomed in to read it.
+  # All three or none: the card offers choices the operation produces, and the operation
+  # resolves c. positions with position() from track-regions.js.
+  install_group "Ask: go to a position" \
+    "baja/bio/track-regions.js:ONE POSITION FROM WHAT SOMEONE TYPES" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'go_to_position'" \
+    "baja/manchester/menu/editor-command.js:ONE GO PER TRACK"
+  # Ask: select / remove variants by phase. The search engine gains the field and the
+  # operation docs tell the planner it exists; either alone leaves "phase 1" matching nothing.
+  install_group "Ask: variants by phase" \
+    "baja/data/variant-search.js:PHASE IS A NUMBER, NOT TEXT" \
+    "baja/manchester/menu/editor-capabilities.js:is the variant's phase number"
+  # Remove the top or bottom phase (the lollipops above or below the track line), from the
+  # remove-SNPs menu and from the Ask box; and "zoom into the pathogenic variant", which
+  # finds matching objects and offers a GO per match. editor-command.js draws that card.
+  install_group "Ask: top/bottom phase, zoom to objects" \
+    "baja/data/variant-search.js:WHICH SIDE OF THE TRACK THE LOLLIPOP IS DRAWN ON" \
+    "baja/manchester/menu/remove-snps-menu.js:REMOVE THE TOP OR BOTTOM SIDE" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'zoom_to_objects'" \
+    "baja/manchester/menu/editor-command.js:CHOICE_MAX"
+  # Ask: "design asos" opens the ASO designer (track-design-menu.js -> aso-design-dialog.js,
+  # both already deployed) instead of a tiling path that needs a selection first.
+  install_group "Ask: design asos opens the ASO designer" \
+    "baja/manchester/menu/editor-capabilities.js:OPENS THE ASO DESIGNER"
+  # The Variant designer: variants ranked by divergence from the reference over a window,
+  # with the compounds tiled on each and a GO. The panel and the three ways to open it.
+  install_group "Variant designer" \
+    "baja/manchester/menu/variant-designer.js:VARIANT DESIGNER -- every variant on the canvas" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'open_variant_designer'" \
+    "baja/manchester/menu/snp-tools-mouse-menu.js:label: 'Variant designer'" \
+    "baja/manchester/menu/edit-snps-menu.js:label: 'Variant designer'"
+  # Bookmarks: "bookmark this site <name>" saves the view, "go to <name>" returns to it, and
+  # a panel lists them. Both files or neither -- the operations are the only way in.
+  install_group "Ask: bookmark this site" \
+    "baja/lib/bookmarks.js:BOOKMARKS -- named places on the canvas" \
+    "baja/manchester/menu/editor-capabilities.js:BOOKMARK THIS SITE"
+  # Download a generated report as a PDF. Both files or neither: the button is in the viewer
+  # and the prose rendering it calls is in the writer. The writer's table path changed too
+  # (ASCII output, escaping fixed), which run-off-targets.js and snp-more-info.js also use.
+  install_group "Report viewer: PDF download" \
+    "baja/io/pdf-writer.js:ADVANCE WIDTHS PER 1000 UNITS" \
+    "baja/lib/report-view.js:A report is usually written to be sent on"
+  # "generate aso report" from the Ask box, and the allele-selectivity section the report
+  # gains: compounds built on a variant allele, ordered by divergence from the reference.
+  install_group "Ask: generate the design report" \
+    "baja/manchester/menu/design-report.js:ORDERED BY DIVERGENCE FROM THE REFERENCE" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'generate_design_report'"
+  # Tools > Track > Design: the whole design library plus a card per designer. editor.js
+  # carries the cards, track-design-menu.js the 'assay' preset they open for primer probes.
+  install_group "Tools > Track: Design" \
+    "manchester/editor.js:DESIGN, reachable from Tools > Track" \
+    "baja/manchester/menu/track-design-menu.js:ASSAY rather than a therapeutic modality"
+  # Off-target screening from the Ask box, with an "unscreened" scope the screens did not
+  # have. All three or none: the operation passes a scope the two tools must understand.
+  # The off-target options panel. All three or none: the two run tools now ask it for
+  # the reference, the scope and the edit distance instead of building their own.
+  # "show me the off-target report" from the box. Both files, so the operation never
+  # ships without the panel it opens.
+  install_group "Ask: show the off-target report" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'show_offtarget_report'" \
+    "baja/manchester/menu/selected-off-target-genes.js:THE OFF-TARGET GENES OF THE SELECTED COMPOUNDS"
+  # One sequence label per place on a tiled design. Both files: track.js empties the list
+  # at the top of each frame, oligo.js checks and fills it.
+  # The arrows stand down once the compound is visible, and the sequence label comes back
+  # at the same threshold. All three together: gene-draw without oligo would hide the
+  # arrows while the labels stayed suppressed, losing both at once.
+  # The target row under each compound shows only the column that does not pair.
+  # An annotation whose name is just a nucleotide run draws no label.
+  # The arrows hang from the top of the track and are translucent. Both renderers.
+  install_group "compound arrows: top of the track, translucent" \
+    "flexigraph/gene-draw.js:HUNG FROM THE TOP OF THE TRACK" \
+    "flexigraph/gene-draw2.js:Hung from the top of the track"
+  install_group "annotations: no label for a sequence name" \
+    "flexigraph/annotation.js:A NAME THAT IS JUST A SEQUENCE IS NOT A LABEL"
+  install_group "chemistry: target row is the mismatch only" \
+    "flexigraph/chem-draw.js:ONLY THE COLUMN THAT DOES NOT PAIR"
+  install_group "compound arrows: stand down when the compound is visible" \
+    "flexigraph/gene-draw.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
+    "flexigraph/gene-draw2.js:AT A ZOOM WHERE THE COMPOUND ITSELF IS VISIBLE" \
+    "flexigraph/oligo.js:COMPOUND_VISIBLE_PX in flexigraph/gene-draw.js"
+  install_group "sequence labels: one per place" \
+    "flexigraph/oligo.js:ONE SEQUENCE LABEL PER PLACE" \
+    "baja/bio/track.js:Same idea for the per-compound sequence labels"
+  # Run screen actually starting, and saying so when it cannot.
+  install_group "off-target run: start it, and report a failure" \
+    "baja/manchester/menu/run-off-target-tool.js:START IT, AND SAY SO IF IT CANNOT START" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:START IT, AND SAY SO IF IT CANNOT START"
+  install_group "off-target options panel" \
+    "baja/lib/canvas-overlay-panel.js:THE CANVAS OVERLAY PANEL" \
+    "baja/manchester/menu/off-target-options.js:THE OFF-TARGET SCREEN" \
+    "baja/manchester/menu/run-off-target-tool.js:THE OPTIONS, asked in the editor" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:THE OPTIONS, asked in the editor"
+  install_group "Ask: run off-target screen" \
+    "baja/manchester/menu/editor-capabilities.js:name: 'run_offtarget_screen'" \
+    "baja/manchester/menu/run-off-target-tool.js:SCOPE, which arrives two ways" \
+    "baja/manchester/menu/run-off-target-tool-seed-seq.js:SCOPE, which arrives two ways"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

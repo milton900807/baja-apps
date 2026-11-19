@@ -89,6 +89,99 @@ function (graph, genegraph_panel_layout) {
         // and argBlocker() can use it without becoming async.
         const regionsNow = (t) => (t ? (__regions.get(t) || null) : null);
 
+        // ONE GO PER TRACK, NOT A REFUSAL. An operation that runs on one track and was given
+        // no track name used to stop at "more than one track is open: name the one you mean".
+        // Now it can offer the tracks it actually fits instead: choices(a) returns one entry per
+        // such track, each carrying the track OBJECT in __track (two tracks can share a name),
+        // and the Ask card shows a Go button for each. __track never comes from the model --
+        // validate() drops any key that is not a declared parameter -- only from a choice.
+        const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
+        // The track a compound operation runs on: the one named or chosen, else the selected
+        // one IF it carries compounds, else the first that does. A report on -- or a screen of
+        // -- an empty track is not what was asked for, even when that track is the selected one.
+        // ALREADY SCREENED -- AND THAT DEPENDS ON WHICH SCREEN. A full-strand run records
+        // offtarget / _offtarget; a SEED run records mi_targets_transient_. Counting the
+        // full-strand field for a seed screen calls every compound unscreened and offers to
+        // rerun all of them, so the predicate follows the method. The two run tools apply the
+        // same split when they filter, so the count here and the work there agree.
+        const otScreened = (o, method) => (method === 'seed')
+            ? !!(o && o.mi_targets_transient_ != null)
+            : !!(o && (o.offtargetsRun || o.offtarget != null || o._offtarget != null));
+        // WHICH COMPOUNDS THE REPORT COVERS. The selection when there is one, across the
+        // canvas, because a selection is rarely confined to one track; otherwise the track's
+        // own compounds. compound-editor.js offers the same two, so the box and the menu
+        // report on the same sets.
+        const reportSet = (a) => {
+            const want = (a && a.scope) || '';
+            const sel = Array.from(selectedCompoundSet());
+            if (want === 'selected' || (!want && sel.length)) {
+                return { list: sel, where: ' (the selection)' };
+            }
+            const t = compoundTrack(a);
+            const list = t ? (t.oligos || []).filter(Boolean) : [];
+            return { list: list, where: t ? (' on ' + (t.name || 'the track')) : '' };
+        };
+
+        const screenPool = (a) => {
+            const t = compoundTrack(a);
+            if (!t) return { t: null, list: [] };
+            let list = (t.oligos || []).filter(Boolean);
+            const sc = (a && a.scope) || 'all';
+            const method = (a && a.method) || 'full';
+            if (sc === 'selected') list = list.filter((o) => o.selected || o.highlight__);
+            else if (sc === 'unscreened') list = list.filter((o) => !otScreened(o, method));
+            return { t: t, list: list };
+        };
+
+        const compoundTrack = (a) => (a && a.__track)
+            || (a && a.track ? matchTrack(a.track) : null)
+            || ((oneTrack() && (oneTrack().oligos || []).length) ? oneTrack() : null)
+            || tracks().find((x) => (x.oligos || []).length) || null;
+        const choicesOver = (a, fits) => {
+            if (!a || a.__track || a.track) return [];
+            return tracks().map((t) => {
+                let r = null;
+                try { r = fits(t); } catch (e) { r = null; }
+                return (r && !r.error) ? { track: t, label: (t.name || '(unnamed track)'), detail: r.detail || '',
+                    args: Object.assign({}, a, { __track: t }) } : null;
+            }).filter(Boolean);
+        };
+
+        // FRAME ONE BASE CLOSE ENOUGH TO READ THE SEQUENCE. The track draws its letters only
+        // above ~30 screen px per base (screencell in track-flexi.js), so the window is sized
+        // from the canvas width to land well above that, centred on the base, with the track
+        // about 100 px tall. Same arithmetic as load-clinical-compound.js, which was tuned on
+        // the real canvas. zoomRect() returns immediately while another animation runs, so wait
+        // for the graph to go idle first.
+        const frameBase = (t, pos) => frameRange(t, pos, pos + 1);
+        // A stretch [lo, hi): shown whole, but never wider than it has to be -- anything shorter
+        // than a screenful of readable bases is framed at letter resolution, centred.
+        const frameRange = async (t, lo, hi) => {
+            const g = t && t.tgraph;
+            if (!g || typeof g.X !== 'function' || !graph.zoomRect) return;
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            for (let i = 0; graph.animating && i < 60; i++) await sleep(60);
+            let cw = 1200, ch = 800;
+            try { cw = (graph.canvas && graph.canvas.width) || cw; ch = (graph.canvas && graph.canvas.height) || ch; } catch (e) { }
+            const PX_PER_BASE = 44;
+            const L = Math.max(1, Math.abs(hi - lo));
+            const half = Math.max(Math.max(6, Math.floor(cw / PX_PER_BASE)), L * 1.15) / 2;
+            const mid = (Math.min(lo, hi) + Math.max(lo, hi)) / 2;
+            const x0 = g.X(mid - half), x1 = g.X(mid + half);
+            let ymin, ymax;
+            try {
+                const top = g.Y(typeof g.getymax === 'function' ? g.getymax() : (g.yi + (g.height || 0)));
+                const bot = g.Y(typeof g.getymin === 'function' ? g.getymin() : g.yi);
+                if (isFinite(top) && isFinite(bot) && Math.abs(top - bot) > 0) {
+                    const cy = (top + bot) / 2;
+                    const ySpan = Math.max(1.0001, Math.abs(top - bot) * (ch / 100));
+                    ymin = cy - ySpan / 2; ymax = cy + ySpan / 2;
+                }
+            } catch (e) { }
+            if (ymin == null) { const yb = g.yi + (g.height || 0); ymin = yb - 0.51; ymax = yb + 0.51; }
+            if (isFinite(x0) && isFinite(x1)) await graph.zoomRect(Math.min(x0, x1), Math.max(x0, x1), ymin, ymax, 400);
+        };
+
         // Resolved up front for every open track. preview() and argBlocker() are synchronous
         // -- they run while a plan is being drawn -- so a cache filled only by run() would
         // mean the first plan never checks the region and "exon 14 of 11" is discovered after
@@ -137,6 +230,9 @@ function (graph, genegraph_panel_layout) {
         // The two engines the selection verbs are built on, loaded once.
         const VS = await exec('baja/data/variant-search.js', graph, { engineOnly: true });
         const F = await exec('baja/bio/compound-filter.js');
+        // Named places on the canvas, saved in localStorage. Created once; list() re-reads the
+        // store on every call, so preview() and choices() see bookmarks made since.
+        const BM = await exec('baja/lib/bookmarks.js', graph, genegraph_panel_layout);
 
         const vrows = () => {
             const out = [];
@@ -146,6 +242,57 @@ function (graph, genegraph_panel_layout) {
         const crows = () => {
             const out = [];
             for (const t of tracks()) for (const o of (t.oligos || [])) out.push({ t: t, o: o });
+            return out;
+        };
+        // EVERY OBJECT ON THE CANVAS AS ONE LIST of { kind, track, lo, hi, label, detail, hay, ref }
+        // for zoom_to_objects. Variants are searched through VS.recordOf, the same record the
+        // variant search reads, so "pathogenic" finds them by clinical significance rather
+        // than only by name. Every word of the query must appear somewhere in hay.
+        const objectHits = (a) => {
+            const words = ('' + ((a && a.query) || '')).toLowerCase().split(/\s+/).filter(Boolean);
+            if (!words.length) return [];
+            const kind = (a && a.kind) || 'any';
+            const want = (k) => kind === 'any' || kind === k;
+            const num = (x) => (Number.isFinite(+x) ? +x : null);
+            // Collected first, matched after: WHOLE WORDS when that finds anything, so
+            // "pathogenic" is not also "conflicting interpretations of pathogenicity";
+            // substrings only when whole words find nothing, so "patho" still works.
+            const all = [];
+            const add = (o) => { if (o.lo != null && o.hi != null) all.push(o); };
+            for (const t of tracks()) {
+                const tn = t.name || 'track';
+                if (want('tracks')) add({ kind: 'track', track: t, lo: num(t.xi), hi: num(t.xf), label: tn,
+                    detail: 'the whole track', hay: [tn, t.geneID, t.description, t.track_type].filter(Boolean).join(' ') });
+                if (want('variants')) for (const v of (t.snpindels || [])) {
+                    if (!v) continue;
+                    let rec = null; try { rec = VS.recordOf(v); } catch (e) { rec = null; }
+                    const x = num(v.xi); if (x == null) continue;
+                    const len = Math.max(1, ('' + (v.reference || '')).length);
+                    const sig = rec && rec.clinsig ? rec.clinsig.replace(/_/g, ' ') : '';
+                    add({ kind: 'variant', ref: v, track: t, lo: x, hi: x + len,
+                        label: 'Variant ' + ((rec && rec.name) || v.name || v.id || ((v.reference || '') + '>' + (v.alternate || ''))),
+                        detail: [tn, rec && rec.change, sig, rec && rec.condition].filter(Boolean).join(' \u00b7 '),
+                        hay: ['variant snp', rec ? rec.all : (v.name || ''), tn].join(' ') });
+                }
+                if (want('compounds')) for (const o of (t.oligos || [])) {
+                    if (!o) continue;
+                    add({ kind: 'compound', ref: o, track: t, lo: num(o.xi), hi: num(o.xf != null ? o.xf : o.xi),
+                        label: (o.type ? ('' + o.type).toUpperCase() + ' ' : 'Compound ') + (o.name || o.id || ''),
+                        detail: tn + (o.synthesisSequence ? ' \u00b7 ' + o.synthesisSequence : ''),
+                        hay: ['compound oligo', o.name, o.id, o.type, o.synthesisSequence, tn].filter(Boolean).join(' ') });
+                }
+                if (want('annotations')) for (const n of (t.annotations || [])) {
+                    if (!n) continue;
+                    const lo = num(Math.min(n.xi, n.xf != null ? n.xf : n.xi)), hi = num(Math.max(n.xi, n.xf != null ? n.xf : n.xi));
+                    add({ kind: 'annotation', ref: n, track: t, lo: lo, hi: hi,
+                        label: (n.type ? n.type + ' ' : '') + (n.name || ''),
+                        detail: tn + (n.description ? ' \u00b7 ' + n.description : ''),
+                        hay: ['annotation', n.name, n.type, n.description, tn].filter(Boolean).join(' ') });
+                }
+            }
+            const toks = (o) => o.__toks || (o.__toks = new Set(o.hay.toLowerCase().split(/[^a-z0-9.*>+-]+/).filter(Boolean)));
+            let out = all.filter((o) => words.every((w) => toks(o).has(w)));
+            if (!out.length) out = all.filter((o) => { const h = o.hay.toLowerCase(); return words.every((w) => h.indexOf(w) >= 0); });
             return out;
         };
         const selectVariants = (rows) => {
@@ -448,21 +595,69 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // "DESIGN ASOS" OPENS THE ASO DESIGNER. This used to go through
+                // tile-oligos-design.js, which refuses outright unless a sequence is already
+                // selected -- so with nothing selected, "design asos" put a hint in the status
+                // line and opened nothing. It now opens track-design-menu.js, the same path as the
+                // track's own Design menu: with a modality it goes straight to that designer's
+                // Default / Advanced dialog (aso-design-dialog.js for the ASOs), designing over the
+                // selection when there is one and the whole track when there is not. "ASOs" without
+                // a kind offers Gapmer and Steric-blocking as a GO each, per track when several
+                // are open; no modality at all opens the track's Design library.
                 name: 'design_oligos',
-                summary: 'Open the oligo tiling designer, which walks a modality across the target '
-                    + 'and scores the candidates. Opens a dialog to set the parameters; it does not '
-                    + 'design anything on its own.',
+                summary: 'DESIGN ASOs, gapmers, steric-blocking / splice-switching ASOs or siRNAs on a '
+                    + 'track: "design asos", "design gapmers", "make siRNAs", "design splice-switching '
+                    + 'oligos". Opens the design dialog (Default / Advanced) for that modality; the design '
+                    + 'runs over the selected sequence, or the whole track when nothing is selected. It '
+                    + 'does not design anything until the user presses Run.',
                 needs: 'track', opens: true,
                 params: {
                     modality: {
-                        type: 'enum', values: ['gapmer', 'steric', 'sirna'],
-                        about: 'which design ruleset to start on. gapmer for a gapmer ASO, steric for '
-                            + 'a steric-blocking ASO, sirna for siRNA. Omit to let the dialog ask'
-                    }
+                        type: 'enum', values: ['aso', 'gapmer', 'steric', 'sirna'],
+                        about: 'gapmer for a gapmer / RNase H ASO, steric for a steric-blocking or '
+                            + 'splice-switching ASO, sirna for siRNA, aso when the request says ASOs '
+                            + 'without saying which kind (the user is then offered both). Omit only '
+                            + 'when no modality is named at all, to open the Design library'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
                 },
-                run: (a) => exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout,
-                    a.modality || null, oneTrack() || null),
-                preview: (a) => 'open the tiling designer' + (a.modality ? (' on ' + a.modality) : '')
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const m = a.__modality !== undefined ? a.__modality : (a.modality === 'aso' ? 'gapmer' : (a.modality || null));
+                    try { graph.selectedTrack = t; } catch (e) { }
+                    return exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout, m);
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const m = a.__modality !== undefined ? a.__modality : a.modality;
+                    const what = { aso: 'the ASO designer', gapmer: 'the gapmer ASO designer', steric: 'the steric-blocking ASO designer',
+                        sirna: 'the siRNA designer' }[m] || 'the Design library';
+                    return 'open ' + what + (t ? (' on ' + (t.name || 'the track')) : '')
+                        + (t ? (hasSel(t) ? ', over the selected sequence' : ', over the whole track') : '');
+                },
+                // One GO per (kind, track): "ASOs" is two kinds, and several open tracks with none
+                // selected is several targets.
+                choices: (a) => {
+                    if (a.__track && a.__modality !== undefined) return [];
+                    const KIND = { gapmer: 'Gapmer ASO (RNase H)', steric: 'Steric-blocking / splice-switching ASO', sirna: 'siRNA' };
+                    const kinds = a.modality === 'aso' ? ['gapmer', 'steric'] : [a.modality || null];
+                    const one = a.__track || (a.track ? matchTrack(a.track) : oneTrack());
+                    const ts = one ? [one] : tracks();
+                    const out = [];
+                    for (const t of ts) for (const k of kinds) {
+                        out.push({
+                            label: (k ? KIND[k] : 'Design library') + (ts.length > 1 ? (' · ' + (t.name || 'track')) : ''),
+                            detail: (t.name || 'track') + ' · ' + (hasSel(t) ? 'over the selected sequence' : 'over the whole track'),
+                            args: Object.assign({}, a, { __track: t, __modality: k })
+                        });
+                    }
+                    return out;
+                },
+                choiceTitle: (a, ch) => (a.modality === 'aso' ? 'Design ASOs — which kind?' : 'Design — on which track?'),
+                argBlocker: (a) => (a.track && !matchTrack(a.track))
+                    ? ('no single track matches “' + a.track + '”: open tracks are ' + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                    : ''
             },
 
             {
@@ -543,7 +738,13 @@ function (graph, genegraph_panel_layout) {
                         type: 'string',
                         about: "the editor's variant search language: words matched anywhere in the "
                             + "record, * and ? as wildcards against a whole field, -word to exclude, "
-                            + "field:word to restrict. Empty means every variant"
+                            + "field:word to restrict. Empty means every variant. Fields: name, gene, "
+                            + "clinsig, condition, consequence, source, type, ref, alt, change, pos, "
+                            + "annotations, batch, phase, side. phase is the variant's phase number (0, 1, 2, ...) "
+                            + "and matches exactly: \"phase 1\" is phase:1. side is where its lollipop is drawn: "
+                            + "side:top stands up above the track line, side:bottom hangs down below it. "
+                            + "\"the top phase\", \"the upper ones\", \"the ones above the track\" are side:top; "
+                            + "\"the bottom phase\", \"the lower ones\", \"below the track\" are side:bottom"
                     }
                 },
                 count: (a) => vhits(a.query).length,
@@ -556,10 +757,211 @@ function (graph, genegraph_panel_layout) {
                     ? ('matching “' + a.query + '”') : '(all of them)')
             },
             {
+                // THE OFF-TARGET REPORT, from results already on the compounds. "show me the
+                // off-target report" was refused as not something the editor does, though the
+                // report itself has been in Compounds all along -- the catalogue could run a
+                // screen and could fold off-targets into a design report, but had no way to
+                // just show what the last screen found.
+                name: 'show_offtarget_report',
+                summary: 'SHOW THE OFF-TARGET REPORT for the compounds: which genes they hit, as two '
+                    + 'tables -- by gene (which genes this set keeps running into) and by compound '
+                    + '(what each one hits) -- with downloads. "show me the off-target report", "what '
+                    + 'did the off-target screen find", "which genes do these hit", "off-target '
+                    + 'results". It reads the results already stored on the compounds and runs '
+                    + 'nothing; use run_offtarget_screen to actually screen them.',
+                needs: 'compounds', opens: true,
+                params: {
+                    scope: {
+                        type: 'enum', values: ['all', 'selected'],
+                        about: 'selected for "these" or "the selected ones". Omit to report on the '
+                            + 'selection when there is one and on every compound otherwise'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                count: (a) => reportSet(a).list.length,
+                run: (a) => {
+                    const { list } = reportSet(a);
+                    if (!list.length) { result('No compounds to report on.'); return; }
+                    return exec('baja/manchester/menu/selected-off-target-genes.js', graph, list);
+                },
+                preview: (a) => {
+                    if (a.track && !matchTrack(a.track)) return 'show the off-target report for \u201c' + a.track + '\u201d';
+                    const { list, where } = reportSet(a);
+                    const n = list.filter((o) => o && o.offtargetsRun).length;
+                    // How many have actually been screened is the thing worth knowing before
+                    // opening it: a table of "not screened" is a different answer from a clean one.
+                    return 'show the off-target report for ' + list.length + ' compound'
+                        + (list.length === 1 ? '' : 's') + where
+                        + ' \u00b7 ' + (n ? (n + ' screened') : 'none screened yet');
+                },
+                argBlocker: (a) => {
+                    if (a.track && !matchTrack(a.track)) return 'no single track matches \u201c' + a.track + '\u201d';
+                    const { list } = reportSet(a);
+                    if (!list.length) {
+                        return (a.scope === 'selected') ? 'no compounds are selected' : 'no compounds to report on';
+                    }
+                    return '';
+                }
+            },
+            {
+                // OFF-TARGET SCREENING FROM THE BOX. The screens have always been in Design >
+                // Off-targets; nothing in the catalogue reached them, so "run off-targets on
+                // compounds with no off-target values" came back as not something the editor
+                // does. The "no off-target values" part is a scope the screens did not have
+                // either: `unscreened` was added to them for this, so the compounds that have
+                // never been screened can be screened without first selecting them by hand.
+                name: 'run_offtarget_screen',
+                summary: 'RUN AN OFF-TARGET SCREEN on the compounds of a track: "run off-targets", '
+                    + '"screen these ASOs for off-targets", "run off-targets on compounds with no '
+                    + 'off-target values", "screen the selected compounds". Results attach to the '
+                    + 'compounds, so the design report and the off-target filters read them afterwards.',
+                needs: 'compounds', opens: true,
+                params: {
+                    scope: {
+                        type: 'enum', values: ['all', 'unscreened', 'selected'], default: 'all',
+                        about: 'which compounds. unscreened is the ones that have NO off-target value '
+                            + 'yet -- "compounds with no off-target values", "the ones that have not '
+                            + 'been screened", "whatever is missing". selected is the ones currently '
+                            + 'selected. all is every compound on the track'
+                    },
+                    method: {
+                        type: 'enum', values: ['full', 'seed', 'fuzzy'], default: 'full',
+                        about: 'full screens the whole antisense strand and is the default for an ASO. '
+                            + 'seed screens positions 2-8 of the guide, which is what drives siRNA '
+                            + 'off-target silencing. fuzzy is a tolerant edit-distance search that also '
+                            + 'finds near-matches, and it always covers every compound on the track'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                count: (a) => screenPool(a).list.length,
+                run: (a) => {
+                    const { t, list } = screenPool(a);
+                    if (!t) { result('No compounds on any open track to screen.'); return; }
+                    const m = a.method || 'full';
+                    if (m === 'fuzzy') {
+                        return exec('baja/data/aso-offtarget.js', '', window['env']['apiUrl'],
+                            graph, genegraph_panel_layout, t);
+                    }
+                    if (!list.length) { result('No compounds in that scope to screen.'); return; }
+                    // true keeps the tools' original meaning of 'selected'; the word is the new scope.
+                    const scope = (a.scope === 'selected') ? true
+                        : (a.scope === 'unscreened' ? 'unscreened' : false);
+                    return exec(m === 'seed'
+                        ? 'baja/manchester/menu/run-off-target-tool-seed-seq.js'
+                        : 'baja/manchester/menu/run-off-target-tool.js',
+                        graph, genegraph_panel_layout, scope, t);
+                },
+                preview: (a) => {
+                    if (a.track && !matchTrack(a.track)) return 'screen \u201c' + a.track + '\u201d for off-targets';
+                    const { t, list } = screenPool(a);
+                    const m = a.method || 'full';
+                    const how = { full: 'the full antisense strand', seed: 'the seed region (positions 2-8)',
+                        fuzzy: 'a fuzzy edit-distance search' }[m];
+                    const what = (m === 'fuzzy') ? 'every compound'
+                        : (list.length + ' ' + ({ unscreened: 'never-screened ', selected: 'selected ' }[a.scope] || '')
+                            + 'compound' + (list.length === 1 ? '' : 's'));
+                    return 'screen ' + what + (t ? (' on ' + (t.name || 'the track')) : '') + ' for off-targets, using ' + how;
+                },
+                argBlocker: (a) => {
+                    if (a.track && !matchTrack(a.track)) {
+                        return 'no single track matches \u201c' + a.track + '\u201d';
+                    }
+                    const { t, list } = screenPool(a);
+                    if (!t) return 'no open track carries compounds';
+                    // The fuzzy search takes no scope, so asking for one would run something
+                    // other than what was asked for. Said before the button, not after it.
+                    if ((a.method === 'fuzzy') && a.scope && a.scope !== 'all') {
+                        return 'the fuzzy search screens every compound on the track; it cannot be limited to the '
+                            + a.scope + ' ones. Use the full or seed screen for that';
+                    }
+                    if (!list.length) {
+                        if (a.scope === 'unscreened') {
+                            return 'every compound on ' + (t.name || 'that track') + ' has already been screened';
+                        }
+                        if (a.scope === 'selected') return 'no compounds are selected on ' + (t.name || 'that track');
+                        return 'no compounds on ' + (t.name || 'that track');
+                    }
+                    return '';
+                }
+            },
+            {
+                // "generate aso report" came back as "not something the editor can do", though
+                // Design > Therapeutics has written this report all along. The report itself is
+                // unchanged; it is reachable from the box now.
+                name: 'generate_design_report',
+                summary: 'GENERATE THE DESIGN REPORT for the compounds on a track: "generate aso '
+                    + 'report", "generate oligo report", "write the design report", "report on these '
+                    + 'ASOs". It gathers the target, the layers, the compounds, their chemistry and '
+                    + 'their off-targets and writes them up, and where the compounds are '
+                    + 'allele-selective it adds a section ordering them by how far they diverge from '
+                    + 'the reference. The report opens in a reader that can save it as PDF or markdown.',
+                needs: 'compounds', opens: true,
+                params: {
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                run: (a) => {
+                    const t = compoundTrack(a);
+                    if (!t) { result('No compounds on any open track to report on.'); return; }
+                    return exec('baja/manchester/menu/design-report.js', graph, genegraph_panel_layout, t);
+                },
+                preview: (a) => {
+                    // A name that matches nothing must not read as a report on some other
+                    // track: the blocker stops the run either way, but the line above it is
+                    // what the user actually reads.
+                    if (a.track && !matchTrack(a.track)) return 'write the design report for \u201c' + a.track + '\u201d';
+                    const t = compoundTrack(a);
+                    const n = t ? (t.oligos || []).length : 0;
+                    return 'write the design report' + (t ? (' for ' + n + ' compound' + (n === 1 ? '' : 's')
+                        + ' on ' + (t.name || 'the track')) : '');
+                },
+                // Several tracks carry compounds: the report covers ONE track, so which one is the
+                // user's call rather than whichever comes first.
+                choices: (a) => {
+                    if (a.__track || a.track) return [];
+                    const withC = tracks().filter((x) => (x.oligos || []).length);
+                    if (withC.length < 2) return [];
+                    return withC.map((t) => ({
+                        label: t.name || '(unnamed track)',
+                        detail: (t.oligos || []).length + ' compound' + ((t.oligos || []).length === 1 ? '' : 's')
+                            + ((t.oligos || []).some((o) => o && o.alleleSelective) ? ' \u00b7 allele-selective' : ''),
+                        args: Object.assign({}, a, { __track: t })
+                    }));
+                },
+                choiceTitle: () => 'Design report \u2014 for which track?',
+                argBlocker: (a) => (a.track && !matchTrack(a.track))
+                    ? ('no single track matches \u201c' + a.track + '\u201d')
+                    : ''
+            },
+            {
+                // The Variant designer: every variant ranked by how far its window has diverged
+                // from the reference, with the compounds tiled on each and a GO to it.
+                name: 'open_variant_designer',
+                summary: 'OPEN THE VARIANT DESIGNER: a ranked list of every variant by its divergence '
+                    + 'from the reference over a window of bases around it, with the number of compounds '
+                    + 'tiled on each and a GO to its location. "open the variant designer", "rank the '
+                    + 'variants by divergence", "which variants diverge most from the reference", "which '
+                    + 'variants have compounds on them".',
+                needs: 'variants', opens: true,
+                params: {
+                    window: { type: 'number', about: 'the window size in nt when the request gives one ("over 100 bases"). Omit to keep the last one used (50 the first time)' },
+                    track: { type: 'string', about: 'one track, by name, when the request names one. Omit for every track' }
+                },
+                run: (a) => {
+                    try {
+                        const S = graph.__variantDesigner || (graph.__variantDesigner = { W: 50, samePhase: false, track: null, sort: 'divergence', scroll: 0 });
+                        if (a.window != null && +a.window >= 1) S.W = Math.round(+a.window);
+                    } catch (e) { }
+                    return exec('baja/manchester/menu/variant-designer.js', graph, genegraph_panel_layout, a.track ? (matchTrack(a.track) || null) : null);
+                },
+                preview: (a) => 'open the Variant designer' + (a.track ? (' on ' + a.track) : '')
+                    + (a.window != null ? (', window ' + a.window + ' nt') : ''),
+                argBlocker: (a) => (a.track && !matchTrack(a.track)) ? ('no single track matches \u201c' + a.track + '\u201d') : ''
+            },
+            {
                 name: 'remove_variants',
                 summary: 'DELETE the variants matching a search query from the tracks.',
                 needs: 'variants', destructive: true,
-                params: { query: { type: 'string', about: 'same search language. Empty means every variant' } },
+                params: { query: { type: 'string', about: 'same search language as select_variants, fields included (phase:1 for phase 1, side:top / side:bottom for the top or bottom phase). Empty means every variant' } },
                 count: (a) => vhits(a.query).length,
                 run: (a) => {
                     const hits = vhits(a.query);
@@ -663,13 +1065,221 @@ function (graph, genegraph_panel_layout) {
                 preview: (a) => 'delete the compounds: ' + F.describe(a) + offtargetNote(a)
             },
             {
+                // BOOKMARK THIS SITE. "bookmark this site dua" used to come back as "not something
+                // the editor can do ... likely a browser or application-level feature", because
+                // nothing in the catalogue saved a place. The name is whatever the user put after
+                // the verb, which is the part the planner has to be told to keep.
+                name: 'bookmark_site',
+                summary: 'SAVE THE CURRENT VIEW as a named bookmark, to come back to later: "bookmark '
+                    + 'this site dua", "bookmark this as the hotspot", "save this view as exon 7", '
+                    + '"remember this place". It records where the camera is now and changes nothing '
+                    + 'on the canvas.',
+                needs: 'track',
+                params: {
+                    name: {
+                        type: 'string', required: true,
+                        about: "what to call it, taken from the request itself: in \"bookmark this site "
+                            + "dua\" the name is \"dua\", in \"bookmark this as the hotspot\" it is \"the "
+                            + "hotspot\". Use the user's own words, without the words bookmark / save / "
+                            + "this site"
+                    }
+                },
+                run: (a) => {
+                    const r = BM.save(a.name);
+                    if (r.error) { result(r.error); return; }
+                    result('Bookmarked \u201c' + r.bm.name + '\u201d at ' + BM.where(r.bm)
+                        + (r.replaced ? ' \u2014 replaced the earlier one of that name.'
+                            : '. Say \u201cgo to ' + r.bm.name + '\u201d to come back.'));
+                },
+                preview: (a) => 'bookmark this view as \u201c' + a.name + '\u201d'
+            },
+            {
+                name: 'go_to_bookmark',
+                summary: 'GO BACK TO A SAVED BOOKMARK: "go to dua", "take me back to the hotspot", "go '
+                    + 'to my bookmark". Puts the camera back where it was when the bookmark was saved. '
+                    + 'With no name, or when several match, the bookmarks are offered to pick from. Use '
+                    + 'this only for a name that was bookmarked; a position such as c.778 is '
+                    + 'go_to_position, and a thing on the canvas is zoom_to_objects.',
+                needs: 'track',
+                params: {
+                    name: { type: 'string', about: "the bookmark's name when the request names one. Omit to be offered every bookmark" }
+                },
+                run: async (a) => {
+                    const b = a.__bm || (a.name ? (BM.find(a.name)[0] || null) : null);
+                    if (!b) { result(a.name ? ('No bookmark called \u201c' + a.name + '\u201d.') : 'No bookmarks saved yet.'); return; }
+                    await BM.go(b);
+                    result('Bookmark \u00b7 ' + b.name + ' (' + BM.where(b) + ').');
+                },
+                preview: (a) => 'go to the bookmark' + (a.name ? (' \u201c' + a.name + '\u201d') : ''),
+                choices: (a) => {
+                    if (a.__bm) return [];
+                    return (a.name ? BM.find(a.name) : BM.list()).map((b) => ({
+                        label: b.name, detail: BM.where(b) + ' \u00b7 ' + BM.when(b),
+                        args: Object.assign({}, a, { __bm: b })
+                    }));
+                },
+                choiceTitle: () => 'Go to which bookmark?',
+                argBlocker: (a) => {
+                    if (a.__bm) return '';
+                    const hits = a.name ? BM.find(a.name) : BM.list();
+                    if (!hits.length) {
+                        return a.name ? ('no bookmark called \u201c' + a.name + '\u201d')
+                            : 'no bookmarks saved yet: say \u201cbookmark this site <name>\u201d first';
+                    }
+                    return '';
+                }
+            },
+            {
+                name: 'open_bookmarks',
+                summary: 'OPEN THE BOOKMARKS PANEL: every saved bookmark, each with a GO and a Delete. '
+                    + '"show my bookmarks", "list my bookmarks", "manage bookmarks".',
+                opens: true, params: {},
+                run: () => { BM.open(); },
+                preview: () => 'open the bookmarks panel (' + BM.list().length + ' saved)'
+            },
+            {
+                // GOTO ONE POSITION, zoomed in far enough to read the bases. "goto c.778" was
+                // read as select_sequence_region with start=end=778, which counted from the start
+                // of the TRACK rather than the A of the ATG, refused outright whenever more than
+                // one track was open, and framed a 1-nt selection with a margin of 8 -- nowhere
+                // near letter resolution. With several tracks open and none named, this offers a
+                // Go per track the position exists on: c.778 is a different place on each
+                // transcript, and which one was meant is the user's call.
+                name: 'go_to_position',
+                summary: 'GO TO ONE POSITION on a track and zoom in until the bases can be read: '
+                    + '"goto c.778", "go to c.-12", "jump to c.*30", "show me c.1234+5", "take me to '
+                    + 'position 1520". Marks that base as the selection. Use this, not '
+                    + 'select_sequence_region, whenever the request names a single position to go '
+                    + 'to or look at.',
+                needs: 'track',
+                params: {
+                    position: {
+                        type: 'string', required: true,
+                        about: 'the position exactly as written: HGVS coding notation (c.778, c.-12 in '
+                            + "the 5' UTR, c.*30 after the stop, c.778+5 in an intron) or a plain number, "
+                            + 'which is a coordinate counted from the start of the track'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
+                },
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const R = await regionsOf(t);
+                    if (!R) { result('Could not read the exons of ' + (t.name || 'that track') + '.'); return; }
+                    const r = R.position(a.position);
+                    if (r.error) { result(r.error); return; }
+                    try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                    t.markstart = r.pos;
+                    t.markend = r.pos + 1;
+                    t.showResizeBar = true;
+                    try { graph.startX = t.tgraph.X(r.pos); graph.endX = t.tgraph.X(r.pos + 1); } catch (e) { }
+                    try { graph.selectedTrack = t; } catch (e) { }
+                    try { await frameBase(t, r.pos); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result((t.name || 'Track') + ' · ' + r.label
+                        + (r.label.indexOf('position') === 0 ? '' : (' (track position ' + r.pos.toLocaleString() + ')')) + '.');
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const R = regionsNow(t);
+                    const r = R ? R.position(a.position) : null;
+                    return 'go to ' + a.position + (t ? (' on ' + (t.name || 'the track')) : '')
+                        + ((r && !r.error) ? (' (track position ' + r.pos.toLocaleString() + ')') : '')
+                        + ', zoomed in to the bases';
+                },
+                choices: (a) => choicesOver(a, (x) => {
+                    const R = regionsNow(x); if (!R) return null;
+                    const r = R.position(a.position); if (r.error) return r;
+                    return { detail: r.label + ' is track position ' + r.pos.toLocaleString() };
+                }),
+                argBlocker: (a) => {
+                    const t = pickTrack(a);
+                    if (!t || (!a.track && !a.__track)) {
+                        // No track named: fine when the position exists on at least one track.
+                        const n = choicesOver(a, (x) => regionsNow(x) && regionsNow(x).position(a.position)).length;
+                        if (n) return '';
+                        if (!a.track && tracks().length > 1) {
+                            const why = tracks().map((x) => { const R = regionsNow(x); const r = R && R.position(a.position); return r && r.error; }).find(Boolean);
+                            return why || ('no open track has ' + a.position);
+                        }
+                    }
+                    if (!t) {
+                        return a.track
+                            ? ('no single track matches “' + a.track + '”: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'which track? click one first';
+                    }
+                    const R = regionsNow(t);
+                    if (!R) return '';
+                    return R.position(a.position).error || '';
+                }
+            },
+            {
+                // ZOOM TO WHATEVER ON THE CANVAS MATCHES SOME WORDS. "zoom into the pathogenic
+                // variant" names a thing by what it IS, not where it is, so this searches every
+                // object the canvas holds -- variants by their whole record (clinical
+                // significance, condition, consequence, gene, change), compounds, annotations
+                // such as exons, and the tracks themselves -- and offers a GO per hit, each
+                // zooming to letter resolution. One hit just goes there.
+                name: 'zoom_to_objects',
+                summary: 'FIND AND ZOOM TO objects on the canvas by keywords: "zoom into the pathogenic '
+                    + 'variant", "take me to the ASO", "show me exon 7", "go to the frameshift", "where is '
+                    + 'rs6025". Searches variants, compounds, annotations and tracks, and offers one GO per '
+                    + 'match, each zooming in until the bases can be read. Use this when the request names '
+                    + 'WHAT to look at; use go_to_position when it names a position such as c.778.',
+                params: {
+                    query: {
+                        type: 'string', required: true,
+                        about: 'the words that identify the object, as they would appear on it: '
+                            + '"pathogenic", "frameshift", "rs6025", "exon 7", an oligo name. Spell them '
+                            + 'correctly ("pathologic" means pathogenic). Every word must match. Leave out '
+                            + 'the kind of object; that goes in kind'
+                    },
+                    kind: {
+                        type: 'enum', values: ['any', 'variants', 'compounds', 'annotations', 'tracks'],
+                        default: 'any',
+                        about: 'what sort of object, when the request says ("the pathogenic VARIANT" is variants)'
+                    }
+                },
+                run: async (a) => {
+                    let h = a.__hit;
+                    if (!h) {
+                        const hits = objectHits(a);
+                        if (!hits.length) { result('Nothing on the canvas matches \u201c' + a.query + '\u201d.'); return; }
+                        if (hits.length > 1) { result(hits.length + ' objects match \u201c' + a.query + '\u201d: ask again and pick one.'); return; }
+                        h = hits[0];
+                    }
+                    if (h.kind === 'variant') {
+                        try { selectVariants([{ v: h.ref }]); } catch (e) { }
+                    }
+                    try { graph.selectedTrack = h.track; } catch (e) { }
+                    try { await frameRange(h.track, h.lo, h.hi); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result(h.label + ' \u00b7 ' + (h.track.name || 'track') + '.');
+                },
+                count: (a) => objectHits(a).length,
+                preview: (a) => {
+                    const n = objectHits(a).length;
+                    const what = (a.kind && a.kind !== 'any') ? a.kind : 'objects';
+                    return n === 1 ? ('zoom to the one ' + what.replace(/s$/, '') + ' matching \u201c' + a.query + '\u201d')
+                        : ('zoom to ' + what + ' matching \u201c' + a.query + '\u201d');
+                },
+                choices: (a) => {
+                    if (a.__hit) return [];
+                    return objectHits(a).map((h) => ({ label: h.label, detail: h.detail, args: Object.assign({}, a, { __hit: h }) }));
+                },
+                choiceTitle: (a, ch) => ch.length + ' match \u201c' + a.query + '\u201d \u2014 zoom to which?',
+                argBlocker: (a) => objectHits(a).length ? '' : ('nothing on the canvas matches \u201c' + a.query + '\u201d')
+            },
+            {
                 name: 'select_sequence_region',
                 summary: 'Select a named part of the transcript as the sequence selection: the '
                     + "5' UTR, the 3' UTR, the coding region, a numbered exon or intron, the whole "
                     + 'transcript, or an explicit coordinate range. This is the selection every '
                     + 'model and design runs on, so it is the step that comes before "which RBP '
                     + 'binds this" or "load variants over the selection" when the user names a '
-                    + 'region instead of dragging one.',
+                    + 'region instead of dragging one. To GO TO a single position ("goto c.778") '
+                    + 'use go_to_position instead.',
                 needs: 'track',
                 params: {
                     region: {
@@ -686,7 +1296,7 @@ function (graph, genegraph_panel_layout) {
                     track: { type: 'string', about: 'which track, by name. Omit when there is only one, or to use the selected one' }
                 },
                 run: async (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const t = pickTrack(a);
                     if (!t) { result('Which track? Name it, or click one first.'); return; }
                     const R = await regionsOf(t);
                     if (!R) { result('Could not read the regions of ' + (t.name || 'that track') + '.'); return; }
@@ -724,7 +1334,7 @@ function (graph, genegraph_panel_layout) {
                         + ' to ' + r.end.toLocaleString() + '.');
                 },
                 preview: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const t = pickTrack(a);
                     const R = regionsNow(t);
                     const where = t ? (' of ' + (t.name || 'the track')) : '';
                     if (R) {
@@ -736,11 +1346,20 @@ function (graph, genegraph_panel_layout) {
                         + ((a.index != null) ? (' ' + a.index) : '');
                     return 'select the ' + what + where;
                 },
+                // Only when no single track is implied: a selection or a clicked track still
+                // decides it, as before.
+                choices: (a) => oneTrack() ? [] : choicesOver(a, (x) => {
+                    const R = regionsNow(x); if (!R) return null;
+                    const r = R.resolve(a); if (r.error) return r;
+                    return { detail: r.label + ': ' + (r.end - r.start).toLocaleString() + ' nt, '
+                        + r.start.toLocaleString() + ' to ' + r.end.toLocaleString() };
+                }),
                 // Resolved before the button so "this transcript has 11 exons, so there is no
                 // exon 14" is something the user reads instead of a run that does nothing.
                 argBlocker: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const t = pickTrack(a);
                     if (!t) {
+                        if (!a.track && choicesOver(a, (x) => regionsNow(x) && regionsNow(x).resolve(a)).length > 1) return '';
                         return a.track
                             ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
                                 + tracks().map((x) => x.name || '(unnamed)').join(', '))
@@ -921,13 +1540,22 @@ function (graph, genegraph_panel_layout) {
 
             {
                 name: 'show_compound_locations',
-                summary: 'Mark where the compounds are with a down arrow over the track, so they can '
-                    + 'be seen at a view too wide to show the compounds themselves. Answers "where '
-                    + 'are the compounds", "show me the locations", "where do these sit". Marks the '
-                    + 'selected ones when any are selected, otherwise all of them.',
+                summary: 'HIGHLIGHT THE COMPOUNDS / show where they are: marks each one with a down '
+                    + 'arrow over the track, so they can be seen at a view too wide to show the '
+                    + 'compounds themselves. This is what "highlight compounds", "highlight all '
+                    + 'compounds", "where are the compounds", "show me where the compounds are on the '
+                    + 'transcript", "show me the locations" and "where do these sit" all mean. Marks '
+                    + 'the selected ones when any are selected, unless the request asks for all.',
                 needs: 'compounds',
                 params: {
-                    scope: { type: 'enum', values: ['selected', 'all'], about: 'omit to mark the selection when there is one' },
+                    scope: {
+                        type: 'enum', values: ['selected', 'all'],
+                        about: 'use all when the request says all, every, the whole track or the whole '
+                            + 'transcript -- "highlight all compounds", "where are all the compounds on '
+                            + 'the transcript" -- which means every compound even when some are '
+                            + 'selected. Use selected for "these" or "the selected ones". Omit to mark '
+                            + 'the selection when there is one and everything otherwise'
+                    },
                     clear: { type: 'boolean', about: 'true to take the arrows off again' }
                 },
                 count: (a) => {
@@ -946,9 +1574,19 @@ function (graph, genegraph_panel_layout) {
                             + (r && r.noPosition ? (': ' + r.noPosition + ' compounds have no position on the track.') : '.'));
                         return;
                     }
-                    result('Marked ' + r.marked + ' compound' + (r.marked === 1 ? '' : 's') + ' on '
+                    // WHEN IT MARKED ONLY THE SELECTION, SAY SO. With 85 of 210 compounds
+                    // selected, "highlight compounds" marks 85 and a bare count reads as though
+                    // that were all of them. The line now says which it did and how to get the rest.
+                    const sel = selectedCompoundSet();
+                    const usedSel = (a.scope === 'selected') || (a.scope !== 'all' && sel.size > 0);
+                    const total = crows().length;
+                    result('Marked ' + r.marked + (usedSel ? ' selected' : '') + ' compound'
+                        + (r.marked === 1 ? '' : 's') + ' on '
                         + r.tracks + ' track' + (r.tracks === 1 ? '' : 's')
-                        + (r.noPosition ? ('. ' + r.noPosition + ' have no position and could not be placed.') : '.'));
+                        + (r.noPosition ? ('. ' + r.noPosition + ' have no position and could not be placed.') : '.')
+                        + ((usedSel && total > r.marked)
+                            ? (' ' + total + ' compounds in all \u2014 say \u201chighlight all compounds\u201d for every one.')
+                            : ''));
                 },
                 preview: (a) => {
                     if (a.clear) return 'take the compound location arrows off';
@@ -998,6 +1636,83 @@ function (graph, genegraph_panel_layout) {
                 summary: 'Zoom out until every track is in view.',
                 params: {},
                 run: async () => { try { await graph.viewAllTracks(); } catch (e) { } result('Zoomed out to every track.'); }
+            },
+
+            // SPLICE A TRACK INTO AN mRNA. The track menu has offered this for a while
+            // ("Convert to mRNA", in baja/manchester/menu/mouse-over-highlight.js); the box
+            // could not, so "create mRNA track from DNM3" came back as not something the
+            // editor can do. That was true as written: the planner is handed this file as its
+            // whole vocabulary, so an operation absent from here is unreachable however
+            // plainly it is asked for.
+            //
+            // THE PRECONDITIONS ARE THE MENU'S, not new ones. The menu answers them by not
+            // drawing the item at all; argBlocker has to say them out loud instead, because
+            // by then someone has already asked.
+            //
+            // The menu keeps its own copy of this logic rather than both calling one
+            // function. Copied here deliberately rather than refactoring the menu from the
+            // Ask box: these two will drift, and the right fix is one function both call.
+            {
+                name: 'convert_to_mrna',
+                summary: 'Build a spliced mRNA track from a gene track that has introns, '
+                    + 'carrying its variants, compounds and plots across. Use this for '
+                    + '"make an mRNA from X", "splice X", "create an mRNA track from X".',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string', required: false,
+                        about: 'the track name, or enough of it to pick it out. Use the names '
+                            + 'given in canvas_now. Leave it out to use the selected track.'
+                    }
+                },
+                run: (a) => {
+                    const st = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!st) { result('No single track matches “' + (a.track || '') + '”.'); return; }
+                    if (!st.sequence) { result('No sequence on ' + (st.name || 'that track') + ' to splice into mRNA.'); return; }
+                    let track;
+                    try { track = st.createTrackFromAnnotation('CDNA'); }
+                    catch (e) { result('Could not build mRNA: ' + (e && e.message ? e.message : e)); return; }
+                    if (!track) { result('Could not build the mRNA track.'); return; }
+                    // Carried across exactly as the menu does it, each guarded on its own so a
+                    // track with no compounds still gets its variants.
+                    try { if (st.snpindels && st.snpindels.length > 0) { track.liftSnpindels(); track.targetPhase = st.targetPhase; } } catch (e) { }
+                    try { if (st.oligos && st.oligos.length > 0) track.liftCompounds(); } catch (e) { }
+                    try { if (st.plots && st.plots.length > 0) track.liftPlots(); } catch (e) { }
+                    graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
+                    try { graph.deselectAllTracks(); } catch (e) { }
+                    try { track.select(); } catch (e) { }
+                    // grid || tgraph. createTrackFromAnnotation builds a track carrying a GRID
+                    // (baja/bio/track-flexi.js), so reading .tgraph alone threw straight into
+                    // the catch and the new track was created off screen with nothing said.
+                    // The menu learned that the hard way; the same rule holds here.
+                    try {
+                        const ax = track.grid || track.tgraph;
+                        if (ax) graph.animateTo(ax.xi - 100, ax.xi + ax.width + 100, ax.Y(-3), ax.Y(3));
+                    } catch (e) { }
+                    result('Created ' + (track.name || 'an mRNA track') + ' from ' + (st.name || 'track') + '.');
+                },
+                preview: (a) => {
+                    const st = a.track ? matchTrack(a.track) : oneTrack();
+                    return st ? ('splice ' + (st.name || 'that track') + ' into an mRNA track')
+                              : ('splice the track “' + (a.track || '') + '” into an mRNA track');
+                },
+                argBlocker: (a) => {
+                    const st = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!st) {
+                        return a.track
+                            ? ('no single track matches “' + a.track + '”: open tracks are '
+                                + tracks().map((t) => t.name || '(unnamed)').join(', '))
+                            : 'no single track is selected, so there is nothing to splice';
+                    }
+                    if (st.track_type === 'CDNA') return (st.name || 'that track') + ' is already an mRNA';
+                    try {
+                        if (!(st.containsIntrons && st.containsIntrons())) {
+                            return (st.name || 'that track') + ' has no introns, so an mRNA of it would be a copy of it';
+                        }
+                    } catch (e) { }
+                    if (!st.sequence) return (st.name || 'that track') + ' has no sequence to splice';
+                    return '';
+                }
             },
 
             // ---------------------------------------------------------------- answering ----
@@ -1114,6 +1829,11 @@ function (graph, genegraph_panel_layout) {
             const v = validate(step);
             if (!v.ok) return { ok: false, text: v.problem };
             const c = v.capability;
+            // Which tracks this step could run on, when it names none. One: it simply runs
+            // there. Several: the card offers a Go for each rather than guessing.
+            let choices = [];
+            try { choices = c.choices ? (c.choices(v.args) || []) : []; } catch (e) { choices = []; }
+            if (choices.length === 1) { v.args = choices[0].args; choices = []; }
             let text;
             try { text = c.preview ? c.preview(v.args) : c.summary.split('.')[0].toLowerCase(); }
             catch (e) { text = c.summary.split('.')[0].toLowerCase(); }
@@ -1127,7 +1847,9 @@ function (graph, genegraph_panel_layout) {
             return {
                 ok: true, capability: c, args: v.args, text: text, count: n,
                 blocker: b, destructive: !!c.destructive,
-                opens: !!c.opens, answers: !!c.answers
+                opens: !!c.opens, answers: !!c.answers,
+                choices: choices.length > 1 ? choices : null,
+                choiceTitle: (choices.length > 1 && c.choiceTitle) ? c.choiceTitle(v.args, choices) : null
             };
         };
 

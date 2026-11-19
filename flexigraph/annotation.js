@@ -143,7 +143,19 @@ function () {
                 const __SELF = { 'PointOfInterest': 1, 'PastedText': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1, 'AA': 1, 'Exon': 1 };
                 // hideLabel: the annotation marks its region but its name is shown elsewhere (e.g. a
                 // layer's callout above the track), so it is not drawn over the sequence here.
-                if (this.name && !this.hideLabel && !__SELF[__ty] && __ty.indexOf('cdd-') !== 0) {
+                // A NAME THAT IS JUST A SEQUENCE IS NOT A LABEL. Compounds are routinely named
+                // by the sequence they are, so drawing the name above the track prints a
+                // twenty-mer over the very bases it was read from -- and the lane stacker puts
+                // one per lane, which on a tiled design is a wall of near-identical strings
+                // standing over the track. The sequence is already there underneath; the label
+                // adds ink and nothing else.
+                //
+                // Tested on the name rather than the annotation type, because the type varies
+                // with whatever created it and the uselessness does not: eight or more
+                // characters of nothing but ACGTU is a sequence, while every real label here --
+                // SPTLC2, AAT_I, exon 7, a CDD site -- carries something that is not a base.
+                const __seqName = /^[ACGTUacgtu]{8,}$/.test(('' + this.name).trim());
+                if (this.name && !this.hideLabel && !__seqName && !__SELF[__ty] && __ty.indexOf('cdd-') !== 0) {
                     try {
                         const gctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
                         const cx = graph.X(ti + ((tf - ti) / 2));

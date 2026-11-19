@@ -91,9 +91,14 @@ function (graph, genegraph_panel_layout, opts) {
                 return b;
             };
             const copy = mkBtn('Copy', false);
-            const save = mkBtn('Download', false);
+            const save = mkBtn('Markdown', false);
+            // A report is usually written to be sent on, and the people it goes to do not read
+            // markdown. baja/io/pdf-writer.js renders the SAME document -- headings, lists and
+            // emphasis, through the same subset this panel renders -- so the file and the panel
+            // do not disagree.
+            const pdf = mkBtn('PDF', false);
             const close = mkBtn('Close', true);
-            head.appendChild(copy); head.appendChild(save); head.appendChild(close);
+            head.appendChild(copy); head.appendChild(save); head.appendChild(pdf); head.appendChild(close);
 
             const body = document.createElement('div');
             body.style.cssText = 'flex:1 1 auto;overflow:auto;padding:26px 22px 60px;';
@@ -118,10 +123,29 @@ function (graph, genegraph_panel_layout, opts) {
                     const blob = new Blob([md], { type: 'text/markdown' });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(blob);
-                    a.download = o.filename || 'report.md';
+                    a.download = baseName + '.md';
                     document.body.appendChild(a); a.click();
                     setTimeout(() => { try { URL.revokeObjectURL(a.href); a.remove(); } catch (e) { } }, 0);
                 } catch (e) { }
+            };
+            const baseName = ('' + (o.filename || 'report.md')).replace(/\.(md|markdown|txt)$/i, '');
+            pdf.onclick = async () => {
+                const was = pdf.textContent;
+                pdf.textContent = 'Writing…';
+                try {
+                    const P = await exec('baja/io/pdf-writer.js');
+                    P.download({
+                        title: o.title || 'Report',
+                        subtitle: o.subtitle || '',
+                        markdown: md,
+                        filename: baseName + '.pdf'
+                    });
+                    pdf.textContent = 'Saved';
+                } catch (e) {
+                    pdf.textContent = 'PDF failed';
+                    try { graph.setMessage(' Could not write the PDF: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                }
+                setTimeout(() => { pdf.textContent = was; }, 1600);
             };
             // Escape closes, and keys must not reach the editor behind the overlay.
             overlay.tabIndex = -1;

@@ -1,0 +1,21 @@
+[project]
+name = "bajanmd"
+version = "0.1.0"
+description = "Nonsense-mediated decay consequence of cassette exons, and steric-block ASOs designed to switch it"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "torch",
+    "pyfaidx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["bajanmd*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

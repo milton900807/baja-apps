@@ -1,6 +1,28 @@
 function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
 
     editDistance = 0;
+    // WHAT "VISIBLE" MEANS, in one place, because the number the panel offers and the set the
+    // run walks have to be the same set.
+    //
+    // This used to be getOligosInRange(), which is a CONTAINMENT test: `xstart <= o.xi &&
+    // xend >= o.xf`, so a compound with either end outside the window is dropped. On a track
+    // carrying 210 compounds the panel offered "All visible compounds - 1", and the run would
+    // have screened exactly that one. getVisibleOligos() is the overlap test on the same
+    // class and is what "visible" has always meant on screen: a compound half in view is in
+    // view. gitVisibleTrackRange also answers the NUMBER -1 when the grid is not laid out
+    // yet, which read as {start: undefined, end: undefined} and quietly matched nothing; with
+    // no usable range the honest answer is the whole track rather than none of it.
+    const __visibleOligosOf = (t, g) => {
+        try {
+            const r = t && typeof t.gitVisibleTrackRange === 'function' ? t.gitVisibleTrackRange(g) : null;
+            if (r && r !== -1 && isFinite(r.start) && isFinite(r.end) && r.end > r.start) {
+                if (typeof t.getVisibleOligos === 'function') return (t.getVisibleOligos(r.start, r.end) || []).filter(Boolean);
+                return (t.getOligosInRange(r.start, r.end) || []).filter(Boolean);
+            }
+        } catch (e) { }
+        return ((t && t.oligos) || []).filter(Boolean);
+    };
+
 
     return new Promise(async (resolve, reject) => {
         let returnMode = 'editdistance'
@@ -19,19 +41,26 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             }
             return result;
         }
-        graph.setMessage("Loading off-target genomes... ")
-        let oep = window["env"]["offtarget"];
-        if (!oep || oep.length <= 0) {
-            oep = '/levenshtein'
-        }
-        let url = `${oep}/genomes`
-        let available_genomes = await GETJSON(url)
+        graph.setMessage("Loading indexed genomes from the server... ")
+        // THE SAME SOURCE THE OTHER RUNNER USES, and baja/manchester/menu/run-off-targets.js
+        // says why in as many words: the indexed genomes and the off-target search are served
+        // by the baja app server itself (apiUrl), and a separate off-target API is not to be
+        // reached for. This asked window.env.offtarget and fell back to a bare /levenshtein,
+        // which on a deployment that never mounted that service is a 404 -- so the panel had
+        // no reference to offer and no screen could be run from here, while the same screen
+        // started from the editor runner worked.
+        const __otBase = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';
+        let url = `${__otBase}/genomes`
+        let available_genomes = null;
+        try { available_genomes = __otBase ? await GETJSON(url) : null; }
+        catch (e) { available_genomes = e; }
 
         let runOffTargets = async (graph, genomes, __editDistance) => {
             graph.setMessage("Checking sequences...")
             const pattern = /(\w)\1{3,}/g;
             let ot_oligos = []
             let warn = false;
+            let __noSeq = 0;   // compounds carrying nothing searchable
             let seqList = []
             // The tracks to screen: the ones this run was opened FOR, else the whole canvas.
             // The Design menu passes its own track, so a screen reached by walking Design >
@@ -45,10 +74,23 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             for (let t of __screenTracks) {
                 if (!t) continue;
                 t.showOfftargets = true;
-                let range = t.gitVisibleTrackRange(graph);
-                let oligos = t.getOligosInRange(range.start, range.end);
-                // When invoked with selectedOnly, restrict to the selected oligos.
-                if (selectedOnly) oligos = oligos.filter((o) => o && (o.selected || o.highlight__));
+                let oligos = __visibleOligosOf(t, graph);
+                // SCOPE, which arrives two ways and must mean the same thing both times.
+                //   selectedOnly   from the caller: true / 'selected' for the selected compounds,
+                //                  'unscreened' for the ones with no result yet (the Ask box).
+                //   onlyMissing    the panel's own "Run on" radio, which means 'unscreened'.
+                // Applied independently, so "selected" and "only without" compose: the selected
+                // compounds that have no result yet. Filtering happens BEFORE anything is
+                // cleared below, so results already on the other compounds are left alone.
+                //
+                // WHAT COUNTS AS ALREADY HAVING A RESULT IS PER SCREEN, and this is the part
+                // that is easy to get wrong: a full-strand run records offtarget / _offtarget, so
+                // those are what "has been screened" means here.
+                const __scope = (selectedOnly === true) ? 'selected'
+                    : ('' + (selectedOnly || '')).toLowerCase();
+                const __hasResult = (o) => !!(o && (o.offtargetsRun || o.offtarget != null || o._offtarget != null));
+                if (__scope === 'selected') oligos = oligos.filter((o) => o && (o.selected || o.highlight__));
+                if (__scope === 'unscreened' || onlyMissing) oligos = oligos.filter((o) => o && !__hasResult(o));
 
                 for (let o of oligos) {
                     o.offtarget = null;
@@ -56,6 +98,12 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
 
                 }
                 for (let o of oligos) {
+                    // NOTHING TO SEARCH IS NOT A CRASH. A compound with no sequence reached
+                    // Biopolymer.reverseComp(o.sequence) and o.sequence.match() below, both of
+                    // which throw on undefined -- and the throw escaped a run started from a
+                    // timer, so the whole screen died before drawing anything and the button
+                    // looked inert. Counted and skipped, and said at the end.
+                    if (!('' + (o.sequence || o.synthesisSequence || '')).trim()) { __noSeq++; continue; }
                     o.__strand = t.strand;   // remember strand for the query rebuild below
                     // Off-target query = reverse-complement of the target region read straight
                     // from the track (genomic+, guaranteed in the index) so every oligo —
@@ -70,8 +118,12 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
 
                         if (t.strand < 0) {
                             o.synthesisSequence = o.sequence   // reverse strand: ASO = genomic+ target
-                        } else {
+                        } else if (Biopolymer && Biopolymer.reverseComp) {
                             o.synthesisSequence = Biopolymer.reverseComp(o.sequence)
+                        } else {
+                            // The chemistry module did not load; the raw sequence is wrong for
+                            // this strand, so skip rather than search the wrong thing.
+                            __noSeq++; continue;
                         }
 
                     }
@@ -95,6 +147,18 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             }
 
             // Reading order — left→right (genomic x), then top→bottom (world-y desc) —
+            // NOTHING TO RUN IS AN ANSWER, SAID OUT LOUD. An empty queue used to walk the
+            // loop below zero times and end without drawing anything, which from the button is
+            // indistinguishable from a screen that failed to start.
+            if (!ot_oligos.length) {
+                const __why = __noSeq
+                    ? (__noSeq + ' compound' + (__noSeq === 1 ? '' : 's') + ' in view carry no sequence to search.')
+                    : 'No compounds in that scope are in view.';
+                try { graph.setMessage(' Nothing to screen \u2014 ' + __why + ' '); } catch (e) { }
+                try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); } catch (e) { }
+                return;
+            }
+
             // and cap each run at 200 oligos; rebuild the query list in that order.
             try {
                 ot_oligos.sort((a, b) => { const ax = Math.min(a.xi, a.xf), bx = Math.min(b.xi, b.xf); if (ax !== bx) return ax - bx; return (b.y || 0) - (a.y || 0); });
@@ -152,7 +216,6 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             let progressBar;
             let __cancelled = false;
             let __freeLimit = null;   // set when the server refuses for free-tier allowance
-            let __modalPB = null;
             // Progress bar + a Cancel button right beside it (stops the calculation).
             let w = {
                 wid: 'card',
@@ -167,22 +230,19 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
             CurrentLayout.setComponent('buttonMenuPanel', w);
 
-            // Block the app while the run is in progress — only Cancel is actionable.
+            // NO MODAL OVER THE RUN. There was one, and it was covering the only thing worth
+            // watching: the camera already walks the track, zooming to each oligo as its turn
+            // comes (centerOnOligo, one behind so the one on screen is the one just finished),
+            // and a full-screen card with a grey backdrop hid every frame of it. The progress
+            // bar and Cancel live in the button panel, which is beside the canvas rather than
+            // on top of it, so the run is watchable and still stoppable.
+            //
+            // Pointer input stays off for the duration. That is not to lock the app for its
+            // own sake: the camera is animating to a new oligo every chunk, and a pan fighting
+            // it mid-flight leaves the view somewhere neither chose.
             try { graph.setMouseMode('none'); graph.clearMouseListeners(); } catch (e) { }
-            const __runModal = {
-                wid: 'card',
-                data: {
-                    cards: [
-                        [{ 'width': '100%', 'component': { wid: 'html', data: `<div style="padding:14px 20px;font-family:'Segoe UI',system-ui,Arial,sans-serif;color:#eaf6f9;background:rgba(10,37,64,0.98);border:1px solid #1aa3bd;border-radius:10px;"><div style="font-size:15px;font-weight:700;">Running off-targets…</div><div style="font-size:12.5px;color:#8fb8c8;margin-top:4px;">Scanning oligos one at a time, left→right — the app is locked until this finishes.</div></div>` } }],
-                        [{ 'width': '100%', 'component': { wid: 'progress', data: { 'progress': 0, 'progressBar': createIonFunction((pb) => { __modalPB = pb; }) } } }],
-                        [{ 'width': '100%', 'component': { wid: 'mt-button', data: { buttons: [{ label: 'Cancel', ionFunction: createIonFunction(() => { __cancelled = true; }) }] } } }]
-                    ]
-                }
-            };
-            try { showModal(__runModal, 460, 210); } catch (e) { }
             const __finishRun = () => {
                 try { for (const o of ot_oligos) { if (o) o.__gunsight = false; } } catch (e) { }
-                try { hideAllModal(); } catch (e) { }
                 try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, graph.genegraph_panel_layout); } catch (e) { }
             };
 
@@ -210,10 +270,7 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                         "runMode": returnMode
                     }
 
-                    let oep = window["env"]["offtarget"];
-                    if (!oep || oep.length <= 0) {
-                        oep = '/levenshtein'
-                    }
+                    let oep = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';   // apiUrl first -- see the genome lookup above
                     let uri = `${oep}/off-targets-file`;
                     r = await POSTJSON(obj, uri)
                 } finally {
@@ -278,8 +335,14 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
                 }
                 rr.push(r);
                 index++;
-                progressBar((index / sp.length) * 100)
-                try { if (__modalPB) __modalPB((index / sp.length) * 100); } catch (e) { }
+                // THE PROGRESS BAR IS COSMETIC AND MUST NEVER KILL THE RUN. `progressBar` is
+                // not assigned here: the host calls back with it when the progress component
+                // MOUNTS, which happens after this code continues. The old path got away with
+                // calling it unguarded only because a 2-second setTimeout sat between the two,
+                // long enough for the mount; with that gone it was undefined on the first
+                // chunk and the TypeError killed the screen after gunsighting one compound --
+                // which from the outside is a Run button that does nothing.
+                try { if (typeof progressBar === 'function') progressBar((index / sp.length) * 100); } catch (e) { }
                 __framePrev = (__chunkOligos && __chunkOligos[0]) || __framePrev;   // now completed
             }
 
@@ -385,146 +448,88 @@ function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
             CurrentLayout.setComponent('buttonMenuPanel', bpanel);
 
         }
+        // THE OPTIONS, asked in the editor's own look. The panel this replaced was built
+        // from the legacy card/radio widgets and mounted into mainPanel, so it REPLACED the
+        // canvas with a full-page grey form -- and it listed whatever /genomes returned,
+        // which on a failure is the error envelope, so its fields became the references to
+        // choose from. off-target-options.js validates the list and shows a failure as one.
+        let onlyMissing = false;
         let selected_genome = '';
-        let bg = []
-        for (let a of Object.keys(available_genomes)) {
-            if (bg.length === 0) {
-                selected_genome = a;
-            }
-            bg.push({
-                'label': a, ionfunction: createIonFunction((_label) => {
-                    selected_genome = a
-
-                })
-
-            })
-        }
-        sleep = async (ms) => {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-        let ms = {
-            wid: 'radio-buttons',
-            height: '100px',
-            width: '50px',
-            data: { 'buttons': bg }
-        }
-        let off_target_tool = {
-            wid: 'card',
-            data: {
-                cards: [
-                    [
-
-                        {
-                            'title': ' ', 'body': ``,
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'html',
-                                data: 'Select an search reference.  Off-targets are only run on <font color="RED"> VISIBLE </font> compounds.'
-                            }
-                        },
-
-                        {
-                            'title': ' ', 'body': ` `,
-                            'width': '100%',
-                            'component': ms
-
-                        },
-                        {
-                            'title': ' ', 'body': ``,
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'html',
-                                data: '<hr>Edit distance (number of insertions, deletions or mismatches allowed).'
-                            }
-                        },
-
-                        {
-                            'title': '', 'body': ` `,
-                            'width': '50%',
-                            'component':
-                            {
-                                wid: 'radio-buttons',
-                                data: {
-                                    'unchecked': true,
-                                    'buttons': [
-                                        {
-                                            'label': '0', ionfunction: createIon(() => {
-                                                editDistance = 0;
-                                            }
-                                            )
-                                        }, {
-                                            'label': '1', ionfunction: createIon(() => {
-                                                editDistance = 1;
-                                            }
-                                            ),
-                                        },
-                                        {
-                                            'label': '2', ionfunction: createIon(() => {
-                                                editDistance = 2;
-                                            }
-                                            )
-                                        },
-
-                                        {
-                                            'label': '3', ionfunction: createIon(() => {
-                                                editDistance = 3;
-                                            }
-                                            )
-                                        }
-
-                                    ],
-                                }
-                            }
-                        },
-
-                        {
-                            'title': ' ',
-                            'width': '30%',
-                            'component':
-                            {
-                                wid: 'mt-button', data: {
-                                    buttons: [
-                                        {
-                                            label: 'Run...', ionFunction: createIonFunction(async () => {
-                                                if (selected_genome.length == 0) {
-                                                    alert('Select a target dataset')
-                                                    return;
-                                                }
-                                                returnMode = 'editdistance'
-
-                                                CurrentLayout.clearComponent('mainPanel')
-                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-                                                setTimeout(() => {
-                                                    graph.setMessage(" Edit distance : " + editDistance)
-                                                    graph.rungraph((graph) => {
-                                                        graph.setMessage(" Edit distance : " + editDistance)
-                                                        runOffTargets(graph, [selected_genome], editDistance)
-                                                    })
-                                                }, 2000)
-                                            })
-                                        },
-                                        {
-                                            label: 'Cancel', ionFunction: createIonFunction(async () => {
-                                                CurrentLayout.clearComponent('mainPanel')
-                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-                                            })
-
-                                        }]
-                                }
-                            }
-                        },
-
-                    ]
-                ]
-            }
-
-        }
         editDistance = 0;
 
-        CurrentLayout.clearComponent('mainPanel')
-        CurrentLayout.setComponent('mainPanel', off_target_tool);
+        // What each scope would screen, for the panel's labels. Counted over the same visible
+        // compounds the run itself walks, so the number offered is the number screened.
+        const __optTracks = (() => {
+            const p = (Array.isArray(presetTracks) ? presetTracks.filter(Boolean) : (presetTracks ? [presetTracks] : []));
+            return p.length ? p : ((graph && graph.track) || []);
+        })();
+        const __optHas = (o) => !!(o && (o.offtargetsRun || o.offtarget != null || o._offtarget != null));
+        const __optCounts = (() => {
+            const seen = [];
+            try {
+                for (const t of __optTracks) {
+                    for (const o of __visibleOligosOf(t, graph)) seen.push(o);
+                }
+            } catch (e) { }
+            // trackTotal is NOT the scope -- the screen runs on what is in view. It is here so
+            // the panel can say why a count is small instead of leaving "1" to look broken on
+            // a track the user knows carries hundreds.
+            let total = 0;
+            try { for (const t of __optTracks) total += ((t && t.oligos) || []).filter(Boolean).length; } catch (e) { }
+            return {
+                all: seen.length,
+                unscreened: seen.filter((o) => !__optHas(o)).length,
+                selected: seen.filter((o) => o.selected || o.highlight__).length,
+                trackTotal: total
+            };
+        })();
+
+        const __scopeIn = (selectedOnly === true) ? 'selected' : ('' + (selectedOnly || '')).toLowerCase();
+        const __choice = await exec('baja/manchester/menu/off-target-options.js', graph, {
+            region: 'full',
+            genomes: available_genomes,
+            endpoint: url,
+            counts: __optCounts,
+            trackLabel: (__optTracks.length === 1 && __optTracks[0]) ? (__optTracks[0].name || '') : '',
+            defaults: {
+                scope: (__scopeIn === 'selected' || __scopeIn === 'unscreened') ? __scopeIn : 'all',
+                editDistance: 0
+            }
+        });
+        // Cancelled: nothing was mounted over the canvas, so there is nothing to put back.
+        if (!__choice) { resolve(); return; }
+        selected_genome = __choice.genome;
+        editDistance = __choice.editDistance;
+        onlyMissing = (__choice.scope === 'unscreened');
+        selectedOnly = (__choice.scope === 'selected');
+        returnMode = 'editdistance';
+
+        // START IT, AND SAY SO IF IT CANNOT START. The old path handed the work to
+        // graph.rungraph inside a 2-second setTimeout -- a timer callback, where a throw goes
+        // nowhere. Pressing Run then did nothing at all: no screen, no error, no message. The
+        // timeout existed only because the panel had replaced the canvas and the remount
+        // needed a moment; nothing is replaced now, so there is nothing to wait for.
+        //
+        // runOffTargets does the rest of the feedback itself -- the progress bar and Cancel in
+        // the button panel, the gunsight and red glow on the compound being searched, and the
+        // camera walking to each one as its results land.
+        try { graph.setMessage(' Starting off-target screen \u2014 edit distance ' + editDistance + '\u2026 '); } catch (e) { }
+        const __startRun = async () => {
+            try {
+                if (typeof graph.rungraph === 'function') {
+                    await graph.rungraph((g) => runOffTargets(g || graph, [selected_genome], editDistance));
+                } else {
+                    await runOffTargets(graph, [selected_genome], editDistance);
+                }
+            } catch (e) {
+                const __m = (e && e.message) ? e.message : ('' + e);
+                try { console.error('[off-targets] the screen failed to start', e); } catch (e2) { }
+                try { graph.setMessage(' The off-target screen could not start: ' + __m + ' '); } catch (e2) { }
+                // Whatever happened, do not leave the canvas inert with the pointer disabled.
+                try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); } catch (e2) { }
+            }
+        };
+        __startRun();
 
         resolve();
 

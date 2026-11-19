@@ -35,7 +35,19 @@ function (graph, options) {
     // Every field a record carries, in the order the dialog lists them. Declared here
     // because the matcher walks it for an unscoped pattern.
     const FIELDS = ['name', 'gene', 'clinsig', 'condition', 'consequence', 'source',
-        'type', 'ref', 'alt', 'change', 'pos', 'annotations', 'batch'];
+        'type', 'ref', 'alt', 'change', 'pos', 'annotations', 'batch', 'phase', 'side'];
+    // PHASE IS A NUMBER, NOT TEXT: phase:1 means exactly 1, so it must not also match 10 or
+    // -1 the way a substring would. Fields listed here compare whole values.
+    const EXACT = new Set(['phase', 'side']);
+    // WHICH SIDE OF THE TRACK THE LOLLIPOP IS DRAWN ON, as the track draws it (getPhaseDirs
+    // in track.js): phase 1 stands UP from the track line ("top"); phase 0, phase 3 and a
+    // variant with no phase hang DOWN below it ("bottom"); phase 2 draws no stem ("none").
+    // Read from the drawing on purpose: "remove the bottom phase" means the lollipops the
+    // user sees under the track, phase-less ones included.
+    const sideOf = (v) => {
+        const p = (v && Number.isFinite(+v.phase) && v.phase !== null && v.phase !== '') ? +v.phase : 0;
+        return p === 1 ? 'top' : (p === 2 ? 'none' : 'bottom');
+    };
     const esc = (s) => ('' + s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const compileTerm = (raw) => {
@@ -46,9 +58,14 @@ function (graph, options) {
         const c = t.indexOf(':');
         if (c > 0 && !/[*?]/.test(t.slice(0, c))) { field = t.slice(0, c).toLowerCase(); t = t.slice(c + 1); }
         if (!t) return null;
+        // "phase=1" reads the same as "phase:1".
+        if (field == null) { const e = t.match(/^([a-z]+)=(.+)$/i); if (e && FIELDS.indexOf(e[1].toLowerCase()) >= 0) { field = e[1].toLowerCase(); t = e[2]; } }
         const wild = /[*?]/.test(t);
         let test;
-        if (wild) {
+        if (!wild && field != null && EXACT.has(field)) {
+            const want = t.trim().toLowerCase();
+            test = (s) => ('' + s).trim().toLowerCase() === want;
+        } else if (wild) {
             // * and ? survive escaping as themselves, then become their regex equivalents.
             // Anchored, because a pattern is a statement about the whole field.
             const rx = new RegExp('^' + esc(t).replace(/\\\*/g, '[\\s\\S]*').replace(/\\\?/g, '[\\s\\S]') + '$', 'i');
@@ -121,14 +138,18 @@ function (graph, options) {
             change: ('' + (v.reference || '')) + '>' + ('' + (v.alternate || '')),
             pos: '' + (v.xi != null ? v.xi : ''),
             annotations: (Array.isArray(v.annotations) ? v.annotations.join(' ') : ('' + (v.annotations || ''))),
-            batch: '' + (v.batchLabel || '')
+            batch: '' + (v.batchLabel || ''),
+            // Only a phase the variant actually carries. The track DRAWS a variant with none in
+            // the phase-0 lane, but "phase 0" must not sweep those up into a delete.
+            phase: (v.phase != null && v.phase !== '' && isFinite(+v.phase)) ? ('' + (+v.phase)) : null,
+            side: sideOf(v)
         };
-        rec.all = FIELDS.map((k) => rec[k]).join(' ');
+        rec.all = FIELDS.filter((k) => k !== 'phase' && k !== 'side').map((k) => rec[k]).join(' ');
         return rec;
     };
 
     // Callers that only want the engine (a test, or another module) take it and stop here.
-    if (o.engineOnly) return { compileQuery: compileQuery, recordOf: recordOf, FIELDS: FIELDS };
+    if (o.engineOnly) return { compileQuery: compileQuery, recordOf: recordOf, FIELDS: FIELDS, sideOf: sideOf };
 
     return (async () => {
         const tracks = (o.track ? [o.track] : (graph.track || [])).filter((t) => t && t.snpindels);

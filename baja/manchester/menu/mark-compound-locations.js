@@ -18,6 +18,13 @@ function (graph, opts) {
     // to "where are they" is one set of arrows, not a darker and darker band.
     return (async () => {
         const F = await exec('baja/bio/compound-filter.js');
+        // ANNOTATION HAS TO BE ASKED FOR. Every module that builds one does this first
+        // (baja/manchester/menu/sequence.js, flexigraph/gene.js); a module is compiled as its
+        // own function, so nothing another module declared is in scope here and there is no
+        // global of this name. Without it `new Annotation(...)` threw ReferenceError on the
+        // first compound, the whole call rejected, and the operation reported "Could not mark
+        // them" -- which is why the arrows never appeared.
+        const Annotation = await exec('flexigraph/annotation.js');
         const o = opts || {};
         const tracks = (graph.track || []).filter(Boolean);
         const MARK = 'CompoundMark';
@@ -40,6 +47,12 @@ function (graph, opts) {
             const before = t.annotations.length;
             t.annotations = t.annotations.filter((a) => !(a && a.type === MARK));
             cleared += before - t.annotations.length;
+            // ARROWS ON MEANS SEQUENCES OFF, and the flag says which. flexigraph/oligo.js
+            // reads it to drop the per-compound sequence label while the arrows are up: the
+            // arrows exist to answer "where are they" at a zoom too wide to read a compound,
+            // and a twenty-mer printed over every one of them buries the answer. Cleared here
+            // first, so taking the arrows off brings the labels straight back.
+            try { if (t.tgraph) t.tgraph.__compoundMarksOn = false; } catch (e) { }
         }
         if (o.clear) {
             try { if (graph.wake) graph.wake(); } catch (e) { }
@@ -65,10 +78,23 @@ function (graph, opts) {
                 a.description = ('' + (c.name || 'compound'))
                     + (F.lenOf(c) ? (' · ' + F.lenOf(c) + ' nt') : '')
                     + (F.isRed(c) ? ' · flagged' : '');
+                // THE ARROW IS THE WHOLE MESSAGE. flexigraph/annotation.js draws an
+                // annotation's NAME above the track on a dashed leader, and these marks are
+                // named after the compound -- which for a designed oligo is usually its
+                // sequence. So asking where the compounds are answered with a row of arrows
+                // AND a stack of twenty-mers printed across the track, each one leadered back
+                // to a different arrow: the clutter buried the very thing being pointed at.
+                // The name stays on the annotation for the hover text and the description; it
+                // is simply not drawn, because the arrow already says everything the question
+                // asked.
+                a.hideLabel = true;
                 try { t.add(a); } catch (e) { try { t.annotations.push(a); } catch (e2) { continue; } }
                 n++; marked++;
             }
-            if (n) { used++; markedTrack = t; }
+            if (n) {
+                used++; markedTrack = t;
+                try { if (t.tgraph) t.tgraph.__compoundMarksOn = true; } catch (e) { }
+            }
         }
         // FRAME THE TRANSCRIPT, because "where are they" is a question about a view.
         //

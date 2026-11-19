@@ -1,7 +1,7 @@
 function (graph, genegraph_panel_layout) {
     // Data toolbar (menu bar) docked in the button panel — shown from the Layers
-    // center menu's "Data" item. Menus: RNASeq | Patents | microRNA | Variants | Protein |
-    // Edit Layer.
+    // center menu's "Data" item. Menus: RNASeq | Patents | microRNA | Repeats | Variants |
+    // Protein | Edit Layer.
     //
     // Every /bd/ interval dataset here comes from baja/data/layer-sets.js, which the ?layer=
     // deep-link handler reads too — one definition, so the menu and a link can't disagree.
@@ -121,6 +121,23 @@ function (graph, genegraph_panel_layout) {
         })
     }));
 
+    // ---- Repeats -------------------------------------------------------------
+    // Transposable elements on a track, from Ensembl, labelled sense or antisense TO THE
+    // GENE. The uniqueness gradient already flags repetitive windows by off-target count;
+    // what it cannot say is which element and which way round, and for splicing the
+    // orientation is the question: an antisense SINE presents a poly-T tract that reads as
+    // a polypyrimidine tract, and a cryptic 3' splice site is selected downstream of it.
+    const repeatItems = [
+        {
+            'label': 'Transposons / repeats', 'ionfunction': go(async () => {
+                graph.clearMouseListeners();
+                graph.setMouseMode('navigate');
+                // No track passed: click-a-track, like the other loaders here.
+                await exec('baja/data/repeat-track.js', graph, genegraph_panel_layout);
+            })
+        }
+    ];
+
     // ---- Variants (major variant databases; by selected range or whole track) ----
     const variantDbs = [
         { db: 'clinvar', label: 'ClinVar' },
@@ -190,6 +207,7 @@ function (graph, genegraph_panel_layout) {
                                     { 'label': 'RNASeq', 'items': rnaseqItems },
                                     { 'label': 'Patents', 'items': ipItems },
                                     { 'label': 'microRNA', 'items': mirnaItems },
+                                    { 'label': 'Repeats', 'items': repeatItems },
                                     { 'label': 'Variants', 'items': variantItems },
                                     { 'label': 'Protein', 'items': proteinItems },
                                     { 'label': 'Edit Layer', 'items': editItems }

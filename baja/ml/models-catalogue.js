@@ -15,7 +15,7 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
     // book calls it the same way, so a book does not know or care which one opened it.
     //
     // Every figure and caveat below is taken from the model libraries' own documentation
-    // (py/bajair-lib, py/bajaclip-lib, py/bajasplice-lib), not estimated here. Where a library
+    // (py/bajair-lib, py/bajaclip-lib, py/bajanmd-lib, py/bajasplice-lib), not estimated here. Where a library
     // states a limitation, it is repeated rather than smoothed over -- a model shelf that only
     // lists capabilities invites people to over-read the output.
 
@@ -204,6 +204,41 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                       note: 'The healthy-tissue RNA behind the 49 normal-tissue ranges.' },
                     { title: 'CPTAC pan-cancer proteogenomics', url: 'https://proteomics.cancer.gov/programs/cptac',
                       note: 'The tumour RNA behind the 10 cancer-type ranges.' }
+                ]
+            }
+        },
+        {
+            title: 'ASO Target Walk', badge: 'BajaASOWalk', ready: true,
+            blurb: 'Where blocking the RNA with an oligo would strengthen an exon.',
+            open: () => __onParentTrack('BajaASOWalk',
+                (list) => exec('baja/bio/splicing/aso-walk.js', graph, L, list, null, 18)),
+            docs: {
+                summary: 'Tiles an 18-nt oligo footprint along an exon and its flanks and '
+                    + 'reports the positions where blocking the RNA raises the exon\u2019s donor. '
+                    + 'The wet experiment it imitates is the standard ASO walk: tile oligos, '
+                    + 'measure inclusion, and the positions that raise it are the silencers '
+                    + 'worth drugging. ISS-N1 and nusinersen came out of exactly that.',
+                provenance: 'BajaSplice (py/bajasplice-lib), running locally with bundled '
+                    + 'weights \u2014 no external service is called. The footprint is MASKED '
+                    + 'rather than mutated, because an oligo occludes its site rather than '
+                    + 'rewriting it; substituting scrambled sequence invents cryptic GTs and '
+                    + 'creates elements instead of removing one.',
+                usage: 'Select a track with exon annotations. The selected exon is used, or '
+                    + 'the one nearest the centre of the view. Candidate positions are drawn '
+                    + 'as a layer, labelled with the gain in donor strength in logits; only '
+                    + 'footprints above the 90th percentile of the walk are shown.',
+                caveats: 'Validated on the one case with a drug attached: masking ISS-N1 takes '
+                    + 'SMN2 exon 7\u2019s donor from 0.930 to 0.998, the same mask 34 nt further '
+                    + 'in takes it DOWN to 0.812, and ISS-N1 ranks 4th of 311 targetable '
+                    + 'footprints. Two limits. Footprints overlapping the splice-site consensus '
+                    + 'are excluded, because masking a weak donor\u2019s own context raises the '
+                    + 'score while an oligo there would block the donor and cause skipping. And '
+                    + 'EXONIC hits are not yet trustworthy: in the validation walk they scored '
+                    + 'as high as ISS-N1 with no clean reading, so treat the intronic positions '
+                    + 'as candidates and the exonic ones as questions.',
+                links: [
+                    { title: 'Singh et al., ISS-N1', url: 'https://pubmed.ncbi.nlm.nih.gov/16449646/',
+                      note: 'The intronic silencer this method rediscovers blind.' }
                 ]
             }
         },
@@ -434,6 +469,124 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                       note: 'The independent dataset the 0.63 AUC is measured against.' },
                     { title: 'GENCODE annotation', url: 'https://www.gencodegenes.org/',
                       note: 'Intron definitions come from the annotation, not from reads.' }
+                ]
+            }
+        },
+        {
+            title: 'NMD consequence of a cassette exon', badge: 'BajaNMD', ready: true, group: 'splicing',
+            blurb: 'Whether including an exon destroys the transcript, or skipping it does — and the oligos that switch it.',
+            // Gene-level, like intron retention: the exons come from the annotation, so a
+            // sequence selection does not narrow it. Opens its own report rather than
+            // writing a track layer, which is why it has no entry in design-report.js's
+            // layer-attribution table.
+            open: () => __onParentTrack('BajaNMD NMD consequence',
+                (list) => exec('baja/bio/splicing/bajanmd.js', graph, L, list)),
+            docs: {
+                summary: 'For every cassette-eligible exon of the gene, builds both isoforms — exon '
+                    + 'in, exon out — translates from the annotated CDS start, and measures how far '
+                    + 'the first in-frame stop sits from the last exon-exon junction. Past about 50 nt '
+                    + 'that stop reads as premature and the transcript is degraded. So an exon is '
+                    + 'NMD_in, a poison exon whose INCLUSION causes decay, or NMD_ex, an essential '
+                    + 'exon whose SKIPPING causes decay — or "both", which is no usable switch, or '
+                    + '"none". The direction is the whole point and it is opposite for the two '
+                    + 'classes: skipping a poison exon RAISES protein, skipping an essential exon '
+                    + 'LOWERS it. The same report designs steric-block ASOs against a chosen exon.',
+                provenance: 'TWO DIFFERENT KINDS OF THING, deliberately not merged. The NMD call is '
+                    + 'NOT A TRAINED MODEL: it is the 50-nt EJC rule applied to the annotation and '
+                    + 'the genome, so every verdict is reproducible by hand and there is no '
+                    + 'cross-validation to report. The ASO ranking IS model output — each window is '
+                    + 'masked to N (an oligo occludes its site, it does not rewrite it) and the '
+                    + 'frozen BajaSplice splice-site model re-reads both sites, on logits because a '
+                    + 'site at 0.9997 cannot fall measurably on the probability scale. Either site '
+                    + 'lost is enough to cause skipping, so the objective is the LARGER of the two '
+                    + 'losses. Candidates are screened for specificity through the same '
+                    + 'py/sequence/offtarget engine the rest of the app uses — edit distance up to '
+                    + '3, both strands, indels — against human_premrna, because a splice-site oligo '
+                    + 'straddles the exon-intron boundary and has no site at all in a spliced '
+                    + 'reference, where zero hits would mean nothing. BajaNMD (py/bajanmd-lib).',
+                usage: 'READ THE AGREEMENT COLUMN, not just the class. The same exon can be ordinary '
+                    + 'in one isoform and frameshifting in another, because the reading frame it '
+                    + 'lands in differs, so every transcript carrying the exon is evaluated and the '
+                    + 'report gives the fraction that agree with the MANE Select call beside it. An '
+                    + 'earlier version of this analysis picked one host transcript per exon: checked '
+                    + 'against observed inclusion, the exons it called poison sat at ~99% inclusion, '
+                    + 'which no real poison exon can do, since the isoform carrying it would be the '
+                    + 'one destroyed. Those were minority labels borrowed from a minor isoform. A '
+                    + 'split fraction is that warning, so take a unanimous call over a majority one. '
+                    + 'Events come from the annotation rather than a precomputed event table, so '
+                    + 'nothing here goes stale against a GENCODE release. It does NOT say which '
+                    + 'RNA-binding protein acts at a site, and no window is ranked by predicted '
+                    + 'binding: tests here found predicted RBP footprints do not localize splicing '
+                    + 'regulation.',
+                links: [
+                    { title: 'Nagy & Maquat, the 50-nt rule', url: 'https://doi.org/10.1016/S0968-0004(98)01208-0',
+                      note: 'The stop-to-last-junction distance this applies, and where the threshold comes from.' },
+                    { title: 'STK-001 / TANGO on SCN1A', url: 'https://doi.org/10.1126/scitranslmed.aaz6100',
+                      note: 'The clinical precedent for skipping a poison exon to raise protein.' },
+                    { title: 'GENCODE annotation', url: 'https://www.gencodegenes.org/',
+                      note: 'Exons, transcripts, CDS starts and the MANE Select flag all come from here.' }
+                ]
+            }
+        },
+        {
+            title: 'Uniqueness / repeat gradient', badge: 'k-mer', ready: true,
+            blurb: 'Where along the transcript a window of k nt is unique, and where it is a repeat.',
+            open: () => __onParentTrack('Uniqueness / repeat gradient',
+                (list) => exec('baja/data/uniqueness-gradient.js', graph, L, list)),
+            docs: {
+                summary: 'For every window of size k (3-30) along the track, scores that are '
+                    + 'deliberately not merged before you see them: how repetitive the window is on '
+                    + 'its own, how often it occurs anywhere else, and the AU content of the '
+                    + 'sequence flanking it. The layer drawn is complexity x uniqueness, so a window '
+                    + 'scores well only when it is both locally clean and absent elsewhere, and the '
+                    + 'summary names which of the two pulled each low region down. Flanking AU is an '
+                    + 'optional third layer and is never folded into the score.',
+                provenance: 'NOT A TRAINED MODEL, and it sits in this catalogue as a scorer rather '
+                    + 'than a predictor. Nothing here was fitted: the complexity half is composition '
+                    + 'entropy, longest homopolymer run, strongest tandem periodicity (chance-'
+                    + 'corrected, since random sequence matches position+p a quarter of the time) '
+                    + 'and DUST-style triplet redundancy, combined with fixed weights. The '
+                    + 'uniqueness half is a count, taken from the same 2-bit off-target indexes '
+                    + 'baja-server already builds per species (py/sequence/offtarget), seeded off '
+                    + 'their W-mer index rather than by sweeping the reference. There is no '
+                    + 'training set, so there is no cross-validation to report and no learned '
+                    + 'weighting to inspect. Every number is reproducible by hand from the sequence '
+                    + 'and the index.',
+                usage: 'ON A 3-PRIME UTR, tick the flanking-AU layer and read it against miRNA '
+                    + 'sites: local AU around a seed match is the established determinant of site '
+                    + 'efficacy (Grimson 2007), standing in for weaker secondary structure and so '
+                    + 'better access to the site. It is NOT the same thing as low complexity, and '
+                    + 'the distinction is measurable: across 149 human 3-prime UTRs and 600 '
+                    + 'canonical seed matches, flanking AU separates 8mer from 7mer-m8 site contexts '
+                    + '(0.599 vs 0.561, p=0.0006) while the complexity composite does not (p=0.12), '
+                    + 'because its tandem, homopolymer and DUST terms dilute the compositional '
+                    + 'signal. In the same data, seed-match flanks are if anything marginally MORE '
+                    + 'complex than matched background positions in the same UTR, so "miRNAs target '
+                    + 'low-complexity sites" is not what the sequence says. '
+                    + 'Pick the window size to match what you are designing, name the on-target '
+                    + 'gene symbol, and tick the species an oligo has to clear. Hits inside that '
+                    + 'gene count as on-target, which covers the transcript itself AND its '
+                    + 'orthologue in each other species, so a conserved window does not read as a '
+                    + 'mouse off-target; speciesOnTarget is then a conservation count. '
+                    + 'LIMITS: below k=12 the uniqueness half stops meaning anything, because a '
+                    + 'reference of R bases holds any k-mer about R/4^k times by chance -- it is '
+                    + 'reported with a warning and the complexity half still reads. Exact mode '
+                    + 'counts exact matches only, which is a LOWER BOUND on off-target burden for '
+                    + 'an RNase H oligo; the edit-distance mode is the one that answers the design '
+                    + 'question, and because it costs about 0.1 s per window per species it is '
+                    + 'strided rather than scored at every base. The reference is cDNA, so intronic '
+                    + 'and intergenic off-targets are invisible to it. A species whose index this '
+                    + 'server has not built is skipped and named in the summary rather than '
+                    + 'silently dropped.',
+                links: [
+                    { title: 'Off-target index service', url: '',
+                      note: 'py/sequence/offtarget/README.md -- the 2-bit index this reads, how it is built per species, and the seed-and-verify algorithm the edit-distance mode uses.' },
+                    { title: 'Grimson 2007, determinants beyond seed pairing',
+                      url: 'https://pubmed.ncbi.nlm.nih.gov/17612493/',
+                      note: 'Local AU content near a site as a context determinant of miRNA site efficacy; the +/-30 nt window the AU track uses, and the 1/distance weighting of the context+ local_AU feature.' },
+                    { title: 'DUST: low-complexity sequence masking',
+                      url: 'https://doi.org/10.1089/cmb.2006.13.1028',
+                      note: 'The triplet-redundancy measure the complexity half borrows.' }
                 ]
             }
         },
