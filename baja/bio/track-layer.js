@@ -1668,11 +1668,20 @@ return new Promise(async (resolve, reject) => {
                             if (!lk || !lk.track) continue;
                             const og = lk.track.grid || lk.track.tgraph;
                             if (!og) continue;
-                            // Each end at the middle of its own bar, in screen pixels.
-                            const lx0 = graph.X(this.tgraph.X((lk.x1 + lk.x2) / 2));
-                            const ly0 = graph.Y(this.tgraph.Y(lk.y == null ? 0.5 : lk.y));
-                            const lx1 = graph.X(og.X((lk.ox1 + lk.ox2) / 2));
-                            const ly1 = graph.Y(og.Y(lk.oy == null ? 0.5 : lk.oy));
+                            // Each end at the middle of its own bar, in CANVAS PIXELS, which
+                            // is what a grid's X and Y already return: the bars a few lines
+                            // up are placed with this.tgraph.X(int.x1) and nothing else.
+                            //
+                            // Putting graph.X() around that transformed an answer that was
+                            // already in pixels a second time, as though it were a world
+                            // coordinate, and sent every arrow far off the canvas. Nothing
+                            // threw and nothing was logged: the arrows were simply not where
+                            // anyone was looking, which is the same mistake as the motif hit
+                            // test and just as quiet.
+                            const lx0 = this.tgraph.X((lk.x1 + lk.x2) / 2);
+                            const ly0 = this.tgraph.Y(lk.y == null ? 0.5 : lk.y);
+                            const lx1 = og.X((lk.ox1 + lk.ox2) / 2);
+                            const ly1 = og.Y(lk.oy == null ? 0.5 : lk.oy);
                             if (!isFinite(lx0) || !isFinite(ly0) || !isFinite(lx1) || !isFinite(ly1)) continue;
 
                             ctx.save();

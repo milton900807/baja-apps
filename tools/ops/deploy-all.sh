@@ -979,7 +979,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/compare-view.js:IT LEAVES AS A FILE" \
     "baja/bio/match-regions.js:THE FIELDS THE SEARCHER ACTUALLY RETURNS"
   install_group "Two-headed arrows, and every exon matched in one step" \
-    "baja/bio/track-layer.js:A HEAD AT BOTH ENDS" \
+    "baja/bio/track-layer.js:in CANVAS PIXELS, which" \
     "baja/bio/align-blocks.js:THE BLOCKS AN ALIGNMENT IS MADE OF" \
     "baja/bio/match-regions.js:EXONS ARE ONE KIND OF REGION, NOT THE ONLY ONE" \
     "baja/manchester/menu/compare-track-sequences.js:WHERE A UNIT OF THE COMPARED SEQUENCE SITS ON THE TRACK" \

@@ -92,9 +92,13 @@ const mkTrack = (name, xi, len, gridXi, gridW) => ({
        'the layer draws them after its bars and labels');
     ok(/const og = lk\.track\.grid \|\| lk\.track\.tgraph;/.test(tl),
        'through the PARTNER\'s grid');
-    ok(/graph\.X\(og\.X\(\(lk\.ox1 \+ lk\.ox2\) \/ 2\)\)/.test(tl),
-       'and not through its own, which is the mistake that puts the arrow where neither '
-       + 'block is');
+    // THIS USED TO ASSERT THE BUG. It pinned `graph.X(og.X(...))` as the right thing, and
+    // that double transform is exactly what put every arrow off the canvas: a grid's X()
+    // already returns canvas pixels. A source assertion can only pin the shape of the code,
+    // never whether the code is right, so what this file relies on now is the drawing
+    // further down, where the ends are compared with where the bars are.
+    ok(!/graph\.X\(\s*(this\.tgraph|og)\.X\(/.test(tl),
+       'a coordinate a grid already put in pixels is not transformed a second time');
     ok((tl.match(/THIRD PASS: ARROWS/g) || []).length === 1,
        'in draw() only, not in drawPlot() as well: the interval loop exists twice in that '
        + 'file and a second copy would draw every arrow again');
@@ -115,11 +119,87 @@ const mkTrack = (name, xi, len, gridXi, gridW) => ({
     ok(/headAt\(lx1, ly1, ldir\);/.test(src) && /headAt\(lx0, ly0, -ldir\);/.test(src),
        'and draws one at each end, each pointing the way the curve runs there');
 
-    // Not asserted by running draw(): the layer's draw needs a live canvas and a graph,
-    // and a stub that silently draws nothing would pass this whichever way the code went.
-    // The two source assertions above are what pin it.
-    ok(!/if \(!lk\.oneWay\) headAt\(lx1/.test(src),
-       'and the far head is unconditional: it is the NEAR one an explicit one-way arrow drops');
+    // ---- RUN THE RENDERER, and see where the arrow actually lands ----------------------
+    // The two assertions above read the source, and source assertions let a real geometry
+    // bug through once already: the ends were transformed a second time, as though a grid's
+    // X() returned a world coordinate rather than the canvas pixels it does return, and the
+    // arrows were drawn far off the canvas. Nothing threw. The only way to catch that is to
+    // draw and look at the numbers.
+    const MGrid = await load('flexigraph/grid.js');
+    const mkGrid = (xi, yi, w, h, xmin, xmax) => {
+        const g = new MGrid(xi, yi, w, h);
+        g.setxmin(xmin); g.setxmax(xmax); g.setymin(0); g.setymax(1);
+        if (g.setInset) g.setInset(0, 0);
+        g.rescale();
+        return g;
+    };
+    // Two tracks whose grids sit at different places on the canvas and map different
+    // coordinate ranges: the whole point is that each end is worked out on its own grid.
+    const gq = mkGrid(0, 600, 1000, -60, 0, 8000);
+    const gt = mkGrid(0, 300, 1000, -60, 0, 5000);
+    const Q = { name: 'Q', xi: 0, xf: 8000, sequence: 'A'.repeat(8000), tgraph: gq,
+        track_layers: [], addLayer(l) { this.track_layers.push(l); },
+        screenWidth: (n) => gq.screenWidth(n), Xwc: (x) => gq.Xwc(x), X: (x) => gq.X(x) };
+    const T = { name: 'T', xi: 0, xf: 5000, sequence: 'A'.repeat(5000), tgraph: gt,
+        track_layers: [], addLayer(l) { this.track_layers.push(l); },
+        screenWidth: (n) => gt.screenWidth(n), Xwc: (x) => gt.Xwc(x), X: (x) => gt.X(x) };
+
+    const drawn = { lines: [], curves: [], tris: [] };
+    let pen = null;
+    const ctx = {
+        save() { }, restore() { }, beginPath() { pen = { pts: [] }; },
+        moveTo(x, y) { if (pen) pen.pts.push([x, y]); },
+        lineTo(x, y) { if (pen) pen.pts.push([x, y]); },
+        bezierCurveTo(a, b, c, d, x, y) { if (pen) { pen.bez = true; pen.pts.push([x, y]); } },
+        closePath() { if (pen) pen.closed = true; },
+        stroke() { if (pen) (pen.bez ? drawn.curves : drawn.lines).push(pen); },
+        fill() { if (pen && pen.closed && pen.pts.length === 3) drawn.tris.push(pen); },
+        fillRect() { }, strokeRect() { }, rect() { }, clip() { }, arc() { },
+        fillText() { }, strokeText() { }, measureText: () => ({ width: 8 }),
+        setLineDash() { }, translate() { }, rotate() { }, scale() { }, drawImage() { },
+        createLinearGradient: () => ({ addColorStop() { } }), putImageData() { },
+        getImageData: () => ({ data: [] }), quadraticCurveTo() { }, ellipse() { },
+        set font(v) { }, get font() { return '10px Arial'; }
+    };
+    const canvasGrid = mkGrid(0, 800, 1000, -800, 0, 1000);
+    const gfx = {
+        canvas: { getCTX: () => ctx },
+        grid: canvasGrid,
+        inFrame: () => true,
+        screenWidth: (n) => n,
+        Xwc: (x) => canvasGrid.Xwc(x),
+        X: (x) => { throw new Error('graph.X must not be used on a value a grid already put in pixels'); },
+        Y: (y) => { throw new Error('graph.Y must not be used on a value a grid already put in pixels'); }
+    };
+
+    const blocksQ = [{ n: 1, x1: 1000, x2: 1400, identity: 0.9 }];
+    const blocksT = [{ n: 1, x1: 4000, x2: 4400, identity: 0.9 }];
+    const lq = ML.draw(Q, blocksQ, { suffix: '_m', dataType: 'SEQSIM' });
+    ML.draw(T, blocksT, { suffix: '_m', dataType: 'SEQSIM' });
+    ML.link(lq, Q, T, [{ n: 1, x1: 1000, x2: 1400, ox1: 4000, ox2: 4400 }]);
+    lq.tgraph = mkGrid(0, 600, 1000, -60, 0, 8000);
+    try { await lq.draw(Q, gfx, Q); } catch (e) { ok(false, 'the layer draws: ' + e.message); }
+
+    ok(drawn.curves.length >= 1, 'the arrow is drawn: ' + drawn.curves.length + ' curve(s)');
+    ok(drawn.tris.length === 2, 'with a head at each end: ' + drawn.tris.length);
+
+    // Where it should be: the middle of each bar, on each track's OWN grid.
+    const wantX0 = gq.X(1200), wantY0 = gq.Y(0.5);
+    const wantX1 = gt.X(4200), wantY1 = gt.Y(0.5);
+    const c = drawn.curves[0] || { pts: [[NaN, NaN], [NaN, NaN]] };
+    const near = (a, b) => Math.abs(a - b) < 1.5;
+    ok(near(c.pts[0][0], wantX0) && near(c.pts[0][1], wantY0),
+       'it starts at the middle of its own bar: got ' + c.pts[0].map(Math.round)
+       + ', wanted ' + [wantX0, wantY0].map(Math.round));
+    ok(near(c.pts[c.pts.length - 1][0], wantX1) && near(c.pts[c.pts.length - 1][1], wantY1),
+       'and ends at the middle of the partner bar, through the PARTNER\u2019s grid: got '
+       + c.pts[c.pts.length - 1].map(Math.round) + ', wanted ' + [wantX1, wantY1].map(Math.round));
+    // The canvas is 1000 wide here; an end off it is the bug this test exists for.
+    ok(c.pts.every((pt) => pt[0] > -50 && pt[0] < 1100),
+       'and no end is off the canvas: ' + JSON.stringify(c.pts.map((pt) => pt.map(Math.round))));
+    const heads = drawn.tris.map((t) => Math.round(t.pts[0][0])).sort((a, b) => a - b);
+    ok(near(heads[0], Math.min(wantX0, wantX1)) && near(heads[1], Math.max(wantX0, wantX1)),
+       'the two heads sit on the two ends: ' + heads);
 
     console.log(fails ? '\n' + fails + ' assertion(s) failed' : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
