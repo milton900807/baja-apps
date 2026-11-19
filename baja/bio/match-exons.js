@@ -90,12 +90,26 @@ function (graph, qtrack, ttrack, opts) {
                             : 'nothing above the noise floor' });
                     continue;
                 }
+                // THE FIELDS THE SEARCHER ACTUALLY RETURNS. start/end are the hit on the
+                // target in that track's coordinates, query_start/query_end are the part of
+                // the exon that matched in this track's, strand is '+' or '-' and NOT a
+                // number, and the coverage is query_coverage. Reading t0/t1/coverage instead
+                // produced NaN-NaN positions and 0.0% coverage on every row: undefined
+                // arithmetic says nothing, so nothing looked wrong until it was on screen.
                 const h = res.hits[0];
+                const qa = isFinite(+h.query_start) ? +h.query_start : a;
+                const qb = isFinite(+h.query_end) ? +h.query_end : b;
                 found.push({
-                    exon: n, qx1: a, qx2: b,
-                    tx1: Math.min(+h.t0, +h.t1), tx2: Math.max(+h.t0, +h.t1),
-                    identity: +h.identity, score: +h.score, strand: (+h.strand < 0 ? -1 : 1),
-                    covers: +h.coverage, len: qseq.length
+                    exon: n, exx1: a, exx2: b,
+                    // The part of the exon that matched, which is what the bar should cover:
+                    // drawing the whole exon for a 40 nt match inside a 170 nt one claims
+                    // more than the alignment found.
+                    qx1: Math.min(qa, qb), qx2: Math.max(qa, qb),
+                    tx1: Math.min(+h.start, +h.end), tx2: Math.max(+h.start, +h.end),
+                    identity: +h.identity, score: +h.score,
+                    strand: (('' + h.strand) === '-' || +h.strand < 0) ? -1 : 1,
+                    covers: +h.query_coverage, len: qseq.length,
+                    matched: Math.abs(qb - qa) + 1
                 });
             }
 
@@ -144,7 +158,7 @@ function (graph, qtrack, ttrack, opts) {
                         + (strong.length === 1 ? ' ' : 's ') + strong.map((f) => f.exon).join(', ') + '). ')
                     : 'None reaches 80% identity. ')
                 + 'The closest is exon ' + best.exon + ' at ' + pct(best.identity)
-                + ' over ' + best.len.toLocaleString() + ' nt.']);
+                + ' over ' + best.matched.toLocaleString() + ' nt.']);
             for (const f of found) {
                 rows.push(['exon ' + f.exon + ' · ' + pct(f.identity),
                     f.len.toLocaleString() + ' nt at ' + f.qx1.toLocaleString() + '-' + f.qx2.toLocaleString()
@@ -166,6 +180,40 @@ function (graph, qtrack, ttrack, opts) {
                 + 'exon can only land somewhere consistent with its neighbours, never out of '
                 + 'order and never reversed.']);
 
+            // ---- the answer as a PICTURE ---------------------------------------------------
+            // Thirty rows of "148 nt at 4,827-4,975 matches ... 1,100-1,280" is the right
+            // information in the wrong shape: where each exon went, whether the order held
+            // and which ones flipped are all shapes, and a list cannot show any of them.
+            // The rows are still there, under the Numbers button.
+            const extentOf = (t) => {
+                const len = (t.sequence && t.sequence.length)
+                    ? t.sequence.length : Math.abs((+t.xf) - (+t.xi));
+                return { x1: +t.xi, x2: (+t.xi) + len };
+            };
+            let shown = null;
+            try {
+                shown = await exec('baja/bio/compare-view.js', {
+                    title: 'Exons of ' + nameQ + ' matched on ' + nameT,
+                    summary: rows[0][1],
+                    a: { name: nameQ, x1: extentOf(qtrack).x1, x2: extentOf(qtrack).x2 },
+                    b: { name: nameT, x1: extentOf(ttrack).x1, x2: extentOf(ttrack).x2 },
+                    blocks: found.map((f) => ({
+                        n: f.exon, label: 'e' + f.exon, identity: f.identity, inverted: f.strand < 0,
+                        a: { x1: f.qx1, x2: f.qx2 }, b: { x1: f.tx1, x2: f.tx2 },
+                        note: Math.round(f.covers * 100) + '% of the exon, score ' + Math.round(f.score)
+                    })),
+                    // The exons that matched nothing, in their place on the lane: twenty-two
+                    // lines of "nothing above the noise floor" say less than twenty-two gaps.
+                    unmatched: missed.map((x) => {
+                        const ex = list[x.exon - 1];
+                        if (!ex) return null;
+                        return { label: 'exon ' + x.exon, why: x.why,
+                            a: { x1: Math.min(+ex.xi, +ex.xf), x2: Math.max(+ex.xi, +ex.xf) } };
+                    }).filter(Boolean),
+                    rows: rows
+                });
+            } catch (e) { shown = null; }
+
             const help = {
                 title: 'Exons of ' + nameQ + ' matched on ' + nameT,
                 rows: rows,
@@ -173,8 +221,12 @@ function (graph, qtrack, ttrack, opts) {
                     + 'that block accounts for: a short perfect match inside a long exon reads as '
                     + '100% identical and covers very little of it.'
             };
-            try { await exec('baja/bio/decor-help.js', { decor: { help: help } }, graph); }
-            catch (e) { try { graph.setResultMessage(rows[0][1]); } catch (e2) { } }
+            // Only when the picture could not be drawn: two panels over each other is one
+            // panel too many, and the rows are in the picture already.
+            if (!shown) {
+                try { await exec('baja/bio/decor-help.js', { decor: { help: help } }, graph); }
+                catch (e) { try { graph.setResultMessage(rows[0][1]); } catch (e2) { } }
+            }
             try { window.__bajaExonMatches = { found: found, missed: missed }; } catch (e) { }
             try {
                 graph.setMessage(found.length + ' of ' + list.length + ' exons matched'

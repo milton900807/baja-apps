@@ -971,6 +971,12 @@ if [[ $DO_API -eq 1 ]]; then
   # iterating over a track's exons as one operation. The renderer, the shared block finder
   # and the callers go together: an old renderer draws one head, and an old planner has no
   # rule pointing at the new operation.
+  # The exon match is shown as a picture of the two tracks rather than a table, and the
+  # fields it reads from the searcher are the ones the searcher actually sends: t0/t1 and
+  # coverage do not exist, which put NaN-NaN and 0.0% on every row.
+  install_group "Track comparisons are shown as a picture" \
+    "baja/bio/compare-view.js:A PICTURE OF HOW TWO TRACKS LINE UP" \
+    "baja/bio/match-exons.js:THE FIELDS THE SEARCHER ACTUALLY RETURNS"
   install_group "Two-headed arrows, and every exon matched in one step" \
     "baja/bio/track-layer.js:A HEAD AT BOTH ENDS" \
     "baja/bio/align-blocks.js:THE BLOCKS AN ALIGNMENT IS MADE OF" \

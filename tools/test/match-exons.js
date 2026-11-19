@@ -55,11 +55,20 @@ const mk = (name, exons) => {
         setMessage(m) { this.said.push('' + m); }, setResultMessage(m) { this.said.push('' + m); } };
 
     // Every exon matches somewhere, the third one reversed.
+    // THE SHAPE THE REAL SEARCHER RETURNS, field for field. A stub that invents its own
+    // names passes whatever the caller reads, which is how NaN-NaN positions and 0.0%
+    // coverage reached the screen with a green test suite behind them. The contract is
+    // asserted against the real script further down.
     pyReply = (q) => {
         const n = +(('' + q.name).replace(/\D+/g, '') || 0);
+        const qs = +q.offset;
         return { status: 'OK', hits: [{
-            t0: 1000 + n * 100, t1: 1000 + n * 100 + 180, identity: 0.9 - n * 0.05,
-            score: 300 - n * 10, strand: (n === 3 ? -1 : 1), coverage: 0.95
+            rank: 1,
+            start: 1000 + n * 100, end: 1000 + n * 100 + 180,
+            query_start: qs, query_end: qs + 180,
+            identity: 0.9 - n * 0.05, score: 300 - n * 10,
+            strand: (n === 3 ? '-' : '+'),
+            identical: 160, length: 181, gaps: 0, query_coverage: 0.9
         }] };
     };
     searches = []; helpShown = null;
@@ -76,6 +85,7 @@ const mk = (name, exons) => {
        'the exon goes out with its own left edge, so hits come back in track coordinates: '
        + JSON.stringify({ off: searches[0].q.offset, len: searches[0].q.seq.length }));
 
+    const found0 = () => r.found[0];
     ok(r.count === 3 && r.of === 4, 'three of the four are reported: ' + JSON.stringify({ c: r.count, of: r.of }));
     ok(r.missed.length === 1 && r.missed[0].exon === 4 && /too short/.test(r.missed[0].why),
        'and the 8 nt exon is SAID to be too short, not dropped silently: '
@@ -91,25 +101,67 @@ const mk = (name, exons) => {
     const labels = (la.intervals || []).map((v) => '' + (v.t || ''));
     ok(/^e1 /.test(labels[0]), 'numbered by EXON, not by rank: ' + labels.join(' | '));
     ok(/⇄/.test(labels[2]), 'and a reversed match is marked as one: ' + labels[2]);
-    ok((la.intervals || [])[0].x1 === 100 && (la.intervals || [])[0].x2 === 300,
-       'the bar on the query track is the exon itself');
+    ok((la.intervals || [])[0].x1 === 100 && (la.intervals || [])[0].x2 === 280,
+       'the bar on the query track is the part of the exon that MATCHED, not the whole of '
+       + 'it: a 40 nt hit inside a 170 nt exon would otherwise claim the exon matched: '
+       + (la.intervals || [])[0].x1 + '-' + (la.intervals || [])[0].x2);
     ok((lb.intervals || [])[0].x1 === 1100,
        'and the bar on the other track is where it was found: ' + (lb.intervals || [])[0].x1);
+    ok(found0().tx1 === 1100 && found0().tx2 === 1280 && isFinite(found0().tx1),
+       'the target position is a number, not NaN: '
+       + found0().tx1 + '-' + found0().tx2);
+    ok(found0().covers === 0.9, 'and the coverage is the one the searcher reported: ' + found0().covers);
+    ok(found0().strand === 1 && r.found[2].strand === -1,
+       'strand comes back as the + / - the searcher sends, not as a number');
 
     ok((la.links || []).length === 3, 'each exon is joined to its block: ' + (la.links || []).length);
     ok(!lb.links || !lb.links.length, 'from one side only, or every arrow is drawn twice');
     ok(la.links[0].track === B && la.links[0].ox1 === 1100,
        'with the far end in the OTHER track’s coordinates');
 
-    // ---- the panel answers first --------------------------------------------------------
-    const text = (helpShown.rows || []).map((x) => x.join(' ')).join(' | ');
-    ok(/^answer/.test((helpShown.rows || [])[0][0]), 'the panel answers before it lists');
-    ok(/3 of 4 exons/.test(text), 'with the count: ' + text.slice(0, 70));
-    ok(/exon 1 .*85\.0%|exon 1 .* \d/.test(text), 'then one row per exon: ' + text.slice(0, 120));
-    ok(/reverse strand/.test(text), 'saying which matched reversed');
-    ok(/no match/.test(text) && /exon 4/.test(text), 'and which did not match at all');
-    ok(/covering/.test(text), 'with coverage, since a short perfect hit inside a long exon is '
-       + 'not the same as the exon matching');
+    // ---- the answer is a PICTURE, with the numbers under it ------------------------------
+    // Thirty rows of "148 nt at 4,827-4,975 matches ... 1,100-1,280" is the right
+    // information in the wrong shape: where each exon went, whether the order held and
+    // which flipped are shapes, and a list shows none of them.
+    const view = document.getElementById('baja-compare-view');
+    ok(!!view, 'a comparison view is opened, not a table');
+    ok(!helpShown, 'and the old text panel is NOT also opened over it');
+    const svg = view ? view.querySelector('svg') : null;
+    ok(!!svg, 'it draws something');
+    const ribbons = view ? view.querySelectorAll('g.rb') : [];
+    ok(ribbons.length === 3, 'one ribbon per matched exon: ' + ribbons.length);
+    const notches = view ? view.querySelectorAll('rect[stroke-dasharray="3 2"]') : [];
+    ok(notches.length === 1,
+       'and the exon that matched nothing is a hollow notch in its place, not a line of '
+       + 'prose: ' + notches.length);
+    const vtext = view ? view.textContent : '';
+    ok(/SPAG9_mRNA/.test(vtext) && /MAPK8IP3_mRNA/.test(vtext), 'both lanes are named');
+    ok(/e1/.test(vtext) && /85\.0%/.test(vtext),
+       'each ribbon carries its exon number and its identity: ' + vtext.slice(0, 80));
+    const inverted = view ? view.querySelectorAll('path[stroke-dasharray]') : [];
+    ok(inverted.length === 1, 'the reversed pair is the dashed, crossed one: ' + inverted.length);
+
+    // The numbers are not thrown away, just folded.
+    const panel = view ? view.querySelector('[data-id="numbers-panel"]') : null;
+    ok(!!panel && panel.style.display === 'none', 'the rows are there, folded away');
+    ok(/exon 1/.test(panel.textContent) && /covering 90\.0% of the exon/.test(panel.textContent),
+       'and hold the same figures as before: ' + panel.textContent.slice(0, 90));
+    ok(!/NaN/.test(panel.textContent), 'with no NaN anywhere in them');
+    try { view.querySelector('button[data-id="numbers"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
+    ok(panel.style.display === 'block', 'and Numbers opens them');
+    try { view.querySelector('button[data-id="close"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
+    ok(!document.getElementById('baja-compare-view'), 'Close puts it away');
+
+    // ---- the contract, against the REAL searcher -----------------------------------------
+    // The stub above can only be trusted as far as this: the field names it uses are the
+    // ones the script actually resolves.
+    const py = fs.readFileSync('py/bio/search-region-in-track.py', 'utf8');
+    for (const field of ['"start"', '"end"', '"query_start"', '"query_end"',
+                         '"query_coverage"', '"identity"', '"score"', '"strand"']) {
+        ok(py.indexOf(field + ':') >= 0, 'the searcher returns ' + field);
+    }
+    ok(/"strand": "\+" if/.test(py),
+       'and strand is the character + or -, which is why comparing it with < 0 was always false');
 
     // ---- nothing matches anywhere -------------------------------------------------------
     pyReply = { status: 'OK', hits: [] };
