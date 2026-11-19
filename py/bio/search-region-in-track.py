@@ -32,7 +32,15 @@ MATCH = 2.0
 MISMATCH = -3.0
 OPEN_GAP = -5.0
 EXTEND_GAP = -2.0
-MASK = "N"          # scores as a mismatch against every real base, so a masked hit cannot win again
+# TWO DIFFERENT MASKS, and neither is a base.
+#
+# Masking both sides with the same character makes masked regions match EACH OTHER: N
+# against N is a match, so a stretch already found and blanked on both sides aligns to
+# itself perfectly and comes back as a second, higher-scoring, 100%-identical hit of the
+# same place. X and Z are stripped from any input by _clean, so neither can occur in a real
+# sequence, and X against Z is a mismatch like any other.
+MASK_T = "X"        # what has been found in the target
+MASK_Q = "Z"        # what has been found in the query
 MAX_TARGET = 400000  # a whole gene track is fine; a chromosome is not, and would hang the server
 
 
@@ -45,14 +53,26 @@ def _rc(s):
     return "".join(comp.get(c, "N") for c in reversed(s))
 
 
-def _aligner():
+# FOR A MAP, GAPS HAVE TO BE EXPENSIVE.
+#
+# At blastn's gap costs a local alignment will happily bridge several hundred bases of
+# unrelated sequence to join two conserved blocks, because the blocks pay for the crossing.
+# That is the right answer for "how similar are these two" and the wrong one for "which
+# regions correspond": it returns one long, gappy, middling-identity alignment and the two
+# real blocks inside it are never named. Charging properly for the crossing leaves the
+# blocks separate, which is what a map is made of.
+BLOCK_OPEN_GAP = -12.0
+BLOCK_EXTEND_GAP = -8.0
+
+
+def _aligner(blocks=False):
     from Bio.Align import PairwiseAligner
     al = PairwiseAligner()
     al.mode = "local"
     al.match_score = MATCH
     al.mismatch_score = MISMATCH
-    al.open_gap_score = OPEN_GAP
-    al.extend_gap_score = EXTEND_GAP
+    al.open_gap_score = BLOCK_OPEN_GAP if blocks else OPEN_GAP
+    al.extend_gap_score = BLOCK_EXTEND_GAP if blocks else EXTEND_GAP
     return al
 
 
@@ -99,8 +119,11 @@ try:
     query = _clean(q.get("seq"))
     target = _clean(t.get("seq"))
     offset = int(t.get("offset") or 0)
+    q_offset = int(q.get("offset") or 0)
     max_hits = max(1, min(int(opts.get("max_hits") or 8), 50))
     both = str(opts.get("strands") or "both").lower() != "plus"
+    # For a map of corresponding regions rather than a search for one region.
+    mask_query = bool(opts.get("mask_query"))
 
     if len(query) < 12:
         works.resolve({"status": "ERROR", "error": "the query region is too short to search with (%d bases)" % len(query)})
@@ -111,7 +134,9 @@ try:
                        "error": "that track is %s bases, too long to scan here (limit %s). Search a region of it."
                                 % (format(len(target), ","), format(MAX_TARGET, ","))})
     else:
-        al = _aligner()
+        # Blocks when the caller is drawing a map (it masks the query too); otherwise the
+        # blastn costs, which is what a search for one region wants.
+        al = _aligner(blocks=mask_query)
         # A hit that scores no better than this is noise: the score two unrelated sequences
         # reach by chance grows with how much target there is to look in.
         floor = float(opts.get("min_score") or 0) or max(20.0, MATCH * 0.45 * min(len(query), 60))
@@ -131,12 +156,35 @@ try:
             # Mask what was found, so the next pass finds the next place rather than this one.
             for i in range(best["t0"], best["t1"]):
                 if 0 <= i < len(work):
-                    work[i] = MASK
+                    work[i] = MASK_T
+            # BOTH SIDES, when the query is a whole sequence rather than one region.
+            #
+            # Masking only the target lets the next pass match the SAME stretch of query
+            # somewhere else, which is the right answer for "where does this exon turn up"
+            # and the wrong one for "which regions of these two correspond": there the blocks
+            # are supposed to tile the pair, and a query stretch that answers twice draws two
+            # overlapping ribbons from one place.
+            if mask_query:
+                qwork = list(strands[0][1])
+                for i in range(best["q0"], best["q1"]):
+                    if 0 <= i < len(qwork):
+                        qwork[i] = MASK_Q
+                masked_q = "".join(qwork)
+                strands = [(1, masked_q)] + ([(-1, _rc(masked_q))] if both else [])
 
         hits.sort(key=lambda h: -h["score"])
         out = []
         for rank, h in enumerate(hits, 1):
             cols = h["columns"] or 1
+            # ORIENTATION. A minus-strand hit was found by aligning the REVERSE COMPLEMENT of
+            # the query, so q0 and q1 are offsets into that reversed string. Reported as they
+            # stand they point at the mirror-image position: near the end of the query for a
+            # block that is near its start. Nothing about the number looks wrong, which is
+            # exactly why it has to be converted back here rather than noticed later.
+            if h["strand"] < 0:
+                q0, q1 = len(query) - h["q1"], len(query) - h["q0"]
+            else:
+                q0, q1 = h["q0"], h["q1"]
             out.append({
                 "rank": rank,
                 "score": h["score"],
@@ -144,18 +192,22 @@ try:
                 "strand": "+" if h["strand"] > 0 else "-",
                 "identity": h["identical"] / cols,
                 "identical": h["identical"], "length": h["columns"], "gaps": h["gaps"],
+                # In the query's own forward coordinates, with its offset applied, so both
+                # sides of a block come back in the coordinates their track uses.
+                "query_start": q0 + q_offset, "query_end": q1 + q_offset,
                 # How much of the QUERY this hit accounts for: a 40-base match to a 170-base
                 # exon is a different claim from a 170-base one, and the score alone hides it.
-                "query_start": h["q0"], "query_end": h["q1"],
-                "query_coverage": (h["q1"] - h["q0"]) / len(query),
+                "query_coverage": (q1 - q0) / len(query),
             })
 
         works.resolve({
             "status": "OK",
-            "query": {"name": q.get("name") or "query", "length": len(query)},
+            "query": {"name": q.get("name") or "query", "length": len(query), "offset": q_offset},
             "target": {"name": t.get("name") or "target", "length": len(target), "offset": offset},
             "engine": "biopython PairwiseAligner, local, +%d/%d, gap %d/%d, %s"
-                      % (int(MATCH), int(MISMATCH), int(OPEN_GAP), int(EXTEND_GAP),
+                      % (int(MATCH), int(MISMATCH),
+                         int(BLOCK_OPEN_GAP if mask_query else OPEN_GAP),
+                         int(BLOCK_EXTEND_GAP if mask_query else EXTEND_GAP),
                          "both strands" if both else "plus strand"),
             "floor": floor,
             "hits": out,

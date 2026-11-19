@@ -519,6 +519,65 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
             },
             {
+                // A MAP IS DRAWN, NOT REPORTED. "draw a map that compares the regions of high
+                // sequence similarity between two tracks" asks for something on the canvas:
+                // a layer on each track, one bar per block, matching colours, so the pairs
+                // line up by eye when the tracks are laid one above the other.
+                name: 'draw_similarity_map',
+                summary: 'DRAW A MAP OF WHERE TWO TRACKS ARE SIMILAR: the blocks of sequence '
+                    + 'similarity between them are found and DRAWN as a layer on each track, '
+                    + 'one coloured bar per block, the same colour and number on both so the '
+                    + 'pairs can be read off. This is the answer to "draw a map comparing the '
+                    + 'regions of similarity between X and Y", "map the conserved regions", '
+                    + '"show me where these two are the same", "dot plot these", "where do '
+                    + 'these two line up". Unlike compare_sequences, which reports one '
+                    + 'identity in a panel, this puts the regions on the canvas. Blocks that '
+                    + 'are inverted between the two are marked as such. Pair it with '
+                    + 'put_tracks_together when the tracks are not already side by side.',
+                needs: 'track',
+                params: {
+                    tracks: {
+                        type: 'string',
+                        about: 'the two tracks to map, by name, comma separated. Omit for the '
+                            + 'selected tracks or when exactly two are open'
+                    },
+                    which: {
+                        type: 'enum', values: ['mrna'],
+                        about: 'set to mrna for a request about the mRNA tracks as a group'
+                    },
+                    max_blocks: {
+                        type: 'number', default: 10,
+                        about: 'how many blocks to draw, best first. Raise it only if the '
+                            + 'request asks for more detail'
+                    }
+                },
+                run: async (a) => {
+                    const ts = comparands(a);
+                    if (ts.length < 2) { result('Two tracks are needed to map. Name them, or open two.'); return; }
+                    const r = await exec('baja/bio/similarity-map.js', graph, ts[0], ts[1],
+                        { max_blocks: a.max_blocks || 10 });
+                    if (r && r.error) result(r.error);
+                    return r;
+                },
+                preview: (a) => {
+                    const ts = comparands(a);
+                    const names = ts.map((t) => t.name || 'a track');
+                    return 'draw a map of the similar regions between '
+                        + (names.length ? names.slice(0, 2).join(' and ') : 'the tracks')
+                        + ', on both tracks';
+                },
+                argBlocker: (a) => {
+                    const ts = comparands(a);
+                    if (ts.length < 2) {
+                        return ts.length
+                            ? 'two tracks are needed to map: only ' + (ts[0].name || 'one') + ' could be identified'
+                            : 'name the two tracks to map';
+                    }
+                    return '';
+                }
+            },
+
+            {
                 // SEARCHING IS NOT COMPARING, AND THE REFUSAL WAS RIGHT ABOUT THAT. "compare
                 // exon 16 of one transcript with any other part of another and rank the
                 // results" was turned down because compare_sequences aligns two things and

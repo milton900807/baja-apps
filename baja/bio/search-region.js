@@ -35,9 +35,13 @@ function (graph, query, target, opts) {
                 return;
             }
             // The whole of the other track, with its own left edge carried along so the hits
-            // come back in ITS coordinates and not as offsets into a string.
-            const lo = Math.min(target.xi, target.xf), hi = Math.max(target.xi, target.xf);
-            const tseq = seqIn(target, lo, hi);
+            // come back in ITS coordinates and not as offsets into a string. Indexed from
+            // the track's own xi, which is what getSequenceRange indexes from: the same as
+            // min(xi, xf) for an ordinary track and not for one laid down backwards.
+            const lo = +target.xi;
+            const tlen = (target.sequence && target.sequence.length)
+                ? target.sequence.length : Math.abs((+target.xf) - (+target.xi));
+            const tseq = seqIn(target, lo, lo + tlen);
             if (!tseq || tseq.length < 12) {
                 resolve({ error: (target.name || 'that track') + ' has no sequence to search' });
                 return;
@@ -46,7 +50,9 @@ function (graph, query, target, opts) {
             let res = null;
             try {
                 res = await exec('py/bio/search-region-in-track.py',
-                    { name: (query.label || 'the region'), seq: qseq },
+                    // The query's own left edge too, so a hit's position in the region comes
+                    // back in the query track's coordinates rather than as an offset into it.
+                    { name: (query.label || 'the region'), seq: qseq, offset: +query.start },
                     { name: ('' + (target.name || 'the track')), seq: tseq, offset: lo },
                     { max_hits: (o.max_hits || 8), strands: (o.strands || 'both') });
             } catch (e) { res = null; }
@@ -73,7 +79,8 @@ function (graph, query, target, opts) {
                     // WHICH PART OF THE QUERY MATCHED. A 40-base hit to a 170-base exon is a
                     // different claim from a 170-base one, and the score alone hides it.
                     + 'It covers ' + pct(h.query_coverage) + ' of ' + (query.label || 'the region')
-                    + ' (bases ' + h.query_start + '–' + h.query_end + ' of it)'
+                    + ' (' + h.query_start.toLocaleString() + '–' + h.query_end.toLocaleString()
+                        + ' on ' + (qt.name || 'that track') + ')'
                     + (h.strand === '-' ? ', on the opposite strand' : '') + '.'
                 ]);
             }

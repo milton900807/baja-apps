@@ -926,8 +926,16 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask: search one region against a whole track" \
     "baja/manchester/menu/editor-capabilities.js:SEARCHING IS NOT COMPARING, AND THE REFUSAL WAS RIGHT" \
     "baja/bio/search-region.js:ONE REGION, SEARCHED AGAINST A WHOLE TRACK, HITS RANKED" \
-    "py/bio/search-region-in-track.py:ONE ALIGNMENT IS ONE HIT" \
+    "py/bio/search-region-in-track.py:TWO DIFFERENT MASKS, and neither is a base" \
     "py/bio/editor/plan.py:FINDING IS NOT COMPARING"
+  # The similarity map: layers on both tracks. The capability, the client module and the
+  # backend go together, and the backend is shared with the region search above, so both
+  # groups name it. A client half against the old backend gets a minus-strand block's
+  # query coordinates mirrored, which looks like a real position in the right track.
+  install_group "Ask: draw a map of the similar regions between two tracks" \
+    "baja/manchester/menu/editor-capabilities.js:A MAP IS DRAWN, NOT REPORTED" \
+    "baja/bio/similarity-map.js:A MAP OF WHERE TWO TRACKS ARE THE SAME, DRAWN ON BOTH OF THEM" \
+    "py/bio/search-region-in-track.py:FOR A MAP, GAPS HAVE TO BE EXPENSIVE"
   install_group "Ask: compare the proteins between the mRNA tracks" \
     "baja/manchester/menu/editor-capabilities.js:THE mRNA TRACKS, WITHOUT BEING NAMED ONE BY ONE" \
     "baja/bio/protein/compare-proteins.js:COMPARE THE PROTEINS OF THESE TRACKS, ALIGNED ON THE BACKEND" \
