@@ -2632,8 +2632,15 @@ return new Promise(async (resolve, reject) => {
                 try { if (l && l.track === this) l.track = copy; } catch (e) { }
             }
 
-            // What the user can see of it: same width and left edge, one track lower, so the
-            // copy appears under the original rather than on top of it.
+            // What the user can see of it: same width and left edge, one track step away so
+            // it does not land on top of the original.
+            //
+            // WORLD Y RUNS THE OPPOSITE WAY TO SCREEN Y -- the canvas maps it with
+            // Y(v) = yi + height - (v - ymin) * yscale, so a LARGER yi is HIGHER on screen.
+            // Adding a step therefore places the copy ABOVE the original, which is where
+            // every other newly made track in this codebase is placed (gene.js stacks each
+            // new one at (n + 1) * spacing, and createTrackFromAnnotation adds the same way).
+            // Keeping that convention matters more than which side it lands on.
             copy.grid.xi = this.grid.xi;
             copy.grid.yi = this.grid.yi + Math.abs(this.grid.height) + 1;
             copy.grid.width = this.grid.width;

@@ -17,11 +17,18 @@ window.env = { apiUrl: '' };
 const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
-let compared = [];
+let compared = [], proteins = [];
+let backendAvailable = false;
 const load = async (p, ...a) => {
     if (('' + p).indexOf('compare-track-sequences') >= 0) {
         compared.push({ tracks: a[1], opts: a[2] || {} });
         return true;
+    }
+    // Whole-protein comparison goes to the backend aligner now; everything else, and a
+    // backend that cannot be reached, still goes to the browser module above.
+    if (('' + p).indexOf('compare-proteins') >= 0) {
+        proteins.push({ tracks: a[1] });
+        return backendAvailable ? { pairs: [] } : { unavailable: true };
     }
     if (('' + p).indexOf('track-regions') >= 0) {
         const t = a[0];
@@ -55,7 +62,7 @@ const mkCap = async (ts) => {
     return { C: await load('baja/manchester/menu/editor-capabilities.js', graph, {}), graph };
 };
 const go = async (C, args) => {
-    compared = [];
+    compared = []; proteins = [];
     const p = C.preview({ capability: 'compare_sequences', args: args || {} });
     if (p.ok && !p.blocker) await p.capability.run(p.args);
     return p;
@@ -70,9 +77,22 @@ const go = async (C, args) => {
        'compare_sequences is a declared operation');
 
     // ---- two tracks, no region ----------------------------------------------------------
+    // Protein is the default and proteins are aligned on the backend; with the backend out
+    // of reach the browser module answers, which is what this stub arranges.
     let p = await go(C, {});
+    ok(proteins.length === 1 && proteins[0].tracks.length === 2,
+       'a protein comparison is offered to the backend aligner first');
     ok(compared.length === 1 && compared[0].tracks.length === 2,
-       'with two tracks open it compares both without being told which');
+       'and with the backend unreachable the browser answers, on both tracks, without being '
+       + 'told which');
+
+    backendAvailable = true;
+    await go(C, {});
+    ok(proteins.length === 1 && compared.length === 0,
+       'when the backend does answer, the browser aligner does not also run');
+    backendAvailable = false;
+    // Back to the fallback path, so there is a browser call to inspect.
+    p = await go(C, {});
     ok(!compared[0].opts.ranges.length, 'and compares all of each: ' + JSON.stringify(compared[0].opts.ranges));
     ok(/report the identity between them/.test(p.text), 'the card says what it will do: ' + p.text);
 

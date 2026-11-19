@@ -112,8 +112,11 @@ const original = () => {
     ok(c.track_layers[0].track === c, 'and so does a layer\'s');
 
     // ---- where it lands -------------------------------------------------------------------
+    // World y is inverted against screen y, so a LARGER yi is higher on screen: this step
+    // places the copy one track ABOVE, the same way every other new track in the codebase
+    // is placed. What is being checked is that it is one clear step away and not on top.
     ok(c.grid.yi === t.grid.yi + Math.abs(t.grid.height) + 1,
-       'it sits one track below the original rather than on top of it: ' + c.grid.yi);
+       'it sits one track step clear of the original rather than on top of it: ' + c.grid.yi);
     ok(c.grid.xi === t.grid.xi && c.grid.width === t.grid.width,
        'at the same width and left edge, so the two line up');
 

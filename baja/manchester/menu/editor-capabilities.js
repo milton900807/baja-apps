@@ -55,7 +55,34 @@ function (graph, genegraph_panel_layout) {
         // THE TRACKS AN OPERATION ACROSS TRACKS ACTS ON. Named in the request, else the
         // selected ones, else every open track when there are exactly two -- which is the
         // case where "both tracks" can only mean one thing.
+        // THE mRNA TRACKS, WITHOUT BEING NAMED ONE BY ONE. "the mRNA tracks" is how someone
+        // refers to a group they can see, and naming five of them in a request is work the
+        // editor should be doing. A track counts when it SAYS it is one -- a name ending in
+        // _mRNA, or mRNA in the name -- or when it HAS NO INTRONS, which is what an mRNA is:
+        // a spliced transcript. Either alone is enough, because a built transcript may carry
+        // neither a tidy name nor annotations, and a name is evidence the user supplied
+        // themselves.
+        const mrnaTracks = () => {
+            const out = [];
+            for (const t of tracks()) {
+                if (!t) continue;
+                const nm = '' + (t.name || '');
+                if (/(^|[_\-\s])m[\-_]?rna\b/i.test(nm) || /_mrna$/i.test(nm)) { out.push(t); continue; }
+                const R = regionsNow(t);
+                // Only when the regions are known: a track whose introns have not been
+                // worked out is left out rather than guessed in, since including the wrong
+                // track silently changes the answer.
+                if (R && typeof R.introns === 'number' && R.introns === 0 && R.exons > 0) out.push(t);
+            }
+            return out;
+        };
         const comparands = (a) => {
+            const which = ('' + ((a && a.which) || '')).trim().toLowerCase();
+            if (which === 'mrna' || which === 'mrna_tracks') {
+                const m = mrnaTracks();
+                if (m.length >= 2) return m;
+                return m;        // one or none: the blocker says so rather than silently widening
+            }
             const named = ('' + ((a && a.tracks) || '')).split(',').map((x) => x.trim()).filter(Boolean);
             if (named.length) {
                 const out = [];
@@ -492,17 +519,77 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
             },
             {
+                // MOVING TRACKS IS NOT MERGING THEM. "put spag9_mRNA and MAPK8IP3_mRNA
+                // together" was answered with the across-tracks library and a note that
+                // combining tracks into one is not something the editor does. Nobody asked
+                // to combine them.
+                name: 'put_tracks_together',
+                summary: 'MOVE TRACKS NEXT TO EACH OTHER AND LINE THEM UP: the named tracks are '
+                    + 'placed one under the other with nothing in between, and given the same '
+                    + 'left edge and the same scale, so the same base offset in each sits at '
+                    + 'the same place across and the eye can run straight down. This is the '
+                    + 'answer to "put X and Y together", "move these next to each other", '
+                    + '"stack these two", "line these up", "show these side by side", '
+                    + '"arrange the tracks so I can compare them". It MOVES tracks and nothing '
+                    + 'else: it does not merge or combine them into one track, it does not '
+                    + 'change any sequence, and nothing is deleted. The other tracks keep '
+                    + 'their order and are moved down to make room.',
+                needs: 'track',
+                params: {
+                    tracks: {
+                        type: 'string',
+                        about: 'the tracks to put together, by name, comma separated, in the '
+                            + 'order the request names them ("spag9_mRNA, MAPK8IP3_mRNA"). Omit '
+                            + 'for the selected tracks'
+                    },
+                    which: {
+                        type: 'enum', values: ['mrna'],
+                        about: 'set to mrna for a request about THE mRNA TRACKS as a group '
+                            + '("compare the proteins between the mRNA tracks", "the mRNA '
+                            + 'tracks"), instead of naming them one by one. A track counts as '
+                            + 'mRNA when its name says so or when it has no introns'
+                    }
+                },
+                run: async (a) => {
+                    const ts = comparands(a);
+                    if (ts.length < 2) {
+                        result('Name two or more tracks to put together.');
+                        return;
+                    }
+                    const r = await exec('baja/bio/put-tracks-together.js', graph, ts, {});
+                    if (r && r.error) result(r.error);
+                    return r;
+                },
+                preview: (a) => {
+                    const ts = comparands(a);
+                    const names = ts.map((t) => t.name || 'a track');
+                    return 'put ' + (names.length ? names.join(' and ') : 'the tracks')
+                        + ' next to each other, lined up from the same origin';
+                },
+                argBlocker: (a) => {
+                    const ts = comparands(a);
+                    if (ts.length < 2) {
+                        return ts.length
+                            ? 'two tracks are needed: only ' + (ts[0].name || 'one') + ' could be identified'
+                            : 'name the tracks to put together: none could be identified';
+                    }
+                    return '';
+                }
+            },
+
+            {
                 // COMPARING IS NOT SELECTING. "compare the sequences between exon 16 on both
                 // tracks" was read as two selections, because selecting was the only thing in
                 // the catalogue that mentioned a region on a track. The comparison existed all
                 // along, on the Selection > Tracks > Compare menu, and could not be asked for.
                 name: 'compare_sequences',
-                summary: 'ALIGN THE SEQUENCES OF TWO OR MORE TRACKS AND REPORT THEIR IDENTITY: '
+                summary: 'ALIGN THE SEQUENCES OR PROTEINS OF TWO OR MORE TRACKS AND REPORT THEIR IDENTITY: '
                     + 'a local alignment per pair, the percent identical, how much of each '
                     + 'sequence the alignment covers, and the alignment itself to read. This is '
                     + 'the answer to "compare these tracks", "compare the sequences", "how '
                     + 'similar are these two", "align these", "what is the identity between '
-                    + 'them", "what is different between them". It does NOT select anything: a '
+                    + 'them", "what is different between them", "compare the proteins between '
+                    + 'the mRNA tracks". It does NOT select anything: a '
                     + 'request to COMPARE is this operation, not a pair of selections. Name a '
                     + 'region (exon 16, the 3\u2019 UTR) to compare just that stretch of each '
                     + 'track, which is what a request mentioning one means.',
@@ -531,6 +618,13 @@ function (graph, genegraph_panel_layout) {
                         type: 'string',
                         about: 'the tracks to compare, by name, comma separated. Omit for the '
                             + 'selected tracks, or when exactly two are open'
+                    },
+                    which: {
+                        type: 'enum', values: ['mrna'],
+                        about: 'set to mrna for a request about THE mRNA TRACKS as a group '
+                            + '("compare the proteins between the mRNA tracks", "the mRNA '
+                            + 'tracks"), instead of naming them one by one. A track counts as '
+                            + 'mRNA when its name says so or when it has no introns'
                     }
                 },
                 run: async (a) => {
@@ -556,6 +650,19 @@ function (graph, genegraph_panel_layout) {
                             result('Cannot compare that region: ' + missing.join('; '));
                             return;
                         }
+                    }
+                    // PROTEINS GO TO THE BACKEND ALIGNER. The in-browser one is a plain
+                    // Smith-Waterman; the Python one is Biopython with BLOSUM62 and the
+                    // blastp gap costs, so its numbers are comparable with what the user
+                    // reads anywhere else. Whole proteins only: a named region is a stretch
+                    // of DNA and has no peptide of its own.
+                    const wantsProtein = ((a.mode || 'protein') === 'protein') && !a.region;
+                    if (wantsProtein) {
+                        const r = await exec('baja/bio/protein/compare-proteins.js', graph, ts, {});
+                        // A backend that cannot be reached is a reason to fall back, not to
+                        // fail: the browser can still answer the question, and the panel says
+                        // which aligner ran.
+                        if (r && !r.unavailable) { if (r.error) result(r.error); return r; }
                     }
                     return exec('baja/manchester/menu/compare-track-sequences.js', graph, ts,
                         { mode: (a.mode || 'protein'), ranges: ranges });
@@ -768,7 +875,7 @@ function (graph, genegraph_panel_layout) {
                     + '"make a copy called X", "clone this track", "save this as a new track", '
                     + '"make another track from this one". The copy is separate: editing it, or '
                     + 'deleting things from it, leaves the original untouched, which is the '
-                    + 'whole reason to make one. It appears under the original and is selected.',
+                    + 'whole reason to make one. It appears beside the original and is selected.',
                 needs: 'track',
                 params: {
                     name: {

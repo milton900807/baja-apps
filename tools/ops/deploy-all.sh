@@ -897,6 +897,20 @@ if [[ $DO_API -eq 1 ]]; then
   # honours them, and a new capability against the old module would compare whole tracks
   # and report a believable number for the wrong question.
   # compare-track-sequences.js has never been listed here before.
+  # Put tracks together, and the mRNA-track group selector. The capability and the layout
+  # module go together: the capability resolves which tracks, the module is what moves them.
+  install_group "Ask: put tracks together, lined up" \
+    "baja/bio/put-tracks-together.js:WHICH WAY IS DOWN" \
+    "baja/manchester/menu/editor-capabilities.js:MOVING TRACKS IS NOT MERGING THEM"
+  # Proteins aligned on the backend, for the mRNA tracks as a group. All four or none: the
+  # capability picks the tracks and routes protein work to the client module, which calls
+  # the python aligner. A client half without the python half asks a script that is not
+  # there, falls back to the browser every time, and nothing says why.
+  install_group "Ask: compare the proteins between the mRNA tracks" \
+    "baja/manchester/menu/editor-capabilities.js:THE mRNA TRACKS, WITHOUT BEING NAMED ONE BY ONE" \
+    "baja/bio/protein/compare-proteins.js:COMPARE THE PROTEINS OF THESE TRACKS, ALIGNED ON THE BACKEND" \
+    "py/bio/protein/align-proteins.py:A PROTEIN ALIGNMENT IS NOT A STRING COMPARISON" \
+    "baja/bio/track-flexi.js:WORLD Y RUNS THE OPPOSITE WAY TO SCREEN Y"
   install_group "Ask: compare the sequences of two tracks" \
     "baja/manchester/menu/editor-capabilities.js:COMPARING IS NOT SELECTING" \
     "baja/manchester/menu/compare-track-sequences.js:A STRETCH OF EACH TRACK RATHER THAN ALL OF IT" \
