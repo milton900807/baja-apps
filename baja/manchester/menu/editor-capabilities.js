@@ -547,19 +547,25 @@ function (graph, genegraph_panel_layout) {
                 // cut the copy down to the part being worked on, which is why the name
                 // usually says what the copy is for ("pathogenic").
                 name: 'copy_track',
-                summary: 'COPY A TRACK to a new track with a name of its own, holding the same '
-                    + 'sequence, annotations, variants, compounds and data layers. This is the '
-                    + 'answer to "copy this track", "duplicate this track", "make a copy called '
-                    + 'X", "save this as a new track". The copy is separate: editing it, or '
+                summary: 'COPY OR DUPLICATE A TRACK to a new track with a name of its own, '
+                    + 'holding the same sequence, annotations, variants, compounds and data '
+                    + 'layers. COPY and DUPLICATE mean the same thing here, and this is the '
+                    + 'answer to every way of asking for one: "copy this track", "duplicate '
+                    + 'this track", "duplicate this track and call the new one pathogenic", '
+                    + '"make a copy called X", "clone this track", "save this as a new track", '
+                    + '"make another track from this one". The copy is separate: editing it, or '
                     + 'deleting things from it, leaves the original untouched, which is the '
                     + 'whole reason to make one. It appears under the original and is selected.',
                 needs: 'track',
                 params: {
                     name: {
                         type: 'string',
-                        about: 'what to call the copy, when the request says ("called pathogenic", '
-                            + '"as pathogenic"). Omit it and the copy is named after the original '
-                            + 'with _copy on the end'
+                        about: 'what to call the copy, however the request words it: "called '
+                            + 'pathogenic", "call the new one pathogenic", "name it pathogenic", '
+                            + '"as pathogenic", "to a new track called pathogenic" all give '
+                            + 'name="pathogenic". Take the name only, without the words around '
+                            + 'it. Omit it and the copy is named after the original with _copy '
+                            + 'on the end'
                     },
                     track: {
                         type: 'string',

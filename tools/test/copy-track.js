@@ -133,8 +133,26 @@ const original = () => {
        'and leaves the copy selected, so the next operation runs on it');
     const cap = fs.readFileSync('baja/manchester/menu/editor-capabilities.js', 'utf8');
     ok(/name: 'copy_track'/.test(cap), 'copy_track is a declared capability');
-    ok(/duplicate this track/.test(cap),
-       'and says the words people use for it, so the planner can find it');
+    // THE WORDS PEOPLE ACTUALLY USE. The planner only ever sees this text, so a phrasing
+    // missing from it is a phrasing that gets answered with "nothing in the editor does
+    // that" -- which is how a working operation stays invisible.
+    const capSel = cap.slice(cap.indexOf("name: 'copy_track'"), cap.indexOf("name: 'design_oligos'"));
+    const joined = capSel.replace(/'\s*\+\s*'/g, '');
+    for (const phrase of ['copy this track', 'duplicate this track',
+        'duplicate this track and call the new one pathogenic', 'clone this track',
+        'make a copy called X', 'save this as a new track']) {
+        ok(joined.indexOf(phrase) >= 0, 'it answers to ' + JSON.stringify(phrase));
+    }
+    ok(/COPY AND DUPLICATE mean the same thing here/i.test(joined),
+       'and says outright that copy and duplicate are the same thing, rather than leaving '
+       + 'the planner to decide whether duplicate is something else');
+    for (const phrase of ['call the new one pathogenic', 'name it pathogenic',
+        'to a new track called pathogenic']) {
+        ok(joined.indexOf(phrase) >= 0,
+           'the name is read from ' + JSON.stringify(phrase));
+    }
+    ok(/Take the name only, without the words around it/.test(joined),
+       'and only the name is taken, not the words around it');
     ok(/a\.track \? matchTrack\(a\.track\) : oneTrack\(\)/.test(cap.slice(cap.indexOf("name: 'copy_track'"))),
        '"this track" resolves the same way every other single-track operation resolves it: '
        + 'the selected one, then the only one');
