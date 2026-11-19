@@ -535,10 +535,13 @@ function (graph, genegraph_panel_layout) {
                 params: {
                     match: {
                         type: 'string',
-                        about: 'what to remove, in the request\u2019s own words: "rna seq", '
-                            + '"motifs", "domains", "similarity", "splicing", or part of a '
-                            + 'layer\u2019s name. Use "all" ONLY when the request asks for '
-                            + 'every layer to go'
+                        about: 'what to remove. PREFER THE LAYER\u2019S OWN NAME as canvas_now '
+                            + 'lists it under the track\u2019s layers, or its kind (RNASeq, '
+                            + 'SLIM, CDD, SEQSIM): the layer a user calls "the rna seq layer" '
+                            + 'is often named something else entirely, and canvas_now is where '
+                            + 'to find out what. A kind matches every layer of that kind. '
+                            + 'Failing both, the request\u2019s own words. Use "all" ONLY when '
+                            + 'the request asks for every layer to go'
                     },
                     track: {
                         type: 'string',

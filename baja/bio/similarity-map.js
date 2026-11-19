@@ -85,8 +85,16 @@ function (graph, a, b, opts) {
                     b: { start: h.start, end: h.end }
                 });
             });
-            ML.draw(a, aBlocks, { suffix: SUFFIX, dataType: DATA_TYPE });
+            const layerA = ML.draw(a, aBlocks, { suffix: SUFFIX, dataType: DATA_TYPE });
             ML.draw(b, bBlocks, { suffix: SUFFIX, dataType: DATA_TYPE });
+
+            // The arrows, hung on one of the two layers so each pair is drawn once. Which
+            // one does not matter to the picture: an arrow from A's block to B's and one
+            // from B's to A's are the same arrow.
+            ML.link(layerA, a, b, aBlocks.map((bl, i) => ({
+                n: bl.n, x1: bl.x1, x2: bl.x2, inverted: bl.inverted,
+                ox1: bBlocks[i].x1, ox2: bBlocks[i].x2
+            })), {});
 
             try { if (graph.wake) graph.wake(); } catch (e) { }
 

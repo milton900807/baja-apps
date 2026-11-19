@@ -142,6 +142,44 @@ const names = (t) => t.track_layers.map((l) => l.name).join(', ');
     ok(/TAKING SOMETHING AWAY IS NOT BROWSING FOR IT/.test(plan),
        'and the planner is told there is an operation for this now');
 
+    // ---- and the planner is told WHAT IS THERE ------------------------------------------
+    //
+    // Without this it plans blind. The layer a user calls "the rna seq layer" is called
+    // GRCh38illuminabrain1; nothing in the request, and nothing in the catalogue, could
+    // tell anyone that. It can only guess a match string and hope the operation reads it
+    // the same way.
+    const cmd = fs.readFileSync('baja/manchester/menu/editor-command.js', 'utf8');
+    ok(/WHAT IS ON THE TRACK, BY NAME/.test(cmd), 'the canvas context carries each track\'s layers');
+    ok(/name: \('' \+ \(\(l && l\.name\) \|\| '\(unnamed\)'\)\)/.test(cmd)
+       && /kind: \('' \+ \(\(l && l\.data_type\) \|\| ''\)\)/.test(cmd),
+       'with the name AND the kind: the name is what the user points at, the kind is what '
+       + 'they mean');
+    const capSrc = fs.readFileSync('baja/manchester/menu/editor-capabilities.js', 'utf8')
+        .replace(/'\s*\+\s*'/g, '');
+    // The source writes the apostrophe as an escape, so the file holds the six characters
+    // backslash-u-2019 rather than the character itself.
+    ok(capSrc.indexOf('PREFER THE LAYER') >= 0 && /OWN NAME as canvas_now lists it/.test(capSrc),
+       'and the operation tells the planner to use it');
+
+    // The kind is what finds a layer whose name gives nothing away.
+    const t2 = mkTrack();
+    const r2 = await load('baja/bio/remove-layers.js',
+        { track: [t2], wake() { }, setMessage() { } }, [t2], { match: 'RNASeq' });
+    ok(r2.count === 2, 'a kind on its own removes every layer of that kind: ' + r2.count);
+
+    const t3 = mkTrack();
+    const r3 = await load('baja/bio/remove-layers.js',
+        { track: [t3], wake() { }, setMessage() { } }, [t3], { match: 'GRCh38illuminabrain1' });
+    ok(r3.count === 1 && r3.removed[0].name === 'GRCh38illuminabrain1',
+       'and an exact name from canvas_now removes exactly that one');
+
+    const t4 = mkTrack();
+    const r4 = await load('baja/bio/remove-layers.js',
+        { track: [t4], wake() { }, setMessage() { } }, [t4], { match: 'conservation' });
+    ok(/\[RNASeq\]/.test(r4.error || ''),
+       'and when nothing matches, the layers are listed WITH their kinds, which is what a '
+       + 'second attempt needs: ' + (r4.error || '').slice(0, 100));
+
     console.log(fails ? '\n' + fails + ' assertion(s) failed' : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })();

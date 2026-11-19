@@ -953,6 +953,22 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:COMPARING IS NOT SELECTING" \
     "baja/manchester/menu/compare-track-sequences.js:A STRETCH OF EACH TRACK RATHER THAN ALL OF IT" \
     "py/bio/editor/plan.py:COMPARING IS NOT SELECTING"
+  # Arrows between the matched blocks on two tracks: the renderer's third pass, the one
+  # description of a matched region that hangs them, and the two tools that ask for them.
+  install_group "Matched blocks are linked by arrows" \
+    "baja/bio/track-layer.js:THIRD PASS: ARROWS TO THE MATCHING BLOCK ON ANOTHER TRACK" \
+    "baja/bio/match-layer.js:LINK TWO DRAWN SETS TOGETHER, block n to block n" \
+    "baja/bio/similarity-map.js:The arrows, hung on one of the two layers so each pair is drawn once" \
+    "baja/bio/search-region.js:An arrow from the region searched with to each place it was found"
+  # What is on each track reaches the planner, so a layer can be named the way the user sees
+  # it, and what was removed is named with its kind.
+  install_group "The planner is told which layers each track carries" \
+    "baja/manchester/menu/editor-command.js:name is what the user points at and the kind is what they mean" \
+    "baja/bio/remove-layers.js:WITH THEIR KINDS. A list of names is not enough to retry with"
+  # Deleting a layer from its popup menu: it did nothing at all when the track's layers had
+  # been rebuilt underneath the confirmation, and nothing at all when no graph was stashed.
+  install_group "Delete layer on the popup menu actually deletes it" \
+    "baja/manchester/menu/track-layer-popup.js:DELETE BY WHAT THE LAYER IS, NOT BY THE OBJECT WE OPENED ON"
   install_group "Layer bars are hit where they were painted" \
     "baja/bio/track-layer.js:WHERE THIS BAR ACTUALLY LANDED" \
     "baja/manchester/menu/mouse-over-highlight.js:THE TEST IS AGAINST THE RECTANGLE THAT WAS PAINTED" \

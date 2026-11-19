@@ -78,10 +78,18 @@ function (graph, tracks, opts) {
 
             if (!removed.length) {
                 const names = [];
-                for (const t of ts) for (const l of (t.track_layers || [])) names.push('' + ((l && l.name) || '?'));
+                for (const t of ts) {
+                    for (const l of (t.track_layers || [])) {
+                        const k = '' + ((l && l.data_type) || '');
+                        names.push('' + ((l && l.name) || '?') + (k ? (' [' + k + ']') : ''));
+                    }
+                }
                 resolve({
                     removed: [], error: 'Nothing matched "' + (o.match || 'that') + '" on '
                         + ts.map((t) => t.name || 'a track').join(' and ')
+                        // WITH THEIR KINDS. A list of names is not enough to retry with: the
+                        // user asked for the rna seq layer and none of these names says rna
+                        // seq, which is the whole reason the first attempt missed.
                         + (names.length ? ('. The layers there are: ' + names.join(', ') + '.')
                             : '. That track has no layers on it.')
                 });

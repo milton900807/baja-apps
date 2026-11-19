@@ -124,6 +124,19 @@ function (graph, genegraph_panel_layout, options) {
                     // So "select exon 5" can be checked against a transcript that has four,
                     // and a non-coding track is not asked for a UTR it has not got.
                     regions: CAP.regionInfo(t) || undefined,
+                    // WHAT IS ON THE TRACK, BY NAME. Without this a request to remove or
+                    // show a layer is planned blind: the layer a user calls "the rna seq
+                    // layer" is called GRCh38illuminabrain1, and nothing in the request or
+                    // the catalogue could tell anyone that. Name and kind both, because the
+                    // name is what the user points at and the kind is what they mean.
+                    layers: (() => {
+                        try {
+                            return (t.track_layers || []).slice(0, 20).map((l) => ({
+                                name: ('' + ((l && l.name) || '(unnamed)')),
+                                kind: ('' + ((l && l.data_type) || '')) || undefined
+                            }));
+                        } catch (e) { return undefined; }
+                    })(),
                     selection: (t.markend > t.markstart)
                         ? { start: Math.floor(t.markstart), end: Math.ceil(t.markend),
                             length: Math.ceil(t.markend) - Math.floor(t.markstart) } : null

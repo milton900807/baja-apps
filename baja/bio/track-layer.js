@@ -203,6 +203,11 @@ return new Promise(async (resolve, reject) => {
         defaultFont = "10px Arial";
         uid = uuid();
         drawStyle = 'default'
+        // ARROWS FROM THIS LAYER'S BARS TO MATCHING ONES ON ANOTHER TRACK.
+        // [{ x1, x2, y, track, ox1, ox2, oy, color }] -- this end in this track's
+        // coordinates, the far end in the PARTNER track's. Empty for every layer that has
+        // no partner, which is nearly all of them. See the third pass in draw().
+        links = []
 
         // ZOOM GATE AND MINIMUM TICK, both off by default so every existing layer is unchanged.
         //
@@ -1640,6 +1645,67 @@ return new Promise(async (resolve, reject) => {
                 }
                 // Second pass: the labels, over the finished bars.
                 for (const __j of __labelJobs) { try { __j(); } catch (e) { } }
+
+                // THIRD PASS: ARROWS TO THE MATCHING BLOCK ON ANOTHER TRACK.
+                //
+                // A pair of blocks drawn in the same colour and given the same number says
+                // "these two correspond", and the reader still has to hold the number in
+                // their head and go looking for its partner. An arrow says it without being
+                // read.
+                //
+                // Drawn here rather than by the track, because this is the only place that
+                // knows which bar pairs with which. The partner's position comes from the
+                // PARTNER'S OWN grid: a layer draws through its own tgraph and two tracks
+                // have different ones, so working out the far end with THIS layer's grid
+                // puts the arrow somewhere neither block is. That is the same mistake the
+                // motif hit-test made, and it is just as invisible in code.
+                //
+                // Only one side of a pair carries the links, or every arrow is drawn twice,
+                // the second over the first.
+                if (Array.isArray(this.links) && this.links.length) {
+                    for (const lk of this.links) {
+                        try {
+                            if (!lk || !lk.track) continue;
+                            const og = lk.track.grid || lk.track.tgraph;
+                            if (!og) continue;
+                            // Each end at the middle of its own bar, in screen pixels.
+                            const lx0 = graph.X(this.tgraph.X((lk.x1 + lk.x2) / 2));
+                            const ly0 = graph.Y(this.tgraph.Y(lk.y == null ? 0.5 : lk.y));
+                            const lx1 = graph.X(og.X((lk.ox1 + lk.ox2) / 2));
+                            const ly1 = graph.Y(og.Y(lk.oy == null ? 0.5 : lk.oy));
+                            if (!isFinite(lx0) || !isFinite(ly0) || !isFinite(lx1) || !isFinite(ly1)) continue;
+
+                            ctx.save();
+                            ctx.strokeStyle = lk.color || 'rgba(120,130,150,0.55)';
+                            ctx.fillStyle = ctx.strokeStyle;
+                            ctx.lineWidth = (+lk.width || 1.5);
+                            if (lk.dashed) { try { ctx.setLineDash([5, 4]); } catch (e) { } }
+
+                            // A curve rather than a straight line: several of these between
+                            // two tracks cross each other, and curves that bow out are
+                            // followable where a bundle of straight lines is not.
+                            const ldy = (ly1 - ly0);
+                            ctx.beginPath();
+                            ctx.moveTo(lx0, ly0);
+                            ctx.bezierCurveTo(lx0, ly0 + ldy * 0.45, lx1, ly1 - ldy * 0.45, lx1, ly1);
+                            ctx.stroke();
+
+                            // The head sits at the far end and points the way the curve is
+                            // going, which is toward the other track whichever way round the
+                            // two of them are on screen.
+                            const lhead = (+lk.head || 6);
+                            const ldir = (ldy >= 0) ? 1 : -1;
+                            try { ctx.setLineDash([]); } catch (e) { }
+                            ctx.beginPath();
+                            ctx.moveTo(lx1, ly1);
+                            ctx.lineTo(lx1 - lhead * 0.6, ly1 - ldir * lhead);
+                            ctx.lineTo(lx1 + lhead * 0.6, ly1 - ldir * lhead);
+                            ctx.closePath();
+                            ctx.fill();
+                            ctx.restore();
+                        } catch (e) { }
+                    }
+                }
 
                 if (this.highlight_text.length > 0) {
                     for (let ht of this.highlight_text) {
