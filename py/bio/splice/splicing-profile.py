@@ -112,6 +112,16 @@ if mode not in ("sites", "psi"):
 # are preferred over reconstructing exons from predicted sites.
 exons_arg = str(works.param(5) or "").strip()
 orientation = str(works.param(6) or "plus").strip().lower()
+# WHICH TISSUES THE PSI IS FOR. PSINet has a per-tissue head: it predicts one PSI
+# for each GTEx tissue it was trained on, and this script then averaged all of
+# them into a single number. That average is the right default and the wrong
+# answer for a neural target, because an exon that is in a minority of tissues and
+# out everywhere else lands mid-range when averaged and reads as unreliable, when
+# in brain it may be a clean decision either way.
+#
+# A name, a comma-separated list, or a group keyword. Empty keeps the old
+# all-tissue mean, so nothing changes for a caller that does not ask.
+tissue_arg = str(works.param(7) or "").strip()
 if orientation not in ("plus", "coding"):
     orientation = "plus"
 
@@ -642,9 +652,66 @@ else:
 
                 wt = torch.from_numpy(np.stack(wins_all)).to(device)
                 gt = torch.from_numpy(np.stack(geom_all)).to(device)
+                # Resolve the tissue selection against the names the model was trained
+                # on. Read from the checkpoint when it carries them, else from
+                # tissues.tsv; a selection that matches nothing falls back to the
+                # all-tissue mean AND says so, because a silent fallback here would
+                # report a whole-body average as a brain answer.
+                tis_names = []
+                try:
+                    tis_names = [str(x) for x in (ck.get("tissues") or [])]
+                except Exception:
+                    tis_names = []
+                if not tis_names:
+                    try:
+                        import pandas as _pd
+                        from bajasplice.config import paths as _paths
+                        tis_names = _pd.read_csv(
+                            os.path.join(str(_paths().interim), "tissues.tsv"),
+                            sep="\t").tissue.astype(str).tolist()
+                    except Exception:
+                        tis_names = []
+
+                GROUPS = {
+                    # GTEx brain regions. This is BULK brain: neurons, glia, vessels
+                    # and all. It is not sorted neurons, and nothing here can make it
+                    # so, which is why the group is named for what it is.
+                    "brain": ["brain"],
+                    "neural": ["brain", "nerve", "pituitary"],
+                    "cns": ["brain"],
+                    "cortex": ["cortex"],
+                    "cerebellum": ["cerebell"],
+                }
+                tis_idx, tis_used = [], []
+                if tissue_arg and tis_names:
+                    wants = [w.strip().lower() for w in tissue_arg.split(",") if w.strip()]
+                    pats = []
+                    for w in wants:
+                        pats.extend(GROUPS.get(w, [w]))
+                    for i, nm in enumerate(tis_names):
+                        low = nm.lower()
+                        if any(p in low for p in pats):
+                            tis_idx.append(i); tis_used.append(nm)
+
                 with torch.no_grad():
                     ot, _om = pnet(wt, gt)
-                    psi = torch.sigmoid(ot).mean(dim=1).cpu().numpy()   # mean over tissues
+                    prob = torch.sigmoid(ot)
+                    if tis_idx:
+                        sel = torch.tensor(tis_idx, dtype=torch.long, device=prob.device)
+                        psi = prob.index_select(1, sel).mean(dim=1).cpu().numpy()
+                    else:
+                        psi = prob.mean(dim=1).cpu().numpy()        # all tissues
+                psi_tissues = tis_used
+                psi_tissue_note = (
+                    "" if not tissue_arg else
+                    ("averaged over " + str(len(tis_used)) + " tissue"
+                     + ("" if len(tis_used) == 1 else "s") + ": "
+                     + ", ".join(tis_used[:8]) + ("\u2026" if len(tis_used) > 8 else ""))
+                    if tis_used else
+                    ("no tissue matched \u201c" + tissue_arg + "\u201d"
+                     + (" (known: " + ", ".join(tis_names[:6]) + "\u2026)" if tis_names
+                        else " (the checkpoint carries no tissue names)")
+                     + "; showing the all-tissue mean instead"))
 
                 # ONE ARC PER JUNCTION. PSI is a property of an EXON; an arc is a JUNCTION,
                 # and consecutive cassette events SHARE the junction between them: the event
@@ -773,6 +840,8 @@ works.resolve({
     "competition": json.dumps(competition),
     "branchPoints": json.dumps(branch_points),
     "mode": mode,
+    "psiTissues": json.dumps(globals().get("psi_tissues", [])),
+    "psiTissueNote": globals().get("psi_tissue_note", ""),
     "xi": xi,
     "strand": strand,
     "orientation": orientation,

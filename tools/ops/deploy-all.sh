@@ -701,6 +701,14 @@ if [[ $DO_API -eq 1 ]]; then
   # something the model never read.
   install_group "Ask: run BajaSplice on a named track, with no selection" \
     "baja/manchester/menu/editor-capabilities.js:SAME FAULT AS rbp_profile HAD"
+  # PSI read for brain rather than averaged over all 54 GTEx tissues. PSINet always
+  # had a per-tissue head; splicing-profile.py called .mean(dim=1) on it and threw the
+  # per-tissue predictions away, so a neural target was always reported as a whole-body
+  # average. No model changes, only which columns are read.
+  install_group "PSI for a chosen tissue" \
+    "py/bio/splice/splicing-profile.py:WHICH TISSUES THE PSI IS FOR" \
+    "baja/bio/splicing/splicing-profile.js:TISSUE, FOR PSI ONLY" \
+    "baja/bio/splicing/exon-ai-models.js:THE SAME MODEL, READ FOR BRAIN"
   install_group "exon reliability: tag, score and ranking" \
     "baja/bio/splicing/splicing-profile.js:HOW RELIABLY EACH EXON IS SPLICED IN" \
     "baja/bio/track-layer.js:RELIABILITY, WRITTEN ON THE EXON" \

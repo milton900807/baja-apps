@@ -104,6 +104,22 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                             move: () => log('')
                         },
                         {
+                            // THE SAME MODEL, READ FOR BRAIN. PSINet already predicts a PSI
+                            // per GTEx tissue; the ordinary PSI entry averages all of them,
+                            // which is right for a general question and wrong for a neural
+                            // target: an exon in brain and out elsewhere averages to
+                            // mid-range and reads as unreliable when in brain it is a clean
+                            // decision. No retraining, just the head that was always there.
+                            //
+                            // GTEx brain is BULK brain, neurons and glia and vessels
+                            // together, so the label says brain and not neurons. Sorted
+                            // neurons are not in this training set and no reading of this
+                            // model can produce them.
+                            label: 'Exon inclusion in BRAIN, PSI (PSINet)',
+                            click: () => run('baja/bio/splicing/splicing-profile.js', null, 'psi', 'brain'),
+                            move: () => log('')
+                        },
+                        {
                             // Reads the PSI run already on the track rather than re-running
                             // the model: the per-exon reliability is computed during that run
                             // and kept on the layer, so ranking is free once PSI has been done

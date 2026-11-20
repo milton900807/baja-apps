@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
+function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, presetTissue) {
     // Splicing profile — pick a magnitude mode, then click a track to send its
     // sequence to the local bajasplice-lib models (py/bio/splice/splicing-profile.py,
     // run via exec rather than the old POSTJSON TF-serving call) and draw the
@@ -133,7 +133,13 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                 // Surface backend progress / messages (model load, scoring…). They double as
                 // the status line, so the badge follows the phase the run is actually in.
                 let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); __say('' + m); } catch (e) { } });
-                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation);
+                // TISSUE, FOR PSI ONLY. PSINet predicts a PSI per GTEx tissue and this
+                // module used to average all of them. The average is the right default and
+                // the wrong answer for a neural target: an exon included in brain and out
+                // everywhere else averages to mid-range and reads as unreliable, when in
+                // brain it is a clean decision. Empty keeps the all-tissue mean.
+                const tissueArg = (mode === 'psi' && presetTissue) ? ('' + presetTissue) : '';
+                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation, tissueArg);
 
                 if (data && data.error) {
                     graph.setMessage(' Splicing error: ' + data.error + ' ');
@@ -335,6 +341,9 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                         r.rank = +(r.score * r.weight).toFixed(4);
                     }
                     rows.sort((a, b2) => b2.rank - a.rank);
+                    layer.psiTissueNote = (data && data.psiTissueNote) || '';
+                    try { layer.psiTissues = JSON.parse((data && data.psiTissues) || '[]'); }
+                    catch (e) { layer.psiTissues = []; }
                     layer.exonStability = rows;
                     layer.exonStabilityFit = Math.max(fFalse, fTrue);
                     layer.exonStabilityHasContext = !!__consLayer || !!__siteLayers.length;
