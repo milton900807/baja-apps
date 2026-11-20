@@ -1,8 +1,13 @@
-function (graph, genegraph_panel_layout, presetTrack) {
+function (graph, genegraph_panel_layout, presetTrack, presetExon) {
 
     // BajaNMD: what including or skipping a cassette exon does to the transcript,
     // and the steric-block ASOs that switch it.
-    //   exec('baja/bio/splicing/bajanmd.js', graph, genegraph_panel_layout [, track])
+    //   exec('baja/bio/splicing/bajanmd.js', graph, genegraph_panel_layout [, track [, exon]])
+    //
+    // GIVEN AN EXON, IT ANSWERS ABOUT THAT EXON. The menu this runs from is titled with
+    // the exon's id, so returning a list of the gene's exons made the user hunt for the
+    // row they had already pointed at. With an annotation it goes straight to the verdict
+    // for that one, in both directions, and offers the oligos from there.
     //
     // Two python entry points, both gene-level:
     //   py/bio/nmd/bajanmd-exons.py   gene -> every cassette exon + its NMD class
@@ -65,6 +70,129 @@ function (graph, genegraph_panel_layout, presetTrack) {
             try { graph.setMessage(' ' + m + ' '); } catch (e) { }
             try { exec('baja/lib/work-status.js', prefix + '  ·  ' + m); } catch (e) { }
         });
+
+        // ---- the clicked exon, both directions -------------------------------
+        // Answers the question the exon menu actually poses: if this exon were not in
+        // the message, would the transcript still make protein? And the mirror of it,
+        // since a poison exon is the case where KEEPING it is what causes decay.
+        const exonAnswer = async (gene, ann, track) => {
+            const server = window['env']['apiUrl'];
+            const lo = Math.round(Math.min(+ann.xi, +ann.xf));
+            const hi = Math.round(Math.max(+ann.xi, +ann.xf));
+            const name = ann.name || (lo + '-' + hi);
+            try { exec('baja/lib/work-status.js', 'BajaNMD \u00b7 ' + gene + ' \u00b7 ' + name); } catch (e) { }
+            graph.setMessage(' BajaNMD: assessing ' + name + '\u2026 ');
+
+            let data;
+            try {
+                data = await exec(server + '/py/bio/nmd/bajanmd-exons.py',
+                    monitor('BajaNMD \u00b7 ' + name), '' + gene, 'all', '50', '' + lo, '' + hi);
+            } catch (e) {
+                graph.setMessage(' BajaNMD: ' + ((e && e.message) ? e.message : e) + ' ');
+                try { exec('baja/lib/work-status.js', null); } catch (e2) { }
+                return;
+            }
+            try { exec('baja/lib/work-status.js', null); } catch (e) { }
+            if (data && data.error) {
+                graph.setMessage(' BajaNMD: ' + data.error + ' ');
+                return;
+            }
+            let rows = [];
+            try { rows = JSON.parse((data && data.exons) || '[]'); } catch (e) { rows = []; }
+            if (!rows.length) {
+                showModal({
+                    wid: 'card', data: {
+                        cards: [[{ 'width': '100%', 'component': { wid: 'html', data: ''
+                            + '<div style="padding:8px 4px;font-weight:700;">BajaNMD \u00b7 ' + esc(name) + '</div>'
+                            + '<div style="padding:0 4px 8px 4px;font-size:12.5px;">This exon is not an internal '
+                            + 'exon of any coding transcript of ' + esc(gene) + ' that could be assessed. First and '
+                            + 'last exons have no skipping isoform to compare against, and a transcript with no '
+                            + 'annotated CDS start has no reading frame to measure from.</div>' } }]]
+                    }
+                });
+                graph.setMessage(' BajaNMD: ' + name + ' could not be assessed. ');
+                return;
+            }
+            const e = rows[0];
+            const thr = +(data.dj_threshold || 50);
+
+            // dj is the distance from the first in-frame stop to the last exon-exon
+            // junction. Past the threshold the stop reads as premature and the message
+            // is degraded; null means no in-frame stop was reached at all, which is not
+            // an NMD substrate by this rule.
+            const verdict = (dj) => {
+                if (dj === null || dj === undefined)
+                    return ['#15803d', 'protein expected', 'no premature stop'];
+                return (+dj > thr)
+                    ? ['#c0392b', 'NMD predicted', 'stop ' + dj + ' nt before the last junction, past the ' + thr + ' nt rule']
+                    : ['#15803d', 'protein expected', 'stop ' + dj + ' nt before the last junction, inside the ' + thr + ' nt rule'];
+            };
+            const vSkip = verdict(e.dj_skip), vIncl = verdict(e.dj_incl);
+            const chip = (v) => '<span style="display:inline-block;padding:2px 9px;border-radius:10px;background:'
+                + v[0] + ';color:#fff;font-size:11.5px;font-weight:700">' + esc(v[1]) + '</span>';
+
+            const row = (what, v) => '<tr><td style="padding:5px 10px 5px 0;white-space:nowrap;font-weight:600;">'
+                + esc(what) + '</td><td style="padding:5px 0;">' + chip(v)
+                + ' <span style="color:#5b6b7c;font-size:12px;">' + esc(v[2]) + '</span></td></tr>';
+
+            const useful = (e.nmd_class === 'NMD_in')
+                ? 'A poison exon: it is the INCLUDED form that is destroyed, so skipping it raises protein.'
+                : (e.nmd_class === 'NMD_ex')
+                    ? 'An essential exon: skipping it breaks the frame, so skipping it lowers protein.'
+                    : (e.nmd_class === 'both')
+                        ? 'Both forms are degraded, so there is no usable switch here.'
+                        : 'Neither form is degraded, so skipping it changes the protein but not the decay.';
+
+            const tx = e.transcripts || [];
+            const agree = Math.round(100 * (e.frac || 0));
+            let detail = '<table style="font-size:12.5px;border-collapse:collapse;">'
+                + row('Removing this exon', vSkip) + row('Keeping it', vIncl) + '</table>'
+                + '<div style="margin:10px 4px 0 4px;font-size:12.5px;">' + esc(useful) + '</div>'
+                + '<div style="margin:8px 4px 0 4px;font-size:12px;color:#5b6b7c;">'
+                + esc(e.exon_len) + ' nt, '
+                + (e.frame_preserving ? 'a multiple of 3 so skipping it keeps the frame'
+                    : 'not a multiple of 3 so skipping it shifts the frame')
+                + '. Agreed by ' + agree + '% of the ' + esc(e.n_tx) + ' coding transcript'
+                + (e.n_tx === 1 ? '' : 's') + ' carrying it'
+                + (e.mane_class ? ('; MANE Select calls it ' + esc(e.mane_class)) : '; none of them is MANE Select')
+                + '.</div>';
+            if (agree < 100) {
+                detail += '<div style="margin:8px 4px 0 4px;padding:7px;border-left:3px solid #d97706;'
+                    + 'background:#fffaf0;font-size:12.5px;">The transcripts disagree, which is real: the same '
+                    + 'exon can be ordinary in one isoform and frameshifting in another. Lead with the MANE call.</div>';
+            }
+            if (e.exact === false) {
+                detail += '<div style="margin:8px 4px 0 4px;font-size:12px;color:#5b6b7c;">Matched the annotated '
+                    + 'exon at ' + esc(e.a_start) + '-' + esc(e.a_end) + ', which is not exactly the drawn bounds ('
+                    + esc(e.asked_start) + '-' + esc(e.asked_end) + ').</div>';
+            }
+            detail += '<div style="margin:10px 4px 0 4px;font-size:11.5px;color:#5b6b7c;">Translation from the '
+                + 'annotated start codon to the first in-frame stop, over each transcript that carries this exon. '
+                + 'A prediction, not a measurement.</div>';
+
+            showModal({
+                wid: 'card', data: {
+                    cards: [[
+                        { 'width': '100%', 'component': { wid: 'html', data:
+                            '<div style="padding:8px 4px;font-weight:700;">BajaNMD \u00b7 ' + esc(name)
+                            + ' <span style="font-weight:400;color:#5b6b7c;">in ' + esc(gene) + '</span></div>'
+                            + detail } },
+                        { 'width': '100%', 'component': { wid: 'mt-button', data: { buttons: [
+                            { label: 'Design ASOs to skip this exon', ionFunction: createIonFunction(() => {
+                                // chrom and strand come from the TRACK, the way the
+                                // BajaSplice entries read them; the python returns the
+                                // annotation's strand, which agrees but is not the
+                                // track's own field.
+                                designFor(gene, { chrom: (track && track.chr) || e.chrom,
+                                    a_start: e.a_start, a_end: e.a_end,
+                                    strand: e.strand, nmd_class: e.nmd_class });
+                            }) }
+                        ] } } }
+                    ]]
+                }
+            });
+            graph.setMessage(' ' + name + ': removing it \u2192 ' + vSkip[1] + '. ');
+        };
 
         // ---- step 2: oligos for one exon -------------------------------------
         const designFor = async (gene, ex) => {
@@ -286,6 +414,16 @@ function (graph, genegraph_panel_layout, presetTrack) {
         }
 
         const pt = pickedTrack();
+        if (pt && presetExon && presetExon.xi !== undefined && presetExon.xf !== undefined) {
+            const gene = geneOf(pt);
+            if (!gene) {
+                graph.setMessage(' That track has no gene name to score. ');
+                resolve(false);
+                return;
+            }
+            exonAnswer(gene, presetExon, pt).then(() => resolve(true));
+            return;
+        }
         if (pt) {
             runOnTrack(pt).then(resolve);
             return;

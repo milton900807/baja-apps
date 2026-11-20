@@ -674,13 +674,13 @@ if [[ $DO_API -eq 1 ]]; then
   # means the card and the script it opens travel together; whichever group runs first
   # installs the same file and the others are inert.
   install_group "BajaNMD on an exon" \
-    "baja/bio/splicing/exon-ai-models.js:BajaNMD (py/bajanmd-lib): the consequence of a cassette exon" \
-    "baja/bio/splicing/bajanmd.js:BajaNMD: what including or skipping a cassette exon" \
+    "baja/bio/splicing/exon-ai-models.js:made the user hunt for the row they had already pointed at" \
+    "baja/bio/splicing/bajanmd.js:GIVEN AN EXON, IT ANSWERS ABOUT THAT EXON" \
     "baja/ml/models-catalogue.js:title: 'NMD consequence of a cassette exon', badge: 'BajaNMD'" \
     "baja/ml/institute-of-models-library.js:headline: 'What including or skipping a cassette exon does" \
     "baja/lib/library-of-libraries.js:BajaCLIP, BajaSplice, BajaIR, BajaNMD and " \
-    "py/bio/nmd/bajanmd-exons.py:BajaNMD: every cassette exon of a gene" \
-    "py/bio/nmd/bajanmd-aso.py:BajaNMD: steric-block ASOs designed to skip one exon" \
+    "py/bio/nmd/bajanmd-exons.py:ONE EXON, WHEN THE CALLER CLICKED ONE" \
+    "py/bio/nmd/bajanmd-aso.py:Resolve the libraries from this file's own location first" \
     "py/bajanmd-lib/bajanmd/__init__.py:BajaNMD: what happens to a transcript when a cassette exon" \
     "py/bajanmd-lib/bajanmd/consequence.py:NMD consequence of every cassette-eligible exon of a gene" \
     "py/bajanmd-lib/bajanmd/design.py:Steric-block ASOs that push a cassette exon toward being skipped" \

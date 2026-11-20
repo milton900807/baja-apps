@@ -107,9 +107,12 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                 // BajaSplice rather than one of its views, because the question is about
                 // the TRANSCRIPT's fate, not about where the splice sites are.
                 //
-                // Gene-level, like intron retention: the exons come from the annotation,
-                // so it does not take the selected range. It takes the track instead, and
-                // reads the gene symbol off it.
+                // Runs on THIS exon, like the BajaSplice entries above: this menu is
+                // titled with the exon's id, so handing back a list of the gene's exons
+                // made the user hunt for the row they had already pointed at. The
+                // annotation goes through, and bajanmd.js answers for it in both
+                // directions, with the oligos one button away. Without an annotation it
+                // still falls back to the gene-wide list.
                 label: 'BajaNMD \u00b7 NMD consequence & ASOs',
                 click: async () => {
                     if (!selectedTrack) {
@@ -118,7 +121,7 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                     }
                     try { graph.showSideMenu(null); } catch (e) { }
                     Promise.resolve(exec('baja/bio/splicing/bajanmd.js',
-                        graph, genegraph_panel_layout, selectedTrack))
+                        graph, genegraph_panel_layout, selectedTrack, annotation))
                         .catch((e) => {
                             try { graph.setMessage(' BajaNMD: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
                         });
