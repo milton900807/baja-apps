@@ -1077,6 +1077,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-layer.js:HOW STABLY EACH EXON SPLICES, said on the exon itself" \
     "flexigraph/gene-draw.js:ON THE EXON, WHICH IS WHERE IT IS READ" \
     "flexigraph/gene-draw.js:FALLS BACK TO A COLOR, NOT TO ITSELF"
+  # Going to one region was an operation; going to all of them in turn was not. The module
+  # is new, so it ships with the capability that drives it or the operation calls nothing.
+  install_group "Step through every exon in turn" \
+    "baja/bio/region-tour.js:frame each one in turn, hold it long enough to read" \
+    "baja/manchester/menu/editor-capabilities.js:SHOW ME EACH EXON. Going to one region is an operation"
   # Which track exon 12 is on is the user's call, so each one that has it gets a Go.
   install_group "A named region is offered on every track that has one" \
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION GETS ONE GO PER TRACK, LIKE EVERY OTHER PLACE"

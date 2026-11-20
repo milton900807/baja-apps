@@ -330,6 +330,24 @@ function (graph, genegraph_panel_layout) {
             return exec('baja/ml/models-library.js', graph, genegraph_panel_layout, scopeTracks());
         };
         const MODEL_SHELF = { label: 'Open the models', run: () => openModelShelf() };
+
+        // AN UNSET OPTIONAL PARAM ARRIVES AS THE PROSE OF ITS DEFAULT, not as the value: a
+        // tour with no time given hands this the whole sentence the default was written in.
+        // So both of these read what they need out of whatever they are given and fall back
+        // to the sensible thing, rather than trusting the argument to be a number or a word.
+        // A plain "intron" wins; anything naming BOTH is the default's own prose describing
+        // the choice ('what to step through: "exons" or "introns"'), which is not a choice.
+        const tourKind = (a) => {
+            const v = ('' + ((a && a.region) || '')).toLowerCase();
+            return (/intron/.test(v) && !/exon/.test(v)) ? 'intron' : 'exon';
+        };
+        const tourSeconds = (a) => {
+            const m = ('' + ((a && a.seconds) != null ? a.seconds : '')).match(/\d+(?:\.\d+)?/);
+            const n = m ? parseFloat(m[0]) : NaN;
+            // A tour that flickers past is not a tour, and one that holds for a minute an
+            // exon is a hang with a progress bar.
+            return (isFinite(n) && n > 0) ? Math.min(60, Math.max(0.2, n)) : 3;
+        };
         // The track a compound operation runs on: the one named or chosen, else the selected
         // one IF it carries compounds, else the first that does. A report on -- or a screen of
         // -- an empty track is not what was asked for, even when that track is the selected one.
@@ -2529,6 +2547,116 @@ function (graph, genegraph_panel_layout) {
                 opens: true, params: {},
                 run: () => { BM.open(); },
                 preview: () => 'open the bookmarks panel (' + BM.list().length + ' saved)'
+            },
+            {
+                // SHOW ME EACH EXON. Going to one region is an operation; going to all of
+                // them in turn was not, so "show me each exon and spend 3 seconds on each"
+                // came back as "nothing in the editor does that" -- while the editor could
+                // already frame any one of them and had nothing to do but repeat itself.
+                name: 'tour_regions',
+                summary: 'WALK THROUGH EVERY EXON (or every intron) ON A TRACK IN TURN, '
+                    + 'framing each one and holding it before moving to the next: "show me '
+                    + 'each exon and spend 3 seconds on each", "step through the exons", '
+                    + '"tour the introns", "play through every exon one at a time". It runs '
+                    + 'on screen and can be paused, stepped back and forward, and stopped. '
+                    + 'For ONE region, use go_to_position instead.',
+                needs: 'track',
+                params: {
+                    region: {
+                        type: 'string',
+                        about: 'what to step through: "exons" or "introns"',
+                        default: 'exons'
+                    },
+                    seconds: {
+                        type: 'string',
+                        about: 'how long to hold each one, in seconds, exactly as the request '
+                            + 'says it ("3", "1.5"). Omit unless the request gives a time',
+                        default: '3'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
+                },
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const R = await regionsOf(t);
+                    if (!R) { result('Could not read the exons of ' + (t.name || 'that track') + '.'); return; }
+                    const kind = tourKind(a);
+                    const list = (kind === 'intron') ? R.introns() : R.exons();
+                    if (!list || !list.length) {
+                        result((t.name || 'That track') + ' has no annotated ' + kind + 's to step through.');
+                        return;
+                    }
+                    const items = [];
+                    for (let i = 1; i <= list.length; i++) {
+                        const got = R.resolve({ region: kind, index: i });
+                        if (got && !got.error) {
+                            items.push({ label: (t.name || 'Track') + ' \u00b7 ' + got.label,
+                                start: got.start, end: got.end });
+                        }
+                    }
+                    if (!items.length) { result('Could not place the ' + kind + 's of ' + (t.name || 'that track') + '.'); return; }
+                    const secs = tourSeconds(a);
+                    // Selecting and framing are the editor's own, handed to the tour rather
+                    // than written again inside it: a stop on exon 7 leaves the editor in
+                    // exactly the state that going to exon 7 leaves it in.
+                    const r = await exec('baja/bio/region-tour.js', graph, t, items, {
+                        seconds: secs,
+                        select: (it) => {
+                            try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                            t.markstart = it.start;
+                            t.markend = it.end;
+                            t.showResizeBar = true;
+                            try { graph.startX = t.tgraph.X(it.start); graph.endX = t.tgraph.X(it.end); } catch (e) { }
+                            try { graph.selectedTrack = t; } catch (e) { }
+                            try { if (graph.wake) graph.wake(); } catch (e) { }
+                        },
+                        frame: (it) => frameRange(t, it.start, it.end)
+                    });
+                    const n = (r && r.shown) || 0;
+                    result((r && r.stopped)
+                        ? ('Stopped after ' + n + ' of ' + items.length + ' ' + kind + 's.')
+                        : ('Showed all ' + items.length + ' ' + kind + 's of ' + (t.name || 'the track') + '.'));
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const kind = tourKind(a);
+                    const secs = tourSeconds(a);
+                    const R = t ? regionsNow(t) : null;
+                    const list = R ? ((kind === 'intron') ? R.introns() : R.exons()) : null;
+                    const n = list ? list.length : 0;
+                    return 'step through ' + (n ? ('all ' + n + ' ' + kind + 's of ') : ('every ' + kind + ' of '))
+                        + (t ? (t.name || 'the track') : 'the track')
+                        + ', framing each and holding it ' + secs + ' second' + (secs === 1 ? '' : 's')
+                        + (n ? (' \u00b7 about ' + Math.round(n * (secs + 0.6)) + ' s, stoppable') : ' \u00b7 stoppable');
+                },
+                // One Go per track, as everywhere else: each transcript has its own exons.
+                choices: (a) => choicesOver(a, (x) => {
+                    const Rx = regionsNow(x);
+                    if (!Rx) return null;
+                    const kind = tourKind(a);
+                    const l = (kind === 'intron') ? Rx.introns() : Rx.exons();
+                    return l && l.length ? { detail: l.length + ' ' + kind + (l.length === 1 ? '' : 's') } : null;
+                }),
+                choiceTitle: (a) => 'Step through the ' + tourKind(a) + 's of which track?',
+                argBlocker: (a) => {
+                    const t = pickTrack(a);
+                    const kind = tourKind(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, (x) => {
+                            const Rx = regionsNow(x);
+                            const l = Rx && ((kind === 'intron') ? Rx.introns() : Rx.exons());
+                            return (l && l.length) ? {} : null;
+                        }).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to step through: there is more than one open';
+                    }
+                    const R = regionsNow(t);
+                    const l = R && ((kind === 'intron') ? R.introns() : R.exons());
+                    if (R && (!l || !l.length)) return (t.name || 'That track') + ' has no annotated ' + kind + 's';
+                    return '';
+                }
             },
             {
                 // GOTO ONE POSITION, zoomed in far enough to read the bases. "goto c.778" was
