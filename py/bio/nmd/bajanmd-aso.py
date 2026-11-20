@@ -63,10 +63,20 @@ def _reexec_under_venv():
 
 _reexec_under_venv()
 
-for _lib in ("~/baja-apps/py/bajasplice-lib", "~/baja-apps/py/bajanmd-lib"):
-    _p = os.path.expanduser(_lib)
-    if os.path.isdir(_p) and _p not in sys.path:
-        sys.path.insert(0, _p)
+# WHERE THE LIBRARIES ARE. Resolve them from THIS file's own location first:
+# deploy-all.sh installs to $APPS_DIR, which is /opt/baja-apps on the server,
+# while ~/baja-apps is a git checkout that the deploy never writes to. Looking
+# only under ~ meant the deployed script imported a library the deploy had not
+# put there, and failed at import with nothing useful on screen. This file sits
+# at <apps>/py/bio/nmd/, so the libraries are two levels up whatever <apps> is.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_APPS_PY = os.path.abspath(os.path.join(_HERE, "..", ".."))
+for _lib in (os.path.join(_APPS_PY, "bajasplice-lib"),
+             os.path.join(_APPS_PY, "bajanmd-lib"),
+             os.path.expanduser("~/baja-apps/py/bajasplice-lib"),
+             os.path.expanduser("~/baja-apps/py/bajanmd-lib")):
+    if os.path.isdir(_lib) and _lib not in sys.path:
+        sys.path.insert(0, _lib)
 
 
 def _int(v, d):
