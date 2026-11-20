@@ -1083,6 +1083,13 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # The editor carries out its own advertised phrase when the planner cannot. The matcher
+  # and the card that uses it ship together.
+  install_group "Load the pathogenic variants without asking anything" \
+    "baja/manchester/menu/editor-capabilities.js:THE ONE REQUEST THE EDITOR ADVERTISES, PLANNED WITHOUT ASKING ANYTHING" \
+    "baja/manchester/menu/editor-capabilities.js:SINGULAR AND PLURAL ARE THE SAME WORD" \
+    "baja/manchester/menu/editor-capabilities.js:AND THE OPPOSITE OPERATION IS NOT THE ANSWER" \
+    "baja/manchester/menu/editor-command.js:THE EDITOR PLANS ITS OWN ADVERTISED REQUEST"
   # The gene-level coupling number has no exon in it. This asks the same question per exon,
   # from the skip isoform. Two new modules and the operation that drives them: all or none,
   # or the operation calls something that is not there.

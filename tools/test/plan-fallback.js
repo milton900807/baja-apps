@@ -38,8 +38,11 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 
     ok(typeof C.suggest === 'function', 'the catalogue can place a request by itself');
 
-    const near = C.suggest('add pathological mutations in selected sequence on smn1', 3);
+    const near = C.suggest('add pathology snps to selected sequence', 3);
     ok(near.length > 0, 'and places this one: ' + near.map((c) => c.name).join(', '));
+    // Singular and plural are the same word: "snps" means variant, and the operation that
+    // loads them is called load_variants while the one that clears a selection is
+    // load_variant-shaped in the singular. Matching as written put the wrong one first.
     ok(near.some((c) => c.name === 'load_variants'),
        'on the operation that actually does it: ' + near.map((c) => c.name).join(', '));
     ok(near[0].name === 'load_variants',
@@ -62,6 +65,44 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     ok(asked.length && /^ask_/.test(asked[0].name),
        'a question leads with the operation that answers one: ' + asked.map((c) => c.name).join(', '));
 
+    // ---- the one request the editor advertises, planned without asking anything ---------
+    // The bar above the ask box offers "load clinvar pathogenic snps" in those words.
+    for (const said of ['add pathology snps to selected sequence',
+                        'load clinvar pathogenic snps',
+                        'add pathological mutations in selected sequence on smn1']) {
+        const pl = C.localPlan(said);
+        ok(pl && pl.capability === 'load_variants', '"' + said + '" is planned here: ' + JSON.stringify(pl));
+        ok(pl && pl.args.db === 'clinvar', 'against ClinVar: ' + (pl && pl.args.db));
+        ok(pl && (pl.args.clinsig_any || []).indexOf('pathogenic') >= 0,
+           'keeping the pathogenic ones: ' + JSON.stringify(pl && pl.args.clinsig_any));
+        // ClinVar's conflicting string contains the word "pathogenic", which the operation's
+        // own params warn about; the local plan applies the warning rather than passing it on.
+        ok(pl && (pl.args.clinsig_not || []).indexOf('conflicting') >= 0,
+           'and excluding the conflicting ones: ' + JSON.stringify(pl && pl.args.clinsig_not));
+    }
+    ok((C.localPlan('add pathology snps to selected sequence').args.types || []).join() === 'snp',
+       'a request that says snps asks for snps: '
+       + JSON.stringify(C.localPlan('add pathology snps to selected sequence').args.types));
+    ok(C.localPlan('load gnomad variants').args.db === 'gnomad', 'another database is heard: gnomad');
+
+    // It is narrow ON PURPOSE. Everything that is not plainly this request stays the
+    // planner's job, where a model reading a whole sentence belongs.
+    // "disease variants" is a fair reading of the same request and a vaguer one: it names
+    // no database and no ClinVar class, so it goes to the planner, and to the suggestions
+    // when the planner cannot answer either.
+    ok(!C.localPlan('show the disease variants here'), 'a vaguer phrasing is left to the planner');
+    ok(C.suggest('show the disease variants here', 3).some((c) => c.name === 'load_variants'),
+       'and still reaches the right operation as a suggestion');
+    for (const no of ['remove the pathogenic variants', 'clear variant selection',
+                      'are any of these pathogenic', 'step through the exons',
+                      'what does skipping each exon do to the protein', '']) {
+        ok(!C.localPlan(no), 'not planned here: "' + no + '" -> ' + JSON.stringify(C.localPlan(no)));
+    }
+    // And what it produces has to survive the ordinary check, or it is not a plan.
+    const made = C.preview(C.localPlan('load clinvar pathogenic snps'));
+    ok(made && made.ok, 'the local plan passes the same validation as the planner\'s: '
+       + (made && (made.blocker || made.text)));
+
     // A guess is OFFERED, never taken: suggest returns names, it does not run anything.
     ok(near.every((c) => c.name && c.summary && !('run' in c)),
        'what comes back is a name and a summary, not something to run');
@@ -73,6 +114,8 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     // The card wires it: a failed plan shows the guesses and each one opens its own card.
     const cmd = fs.readFileSync('baja/manchester/menu/editor-command.js', 'utf8');
     ok(/const planFailed = \(why\) => \{/.test(cmd), 'the command card has one path for a failed plan');
+    ok(/CAP\.localPlan\(/.test(cmd) && /render\(\{ status: 'OK', steps: \[own\]/.test(cmd),
+       'which plans the advertised request itself before offering guesses');
     ok((cmd.match(/^\s*planFailed\(/gm) || []).length >= 2,
        'used for a thrown error and for a non-OK answer alike, not only one of them');
     // The dead end it replaced survives only where it is being explained.

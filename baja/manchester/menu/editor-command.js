@@ -863,6 +863,22 @@ function (graph, genegraph_panel_layout, options) {
             // and offers those operations as cards to open. It does not run them and it does
             // not fill in arguments: a guess is offered, never taken.
             const planFailed = (why) => {
+                // THE EDITOR PLANS ITS OWN ADVERTISED REQUEST. The bar above this box offers
+                // "load clinvar pathogenic snps" in those words; when the planner cannot
+                // answer, the catalogue can still place that one itself. It is a real plan
+                // card with a GO, not a button that opens an empty form, because the request
+                // was complete -- the database and the filter were in the sentence.
+                let own = null;
+                try { own = CAP.localPlan(q('#ec-q').value); } catch (e) { own = null; }
+                if (own) {
+                    const p0 = CAP.preview(own);
+                    if (p0 && p0.ok) {
+                        render({ status: 'OK', steps: [own],
+                            explain: 'planned here: the service could not be reached' },
+                            ('' + q('#ec-q').value).trim());
+                        return;
+                    }
+                }
                 let near = [];
                 try { near = CAP.suggest(q('#ec-q').value, 3) || []; } catch (e) { near = []; }
                 const btn = 'cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'

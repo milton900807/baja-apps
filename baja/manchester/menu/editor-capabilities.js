@@ -3709,20 +3709,83 @@ function (graph, genegraph_panel_layout) {
         // the catalogue spells it. It does not run anything and it does not guess arguments.
         // It offers the operation, and the user picks -- which is the honest thing to do
         // with a guess, and leaves them somewhere rather than nowhere.
+        // SINGULAR AND PLURAL ARE THE SAME WORD. "snps" means variant, the operation is
+        // called load_variants, and matching the two strings as written scored the word
+        // against clear_variant_selection -- whose name happens to use the singular -- three
+        // times higher than against the operation that loads them. Both sides are stemmed,
+        // so the catalogue's spelling and the user's cannot disagree about a plural.
+        const stem = (w) => (w.length > 3 && w.charAt(w.length - 1) === 's'
+            && w.charAt(w.length - 2) !== 's') ? w.slice(0, -1) : w;
         const SUGGEST_ALSO = {
-            mutation: 'variant', mutations: 'variants', snp: 'variant', snps: 'variant',
-            pathological: 'pathogenic', pathogenic: 'clinvar', disease: 'clinvar',
+            mutation: 'variant', snp: 'variant', polymorphism: 'variant',
+            pathology: 'pathogenic', pathological: 'pathogenic', pathogenic: 'clinvar',
+            deleterious: 'pathogenic', damaging: 'pathogenic', disease: 'clinvar',
             clinical: 'clinvar', exon: 'exons', protein: 'translation',
             domain: 'domains', skipping: 'skip', conserved: 'conservation'
         };
+        // THE ONE REQUEST THE EDITOR ADVERTISES, PLANNED WITHOUT ASKING ANYTHING.
+        //
+        // The bar above the ask box offers "load clinvar pathogenic snps" in those words. An
+        // editor that cannot carry out its own advertised phrase when the planner is down --
+        // or declines it, which is what happened to "add pathology snps to selected
+        // sequence" -- is advertising something it will not do.
+        //
+        // Deliberately narrow, and built out of the catalogue's own declared values rather
+        // than a second table that could drift from them: a database named in the request,
+        // the clinical words beside it, the variant classes. It fires only when the request
+        // names a variant DATABASE or a clinical SIGNIFICANCE, so an unrelated sentence that
+        // happens to share a word gets the suggestion list instead of a plan. Everything
+        // else stays the planner's job, where a model reading a whole sentence belongs.
+        const localPlan = (text) => {
+            const raw = ('' + (text || '')).toLowerCase();
+            if (!raw) return null;
+            const spec = (LIST.find((c) => c.name === 'load_variants') || {}).params || {};
+            const has = (w) => new RegExp('(^|[^a-z])' + w + '[a-z]*([^a-z]|$)').test(raw);
+            const db = (spec.db && spec.db.values || []).find((v) => has(v));
+            // The words people use for the ClinVar classes, mapped onto the enum the
+            // operation declares. Only the ones the operation will accept are kept.
+            const SIG = { pathogenic: 'pathogenic', pathology: 'pathogenic', pathological: 'pathogenic',
+                deleterious: 'pathogenic', damaging: 'pathogenic', benign: 'benign',
+                uncertain: 'uncertain', vus: 'uncertain', conflicting: 'conflicting' };
+            const allowed = (spec.clinsig_any && spec.clinsig_any.values) || [];
+            const sig = [];
+            for (const w of Object.keys(SIG)) {
+                if (has(w) && allowed.indexOf(SIG[w]) >= 0 && sig.indexOf(SIG[w]) < 0) sig.push(SIG[w]);
+            }
+            if (!db && !sig.length) return null;
+            // Asking to PUT them on the track, not to clear, remove or count them. Without a
+            // verb of that kind this is a sentence about variants, not a request to load any.
+            if (!/\b(add|load|put|show|draw|fetch|get|bring|import|annotate|mark)\b/.test(raw)) return null;
+            if (/\b(remove|clear|delete|drop|hide|unload)\b/.test(raw)) return null;
+            const args = { db: db || 'clinvar' };
+            if (sig.length) {
+                args.clinsig_any = sig;
+                // ClinVar's conflicting-interpretation string contains the word "pathogenic",
+                // so asking for pathogenic without this gets the conflicting ones too. The
+                // operation's own params say exactly this; it is applied here rather than
+                // left for the user to discover from the card.
+                if (sig.indexOf('pathogenic') >= 0 && sig.indexOf('conflicting') < 0) args.clinsig_not = ['conflicting'];
+            }
+            const types = [];
+            if (/\bsnp|\bsnv|substitution/.test(raw)) types.push('snp');
+            if (/\bindel|insertion/.test(raw)) types.push('ins');
+            if (/\bindel|deletion/.test(raw)) types.push('del');
+            if (types.length && !/\ball\b/.test(raw)) args.types = types;
+            return { capability: 'load_variants', args: args };
+        };
+
         const suggest = (text, limit) => {
             const words = ('' + (text || '')).toLowerCase().match(/[a-z0-9']+/g) || [];
             if (!words.length) return [];
             const want = new Set();
-            for (const w of words) {
-                if (w.length < 3) continue;
+            for (const raw of words) {
+                if (raw.length < 3) continue;
+                const w = stem(raw);
                 want.add(w);
-                if (SUGGEST_ALSO[w]) want.add(SUGGEST_ALSO[w]);
+                // The synonym table is keyed on the stem, and what it gives back is stemmed
+                // too: one more place a plural could divide a word from itself.
+                const also = SUGGEST_ALSO[w] || SUGGEST_ALSO[raw];
+                if (also) want.add(stem(also));
             }
             // A RARE WORD IS WORTH MORE THAN A COMMON ONE. Counting shared words alone put
             // clear_sequence_selection level with load_variants for "add pathological
@@ -3733,8 +3796,8 @@ function (graph, genegraph_panel_layout) {
             for (const c of LIST) {
                 bag.push({
                     c: c,
-                    name: new Set(('' + (c.name || '')).toLowerCase().match(/[a-z0-9']+/g) || []),
-                    all: new Set((((c.name || '') + ' ' + (c.summary || '')).toLowerCase().match(/[a-z0-9']+/g) || []))
+                    name: new Set((('' + (c.name || '')).toLowerCase().match(/[a-z0-9']+/g) || []).map(stem)),
+                    all: new Set(((((c.name || '') + ' ' + (c.summary || '')).toLowerCase().match(/[a-z0-9']+/g) || []).map(stem)))
                 });
             }
             const weight = (w) => {
@@ -3756,8 +3819,15 @@ function (graph, genegraph_panel_layout) {
                 // different operations: one puts something on the track, the other reads
                 // what is already there. Asking for a thing to appear favours the loaders;
                 // asking a question favours the ones that answer one.
-                if (/^(add|load|put|get|fetch|show|draw|bring|import)$/.test(words[0] || '')
-                    && /^(load|add|create|draw)_/.test('' + b.c.name)) n *= 1.25;
+                if (/^(add|load|put|get|fetch|show|draw|bring|import)$/.test(words[0] || '')) {
+                    if (/^(load|add|create|draw)_/.test('' + b.c.name)) n *= 1.25;
+                    // AND THE OPPOSITE OPERATION IS NOT THE ANSWER. "add pathology snps to
+                    // selected sequence" scored clear_variant_selection above load_variants
+                    // on shared nouns alone: both are about variants and selections, and only
+                    // the verb says which way round. Asking for something to appear is a
+                    // reason to rank taking it away BELOW, not merely not above.
+                    if (/^(clear|remove|delete|hide|unload|drop)_/.test('' + b.c.name)) n *= 0.4;
+                }
                 if (/^(are|is|which|what|how|do|does|why)$/.test(words[0] || '')
                     && /^(ask|find|check|list)/.test('' + b.c.name)) n *= 1.25;
                 if (n > 0) scored.push({ name: b.c.name, summary: b.c.summary, score: Math.round(n * 100) / 100 });
@@ -3772,7 +3842,7 @@ function (graph, genegraph_panel_layout) {
         return {
             list: LIST, byName: byName, validate: validate, preview: preview,
             regionInfo: regionInfo, regionsOf: regionsOf, selCountOf: selCountOf,
-            blocker: blocker, catalogue: catalogue, suggest: suggest,
+            blocker: blocker, catalogue: catalogue, suggest: suggest, localPlan: localPlan,
             vhits: vhits, vrows: vrows, crows: crows, selectVariants: selectVariants,
             selTracks: selTracks, oneSelTrack: oneSelTrack, tracks: tracks, rangeOf: rangeOf,
             VS: VS, F: F
