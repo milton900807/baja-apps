@@ -32,9 +32,20 @@ Params (after the EngineMonitor at param(0)):
                              reversed); transcript = plain reverse.
                Default 'plus'. Ignored for plus-strand tracks.
     param(4) : mode ('sites' | 'psi'), default 'sites'
+    param(8) : chromosome of the track ('chr5' or '5'), optional. PSI mode only.
+               Used for ONE thing: looking the track's annotated exons up in the
+               low-mappability intervals, so an exon whose PSI label was built
+               from reads that could have come from a paralog is reported as
+               untrusted instead of being given a number. See
+               bajasplice/untrusted.py for why this is a lookup and not a model.
 
 Resolves { acceptor, donor, junctions, lostSites, mode, xi, strand, n, context,
-error }. Each junction is { d, a, dp, ap, mag, kind, annotated } (d/a in
+untrusted, untrustedSource, error }. `untrusted` lists the annotated exons whose
+PSI must not be believed, as [{xi, xf, why}] in track coordinates; `why` names
+the locus the sequence is shared with. `untrustedSource` is the interval file
+that was consulted, or null when NONE WAS CONFIGURED -- the caller needs those
+two cases apart, because an empty list means "clean" in one and "not checked"
+in the other. Each junction is { d, a, dp, ap, mag, kind, annotated } (d/a in
 track-local coords). lostSites lists annotated splice sites the sequence no
 longer supports, as { x, kind, p }.
 
@@ -122,8 +133,32 @@ orientation = str(works.param(6) or "plus").strip().lower()
 # A name, a comma-separated list, or a group keyword. Empty keeps the old
 # all-tissue mean, so nothing changes for a caller that does not ask.
 tissue_arg = str(works.param(7) or "").strip()
+# WHICH CHROMOSOME, FOR THE MAPPABILITY LOOKUP ONLY. Track x is a genomic
+# coordinate in the pre-mRNA frame, so an exon's [xi, xf] is already a genomic
+# interval; the chromosome is the one thing the sequence does not carry.
+chrom_arg = str(works.param(8) or "").strip()
 if orientation not in ("plus", "coding"):
     orientation = "plus"
+
+# EXONS WHOSE PSI MUST NOT BE BELIEVED. Done here, on the genomic intervals as
+# the caller sent them, deliberately independent of the transcript-index
+# conversion below: a lookup that silently went wrong on a minus-strand track
+# would reinstate exactly the confident wrong number this is here to prevent.
+# No configured interval file means an empty list AND a null source, which the
+# caller reports differently -- see untrusted.py.
+untrusted_spans = []
+untrusted_source = None
+if mode == "psi" and exons_arg and chrom_arg:
+    try:
+        from bajasplice import untrusted as _untrusted
+        _iv = _untrusted.load()
+        untrusted_source = _iv.path
+        untrusted_spans = _untrusted.spans(
+            _iv, chrom_arg,
+            [[int(min(e[0], e[1])), int(max(e[0], e[1]))]
+             for e in json.loads(exons_arg) if e and len(e) >= 2])
+    except Exception:
+        untrusted_spans = []
 
 # Positions below this probability are dropped — the profile is sparse peaks.
 THRESHOLD = 0.02
@@ -842,6 +877,8 @@ works.resolve({
     "mode": mode,
     "psiTissues": json.dumps(globals().get("psi_tissues", [])),
     "psiTissueNote": globals().get("psi_tissue_note", ""),
+    "untrusted": json.dumps(untrusted_spans),
+    "untrustedSource": untrusted_source,
     "xi": xi,
     "strand": strand,
     "orientation": orientation,

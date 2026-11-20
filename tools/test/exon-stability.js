@@ -146,6 +146,63 @@ const mkTrack = () => {
     ok(!c.r.texts.some((x) => /stable|constitutive/.test(x.t)),
        'site strength draws no stability label: ' + JSON.stringify(c.r.texts.map((x) => x.t).slice(0, 6)));
 
+    // PSI THAT MUST NOT BE BELIEVED. The regression guard for SMN2 exon 7, which was
+    // drawn as "96% constitutive" on an ASO target. The model was obedient: its label
+    // was blended with SMN1's because short reads do not separate two 99.9%-identical
+    // genes. An exon in duplicated sequence must therefore lose its NUMBER, not merely
+    // gain a warning somewhere else, because the number is the thing that gets believed.
+    const untrusted = () => {
+        const t2 = { name: 'SMN2', xi: 0, xf: 16000, annotations: mkTrack().annotations,
+                     track_layers: [] };
+        const u = new TrackLayer('SMN2_psi_sashimi', 0, 0, 16000, 1);
+        u.arc_type = 'SpliceSashimi';
+        u.magnitudeMode = 'psi';
+        u.magMax = 1;
+        u.junctions = layer.junctions;
+        // exon 1 is clean; exon 3, which would otherwise read "70% stable", sits in a
+        // segmental duplication shared with SMN1
+        u.untrustedSpans = [{ xi: 6000, xf: 7500, why: 'SMN1' }];
+        const b = recorder();
+        const g = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
+        u.drawSashimi(tgraph, g, t2);
+        return b.r;
+    };
+    const ur = untrusted();
+    const ulabel = (n) => ur.texts.find((t) => new RegExp('^e' + n + ' ').test(t.t));
+    // Whichever form fitted, it must still identify the exon it is about.
+    const wideLabelOrMid = (rr) => rr.texts.find((t) => /^e3 .*trusted/.test(t.t));
+    ok(ulabel(3) && /not trusted/.test(ulabel(3).t),
+       'an exon in duplicated sequence says so: ' + (ulabel(3) || {}).t);
+    ok(ulabel(3) && !/%/.test(ulabel(3).t),
+       'and carries NO percentage at all: ' + (ulabel(3) || {}).t);
+    ok(!!wideLabelOrMid(ur), 'a flagged exon keeps its own number where there is room: '
+       + JSON.stringify(ur.texts.filter((t) => /trusted/.test(t.t)).map((t) => t.t)));
+    // The twin's name is the first thing dropped when the exon is narrow, so it is
+    // checked on an exon wide enough to carry it rather than asserted unconditionally.
+    const wideU = () => {
+        const t2 = { name: 'SMN2', xi: 0, xf: 16000, annotations: [
+            { type: 'Exon', index: 3, xi: 2000, xf: 8000, showIndex: true }   // 600px
+        ], track_layers: [] };
+        const u = new TrackLayer('SMN2_wide', 0, 0, 16000, 1);
+        u.arc_type = 'SpliceSashimi'; u.magnitudeMode = 'psi'; u.magMax = 1;
+        u.junctions = layer.junctions;
+        u.untrustedSpans = [{ xi: 2000, xf: 8000, why: 'SMN1' }];
+        const b = recorder();
+        const g = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
+        u.drawSashimi(tgraph, g, t2);
+        return b.r.texts.find((t) => /trusted/.test(t.t));
+    };
+    const wl = wideU();
+    ok(wl && /SMN1/.test(wl.t), 'given room it names the locus it is confused with: '
+       + (wl || {}).t);
+    ok(ulabel(3) && ulabel(3).color === '#475569',
+       'drawn grey, not green: ' + (ulabel(3) || {}).color);
+    // The flag is per exon, by overlap: flagging one must not silence the others.
+    ok(ulabel(1) && /100% constitutive/.test(ulabel(1).t),
+       'a clean exon on the same track keeps its number: ' + (ulabel(1) || {}).t);
+    ok(ulabel(5) && /30% stable/.test(ulabel(5).t),
+       'and so does one further away: ' + (ulabel(5) || {}).t);
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

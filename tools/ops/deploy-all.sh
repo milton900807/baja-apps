@@ -1155,6 +1155,30 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask: load protein motifs, within the selection" \
     "baja/manchester/menu/editor-capabilities.js:PROTEIN MOTIFS ARE A LAYER THE EDITOR ALREADY DRAWS" \
     "baja/bio/protein/slim-motif-layer.js:WITHIN THE SELECTION, WHEN ONE WAS ASKED FOR"
+  # PSI THAT MUST NOT BE BELIEVED. SMN2 exon 7 was being drawn as "96% constitutive"
+  # on an ASO target. The model was not wrong: cassette.tsv labels that exon 0.84 and
+  # the truth is about 0.10, because SMN1 is 99.9% identical and short reads do not
+  # separate the two, so the label is a blend and PSINet reproduced it. No retraining
+  # changes that, so the editor now LOOKS THE EXON UP and declines to state a PSI for
+  # one that sits in duplicated sequence.
+  #
+  # The intervals are a BED the server points at (bajasplice config --untrusted-bed);
+  # with none configured nothing is flagged, and the ranking says so in as many words
+  # rather than letting "nothing flagged" read as "clean".
+  #
+  # All of them or none, and the reason is specific here: track-layer.js suppresses the
+  # percentage on the strength of layer.untrustedSpans, which only the launcher sets and
+  # only the backend fills. Install the drawing without the backend and every exon keeps
+  # its old number; install the backend without the drawing and the flag is computed and
+  # never shown. Either half alone is the silent-wrong-number bug it is meant to fix.
+  install_group "PSI is withheld where the reads were not uniquely assignable" \
+    "py/bajasplice-lib/bajasplice/untrusted.py:WHY A LOOKUP AND NOT A BETTER MODEL" \
+    "py/bajasplice-lib/bajasplice/config.py:Exons whose PSI is not trustworthy because the reads behind it were not" \
+    "py/bajasplice-lib/bajasplice/cli.py:export / check the low-mappability exon intervals" \
+    "py/bio/splice/splicing-profile.py:WHICH CHROMOSOME, FOR THE MAPPABILITY LOOKUP ONLY" \
+    "baja/bio/splicing/splicing-profile.js:THE CHROMOSOME, FOR THE MAPPABILITY LOOKUP" \
+    "baja/bio/track-layer.js:NO NUMBER WHERE THE NUMBER IS NOT ABOUT THIS EXON" \
+    "baja/bio/splicing/exon-ai-models.js:WHETHER MAPPABILITY WAS CHECKED AT ALL"
   install_group "A track can hold more than one selected region" \
     "baja/bio/track-flexi.js:MORE THAN ONE SELECTED REGION, WITHOUT MOVING THE ONE EVERYTHING READS" \
     "flexigraph/gene.js:THE EXTRA REGIONS GO TOO" \

@@ -142,7 +142,13 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                                         + 'until it has been done.</div>' } }]] } });
                                     return;
                                 }
-                                const rows = L.exonStability.slice().sort((a, b) => b.rank - a.rank);
+                                // Untrusted exons last: rank is null for them, and
+                                // `b.rank - a.rank` on a null is NaN, which leaves the order
+                                // to chance and can float a blended label to the top.
+                                const rows = L.exonStability.slice().sort((a, b) => {
+                                    if (!a.untrusted !== !b.untrusted) return a.untrusted ? 1 : -1;
+                                    return (b.rank || 0) - (a.rank || 0);
+                                });
                                 const COL = { 'constitutive': '#15803d', 'rarely in': '#2563eb',
                                               'variable': '#d97706', 'unstable': '#c0392b' };
                                 let html = '<div style="padding:8px 4px;font-weight:700;">Exons ranked by how '
@@ -167,14 +173,34 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                                     html += '<tr style="border-bottom:1px solid #eef;">'
                                         + '<td>' + (i + 1) + '</td>'
                                         + '<td>e' + esc2(e.exon) + '</td>'
-                                        + '<td>' + Math.round(100 * e.psi) + '%</td>'
-                                        + '<td style="color:' + (COL[e.word] || '#0b1a2b') + ';font-weight:600;">'
-                                        + esc2(e.word) + '</td>'
+                                        + '<td>' + (e.untrusted ? '\u2013' : (Math.round(100 * e.psi) + '%')) + '</td>'
+                                        + '<td style="color:' + (e.untrusted ? '#475569' : (COL[e.word] || '#0b1a2b'))
+                                        + ';font-weight:600;">' + esc2(e.word) + '</td>'
                                         + '<td>' + (e.conservation == null ? '\u2013' : e.conservation.toFixed(2)) + '</td>'
                                         + '<td>' + esc2(e.sites == null ? 0 : e.sites) + '</td>'
                                         + '<td>' + (e.rank == null ? '' : e.rank.toFixed(3)) + '</td></tr>';
                                 });
                                 html += '</table>';
+                                // WHETHER MAPPABILITY WAS CHECKED AT ALL. Without this line the
+                                // two cases that matter are indistinguishable: no untrusted exons
+                                // because the locus is clean, and no untrusted exons because no
+                                // interval file is configured and nothing was ever looked up.
+                                const nU = rows.filter((e) => e.untrusted).length;
+                                if (!L.untrustedSource) {
+                                    html += '<div style="margin:8px 4px 0 4px;padding:7px;border-left:3px solid #94a3b8;'
+                                        + 'background:#f8fafc;font-size:12.5px;">Mappability was <b>not checked</b>: no '
+                                        + 'low-mappability interval file is configured on the server, so an exon whose '
+                                        + 'PSI came from reads a paralog could equally have produced is ranked here as '
+                                        + 'though the number were its own. Configure one with '
+                                        + '<code>bajasplice config --untrusted-bed</code>.</div>';
+                                } else if (nU) {
+                                    html += '<div style="margin:8px 4px 0 4px;padding:7px;border-left:3px solid #475569;'
+                                        + 'background:#f8fafc;font-size:12.5px;"><b>' + nU + '</b> exon'
+                                        + (nU === 1 ? '' : 's') + ' sit in duplicated sequence. Their PSI was measured '
+                                        + 'from reads that another locus could equally have produced, so the label is a '
+                                        + 'blend and the prediction reproduces it faithfully: these are listed without a '
+                                        + 'number and are not ranked, in either direction.</div>';
+                                }
                                 if (L.exonStabilityFit != null && L.exonStabilityFit < 0.6) {
                                     html += '<div style="margin:8px 4px 0 4px;padding:7px;border-left:3px solid #d97706;'
                                         + 'background:#fffaf0;font-size:12.5px;">Only '

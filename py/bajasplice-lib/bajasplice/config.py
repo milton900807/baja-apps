@@ -46,6 +46,11 @@ class Paths:
     gencode_v29_gtf: Optional[Path] = None      # matches ENCODE kallisto quantifications
     bajaclip_bundle: Optional[Path] = None      # optional eCLIP binding predictor
     eclip_dataset: Optional[Path] = None        # optional held-out eCLIP windows
+    # Exons whose PSI is not trustworthy because the reads behind it were not
+    # uniquely assignable: a segmental-duplication / low-mappability BED, or the
+    # export of mappability.cached_flags. Unset means NOTHING IS FLAGGED, which
+    # is why untrusted.py reports which file it used. See untrusted.py.
+    untrusted_bed: Optional[Path] = None        # optional low-mappability intervals
 
     @property
     def raw(self) -> Path: return self.root / "data" / "raw"
@@ -95,7 +100,8 @@ def _from_file() -> dict:
 
 
 def configure(root=None, genome_fasta=None, gencode_gtf=None, gencode_v29_gtf=None,
-              bajaclip_bundle=None, eclip_dataset=None, save: bool = False) -> Paths:
+              bajaclip_bundle=None, eclip_dataset=None, untrusted_bed=None,
+              save: bool = False) -> Paths:
     """Set paths for this session, optionally persisting them."""
     global _PATHS
     stored = _from_file()
@@ -114,6 +120,7 @@ def configure(root=None, genome_fasta=None, gencode_gtf=None, gencode_v29_gtf=No
         gencode_v29_gtf=pick(gencode_v29_gtf, "BAJASPLICE_GTF_V29", "gencode_v29_gtf"),
         bajaclip_bundle=pick(bajaclip_bundle, "BAJASPLICE_BAJACLIP", "bajaclip_bundle"),
         eclip_dataset=pick(eclip_dataset, "BAJASPLICE_ECLIP", "eclip_dataset"),
+        untrusted_bed=pick(untrusted_bed, "BAJASPLICE_UNTRUSTED_BED", "untrusted_bed"),
     )
     if save:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

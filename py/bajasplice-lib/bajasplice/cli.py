@@ -67,7 +67,7 @@ def main(argv=None):
 
     c = sub.add_parser("config", help="show or set data paths")
     for f in ("root", "genome-fasta", "gencode-gtf", "gencode-v29-gtf",
-              "bajaclip-bundle", "eclip-dataset"):
+              "bajaclip-bundle", "eclip-dataset", "untrusted-bed"):
         c.add_argument(f"--{f}")
     c.add_argument("--save", action="store_true", help="persist to ~/.config/bajasplice/config.json")
 
@@ -85,6 +85,8 @@ def main(argv=None):
                    add_help=False)
     sub.add_parser("cis", help="cis-regulatory impact of sequence around a splice site",
                    add_help=False)
+    sub.add_parser("untrusted", help="export / check the low-mappability exon intervals",
+                   add_help=False)
 
     # options after the step belong to the step's own parser, so collect them
     # here rather than letting the top-level parser reject them
@@ -94,7 +96,7 @@ def main(argv=None):
         pp = configure(root=args.root, genome_fasta=args.genome_fasta,
                        gencode_gtf=args.gencode_gtf, gencode_v29_gtf=args.gencode_v29_gtf,
                        bajaclip_bundle=args.bajaclip_bundle, eclip_dataset=args.eclip_dataset,
-                       save=args.save)
+                       untrusted_bed=args.untrusted_bed, save=args.save)
         pp.ensure()
         print(json.dumps(pp.to_dict(), indent=2))
         return 0
@@ -118,6 +120,10 @@ def main(argv=None):
         from bajasplice.validate import suite
         sys.argv = ["bajasplice validate"] + extra
         return suite.main()
+    if args.cmd == "untrusted":
+        from bajasplice import untrusted
+        sys.argv = ["bajasplice untrusted"] + extra
+        return untrusted.main()
     if args.cmd == "cis":
         from bajasplice import cis
         sys.argv = ["bajasplice cis"] + extra

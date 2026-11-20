@@ -1041,6 +1041,20 @@ return new Promise(async (resolve, reject) => {
                     const k = +j.exon;
                     if (!(f <= (skipOf.get(k) || 0))) skipOf.set(k, f);
                 }
+                // layer.untrustedSpans comes back from the PSI run as genomic [xi, xf]
+                // intervals, so the match is by overlap and needs no exon numbering: an
+                // index mapping that went wrong here would mark the wrong exon untrusted
+                // and leave the bad one wearing a confident number.
+                const __uspans = Array.isArray(this.untrustedSpans) ? this.untrustedSpans : [];
+                const untrustedWhy = (an) => {
+                    if (!__uspans.length) return null;
+                    const lo2 = Math.min(+an.xi, +an.xf), hi2 = Math.max(+an.xi, +an.xf);
+                    for (const u of __uspans) {
+                        const a2 = Math.min(+u.xi, +u.xf), b2 = Math.max(+u.xi, +u.xf);
+                        if (isFinite(a2) && isFinite(b2) && a2 <= hi2 && b2 >= lo2) return (u.why || '');
+                    }
+                    return null;
+                };
                 const BADGE_R = 20;                 // the exon number's disc, at this zoom
                 // Clear of the badge AND of the amino-acid row, which sits just above the
                 // capsule once zoomed in and is what the tag used to be read through.
@@ -1059,18 +1073,38 @@ return new Promise(async (resolve, reject) => {
                     if (!isFinite(ex0) || !isFinite(ex1)) continue;
                     const lo = Math.min(ex0, ex1), hi = Math.max(ex0, ex1);
                     if (hi < 0 || lo > w) continue;
+                    // NO NUMBER WHERE THE NUMBER IS NOT ABOUT THIS EXON. An exon in
+                    // duplicated sequence was quantified from reads its twin could equally
+                    // have produced, so its training label is a blend and the prediction is
+                    // a faithful reproduction of the wrong gene: SMN2 exon 7 is labelled
+                    // 84% and is really about 10%, and the model said 96%. Printing that as
+                    // "96% constitutive" on an ASO target is the worst of the options here,
+                    // because it is legible, confident and wrong. The tag says so instead,
+                    // in grey, and names what the sequence is shared with when it is known.
+                    const untrusted = untrustedWhy(an);
                     const psi = 1 - (skipOf.get(+an.index) || 0);
                     const pct = (psi >= 0.995) ? 100 : Math.round(psi * 100);
                     // The long form says what the number means; the short one is the number,
                     // for an exon with room for one and not the other.
-                    const full = 'e' + an.index + ' \u00b7 ' + pct + '% '
-                        + (pct >= 100 ? 'constitutive' : 'stable');
-                    const short = pct + '%';
+                    const full = (untrusted != null)
+                        ? ('e' + an.index + ' \u00b7 PSI not trusted'
+                           + (untrusted ? (' \u00b7 ' + untrusted) : ''))
+                        : ('e' + an.index + ' \u00b7 ' + pct + '% '
+                           + (pct >= 100 ? 'constitutive' : 'stable'));
+                    // A MIDDLE FORM, so the exon number survives the squeeze. Naming the
+                    // twin locus makes the long form half again as wide as the trusted one,
+                    // which at ordinary zoom drops a flagged exon straight to the bare word
+                    // and loses WHICH exon is flagged -- on a track where some exons are
+                    // trusted and some are not, that is the one thing worth keeping.
+                    const mid = (untrusted != null) ? ('e' + an.index + ' \u00b7 not trusted') : null;
+                    const short = (untrusted != null) ? 'untrusted' : (pct + '%');
                     const span = hi - lo;
                     const wFull = ctx.measureText(full).width;
+                    const wMid = mid ? ctx.measureText(mid).width : 0;
                     const wShort = ctx.measureText(short).width;
                     let text = null, tw = 0;
                     if (span >= wFull + 8) { text = full; tw = wFull; }
+                    else if (mid && span >= wMid + 7) { text = mid; tw = wMid; }
                     else if (span >= wShort + 6) { text = short; tw = wShort; }
                     if (!text) continue;
                     const cx = (lo + hi) / 2;
@@ -1080,7 +1114,8 @@ return new Promise(async (resolve, reject) => {
                     // Green while the exon is kept, amber once a meaningful share skips it,
                     // red when most transcripts do: the colour is the reading, the number is
                     // the measurement.
-                    const col = (pct >= 90) ? '#15803d' : (pct >= 50 ? '#b45309' : '#b91c1c');
+                    const col = (untrusted != null) ? '#475569'
+                        : (pct >= 90) ? '#15803d' : (pct >= 50 ? '#b45309' : '#b91c1c');
                     // AN OPAQUE CHIP, NOT A HALO. A white outline on the glyphs lets
                     // whatever is behind show through between the strokes, and behind this
                     // is the amino-acid row: dense, same size, and the reason the tag read

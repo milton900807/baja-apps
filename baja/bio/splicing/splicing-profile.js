@@ -139,7 +139,13 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                 // everywhere else averages to mid-range and reads as unreliable, when in
                 // brain it is a clean decision. Empty keeps the all-tissue mean.
                 const tissueArg = (mode === 'psi' && presetTissue) ? ('' + presetTissue) : '';
-                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation, tissueArg);
+                // THE CHROMOSOME, FOR THE MAPPABILITY LOOKUP. Track x is genomic, so each
+                // exon's [xi, xf] is already a genomic interval and the chromosome is the one
+                // part the sequence cannot supply. Without it the backend cannot tell whether
+                // an exon's PSI label was built from reads a paralog could equally have
+                // produced, which is how SMN2 exon 7 came to be labelled 96% stable.
+                const chromArg = (mode === 'psi' && track && track.chr != null) ? ('' + track.chr) : '';
+                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation, tissueArg, chromArg);
 
                 if (data && data.error) {
                     graph.setMessage(' Splicing error: ' + data.error + ' ');
@@ -328,7 +334,32 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                         }
                         return n2;
                     };
+                    // PSI THAT MUST NOT BE BELIEVED, kept apart from PSI that is merely
+                    // high. An exon sitting in duplicated sequence has a label blended with
+                    // its twin's, so its number is not a measurement of this exon at all:
+                    // SMN2 exon 7 reads 84% in the training table and about 10% in life,
+                    // and the model reproduced the table faithfully. Such an exon is marked,
+                    // drawn without a percentage, and dropped OUT of the ranking rather than
+                    // ranked low -- a blended label says nothing about stability either way,
+                    // so neither a high nor a low rank would be honest.
+                    let __untrusted = [];
+                    try { __untrusted = JSON.parse((data && data.untrusted) || '[]') || []; } catch (e) { }
+                    layer.untrustedSpans = __untrusted;
+                    layer.untrustedSource = (data && data.untrustedSource) || null;
+                    const __whyUntrusted = (lo2, hi2) => {
+                        for (const u of __untrusted) {
+                            const a2 = Math.min(+u.xi, +u.xf), b2 = Math.max(+u.xi, +u.xf);
+                            if (isFinite(a2) && isFinite(b2) && a2 <= hi2 && b2 >= lo2) return (u.why || '');
+                        }
+                        return null;
+                    };
                     for (const r of rows) {
+                        const why = __whyUntrusted(r.lo, r.hi);
+                        if (why != null) {
+                            r.untrusted = true;
+                            r.untrustedWhy = why;
+                            r.word = why ? ('PSI not trusted, shared with ' + why) : 'PSI not trusted';
+                        }
                         const cons = __consOver(r.lo, r.hi);
                         const nSites = __sitesOver(r.lo, r.hi);
                         r.conservation = (cons == null) ? null : +cons.toFixed(3);
@@ -338,9 +369,14 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                         const siteTerm = Math.min(1, nSites / 3);
                         const consTerm = (cons == null) ? 0 : cons;
                         r.weight = +(0.5 + 0.25 * consTerm + 0.25 * siteTerm).toFixed(3);
-                        r.rank = +(r.score * r.weight).toFixed(4);
+                        r.rank = r.untrusted ? null : +(r.score * r.weight).toFixed(4);
                     }
-                    rows.sort((a, b2) => b2.rank - a.rank);
+                    // Ranked exons first, by rank; the untrusted ones last, listed but not
+                    // placed, so they stay visible as work to do rather than disappearing.
+                    rows.sort((a, b2) => {
+                        if (a.untrusted !== b2.untrusted) return a.untrusted ? 1 : -1;
+                        return (b2.rank || 0) - (a.rank || 0);
+                    });
                     layer.psiTissueNote = (data && data.psiTissueNote) || '';
                     try { layer.psiTissues = JSON.parse((data && data.psiTissues) || '[]'); }
                     catch (e) { layer.psiTissues = []; }
