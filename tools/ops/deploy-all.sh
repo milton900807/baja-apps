@@ -977,6 +977,20 @@ if [[ $DO_API -eq 1 ]]; then
   # Two things that lost a request outright: a planner reply with anything after its JSON
   # took the whole plan down, and "add rna binding proteins to the spag9_mrna" was refused
   # for want of a selection it does not need.
+  # A table asked for in one sentence is made, put in front of the user, and then filled.
+  install_group "Create the table, centre it, then fill it in" \
+    "baja/plate/ops/fill-table.js:A TABLE THAT IS NOT THERE YET IS MADE, CENTRED, AND THEN FILLED" \
+    "baja/plate/menu/project-capabilities.js:CREATE a table of something"
+  # Totalling the column you are standing under.
+  install_group "Total the cells above this one" \
+    "baja/plate/ops/sum-above.js:TOTAL THE CELLS ABOVE THIS ONE" \
+    "baja/plate/menu/project-capabilities.js:THE COMMONEST THING ANYBODY DOES TO A COLUMN OF NUMBERS"
+  # Paralogs: the lookup, the screen every row loads from, and the operation that joins
+  # them. All three go together -- an old capabilities file has no way to reach either.
+  install_group "The paralogs of a track, as a screen you load from" \
+    "py/bio/paralogs.py:The paralogs of a gene, closest first" \
+    "baja/bio/paralogs-screen.js:THE PARALOGS OF A TRACK, AS A SCREEN YOU LOAD FROM" \
+    "baja/manchester/menu/editor-capabilities.js:NOTHING IN THE EDITOR KNEW WHAT A PARALOG WAS"
   install_group "A planner answer is read however it arrives; RBPs on a named track" \
     "py/bio/editor/plan.py:The first JSON object in a reply, whatever follows it" \
     "baja/manchester/menu/editor-capabilities.js:A SELECTION IS A SCOPE, NOT A PRECONDITION"

@@ -19,17 +19,66 @@ function (pm, o) {
     // GENERATED CELLS ARE VALUES. The python strips a leading "=", and setValue is handed a
     // string: a generated formula would be evaluated against the live workbook, which is a
     // far larger act than filling in some rows.
+    //
+    // A TABLE THAT IS NOT THERE YET IS MADE, CENTRED, AND THEN FILLED. "create a table of
+    // assumptions of costs associated with single sea plane operations" came back as "there
+    // is no table called assumptions": the plan was a fill, the fill was right, and the only
+    // thing missing was the table it was to go in. Refusing over that hands the user a
+    // two-step job that the request already described in one sentence.
+    //
+    // It is made FIRST and put in front of the user before anything is generated, so a
+    // request that takes a few seconds to answer shows the thing it is answering into,
+    // rather than an empty canvas and then everything at once.
 
     return new Promise(async (resolve) => {
         try {
             const pt = (pm && pm.plateTrack) ? pm.plateTrack : pm;
             const IO = await exec('baja/plate/ops/column-io.js');
-            const picked = IO.pickTable(pt, o && o.table);
-            if (picked.error) { resolve({ error: picked.error }); return; }
-            const t = picked.table;
-
             const what = ('' + ((o && o.what) || '')).trim();
             if (!what) { resolve({ error: 'what should go in it?' }); return; }
+
+            let picked = IO.pickTable(pt, o && o.table);
+            let made = null;
+            if (picked.error && /^there is no table called /.test(picked.error)) {
+                made = await (async () => {
+                    const want = ('' + ((o && o.table) || '')).trim();
+                    // The headings the request implies. The fill python will not invent
+                    // columns -- filling a table whose columns are fixed is its one job, and
+                    // that is what keeps generated rows in the columns they were made for --
+                    // so they come from the request, through the plan.
+                    const heads = ('' + ((o && o.columns) || '')).split(',')
+                        .map((x) => x.trim()).filter(Boolean).slice(0, 40);
+                    // Nothing said: a label and a number, which is the shape of nearly every
+                    // table a sentence like this asks for. Said plainly in the result rather
+                    // than passed off as what was asked for.
+                    const cols = heads.length ? heads : ['Item', 'Value'];
+                    const askedRows = Math.floor(Number((o && o.rows) || 0));
+                    const body = (isFinite(askedRows) && askedRows > 0) ? Math.min(askedRows, 200) : 10;
+                    const r = await exec('baja/plate/ops/new-table.js', pm,
+                        { rows: body + 1, cols: cols.length, name: want });
+                    if (!r || r.error) return { error: (r && r.error) || 'the table could not be made' };
+                    const t2 = (typeof pt.getTableByName === 'function') ? pt.getTableByName(r.name) : null;
+                    if (!t2) return { error: 'the table was made but could not be found again' };
+                    // The headings, in the top row, marked as headings: the same test the
+                    // fill below uses to find them, so the rows start underneath rather than
+                    // writing over them.
+                    for (let c = 0; c < cols.length; c++) {
+                        const w = t2.wells[c] && t2.wells[c][0];
+                        if (!w) continue;
+                        try { if (typeof w.setValue === 'function') w.setValue(cols[c]); else w.value = cols[c]; } catch (e) { }
+                        try { w.skin_type = 'ColumnHeader'; } catch (e) { }
+                    }
+                    try { if (typeof t2.setColumnHeader === 'function') t2.setColumnHeader(0); } catch (e) { }
+                    try { if (typeof t2.fitRowsAndColumns === 'function') t2.fitRowsAndColumns(); } catch (e) { }
+                    try { if (pt.wake) pt.wake(); } catch (e) { }
+                    try { pt.setMessage('Made ' + r.name + '. Filling it in \u2026', 20); } catch (e) { }
+                    return { table: t2, name: r.name, columns: cols, guessed: !heads.length };
+                })();
+                if (made.error) { resolve({ error: made.error }); return; }
+                picked = { table: made.table };
+            }
+            if (picked.error) { resolve({ error: picked.error }); return; }
+            const t = picked.table;
 
             const nCols = (t.wells && t.wells.length) || 0;
             const nRows = (nCols && t.wells[0] ? t.wells[0].length : 0);
@@ -149,7 +198,16 @@ function (pm, o) {
                     + (skipped ? ('. ' + skipped + ' did not fit') : ''), 8);
             } catch (e) { }
 
-            resolve({ table: t.name, written: written, added_rows: grew || undefined,
+            resolve({ table: t.name, written: written,
+                created: made ? made.name : undefined,
+                columns: made ? made.columns.join(', ') : undefined,
+                // SAID, NOT SLIPPED IN. Columns nobody asked for are a guess, and a guess
+                // the user is not told about is one they cannot correct.
+                note_columns: (made && made.guessed)
+                    ? ('the request did not say what the columns should be, so it was made with '
+                        + made.columns.join(' and ') + '; rename them and fill it again to change that')
+                    : undefined,
+                added_rows: grew || undefined,
                 skipped: skipped || undefined,
                 dropped: (out.dropped || 0) + wrongWidth || undefined,
                 note: out.note || undefined });

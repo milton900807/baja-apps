@@ -132,12 +132,17 @@ function () {
             // sentence was covered; filling in the one in front of you was not, and that is
             // the commoner job.
             name: 'fill_table',
-            summary: 'put content into a table that already has its columns, worked out from '
-                + 'a description. THIS IS THE ANSWER whenever the request asks to add, fill '
-                + 'in, populate or generate ENTRIES, EXAMPLES or DATA for a table that is '
-                + 'already there ("add a bunch of employees and salaries to this", "fill in '
-                + 'some example parts"). The rows go into the empty rows at the bottom and '
-                + 'nothing already written is overwritten',
+            summary: 'put content into a table, worked out from a description. THIS IS THE '
+                + 'ANSWER whenever the request asks to add, fill in, populate or generate '
+                + 'ENTRIES, EXAMPLES or DATA for a table ("add a bunch of employees and '
+                + 'salaries to this", "fill in some example parts"), AND when it asks to '
+                + 'CREATE a table of something ("create a table of assumptions of costs '
+                + 'associated with single sea plane operations", "make me a table of the '
+                + 'reagents we use"): a table that is not on the canvas yet is made, put in '
+                + 'front of the user, and then filled, so ONE step answers the whole '
+                + 'sentence. Pass `columns` when creating, and new_table only when the '
+                + 'request asks for an EMPTY table of a given size. The rows go into the '
+                + 'empty rows at the bottom and nothing already written is overwritten',
             module: 'baja/plate/ops/fill-table.js',
             params: {
                 what: { type: 'string', required: true,
@@ -148,7 +153,15 @@ function () {
                 table: { type: 'string', default: 'the table the request was made from',
                     about: 'the NAME of the table, if the request says it' },
                 rows: { type: 'number', default: '0, meaning as many as the request implies',
-                    about: 'how many rows, when the request says a number' }
+                    about: 'how many rows, when the request says a number' },
+                columns: { type: 'string', default: 'not set: a table that has to be made gets '
+                        + 'a label column and a value column',
+                    about: 'the column headings, separated by commas, used ONLY when the table '
+                        + 'named does not exist yet and has to be made. Work them out from what '
+                        + 'the request says the table is of: "assumptions of costs associated '
+                        + 'with single sea plane operations" gives "Assumption, Cost, Notes". '
+                        + 'Put the labels first and the numbers second. Leave it out when the '
+                        + 'table is already on the canvas: its own columns are the shape' }
             }
         },
         {
@@ -248,6 +261,31 @@ function () {
             }
         }
         ,
+        {
+            // THE COMMONEST THING ANYBODY DOES TO A COLUMN OF NUMBERS. "make this cell sum
+            // the total above", typed into the cell under a column of costs, came back as
+            // "Nothing here does that". set_formula needs the formula already written, and
+            // cell_from_table totals a whole OTHER table; neither answers the cell you are
+            // standing in.
+            name: 'sum_above',
+            summary: 'TOTAL THE CELLS ABOVE THE SELECTED CELL and put the formula in it. '
+                + 'The range is read off the column -- up from the selected cell to the '
+                + 'first heading, empty cell or non-number -- so the total covers the run '
+                + 'of numbers it sits under and does not reach into the block above it. '
+                + 'THIS IS THE ANSWER to "make this cell sum the total above", "total this '
+                + 'column", "add up the cells above", "put a total here", "average the ones '
+                + 'above this". For a cell that reads a DIFFERENT table use cell_from_table; '
+                + 'for a formula the user has written out use set_formula',
+            module: 'baja/plate/ops/sum-above.js',
+            params: {
+                how: { type: 'enum', values: ['sum', 'average', 'min', 'max', 'count'],
+                    default: 'sum',
+                    about: 'what to take: sum unless the request says average, smallest, '
+                        + 'largest or how many' },
+                table: { type: 'string', default: 'the table the selected cell is in',
+                    about: 'the NAME of the table, if the request says it' }
+            }
+        },
         {
             name: 'set_column_values',
             summary: 'write a list of values down one column of a table, from the top',

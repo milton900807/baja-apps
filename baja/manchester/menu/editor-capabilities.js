@@ -40,6 +40,33 @@ function (graph, genegraph_panel_layout) {
         let LM = null;
         try { LM = await exec('baja/bio/layer-match.js'); } catch (e) { LM = null; }
 
+        // THE GENE A TRACK IS OF. A track is named for its gene and then for what was made
+        // from it -- SPAG9, SPAG9_mRNA, SPAG9_mRNA_copy, MAPK8IP3** -- and Ensembl wants the
+        // symbol alone. The suffixes this strips are the ones the editor itself adds; a name
+        // it does not recognise is passed through untouched rather than guessed at, since a
+        // wrong symbol looks up somebody else's gene and says nothing about this track.
+        const geneOfTrack = (t) => {
+            let n = ('' + ((t && t.name) || '')).trim();
+            if (!n) return '';
+            n = n.replace(/\*+$/, '');
+            n = n.replace(/[_\-\s]*(copy|pathogenic)\d*$/i, '');
+            n = n.replace(/[_\-\s]*(mrna|pre_?mrna|cds|exons?|transcript|protein|gene)$/i, '');
+            // NOT a trailing number: the digits in SPAG9, MAPK8IP3 and NDUFA4 are part of
+            // the symbol, and stripping them asked Ensembl about a gene called SPAG.
+            // A copy's number is already gone with the word "copy" above it.
+            return n.trim();
+        };
+        const paralogGene = (a) => {
+            const said = ('' + ((a && a.gene) || '')).trim();
+            // A PARAMETER'S DEFAULT ARRIVES AS ITS OWN PROSE. An optional param left unset
+            // comes through as the sentence describing the default -- "taken from the
+            // track's own name" -- and taking that as a symbol asked Ensembl for a gene by
+            // that name. A symbol has no spaces, which is the cheap and reliable test.
+            if (said && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(said)) return said;
+            const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+            return t ? geneOfTrack(t) : '';
+        };
+
         // WHICH TRACKS A REMOVAL ACTS ON: the one named, else the one that is selected or
         // the only one open, else EVERY open track that actually carries a matching layer.
         // Refusing with "say which track" when the editor can see exactly which tracks have
@@ -506,6 +533,91 @@ function (graph, genegraph_panel_layout) {
                     if (a.kind === 'gene') return 'look up the gene ' + a.name + ' and pick a transcript';
                     if (a.kind === 'file') return 'find a saved file called “' + a.name + '”';
                     return 'load “' + a.name + '” — asks whether that is a gene or a file';
+                }
+            },
+
+            {
+                // NOTHING IN THE EDITOR KNEW WHAT A PARALOG WAS. "list the closest paralog to
+                // this track" came back as "not something the editor can do: this requires
+                // external database queries for homology relationships" -- a true sentence
+                // about the catalogue and a useless one to the user, since the editor already
+                // talks to Ensembl for every gene it loads and homology is one more endpoint.
+                //
+                // AND LISTING IS HALF THE JOB. What a paralog is asked for is the next thing:
+                // put it beside this one and compare them. So the answer is a screen whose
+                // every row loads, through the same path as any other gene, which makes a
+                // paralog loaded here a track the comparison and the exon matching work on
+                // straight away.
+                name: 'list_paralogs',
+                summary: 'FIND THE PARALOGS OF A TRACK\u2019S GENE AND OFFER THEM AS TRACKS TO '
+                    + 'LOAD. Ensembl is asked for the within-species paralogs, they are ranked '
+                    + 'by percent identity over the aligned protein (closest first, and shown '
+                    + 'both ways round since a short paralog inside a long one scores high one '
+                    + 'way only), and a full screen lists them with what each one is and where '
+                    + 'it sits, each row loading that gene as a track. This is the answer to '
+                    + '"list the closest paralog to this track", "what are the paralogs of X", '
+                    + '"find the closest relative of this gene", "load the paralogs", "is there '
+                    + 'a paralog of this". It is about DUPLICATED GENES IN THE SAME SPECIES: '
+                    + 'for how two tracks already on the canvas compare use compare_sequences '
+                    + 'or match_regions_across_tracks instead.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the track whose gene to look up, by name as canvas_now gives it. '
+                            + 'Omit it when there is only one track or one is selected'
+                    },
+                    gene: {
+                        type: 'string', default: 'taken from the track\u2019s own name',
+                        about: 'the gene symbol, only when the request names a gene rather than '
+                            + 'pointing at a track ("paralogs of SPAG9")'
+                    },
+                    species: {
+                        type: 'string', default: 'human',
+                        about: 'Ensembl species name, only if the request says one'
+                    },
+                    top: {
+                        type: 'number', default: 25,
+                        about: 'how many to list, closest first'
+                    }
+                },
+                opens: true,
+                run: async (a) => {
+                    const sym = paralogGene(a);
+                    if (!sym) { result('Which gene? Name it, or select a track.'); return; }
+                    const species = ('' + ((a && a.species) || 'human')).trim() || 'human';
+                    try { graph.setMessage('Asking Ensembl for the paralogs of ' + sym + ' \u2026', 20); } catch (e) { }
+                    let r = null;
+                    try {
+                        r = await exec('py/bio/paralogs.py', sym, species, (a && a.top) || 25);
+                    } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
+                    if (!r || r.status !== 'OK') {
+                        result((r && r.error) || 'the paralogs could not be looked up');
+                        return r;
+                    }
+                    await exec('baja/bio/paralogs-screen.js', graph, genegraph_panel_layout, r);
+                    result((r.paralogs || []).length
+                        ? ((r.paralogs || []).length + ' paralog'
+                            + ((r.paralogs || []).length === 1 ? '' : 's') + ' of ' + sym
+                            + ', closest first. Load any of them as a track from the list.')
+                        : ('Ensembl lists no paralogs for ' + sym + ' in ' + species + '.'));
+                    return r;
+                },
+                preview: (a) => {
+                    const sym = paralogGene(a);
+                    return sym
+                        ? ('ask Ensembl for the paralogs of ' + sym + ', closest first, and list '
+                            + 'them to load as tracks')
+                        : 'list the paralogs \u2014 say which track or gene';
+                },
+                argBlocker: (a) => {
+                    if (paralogGene(a)) return '';
+                    if (a && a.track) {
+                        return 'no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    return 'say which track or gene: open tracks are '
+                        + tracks().map((x) => x.name || '(unnamed)').join(', ');
                 }
             },
 
