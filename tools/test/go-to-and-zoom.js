@@ -39,6 +39,16 @@ const mkTrack = () => {
         tgraph: { X: (x) => x, Y: (y) => y, xi: 0, width: 4500, yi: 0, height: 1 } };
 };
 
+// A second transcript, where exon 12 is somewhere else entirely and there are fewer of them.
+const mkOther = () => {
+    const anns = [];
+    for (let i = 0; i < 13; i++) anns.push(exon(i * 500, i * 500 + 220));
+    anns.push({ type: 'Translation', xi: 300, xf: 6000 });
+    return { name: 'DNM3-208', xi: 0, xf: 6500, sequence: 'C'.repeat(6500),
+        annotations: anns, track_layers: [], getSelectedRanges: () => [],
+        tgraph: { X: (x) => x, Y: (y) => y, xi: 0, width: 6500, yi: 0, height: 1 } };
+};
+
 (async () => {
     const t = mkTrack();
     const R = await load('baja/bio/track-regions.js', t);
@@ -111,6 +121,50 @@ const mkTrack = () => {
         .capability.run({ position: '1520', track: 'DNM3' });
     ok(t.markend - t.markstart === 1, 'a plain coordinate still marks one base: '
        + t.markstart + '-' + t.markend);
+
+    // ---- several tracks: one Go each, not a guess ------------------------------------------
+    // "goto exon 12" with more than one transcript open used to go straight to a single GO
+    // and land on whichever track happened to be selected. Exon 12 is a different stretch on
+    // every transcript, so each one that has it is offered.
+    // The regions of every open track are resolved when the catalogue is built, so a second
+    // track opened afterwards gets its own catalogue, exactly as a fresh ask would.
+    const t2 = mkOther();
+    t.markstart = t.markend = t2.markstart = t2.markend = -1;
+    const graph2 = Object.assign({}, graph, { track: [t, t2], getTracks: () => [t, t2],
+        said: [], selectedTrack: null });
+    const C2 = await load('baja/manchester/menu/editor-capabilities.js', graph2, {});
+    const multi = C2.preview({ capability: 'go_to_position', args: { position: 'exon 12' } });
+    ok(!multi.blocker, 'with two tracks open, exon 12 is not refused: ' + (multi.blocker || '(none)'));
+    ok(multi.choices && multi.choices.length === 2,
+       'both tracks are offered: ' + (multi.choices ? multi.choices.map((o) => o.label).join(', ') : 'none'));
+    ok(multi.choices && multi.choices.map((o) => o.label).join(',') === 'DNM3,DNM3-208',
+       'each by name: ' + (multi.choices || []).map((o) => o.label).join(','));
+    ok(!!multi.choiceTitle, 'under a question that says what is being chosen: ' + multi.choiceTitle);
+    // The detail is where exon 12 IS on that track, which is the whole reason to choose.
+    ok(multi.choices && /3,300\u20133,400/.test(multi.choices[0].detail)
+       && /100 bases/.test(multi.choices[0].detail),
+       'with where it is on the first: ' + (multi.choices || [{}])[0].detail);
+    ok(multi.choices && /5,500\u20135,720/.test(multi.choices[1].detail)
+       && /220 bases/.test(multi.choices[1].detail),
+       'and a different place and size on the second: ' + (multi.choices || [{}, {}])[1].detail);
+    ok(multi.choices && multi.choices[0].detail !== multi.choices[1].detail,
+       'the two are told apart');
+    // The card does not quote one track's size as if it were everybody's.
+    ok(!/100 bases/.test(multi.text) && /frame it/.test(multi.text),
+       'and the headline says what kind of place it is, without a size: ' + multi.text);
+
+    // Picking one runs there, and only there.
+    await multi.capability.run(multi.choices[1].args);
+    ok(t2.markstart === 5500 && t2.markend === 5720,
+       'the chosen track is the one that moves: ' + t2.markstart + '-' + t2.markend);
+    ok(t.markstart === -1, 'and the other is left alone: ' + t.markstart + '-' + t.markend);
+
+    // A track named in the request still skips the question.
+    const named = C2.preview({ capability: 'go_to_position', args: { position: 'exon 12', track: 'DNM3-208' } });
+    ok(!named.choices, 'naming a track asks nothing');
+    // One track open asks nothing either.
+    ok(!C.preview({ capability: 'go_to_position', args: { position: 'exon 12' } }).choices,
+       'and neither does a single open track');
 
     // ---- zoom out is a step, not a fit ------------------------------------------------------
     ok(C.catalogue().some((c) => c.name === 'zoom'), 'zoom is an operation of its own');

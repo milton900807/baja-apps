@@ -1027,6 +1027,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS A STRETCH, SO IT IS FRAMED, NOT POINTED AT" \
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS NOT A FAILED POSITION" \
     "baja/manchester/menu/editor-capabilities.js:\"ZOOM OUT\" IS NOT \"FIT\""
+  # Which track exon 12 is on is the user's call, so each one that has it gets a Go.
+  install_group "A named region is offered on every track that has one" \
+    "baja/manchester/menu/editor-capabilities.js:A NAMED REGION GETS ONE GO PER TRACK, LIKE EVERY OTHER PLACE"
   # The panel that reports slow work was drawn under the card that asked for it.
   install_group "The working panel is drawn above the card that asked for the work" \
     "baja/lib/working.js:ABOVE THE CARD THAT ASKED FOR THE WORK"

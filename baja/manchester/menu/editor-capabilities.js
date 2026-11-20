@@ -2488,25 +2488,53 @@ function (graph, genegraph_panel_layout) {
                 },
                 preview: (a) => {
                     const t = pickTrack(a);
-                    const R = regionsNow(t);
+                    // With no track settled yet the card still says what KIND of place this is:
+                    // reading the region off the first track that has one beats describing
+                    // "exon 12" as a base to zoom in to.
+                    const t2 = t || tracks().find((x) => {
+                        const Rx = regionsNow(x); if (!Rx) return false;
+                        const rr = Rx.position(a.position);
+                        return rr.error ? !!(rr.named && !Rx.resolve(rr.named).error) : true;
+                    }) || null;
+                    const R = regionsNow(t2);
                     const r = R ? R.position(a.position) : null;
                     if (r && r.error && r.named && R) {
                         const got = R.resolve(r.named);
                         if (!got.error) {
+                            // The size belongs to the track it was measured on: with no track
+                            // settled it is a different number on each, so it is left to the
+                            // per-track choices rather than quoted here as if it were one.
                             return 'go to ' + (got.label || a.position)
-                                + (t ? (' on ' + (t.name || 'the track')) : '') + ' and frame it \u00b7 '
-                                + (got.end - got.start).toLocaleString() + ' bases';
+                                + (t ? (' on ' + (t.name || 'the track') + ' and frame it \u00b7 '
+                                    + (got.end - got.start).toLocaleString() + ' bases')
+                                    : ' and frame it, whole');
                         }
                     }
                     return 'go to ' + a.position + (t ? (' on ' + (t.name || 'the track')) : '')
                         + ((r && !r.error) ? (' (track position ' + r.pos.toLocaleString() + ')') : '')
                         + ', zoomed in to the bases';
                 },
+                // A NAMED REGION GETS ONE GO PER TRACK, LIKE EVERY OTHER PLACE. This asked
+                // position() and handed back whatever it returned, so a named region -- which
+                // position() reports as an error because it is a stretch -- produced no choices
+                // at all: "goto exon 12" with four transcripts open went straight to a single
+                // GO and landed on whichever track happened to be selected. Exon 12 is a
+                // different stretch on every transcript, and which one was meant is the user's
+                // call, so each track that has one is offered with its own size and place.
                 choices: (a) => choicesOver(a, (x) => {
                     const R = regionsNow(x); if (!R) return null;
-                    const r = R.position(a.position); if (r.error) return r;
+                    const r = R.position(a.position);
+                    if (r.error && r.named) {
+                        const got = R.resolve(r.named);
+                        if (got.error) return got;
+                        return { detail: (got.label || a.position) + ' \u00b7 '
+                            + (got.end - got.start).toLocaleString() + ' bases \u00b7 '
+                            + got.start.toLocaleString() + '\u2013' + got.end.toLocaleString() };
+                    }
+                    if (r.error) return r;
                     return { detail: r.label + ' is track position ' + r.pos.toLocaleString() };
                 }),
+                choiceTitle: () => 'Go there on which track?',
                 argBlocker: (a) => {
                     const t = pickTrack(a);
                     if (!t || (!a.track && !a.__track)) {
