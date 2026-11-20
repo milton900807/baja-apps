@@ -248,6 +248,45 @@ const mkTrack = () => {
     ok(mr.texts.some((t) => /^e5 . 30% stable/.test(t.t)),
        'an exon with no measurement keeps its prediction');
 
+    // THE TAG MUST BE DRAWN SOMEWHERE. Moving it below the exon made it disappear on a
+    // real track: a row computed past the bottom of the canvas is not drawn and not
+    // reported, which looks exactly like the model having said nothing. These two cases
+    // are the ones that produced that.
+    const offCanvas = () => {
+        const b = recorder();
+        b.ctx.canvas.height = 60;              // a short canvas: +30 would fall outside
+        const g = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 50 - y };
+        const u = new TrackLayer('short', 0, 0, 16000, 1);
+        u.arc_type = 'SpliceSashimi'; u.magnitudeMode = 'psi'; u.magMax = 1;
+        u.junctions = layer.junctions;
+        u.drawSashimi(tgraph, g, mkTrack());
+        return { r: b.r, layer: u, h: b.ctx.canvas.height };
+    };
+    const oc = offCanvas();
+    ok(oc.r.texts.some((t) => /stable|constitutive/.test(t.t)),
+       'a short canvas still gets the tag, clamped rather than dropped');
+    ok(oc.layer.exonStabilityRowY <= oc.h - 12 && oc.layer.exonStabilityRowY >= 12,
+       'and the row it reports is inside the canvas: ' + oc.layer.exonStabilityRowY);
+
+    // Exons on a line of their own, which is what a transcript drawn under a gene looks
+    // like: the row follows the EXONS, not the layer's y=0.
+    const offBaseline = () => {
+        const anns = mkTrack().annotations.map((a) => Object.assign({}, a, { y: -2 }));
+        const t2 = { name: 'child', xi: 0, xf: 16000, annotations: anns, track_layers: [] };
+        const b = recorder();
+        const g = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
+        const u = new TrackLayer('child_psi', 0, 0, 16000, 1);
+        u.arc_type = 'SpliceSashimi'; u.magnitudeMode = 'psi'; u.magMax = 1;
+        u.junctions = layer.junctions;
+        u.drawSashimi(tgraph, g, t2);
+        return u;
+    };
+    const ob = offBaseline();
+    // exons are on track y = -2, i.e. screen y = 402; the row is 30 below THAT, not
+    // below the layer's own baseline at 400
+    ok(ob.exonStabilityRowY === 432,
+       'the row follows the line the exons are drawn on: ' + ob.exonStabilityRowY);
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

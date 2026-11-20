@@ -1079,7 +1079,31 @@ return new Promise(async (resolve, reject) => {
                 // exon on the track: deriving the offset per exon from whether that one
                 // shows its number would stagger the tags into two rows and make the
                 // track harder to read than the gap it would save.
-                const ly = baselineY + BADGE_R + 10;
+                //
+                // MEASURED FROM THE LINE THE EXON IS ON, not from track y=0. They are the
+                // same for an ordinary exon -- track-flexi.js getAnnotation says an exon's
+                // annotation.y is 0, the baseline -- but they are NOT the same when the
+                // layer's tgraph is a parent track and the exons belong to a child, which
+                // is how a transcript under a gene is drawn. Reading the line off the
+                // annotations themselves is right in both cases and identical in the first.
+                let __annY = null;
+                for (const an of track.annotations) {
+                    if (!an || ('' + an.type).toLowerCase() !== 'exon' || an.index == null) continue;
+                    __annY = graph.Y(tgraph.Y(+an.y || 0));
+                    break;
+                }
+                const exonRowY = (__annY != null && isFinite(__annY)) ? __annY : baselineY;
+                // AND INSIDE THE CANVAS. A row computed below the exon can land past the
+                // bottom edge, where it is not drawn and not reported: the tag simply is
+                // not there, which is indistinguishable from the model having said nothing.
+                // Clamped rather than dropped, because a tag slightly out of place is a
+                // complaint and a missing one is a silent failure.
+                const __h = (ctx.canvas && ctx.canvas.height) || 0;
+                let ly = exonRowY + BADGE_R + 10;
+                if (__h > 40) ly = Math.max(12, Math.min(__h - 12, ly));
+                // Published for diagnosis: when the tag is not where it is expected, this
+                // says where it actually went without needing a screenshot to guess from.
+                this.exonStabilityRowY = ly;
                 const placed = [];
                 ctx.save();
                 ctx.font = 'bold 13px Arial';

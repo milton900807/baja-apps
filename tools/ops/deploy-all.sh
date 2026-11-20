@@ -1219,7 +1219,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-layer.js:A MEASUREMENT OUTRANKS BOTH" \
     "baja/bio/splicing/exon-ai-models.js:WHERE A MEASURED NUMBER CAME FROM"
   install_group "The exon stability tag reads below the exon" \
-    "baja/bio/track-layer.js:BELOW THE EXON, which is the only side of it that stays quiet"
+    "baja/bio/track-layer.js:MEASURED FROM THE LINE THE EXON IS ON"
   install_group "PSI is withheld where the reads were not uniquely assignable" \
     "py/bajasplice-lib/bajasplice/untrusted.py:WHY A LOOKUP AND NOT A BETTER MODEL" \
     "py/bajasplice-lib/bajasplice/config.py:Exons whose PSI is not trustworthy because the reads behind it were not" \
