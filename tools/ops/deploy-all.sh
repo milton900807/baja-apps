@@ -1077,6 +1077,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-layer.js:HOW STABLY EACH EXON SPLICES, said on the exon itself" \
     "flexigraph/gene-draw.js:ON THE EXON, WHICH IS WHERE IT IS READ" \
     "flexigraph/gene-draw.js:FALLS BACK TO A COLOR, NOT TO ITSELF"
+  # The gene-level coupling number has no exon in it. This asks the same question per exon,
+  # from the skip isoform. Two new modules and the operation that drives them: all or none,
+  # or the operation calls something that is not there.
+  install_group "What skipping each exon does to the protein" \
+    "baja/bio/orfs/exon-consequence-map.js:WHAT SKIPPING EACH EXON WOULD DO TO THE PROTEIN" \
+    "baja/bio/orfs/exon-consequence-screen.js:WHAT EACH EXON IS WORTH TO THE PROTEIN, AS A SCREEN" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT EACH EXON IS WORTH TO THE PROTEIN. The coupling readout"
   # Going to one region was an operation; going to all of them in turn was not. The module
   # is new, so it ships with the capability that drives it or the operation calls nothing.
   install_group "Step through every exon in turn" \

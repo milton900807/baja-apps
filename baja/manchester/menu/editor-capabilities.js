@@ -2549,6 +2549,98 @@ function (graph, genegraph_panel_layout) {
                 preview: () => 'open the bookmarks panel (' + BM.list().length + ' saved)'
             },
             {
+                // WHAT EACH EXON IS WORTH TO THE PROTEIN. The coupling readout on a track is
+                // one number for the whole gene -- how far the protein follows its mRNA,
+                // measured or predicted -- and it has no exon in it, so it cannot say what
+                // losing exon 15 does. This asks the same question per exon, from the skip
+                // isoform: drop the exon, translate what is left, and see what comes out.
+                name: 'exon_protein_consequence',
+                summary: 'FOR EVERY EXON, WHAT SKIPPING IT WOULD DO TO THE PROTEIN: '
+                    + 'in-frame loss, a frameshift to a premature stop and whether that is '
+                    + 'degraded by NMD or leaves a truncated protein. "what does skipping '
+                    + 'each exon do to the protein", "which exons matter", "per-exon protein '
+                    + 'consequence", "which exon must not be lost", "map the exon '
+                    + 'consequences". Opens a sorted screen, worst first, and each row goes '
+                    + 'to its exon. For ONE exon, the exon menu already answers it.',
+                needs: 'track',
+                params: {
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
+                },
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Exon consequences for ' + (t.name || 'the track'),
+                            'Each exon is dropped in turn and what is left is translated.');
+                    } catch (e) { w = null; }
+                    let rows = [];
+                    try {
+                        rows = await exec('baja/bio/orfs/exon-consequence-map.js', t, {
+                            onStep: (i, n) => { try { if (w) w.step('exon ' + i + ' of ' + n); } catch (e) { } }
+                        });
+                    } catch (e) {
+                        try { if (w) w.fail('Could not read the exons: ' + (e && e.message ? e.message : e)); } catch (e2) { }
+                        result('Could not work out the exon consequences for ' + (t.name || 'that track') + '.');
+                        return;
+                    }
+                    try { if (w) w.done(); } catch (e) { }
+                    if (!rows.length) {
+                        result((t.name || 'That track') + ' has no annotated exons to assess.');
+                        return;
+                    }
+                    const bad = rows.filter((r) => r.ok && r.severity <= 1).length;
+                    await exec('baja/bio/orfs/exon-consequence-screen.js', graph, genegraph_panel_layout, {
+                        track: t, gene: (t.name || 'this track'), rows: rows,
+                        // Closing the screen on a row and landing on that exon is the same
+                        // move going to an exon makes, so it is the same code.
+                        onGo: async (r) => {
+                            try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                            t.markstart = r.start; t.markend = r.end; t.showResizeBar = true;
+                            try { graph.startX = t.tgraph.X(r.start); graph.endX = t.tgraph.X(r.end); } catch (e) { }
+                            try { graph.selectedTrack = t; } catch (e) { }
+                            try { await frameRange(t, r.start, r.end); } catch (e) { }
+                            try { if (graph.wake) graph.wake(); } catch (e) { }
+                            result('exon ' + r.index + ' \u00b7 ' + (r.ok ? r.verdict : 'not assessed'));
+                        }
+                    });
+                    result(rows.length + ' exons assessed on ' + (t.name || 'the track') + ': '
+                        + bad + ' whose loss destroys the message.');
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const R = t ? regionsNow(t) : null;
+                    const n = R ? R.exons().length : 0;
+                    return 'work out, for ' + (n ? ('each of the ' + n + ' exons of ') : 'each exon of ')
+                        + (t ? (t.name || 'the track') : 'the track')
+                        + ', what skipping it would do to the protein \u00b7 in-frame loss, '
+                        + 'frameshift to a premature stop, NMD or a truncated protein';
+                },
+                choices: (a) => choicesOver(a, (x) => {
+                    const Rx = regionsNow(x);
+                    const l = Rx && Rx.exons();
+                    return (l && l.length) ? { detail: l.length + ' exon' + (l.length === 1 ? '' : 's') } : null;
+                }),
+                choiceTitle: () => 'Assess the exons of which track?',
+                argBlocker: (a) => {
+                    const t = pickTrack(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, (x) => {
+                            const Rx = regionsNow(x);
+                            const l = Rx && Rx.exons();
+                            return (l && l.length) ? {} : null;
+                        }).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to assess: there is more than one open';
+                    }
+                    const R = regionsNow(t);
+                    if (R && !R.exons().length) return (t.name || 'That track') + ' has no annotated exons';
+                    return '';
+                }
+            },
+            {
                 // SHOW ME EACH EXON. Going to one region is an operation; going to all of
                 // them in turn was not, so "show me each exon and spend 3 seconds on each"
                 // came back as "nothing in the editor does that" -- while the editor could
