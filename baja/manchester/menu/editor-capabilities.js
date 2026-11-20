@@ -161,6 +161,31 @@ function (graph, genegraph_panel_layout) {
             return out;
         };
 
+        // LOOKED UP ONCE PER GENE. The homology call takes the better part of a minute
+        // because Ensembl aligns each species when it is asked, and the map and the track
+        // trace want the same answer. Asking twice for the same gene is a minute of
+        // someone's time for nothing, so the last answer is kept and handed back.
+        const conservationFor = async (sym, species, kind, w) => {
+            try {
+                const c = window.__bajaConservationCache;
+                if (c && c.gene === sym && c.species === species && c.kind === kind && c.data) {
+                    try { if (w) w.step('Using the alignments already fetched for ' + sym + ' \u2026'); } catch (e) { }
+                    return c.data;
+                }
+            } catch (e) { }
+            let r = null;
+            try {
+                r = await exec('py/bio/homolog-conservation.py', sym, species, kind,
+                    JSON.stringify({ max_species: 12 }));
+            } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
+            if (r && r.status === 'OK' && (r.species_rows || []).length) {
+                try {
+                    window.__bajaConservationCache = { gene: sym, species: species, kind: kind, data: r };
+                } catch (e) { }
+            }
+            return r;
+        };
+
         const paralogGene = (a) => {
             const said = ('' + ((a && a.gene) || '')).trim();
             // A PARAMETER'S DEFAULT ARRIVES AS ITS OWN PROSE. An optional param left unset
@@ -642,6 +667,105 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // THE ANSWER FOR THIS REGION, WHERE THE REGION IS. The full-screen map
+                // answers "where is this gene conserved" for the whole protein; with a
+                // stretch selected the question is narrower, and so is the useful answer:
+                // how conserved is THIS, against the rest of the same protein, drawn on the
+                // bases rather than in a window with its own axis to line up by eye.
+                name: 'draw_conservation',
+                summary: 'DRAW CONSERVATION ON THE TRACK ITSELF, as a trace along the coding '
+                    + 'sequence: one bar per codon, full height where every species has the '
+                    + 'same residue. WHEN A STRETCH OF SEQUENCE IS SELECTED it also reports '
+                    + 'how conserved that stretch is against the rest of the same protein, '
+                    + 'which is the only way a percentage means anything. This is the answer '
+                    + 'to "show the conservation of this region", "how conserved is this '
+                    + 'bit", "draw conservation on the track", "is this stretch conserved". '
+                    + 'Use conservation_map instead for the full-screen picture of every '
+                    + 'species side by side; this one puts the numbers on the canvas.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the track to draw on, by name as canvas_now gives it. Omit it '
+                            + 'when there is only one track or one is selected'
+                    },
+                    gene: {
+                        type: 'string', default: 'taken from the track\u2019s own name',
+                        about: 'the gene symbol, only when the track is named for something else'
+                    },
+                    across: {
+                        type: 'enum', values: ['species', 'paralogs'], default: 'species',
+                        about: 'species for orthologs, which is what conservation nearly always '
+                            + 'means; paralogs to compare the gene against its own family'
+                    },
+                    species: {
+                        type: 'string', default: 'human',
+                        about: 'the species the TRACK is in, only if the request says one'
+                    }
+                },
+                run: async (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const sym = paralogGene(a) || ('' + (t.name || ''));
+                    if (!sym) { result('Which gene? Name it, or select a track.'); return; }
+                    const species = ('' + ((a && a.species) || 'human')).trim() || 'human';
+                    const kind = (('' + ((a && a.across) || 'species')).indexOf('paralog') >= 0)
+                        ? 'paralogues' : 'orthologues';
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Conservation of ' + sym,
+                            'Asking Ensembl for the ' + (kind === 'paralogues' ? 'paralogs' : 'orthologs')
+                            + ' and their alignments.');
+                    } catch (e) { w = null; }
+                    const r = await conservationFor(sym, species, kind, w);
+                    if (!r || r.status !== 'OK' || !(r.species_rows || []).length) {
+                        const why = (r && r.error) || (r && r.note)
+                            || 'the conservation could not be worked out';
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
+                        return r;
+                    }
+                    try { if (w) w.step('Drawing it on ' + (t.name || 'the track') + ' \u2026'); } catch (e) { }
+                    // The selection if there is one, else the whole coding sequence.
+                    const rg = hasSel(t) ? rangeOf(t) : null;
+                    const out = await exec('baja/bio/conservation-layer.js', graph, t, r, rg);
+                    try { if (w) w.done(); } catch (e) { }
+                    if (out && out.error) result(out.error);
+                    else if (out) result(out.answer);
+                    return out;
+                },
+                preview: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const sym = paralogGene(a) || (t ? ('' + (t.name || '')) : '');
+                    const where = t ? (t.name || 'the track') : 'the track';
+                    return (t && hasSel(t))
+                        ? ('draw conservation of ' + sym + ' on ' + where + ' and measure the '
+                            + 'selected stretch against the rest of the protein')
+                        : ('draw conservation of ' + sym + ' along ' + where
+                            + ' \u00b7 select a stretch first to have it measured on its own');
+                },
+                argBlocker: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) {
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to draw on: there is more than one open';
+                    }
+                    // Said before the button: a gene track with no ORF has no residues, and
+                    // the request can be pointed at the mRNA instead.
+                    try {
+                        const has = t.orf && Array.isArray(t.orf.cdsi) && t.orf.cdsi.length;
+                        if (!has) {
+                            return (t.name || 'that track') + ' has no reading frame on it, so '
+                                + 'there is no codon to put a residue on';
+                        }
+                    } catch (e) { }
+                    return '';
+                }
+            },
+
+            {
                 // ONE TRACK, MANY SPECIES. "show spag9 conservation map" was read as
                 // draw_similarity_map and refused for naming only one track: that operation
                 // compares two tracks that are both open, and this question names one track
@@ -700,11 +824,7 @@ function (graph, genegraph_panel_layout) {
                             + ' and their alignments. Ensembl aligns each species when it is '
                             + 'asked, so this usually takes half a minute.');
                     } catch (e) { w = null; }
-                    let r = null;
-                    try {
-                        r = await exec('py/bio/homolog-conservation.py', sym, species, kind,
-                            JSON.stringify({ max_species: 12 }));
-                    } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
+                    const r = await conservationFor(sym, species, kind, w);
                     if (!r || r.status !== 'OK') {
                         const why = (r && r.error) || 'the conservation map could not be built';
                         try { if (w) w.fail(why); } catch (e) { }

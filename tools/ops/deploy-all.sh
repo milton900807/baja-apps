@@ -992,6 +992,12 @@ if [[ $DO_API -eq 1 ]]; then
   # two go together, and the screen needs the button that reaches the map.
   # Asked for in a sentence, shown as a protein map with the source transcript's exons
   # and the track's missense variants on it, and with a panel while it runs.
+  # The same answer on the track, for a selected region, measured against the rest of the
+  # protein, from one lookup shared with the map.
+  install_group "Conservation drawn on the track, for the region you selected" \
+    "baja/bio/conservation-layer.js:CONSERVATION, ON THE TRACK, IN THE TRACK" \
+    "baja/manchester/menu/editor-capabilities.js:THE ANSWER FOR THIS REGION, WHERE THE REGION IS" \
+    "baja/manchester/menu/editor-capabilities.js:LOOKED UP ONCE PER GENE"
   install_group "Conservation map: its own operation, labelled, with exons and variants" \
     "baja/manchester/menu/editor-capabilities.js:ONE TRACK, MANY SPECIES" \
     "baja/manchester/menu/editor-capabilities.js:THE VARIANTS ON THE TRACK, CARRIED ONTO THE PROTEIN" \

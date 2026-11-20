@@ -138,7 +138,10 @@ Rules, in order of importance:
    conservation map", "plot the conserved regions", "where is this conserved". It finds
    the species itself, so do not plan list_homologs first and do not reach for
    draw_similarity_map, which compares two tracks that are BOTH already on the canvas
-   and will refuse a request that names only one.
+   and will refuse a request that names only one. When the request is about THIS
+   REGION -- "the conservation of this region", "how conserved is this bit", "draw
+   conservation on the track" -- use draw_conservation, which puts the trace on the
+   track and measures the selected stretch against the rest of the same protein.
 
 10. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the
