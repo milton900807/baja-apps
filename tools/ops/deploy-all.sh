@@ -1061,10 +1061,13 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Design tools, not the Institute for GeneTx Design" \
     "baja/lib/institute-rna-design.js:serif;\">Design tools</div>" \
     "baja/lib/library-of-libraries.js:serif;\">Design tools</div>"
-  # The exon number was an opaque disc sitting on the middle of the exon, over whatever the
-  # exon says underneath it.
-  install_group "The exon number is lifted off the exon it labels" \
-    "flexigraph/gene-draw.js:THE NUMBER SITS ABOVE THE EXON, NOT ON IT" \
+  # The exon number stays on the exon; what the exon has to say is drawn clear of it, and
+  # PSI now says how stably each exon splices. The two go together -- the label is placed
+  # against the disc's reach, so shipping one without the other puts them back on top of
+  # each other.
+  install_group "Exon stability on the exon, clear of its number" \
+    "baja/bio/track-layer.js:HOW STABLY EACH EXON SPLICES, said on the exon itself" \
+    "flexigraph/gene-draw.js:ON THE EXON, WHICH IS WHERE IT IS READ" \
     "flexigraph/gene-draw.js:FALLS BACK TO A COLOR, NOT TO ITSELF"
   # Which track exon 12 is on is the user's call, so each one that has it gets a Go.
   install_group "A named region is offered on every track that has one" \

@@ -1,11 +1,12 @@
-// THE EXON NUMBER BADGE SITS ABOVE THE EXON, NOT ON IT.
+// THE EXON NUMBER SITS ON THE EXON, AND NOTHING IS DRAWN UNDER IT.
 //
-//     node tools/test/exon-badge-above.js
+//     node tools/test/exon-badge.js
 //
-// Zoomed in, the badge is a 40px opaque white disc. Centred on the capsule it covered the
-// middle of whatever the exon says underneath -- a PSINet "99% constitutive" read as
-// "99%   utive", which is worse than no label, because the part left showing looks like
-// the whole of it.
+// Zoomed in the badge is a 40px opaque white disc, so whatever an exon has to say has to
+// be drawn clear of it -- the stability label goes above its reach (see
+// tools/test/exon-stability.js). Lifting the BADGE instead was tried and was worse: it
+// then stood in the sequence and amino-acid rows, which is busier ground than the capsule.
+// This holds it where it belongs, and holds the band under it clear.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://gene.clinic/' });
@@ -81,32 +82,22 @@ const mkGraph = (ctx, screencell) => ({
     const num = r.texts.find((t) => t.t === '6');
     ok(!!num, 'with the exon number in it');
 
-    // The capsule is exonWidth + 2 = 14 tall, so its top edge is 7 above the lane.
-    const EXON_TOP = yExon - 7;
-    ok(badge.y + badge.r <= EXON_TOP + 0.001,
-       'the whole disc clears the top of the exon: badge bottom ' + (badge.y + badge.r)
-       + ' vs exon top ' + EXON_TOP);
-    ok(badge.y < yExon, 'which is ABOVE it on screen, not below: ' + badge.y + ' vs ' + yExon);
-    ok(num && Math.abs(num.y - badge.y) < 0.001, 'the number rides with the disc, not left behind on the exon: '
-       + (num ? num.y : '(none)'));
-    ok(Math.abs(badge.x - 1000) < 0.001, 'still centred on the exon: ' + badge.x);
+    ok(Math.abs(badge.y - yExon) < 0.001,
+       'centred on the exon lane, where it is read: ' + badge.y + ' vs ' + yExon);
+    ok(Math.abs(badge.x - 1000) < 0.001, 'and centred along the exon: ' + badge.x);
+    ok(num && Math.abs(num.y - badge.y) < 0.001 && Math.abs(num.x - badge.x) < 0.001,
+       'the number is in the disc, not beside it: ' + JSON.stringify(num));
 
-    // NOTHING IS DRAWN ACROSS THE LANE ITSELF any more: that band belongs to whatever the
-    // exon says (PSINet's "99% constitutive" is drawn just under it).
-    const BAND_TOP = yExon - 7, BAND_BOTTOM = yExon + 22;   // capsule + the line of text under it
-    // Only the number badges count here; the capsule draws its own rounded end caps with
-    // arc() too, and those ARE the exon.
-    const across = r.arcs.filter((a) => (a.r === 10 || a.r === 20)
-        && (a.y + a.r) > BAND_TOP && (a.y - a.r) < BAND_BOTTOM);
-    ok(!across.length, 'no badge overlaps the exon or the line of text under it: ' + JSON.stringify(across));
+    // WHAT THIS COSTS, stated so the other half of the fix is not quietly dropped: the disc
+    // owns a 40px band on the exon, so anything the exon says goes outside it. The stability
+    // label is drawn at baseline - 30 for exactly this reason.
+    ok(badge.y - badge.r <= yExon - 20 + 0.001,
+       'the disc reaches 20px above the lane, which the stability row clears: '
+       + (badge.y - badge.r));
 
-    // The badge is tied to its exon by a hairline, or a lifted number belongs to nobody.
-    const leader = r.lines.find((l) => Math.abs(l.from.x - 1000) < 0.001 && Math.abs(l.to.x - 1000) < 0.001
-        && l.from.y !== l.to.y);
-    ok(!!leader, 'a leader joins the badge to the exon: ' + JSON.stringify(leader));
-    ok(leader && Math.min(leader.from.y, leader.to.y) >= badge.y + badge.r - 0.001
-       && Math.max(leader.from.y, leader.to.y) <= EXON_TOP + 0.001,
-       'running from the disc down to the capsule and no further: ' + JSON.stringify(leader));
+    // The badge is not joined to the exon by anything: it is ON it.
+    ok(!r.lines.some((l) => Math.abs(l.from.x - 1000) < 0.001 && l.from.y !== l.to.y),
+       'no leader line, since it never left the exon');
 
     // Zoomed OUT the small badge is unchanged -- it was never on the exon.
     const b = recorder();

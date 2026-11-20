@@ -998,24 +998,14 @@ function () {
                     const small = (annotation.index >= 0 && screencell < 0.52);
                     const radius = small ? 10 : 20;
                     const fontSize = small ? 8 : 15;
-                    // THE NUMBER SITS ABOVE THE EXON, NOT ON IT. Zoomed in, the badge is a
-                    // 40px opaque white disc and it was centred on the capsule, so it covered
-                    // the middle of whatever the exon says underneath it -- a PSINet "99%
-                    // constitutive" read as "99%  utive", which is worse than no label at all
-                    // because the part it leaves showing looks like the whole of it.
-                    //
-                    // Lifted clear of the capsule's top edge by its own radius plus a little,
-                    // and joined to the exon by a hairline so a badge standing off the track
-                    // still reads as belonging to the exon beneath it rather than floating
-                    // between two of them. The exon's own width is EXON_H below (the capsule
-                    // is drawn exonWidth + 2 tall), so the lift follows the exon if that
-                    // changes rather than being a number guessed against it.
+                    // ON THE EXON, WHICH IS WHERE IT IS READ. Lifting the badge clear of the
+                    // capsule was tried, to stop it covering what the exon says underneath:
+                    // zoomed in it then stood in the sequence and the amino-acid rows, which
+                    // is busier ground than the capsule ever was. The number stays on the
+                    // exon; anything the exon has to say is drawn clear of the badge instead
+                    // (see the stability label in baja/bio/track-layer.js).
                     const x = (graph.X(xs) + graph.X(xf)) / 2;
-                    const EXON_H = exonWidth + 2;
-                    const yExon = graph.Y(yv);
-                    // graph.Y() is a SCREEN y: smaller is higher up, so above is a subtraction.
-                    const lift = EXON_H / 2 + radius + 4;
-                    const y = small ? (yExon + (radius + 28)) : (yExon - lift);
+                    const y = small ? (graph.Y(yv) + (radius + 28)) : graph.Y(yv);
 
                     // Hide overlapping exon-index badges: if this badge's circle
                     // would collide with the previous badge kept on this track/frame,
@@ -1035,16 +1025,6 @@ function () {
                         ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
                         ctx.shadowColor = 'transparent';
                         ctx.lineWidth = 1;
-                        if (!small) {
-                            // Hairline from the badge down to the top of the capsule. Drawn
-                            // first so the disc is painted over its end rather than the line
-                            // crossing the number.
-                            ctx.beginPath();
-                            ctx.strokeStyle = 'rgba(12,92,112,0.45)';
-                            ctx.moveTo(x, y + radius);
-                            ctx.lineTo(x, yExon - EXON_H / 2);
-                            ctx.stroke();
-                        }
                         ctx.beginPath();
                         ctx.arc(x, y, radius, 0, 2 * Math.PI);
                         ctx.fillStyle = 'white';     // white background

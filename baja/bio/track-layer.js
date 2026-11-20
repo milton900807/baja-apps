@@ -1014,6 +1014,79 @@ return new Promise(async (resolve, reject) => {
                     ctx.restore();
                 }
             }
+            // HOW STABLY EACH EXON SPLICES, said on the exon itself.
+            //
+            // The arcs already carry the numbers, but reading an exon's stability off them
+            // means finding its skip arc, noticing the dashes, and subtracting from 100 --
+            // and an exon with no skip arc at all, which is the commonest and best case,
+            // carries no number anywhere. So each annotated exon gets the answer written on
+            // it: PSI, the share of transcripts that keep the exon, as a percentage.
+            //
+            // It is 1 minus the exon's largest skip share, on the model's own 0..1 scale
+            // (mag / magMax, not the drawing weight). No skip arc means nothing was predicted
+            // to skip it: 100%, which is what "constitutive" means and is said in that word.
+            //
+            // CLEAR OF THE EXON NUMBER, which is a 40px opaque disc centred on the capsule
+            // (flexigraph/gene-draw.js). A label centred under the exon was covered by it,
+            // leaving "99%   utive" on screen, so this sits above the disc's reach. Skipped
+            // where the exon is too narrow to hold it, and where it would land on a label
+            // already drawn this frame -- a number half written over another is worse than
+            // the gap it fills.
+            if (this.magnitudeMode === 'psi' && this.showExonStability !== false
+                && track && Array.isArray(track.annotations) && this.junctions.length) {
+                const skipOf = new Map();
+                for (const j of this.junctions) {
+                    if (!j || j.kind !== 'skip' || j.exon == null) continue;
+                    const f = Math.max(0, Math.min(1, (typeof j.mag === 'number' ? j.mag : 0) / magMax));
+                    const k = +j.exon;
+                    if (!(f <= (skipOf.get(k) || 0))) skipOf.set(k, f);
+                }
+                const BADGE_R = 20;                 // the exon number's disc, at this zoom
+                const ly = baselineY - BADGE_R - 10;
+                const placed = [];
+                ctx.save();
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.lineJoin = 'round';
+                ctx.miterLimit = 2;
+                for (const an of track.annotations) {
+                    if (!an || ('' + an.type).toLowerCase() !== 'exon' || an.index == null) continue;
+                    const ex0 = graph.X(tgraph.X(Math.min(+an.xi, +an.xf)));
+                    const ex1 = graph.X(tgraph.X(Math.max(+an.xi, +an.xf) + 1));
+                    if (!isFinite(ex0) || !isFinite(ex1)) continue;
+                    const lo = Math.min(ex0, ex1), hi = Math.max(ex0, ex1);
+                    if (hi < 0 || lo > w) continue;
+                    const psi = 1 - (skipOf.get(+an.index) || 0);
+                    const pct = (psi >= 0.995) ? 100 : Math.round(psi * 100);
+                    // The long form says what the number means; the short one is the number,
+                    // for an exon with room for one and not the other.
+                    const full = 'e' + an.index + ' \u00b7 ' + pct + '% '
+                        + (pct >= 100 ? 'constitutive' : 'stable');
+                    const short = pct + '%';
+                    const span = hi - lo;
+                    const wFull = ctx.measureText(full).width;
+                    const wShort = ctx.measureText(short).width;
+                    let text = null, tw = 0;
+                    if (span >= wFull + 8) { text = full; tw = wFull; }
+                    else if (span >= wShort + 6) { text = short; tw = wShort; }
+                    if (!text) continue;
+                    const cx = (lo + hi) / 2;
+                    const x0 = cx - tw / 2 - 2, x1 = cx + tw / 2 + 2;
+                    if (placed.some((r) => x0 < r.x1 && x1 > r.x0)) continue;
+                    placed.push({ x0: x0, x1: x1 });
+                    // Green while the exon is kept, amber once a meaningful share skips it,
+                    // red when most transcripts do: the colour is the reading, the number is
+                    // the measurement.
+                    const col = (pct >= 90) ? '#15803d' : (pct >= 50 ? '#b45309' : '#b91c1c');
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                    ctx.strokeText(text, cx, ly);
+                    ctx.fillStyle = col;
+                    ctx.fillText(text, cx, ly);
+                }
+                ctx.restore();
+            }
             // BRANCH POINTS. Each annotated acceptor's predicted branch-site A, drawn just under
             // the baseline as a violet diamond joined by a dotted line to its AG, so the
             // branch point, the polypyrimidine tract and the acceptor read as one unit. Filled
