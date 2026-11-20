@@ -17,6 +17,21 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
         };
 
         const runOnTrack = async (track, mode, range) => {
+            // WHY A RUN DID NOT PRODUCE A LAYER, left on the track. Every refusal below
+            // already says exactly what is wrong -- a cDNA with no introns to score, a
+            // track with no sequence, a backend error, no junction over threshold -- and
+            // said it to graph.setMessage, which is the status line: it is gone by the
+            // next message and no caller can read it. A batch caller (the exon stability
+            // report runs PSI over every track on the canvas) then has only the absence
+            // of a layer to go on, so it waits out its whole timeout and reports "no
+            // result" for a track whose problem was known in the first second.
+            try { track.psiRefusal = null; } catch (e) { }
+            const refuse = (msg) => {
+                try { graph.setMessage(msg); } catch (e) { }
+                try { track.psiRefusal = { why: ('' + msg).trim(), mode: mode, at: Date.now() }; } catch (e) { }
+                restoreHover();
+                return false;
+            };
             try {
                 // A range scopes the model to the SELECTED sequence: send that sub-sequence and
                 // shift xi to the range start so the scores land at the right coordinates.
@@ -41,12 +56,11 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                     // Off-by-one loaders exist (a track one base short is still genomic);
                     // a cDNA is shorter by whole introns, so a 1% tolerance separates them.
                     if (seq.length < span * 0.99) {
-                        graph.setMessage(' ' + (track.name || 'This track') + ' holds a spliced sequence ('
+                        return refuse(' ' + (track.name || 'This track') + ' holds a spliced sequence ('
                             + ('' + seq.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' nt) in a '
                             + ('' + span).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' nt genomic frame — '
                             + 'no introns to score. Load the transcript as pre-mRNA (a primary-assembly '
                             + 'Ensembl id) and run again. ');
-                        restoreHover(); return false;
                     }
                 }
                 if (range && mode !== 'psi' && Number.isFinite(+range.start) && Number.isFinite(+range.end) && +range.end > +range.start) {
@@ -74,8 +88,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                     } catch (e) { }
                 }
                 if (!seq || !seq.length) {
-                    graph.setMessage(' That track has no sequence to profile. ');
-                    restoreHover(); return false;
+                    return refuse(' That track has no sequence to profile. ');
                 }
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
@@ -168,8 +181,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                 const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation, tissueArg, chromArg, variantsArg);
 
                 if (data && data.error) {
-                    graph.setMessage(' Splicing error: ' + data.error + ' ');
-                    restoreHover(); return false;
+                    return refuse(' Splicing error: ' + data.error + ' ');
                 }
                 let junc = [];
                 try { junc = JSON.parse((data && data.junctions) || '[]'); } catch (e) { junc = []; }
@@ -185,13 +197,12 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                     try { __a = JSON.parse((data && data.acceptor) || '[]'); } catch (e) { }
                     const __best = (arr) => arr.reduce((m, p) => Math.max(m, +p[1] || 0), 0);
                     const __top = Math.max(__best(__d), __best(__a));
-                    graph.setMessage(mode === 'psi'
+                    return refuse(mode === 'psi'
                         ? ' No cassette-exon events detected in that sequence. '
                         : (' No splice junctions predicted over ' + (data && data.n ? data.n : seq.length)
                             + ' nt — ' + __d.length + ' donor and ' + __a.length + ' acceptor positions '
                             + 'scored above 0.02, best ' + __top.toFixed(2) + '. A junction needs a donor '
                             + 'and an acceptor, both at least 0.10, inside the same sequence. '));
-                    restoreHover(); return false;
                 }
 
                 // Build a base TrackLayer carrying the sashimi arcs as plain

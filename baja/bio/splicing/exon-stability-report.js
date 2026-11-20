@@ -133,6 +133,7 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
         // much as "running": a reader who cannot see which tracks needed work cannot tell
         // a fast report from a report that quietly skipped something.
         const state = {};
+        const reason = {};
         for (const t of all) {
             state[t.name || 'track'] = (missing.indexOf(t) >= 0) ? 'queued' : 'already scored';
         }
@@ -149,7 +150,12 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
                 return '<div style="margin-top:5px;color:' + COLOUR[st] + ';">'
                     + GLYPH[st] + '&nbsp;&nbsp;<b style="color:#eaf6f9;">' + H(nm) + '</b>'
                     + ' <span style="color:#8fb8c8;">\u00b7 ' + nx + ' exon'
-                    + (nx === 1 ? '' : 's') + ' \u00b7 ' + st + '</span></div>';
+                    + (nx === 1 ? '' : 's') + ' \u00b7 ' + st + '</span>'
+                    + (reason[nm]
+                        ? ('<div style="margin:2px 0 0 22px;color:#ffb4a2;font-size:12px;">'
+                           + H(reason[nm]) + '</div>')
+                        : '')
+                    + '</div>';
             }).join('');
             const left = all.filter((t) => {
                 const st = state[t.name || 'track'];
@@ -190,16 +196,36 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
                 // proves only that it started. The layer appearing is the completion signal
                 // there is, so that is what is waited on -- with a ceiling, because a run that
                 // never lands must not hang the report.
+                // A REFUSAL ENDS THE WAIT AND CARRIES ITS REASON. splicing-profile.js
+                // leaves track.psiRefusal when it declines a track -- a cDNA with no
+                // introns to score, a track with no sequence, a backend error, nothing
+                // over threshold -- and every one of those is known within a second.
+                // Waiting the full two minutes for a layer that was never coming, and
+                // then reporting a bare "no result", threw away an answer the run had
+                // already given and made a known problem look like a hang.
+                const t0 = Date.now();
                 const got = await (async () => {
-                    const t0 = Date.now();
                     while (Date.now() - t0 < 120000) {
                         if (anyPsi(t)) return true;
+                        try {
+                            if (t.psiRefusal && +t.psiRefusal.at >= t0) return false;
+                        } catch (e) { }
                         await new Promise((r) => setTimeout(r, 250));
                     }
                     return null;
                 })();
                 if (got) { ran.push(nm); state[nm] = 'done'; }
-                else { failed.push(nm); state[nm] = 'no result'; }
+                else {
+                    let why = '';
+                    try { why = (t.psiRefusal && t.psiRefusal.why) || ''; } catch (e) { }
+                    // Timing out and being refused are different failures and the reader
+                    // needs them apart: one is a run still going somewhere, the other is a
+                    // track this model cannot be asked about at all.
+                    failed.push({ name: nm, why: why
+                        || 'no result within two minutes, and the run reported nothing' });
+                    state[nm] = 'no result';
+                    reason[nm] = why;
+                }
                 paint('Exon stability report \u00b7 ' + (i + 1) + ' of ' + missing.length,
                       progress());
             }
@@ -238,9 +264,9 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
             const lines = all.map((t) => {
                 const nm = t.name || 'track';
                 const L = psiLayer(t);
-                if (failed.indexOf(nm) >= 0) {
-                    return '<li><b>' + H(nm) + '</b> \u2014 PSINet was run but no result came '
-                        + 'back within three minutes.</li>';
+                const f = failed.filter((x) => x.name === nm)[0];
+                if (f) {
+                    return '<li><b>' + H(nm) + '</b> \u2014 ' + H(f.why) + '</li>';
                 }
                 if (!L) {
                     return '<li><b>' + H(nm) + '</b> \u2014 no PSI layer, and the run produced '
@@ -308,11 +334,18 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
                 + 'PSINet was run for this report on: ' + H(ran.join(', ')) + '.</div>';
         }
         if (failed.length) {
+            // NAMED WITH ITS REASON. "No result" on its own sends the reader to look for
+            // a problem the run already diagnosed, and the commonest one here is not a
+            // failure at all: a track loaded as cDNA has had its introns removed, so there
+            // is nothing for a splicing model to score and no amount of waiting will
+            // produce any.
             body += '<div style="font:12.5px Arial;color:#ffb4a2;margin-bottom:8px;">'
-                + 'No result came back for ' + H(failed.join(', ')) + ', so '
-                + (failed.length === 1 ? 'that track is' : 'those tracks are')
+                + 'No result for ' + failed.length + ' track' + (failed.length === 1 ? '' : 's')
+                + ', so ' + (failed.length === 1 ? 'it is' : 'they are')
                 + ' missing from the table below rather than reported as having no unstable '
-                + 'exons.</div>';
+                + 'exons:<ul style="margin:5px 0 0 0;padding-left:18px;">'
+                + failed.map((f) => '<li><b>' + H(f.name) + '</b> \u2014 ' + H(f.why) + '</li>').join('')
+                + '</ul></div>';
         }
 
         // ------------------------------------------------------------- the picture -----

@@ -266,6 +266,66 @@ const scored = (name, rows, extra) => ({
         canvas: { width: 1200, height: 800 } });
     ok(/1 exon/.test(opened.title), 'an already-scored canvas reports immediately');
 
+    // WHY A TRACK FAILED, instead of waiting out the timeout to say "no result".
+    // splicing-profile.js refuses a cDNA track in the first second -- its introns have
+    // been removed, so there is nothing for a splicing model to score -- and leaves the
+    // reason on the track. Before this, the report sat for two minutes and then reported
+    // a bare absence for a problem that was known immediately.
+    opened = null;
+    const refused = [{
+        name: 'MAPK8IP3', grid: {}, tgraph: {},
+        annotations: [{ type: 'Exon', index: 1, xi: 10, xf: 90 }],
+        track_layers: []
+    }];
+    const realExec3 = global.lion_engine.exec;
+    global.lion_engine.exec = async (pth, ...a) => {
+        if (/splicing-profile/.test(pth)) {
+            refused[0].psiRefusal = { why: 'MAPK8IP3 holds a spliced sequence (4,021 nt) in a '
+                + '92,110 nt genomic frame - no introns to score.', mode: 'psi', at: Date.now() };
+            return false;
+        }
+        return realExec3(pth, ...a);
+    };
+    const tStart = Date.now();
+    await (async () => {
+        const src = fs.readFileSync('baja/bio/splicing/exon-stability-report.js', 'utf8');
+        const f = await new AF('exec', 'args', core + '\nreturn (' + src + ')')(global.lion_engine.exec, {});
+        return f({ track: refused, getTracks: () => refused, setMessage() { },
+                   canvas: { width: 1200, height: 800 } }, {});
+    })();
+    global.lion_engine.exec = realExec3;
+    ok(Date.now() - tStart < 10000,
+       'a refusal ends the wait at once rather than running out the clock: '
+       + (Date.now() - tStart) + 'ms');
+    ok(/spliced sequence/.test(opened.body),
+       'and the reason reaches the report: ' + opened.body.replace(/<[^>]+>/g, ' ').slice(0, 140));
+    ok(/no introns to score/.test(opened.body), 'in the run\u2019s own words');
+    ok(/MAPK8IP3/.test(opened.body), 'named to the track it is about');
+
+    // A timeout is a DIFFERENT failure from a refusal and must not borrow its wording.
+    opened = null;
+    const quiet2 = [{ name: 'silent', grid: {}, tgraph: {},
+        annotations: [{ type: 'Exon', index: 1, xi: 10, xf: 90 }], track_layers: [] }];
+    global.lion_engine.exec = async (pth, ...a) => {
+        if (/splicing-profile/.test(pth)) return false;   // never lands, never refuses
+        return realExec3(pth, ...a);
+    };
+    // The ceiling is two minutes in the module; this only checks the wording it uses, so
+    // the clock is moved rather than waited out.
+    const realNow = Date.now;
+    let t = realNow();
+    Date.now = () => { t += 20000; return t; };
+    await (async () => {
+        const src = fs.readFileSync('baja/bio/splicing/exon-stability-report.js', 'utf8');
+        const f = await new AF('exec', 'args', core + '\nreturn (' + src + ')')(global.lion_engine.exec, {});
+        return f({ track: quiet2, getTracks: () => quiet2, setMessage() { },
+                   canvas: { width: 1200, height: 800 } }, {});
+    })();
+    Date.now = realNow;
+    global.lion_engine.exec = realExec3;
+    ok(/within two minutes/.test(opened.body),
+       'a genuine timeout says so: ' + opened.body.replace(/<[^>]+>/g, ' ').slice(0, 120));
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
