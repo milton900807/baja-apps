@@ -70,7 +70,29 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                         Promise.resolve(exec(path, graph, genegraph_panel_layout, selectedTrack, ...args))
                             .catch((e) => { try { graph.setMessage(' BajaSplice: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } });
                     };
+                    // FRAME, STATED BEFORE THE MODELS ARE RUN. Exon length mod 3 is the one
+                    // NMD-relevant fact available without a server call, and it is the fact
+                    // that decides whether the two forms of this exon can read in the same
+                    // frame at all. Not a multiple of 3 and they cannot: one of inclusion or
+                    // skipping carries a premature stop, which is what makes an exon worth
+                    // an oligo. Which of the two it is depends on the frame the rest of the
+                    // transcript is in and on where the stop falls relative to the last
+                    // junction, neither of which length can tell you, so this says
+                    // "potentially" and points at BajaNMD for the verdict.
+                    //
+                    // A caption is {label, header: true} with NO click. Giving it an empty
+                    // click would render a button that does nothing when pressed.
+                    const exonLen = hi - lo + 1;
+                    const frameNote = (exonLen % 3 === 0)
+                        ? exonLen + ' nt, a multiple of 3: including and skipping this exon read in the '
+                          + 'same frame, so neither form is frameshifted. A premature stop is still '
+                          + 'possible if the exon carries one in frame.'
+                        : exonLen + ' nt, not a multiple of 3: including and skipping read in DIFFERENT '
+                          + 'frames, so one of the two forms carries a premature stop. Potentially '
+                          + 'NMD-causing; BajaNMD says which form and whether the stop is early enough '
+                          + 'to trigger decay.';
                     graph.showSideMenu([
+                        { label: frameNote, header: true },
                         {
                             label: 'Splice-site strength (SpliceNet)',
                             click: () => run('baja/bio/splicing/splicing-profile.js', { start: lo, end: hi }, 'sites'),

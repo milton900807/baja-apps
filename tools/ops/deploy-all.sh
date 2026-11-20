@@ -643,7 +643,7 @@ if [[ $DO_API -eq 1 ]]; then
   # All of them or none: editor.js calling a module that is not there breaks the exon menu,
   # and a menu entry whose script is missing is worse than no entry.
   install_group "BajaSplice on an exon" \
-    "baja/bio/splicing/exon-ai-models.js:The old LJSplice v2" \
+    "baja/bio/splicing/exon-ai-models.js:FRAME, STATED BEFORE THE MODELS ARE RUN" \
     "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'" \
     "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
     "baja/bio/splicing/splicing-profile.js:Splicing profile — pick a magnitude mode" \
@@ -689,7 +689,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/aa/codons.js:aminoDict" \
     "baja/bio/orfs/retranslate-after-exon-change.js:Re-derive a track"
   install_group "BajaNMD on an exon" \
-    "baja/bio/splicing/exon-ai-models.js:made the user hunt for the row they had already pointed at" \
+    "baja/bio/splicing/exon-ai-models.js:FRAME, STATED BEFORE THE MODELS ARE RUN" \
     "baja/bio/splicing/bajanmd.js:GIVEN AN EXON, IT ANSWERS ABOUT THAT EXON" \
     "baja/ml/models-catalogue.js:title: 'NMD consequence of a cassette exon', badge: 'BajaNMD'" \
     "baja/ml/institute-of-models-library.js:headline: 'What including or skipping a cassette exon does" \
