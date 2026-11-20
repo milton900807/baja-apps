@@ -108,10 +108,19 @@ const mkTrack = () => {
     ok(plate && plate.w >= ('' + label(1).t).length * 6,
        'the plate covers the whole label: ' + (plate || {}).w);
 
-    // CLEAR OF THE EXON NUMBER: that badge is a 40px opaque disc centred on the capsule.
+    // BELOW THE EXON, and clear of the index disc: that badge is a 40px opaque disc
+    // centred on the capsule and on the exon's midpoint, which is where this tag sits.
+    // Above the capsule are the codon-number and amino-acid rows, which is why the tag
+    // is underneath at all, so a regression that lifts it back up must fail here.
     const baselineY = graph.Y(tgraph.Y(0));
-    ok(label(1).y <= baselineY - 20 - 1,
-       'the label clears the exon number disc: ' + label(1).y + ' vs baseline ' + baselineY);
+    ok(label(1).y > baselineY, 'the label sits BELOW the exon: ' + label(1).y
+       + ' vs baseline ' + baselineY);
+    ok(label(1).y >= baselineY + 20 + 1,
+       'and clears the exon number disc: ' + label(1).y + ' vs baseline ' + baselineY);
+    ok(label(1).y === baselineY + 30,
+       'ten pixels below the disc, in one straight row: ' + label(1).y);
+    ok(r.texts.filter((t) => /stable|constitutive/.test(t.t))
+        .every((t) => t.y === label(1).y), 'every exon on the same row');
     // Centred on its own exon, so it is obvious which exon it is about.
     ok(Math.abs(label(3).x - (graph.X(6000) + graph.X(7501)) / 2) < 1.5,
        'centred on the exon it describes: ' + label(3).x);
@@ -126,8 +135,9 @@ const mkTrack = () => {
         const g2 = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
         layer.drawSashimi(tgraph, g2, t2);
         // Only the stability row: the arcs write their own percentages elsewhere.
-        // BADGE_R (20) + 18: clear of the exon badge AND of the amino-acid row below it
-        const row = g2.Y(tgraph.Y(0)) - 38;
+        // BADGE_R (20) + 10, BELOW the baseline: clear of the exon index disc, and on the
+        // side of the capsule the amino-acid rows do not use.
+        const row = g2.Y(tgraph.Y(0)) + 30;
         return b.r.texts.filter((x) => Math.abs(x.y - row) < 0.001);
     };
     const nt = narrow();

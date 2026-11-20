@@ -1171,6 +1171,18 @@ if [[ $DO_API -eq 1 ]]; then
   # only the backend fills. Install the drawing without the backend and every exon keeps
   # its old number; install the backend without the drawing and the flag is computed and
   # never shown. Either half alone is the silent-wrong-number bug it is meant to fix.
+  # The stability tag moved BELOW the exon. Above the capsule are the codon-number row
+  # and the amino-acid letters, and the tag was being read through them; underneath,
+  # gene-draw.js keeps the lower part of the track clear. Measured from the exon index
+  # disc (40px, opaque, centred on the exon) rather than from the 14px capsule, or 10px
+  # down would land the text under the disc.
+  #
+  # Its own group with its own marker, not folded into the group below: that group's
+  # marker is from the previous change and track-layer.js already carries it, so a box
+  # still serving the older copy would pass the served-check with the tag in the wrong
+  # place. The marker has to be text that only this version has.
+  install_group "The exon stability tag reads below the exon" \
+    "baja/bio/track-layer.js:BELOW THE EXON, which is the only side of it that stays quiet"
   install_group "PSI is withheld where the reads were not uniquely assignable" \
     "py/bajasplice-lib/bajasplice/untrusted.py:WHY A LOOKUP AND NOT A BETTER MODEL" \
     "py/bajasplice-lib/bajasplice/config.py:Exons whose PSI is not trustworthy because the reads behind it were not" \

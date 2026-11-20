@@ -1026,12 +1026,21 @@ return new Promise(async (resolve, reject) => {
             // (mag / magMax, not the drawing weight). No skip arc means nothing was predicted
             // to skip it: 100%, which is what "constitutive" means and is said in that word.
             //
-            // CLEAR OF THE EXON NUMBER, which is a 40px opaque disc centred on the capsule
-            // (flexigraph/gene-draw.js). A label centred under the exon was covered by it,
-            // leaving "99%   utive" on screen, so this sits above the disc's reach. Skipped
-            // where the exon is too narrow to hold it, and where it would land on a label
-            // already drawn this frame -- a number half written over another is worse than
-            // the gap it fills.
+            // BELOW THE EXON, which is the only side of it that stays quiet. Above the
+            // capsule are the codon-number row and the amino-acid letters, published by
+            // track.js as offsets ABOVE the baseline (__pepIndexTopUpPx / __pepMidUpPx in
+            // flexigraph/gene-draw.js) and dense in exactly the band this tag needs once
+            // zoomed in; a plate wide enough to cover them is a plate that hides the
+            // sequence. Underneath, gene-draw.js deliberately keeps the lower part of the
+            // track clear, so the tag has the room to itself.
+            //
+            // Measured from the exon INDEX DISC, not from the capsule: that disc is 40px
+            // and opaque, centred on the capsule and horizontally centred on the exon --
+            // the very spot this tag occupies -- so 10px below a 14px capsule would put
+            // the text underneath it and bring back the "99%   utive" it replaced.
+            // Skipped where the exon is too narrow to hold it, and where it would land on
+            // a label already drawn this frame: a number half written over another is
+            // worse than the gap it fills.
             if (this.magnitudeMode === 'psi' && this.showExonStability !== false
                 && track && Array.isArray(track.annotations) && this.junctions.length) {
                 const skipOf = new Map();
@@ -1056,9 +1065,11 @@ return new Promise(async (resolve, reject) => {
                     return null;
                 };
                 const BADGE_R = 20;                 // the exon number's disc, at this zoom
-                // Clear of the badge AND of the amino-acid row, which sits just above the
-                // capsule once zoomed in and is what the tag used to be read through.
-                const ly = baselineY - BADGE_R - 18;
+                // 10px below the exon as drawn, disc included. One straight row for every
+                // exon on the track: deriving the offset per exon from whether that one
+                // shows its number would stagger the tags into two rows and make the
+                // track harder to read than the gap it would save.
+                const ly = baselineY + BADGE_R + 10;
                 const placed = [];
                 ctx.save();
                 ctx.font = 'bold 13px Arial';
