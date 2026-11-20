@@ -25,7 +25,12 @@ function (title, detail) {
         const el = document.createElement('div');
         el.id = 'baja-working';
         el.setAttribute('role', 'status');
-        el.style.cssText = 'position:fixed;inset:0;z-index:2147482600;display:flex;'
+        // ABOVE THE CARD THAT ASKED FOR THE WORK. The ask panel sits at 2147483000, and
+        // at 2147482600 this was drawn underneath it: the spinner existed, ran, and was
+        // covered by the very card the user was looking at, which is indistinguishable
+        // from no feedback at all. Only the handful of things that must interrupt
+        // anything -- a name prompt, a leave warning -- go above this.
+        el.style.cssText = 'position:fixed;inset:0;z-index:2147483450;display:flex;'
             + 'align-items:center;justify-content:center;background:rgba(7,32,47,0.72);'
             + 'color:#eaf6f9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;';
         el.innerHTML =

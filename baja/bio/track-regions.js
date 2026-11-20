@@ -162,6 +162,31 @@ function (track) {
     // track c.1 sits at the HIGH end of the CDS and c.2 one base below it. This walks the
     // exons rather than calling track.codingToGenomic(), which sorts the track's annotation
     // list in place and rounds its coordinates as a side effect.
+    // A NAMED REGION IS A PLACE TOO. "go to exon 15" was refused with "“exon 15” is
+    // not a position: use c.778, c.-12, c.*30, c.778+5 or a plain number", which is true
+    // of the HGVS parser and useless to someone pointing at an exon on their screen. The
+    // editor already knows where exon 15 is -- resolve() has answered that for selections
+    // all along -- so the only thing missing was reading the words.
+    //
+    // It returns a SPEC rather than a position, because an exon is a stretch and not a
+    // point: the caller frames it, and framing a range on a point would show one base of
+    // a 150 base exon.
+    const named = (text) => {
+        const raw = ('' + (text == null ? '' : text)).trim().toLowerCase()
+            .replace(/[\u2032\u2019']/g, "'").replace(/\s+/g, ' ');
+        if (!raw) return null;
+        let m = raw.match(/^(?:the\s+)?(exon|intron)\s*#?\s*(\d+)$/);
+        if (m) return { region: m[1], index: +m[2] };
+        // "15th exon", which is the same request the other way round.
+        m = raw.match(/^(?:the\s+)?(\d+)(?:st|nd|rd|th)?\s+(exon|intron)$/);
+        if (m) return { region: m[2], index: +m[1] };
+        if (/^(?:the\s+)?5'?\s*(?:prime)?\s*utr$/.test(raw)) return { region: 'five_prime_utr' };
+        if (/^(?:the\s+)?3'?\s*(?:prime)?\s*utr$/.test(raw)) return { region: 'three_prime_utr' };
+        if (/^(?:the\s+)?(cds|coding(?:\s+sequence)?|orf)$/.test(raw)) return { region: 'cds' };
+        if (/^(?:the\s+)?(transcript|whole\s+transcript|gene|everything)$/.test(raw)) return { region: 'transcript' };
+        return null;
+    };
+
     const position = (text) => {
         const raw = ('' + (text == null ? '' : text)).trim().replace(/\s+/g, '');
         const name = T.name || 'this track';
@@ -174,7 +199,15 @@ function (track) {
             return { pos: p, label: 'position ' + p.toLocaleString() };
         }
         const m = raw.match(/^c\.([-*]?)(\d+)([-+]\d+)?$/i);
-        if (!m) return { error: '“' + text + '” is not a position: use c.778, c.-12, c.*30, c.778+5 or a plain number' };
+        if (!m) {
+            // Said with what it IS good for: an exon has a place but not a single
+            // coordinate, and the caller is the one that can frame a stretch.
+            const nm = named(text);
+            if (nm) return { error: '“' + text + '” is a stretch, not a single position', named: nm };
+            return { error: '“' + text + '” is not a position: use c.778, c.-12, c.*30, '
+                + 'c.778+5, a plain number, or a named region such as “exon 15”, '
+                + '“intron 3” or “the 3\u2032 UTR”' };
+        }
         const c = cds();
         if (!c) return { error: name + ' has no annotated coding region, so it has no c. positions' };
         const n = +m[2];
@@ -213,7 +246,7 @@ function (track) {
     };
 
     return {
-        resolve: resolve, available: available, position: position,
+        resolve: resolve, available: available, position: position, named: named,
         exons: exons, introns: introns, cds: cds, whole: whole,
         utr5: () => utr(5), utr3: () => utr(3), isMinus: minus,
         REGIONS: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'coordinates']

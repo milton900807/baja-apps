@@ -2430,18 +2430,22 @@ function (graph, genegraph_panel_layout) {
                 // Go per track the position exists on: c.778 is a different place on each
                 // transcript, and which one was meant is the user's call.
                 name: 'go_to_position',
-                summary: 'GO TO ONE POSITION on a track and zoom in until the bases can be read: '
-                    + '"goto c.778", "go to c.-12", "jump to c.*30", "show me c.1234+5", "take me to '
-                    + 'position 1520". Marks that base as the selection. Use this, not '
-                    + 'select_sequence_region, whenever the request names a single position to go '
-                    + 'to or look at.',
+                summary: 'GO TO A POSITION OR A NAMED REGION on a track and zoom in until it '
+                    + 'can be read: "goto c.778", "go to c.-12", "jump to c.*30", "show me '
+                    + 'c.1234+5", "take me to position 1520", AND "go to exon 15", "jump to '
+                    + 'intron 3", "show me the 3\u2032 UTR". A single position is marked as the '
+                    + 'selection; a named region is framed and selected whole, since an exon '
+                    + 'is a stretch and showing one base of it would be showing the wrong '
+                    + 'thing. Use this, not select_sequence_region, whenever the request is '
+                    + 'about GOING somewhere or LOOKING at it.',
                 needs: 'track',
                 params: {
                     position: {
                         type: 'string', required: true,
-                        about: 'the position exactly as written: HGVS coding notation (c.778, c.-12 in '
-                            + "the 5' UTR, c.*30 after the stop, c.778+5 in an intron) or a plain number, "
-                            + 'which is a coordinate counted from the start of the track'
+                        about: 'the place exactly as written: HGVS coding notation (c.778, c.-12 in '
+                            + "the 5' UTR, c.*30 after the stop, c.778+5 in an intron), a plain number, "
+                            + 'which is a coordinate counted from the start of the track, or a named '
+                            + 'region ("exon 15", "intron 3", "the 3\u2032 UTR", "the CDS")'
                     },
                     track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
                 },
@@ -2451,6 +2455,25 @@ function (graph, genegraph_panel_layout) {
                     const R = await regionsOf(t);
                     if (!R) { result('Could not read the exons of ' + (t.name || 'that track') + '.'); return; }
                     const r = R.position(a.position);
+                    // A NAMED REGION IS A STRETCH, SO IT IS FRAMED, NOT POINTED AT. Going to
+                    // exon 15 and marking one base of it would be showing the wrong thing:
+                    // the same framing the selection operations use is what was wanted.
+                    if (r.error && r.named) {
+                        const got = R.resolve(r.named);
+                        if (got.error) { result(got.error); return; }
+                        try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                        t.markstart = got.start;
+                        t.markend = got.end;
+                        t.showResizeBar = true;
+                        try { graph.startX = t.tgraph.X(got.start); graph.endX = t.tgraph.X(got.end); } catch (e) { }
+                        try { graph.selectedTrack = t; } catch (e) { }
+                        try { await frameRange(t, got.start, got.end); } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                        result((t.name || 'Track') + ' \u00b7 ' + (got.label || a.position)
+                            + ' \u00b7 ' + (got.end - got.start).toLocaleString() + ' bases ('
+                            + got.start.toLocaleString() + '\u2013' + got.end.toLocaleString() + ').');
+                        return;
+                    }
                     if (r.error) { result(r.error); return; }
                     try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
                     t.markstart = r.pos;
@@ -2467,6 +2490,14 @@ function (graph, genegraph_panel_layout) {
                     const t = pickTrack(a);
                     const R = regionsNow(t);
                     const r = R ? R.position(a.position) : null;
+                    if (r && r.error && r.named && R) {
+                        const got = R.resolve(r.named);
+                        if (!got.error) {
+                            return 'go to ' + (got.label || a.position)
+                                + (t ? (' on ' + (t.name || 'the track')) : '') + ' and frame it \u00b7 '
+                                + (got.end - got.start).toLocaleString() + ' bases';
+                        }
+                    }
                     return 'go to ' + a.position + (t ? (' on ' + (t.name || 'the track')) : '')
                         + ((r && !r.error) ? (' (track position ' + r.pos.toLocaleString() + ')') : '')
                         + ', zoomed in to the bases';
@@ -2480,10 +2511,22 @@ function (graph, genegraph_panel_layout) {
                     const t = pickTrack(a);
                     if (!t || (!a.track && !a.__track)) {
                         // No track named: fine when the position exists on at least one track.
-                        const n = choicesOver(a, (x) => regionsNow(x) && regionsNow(x).position(a.position)).length;
+                        const placeOn = (x) => {
+                            const Rx = regionsNow(x);
+                            if (!Rx) return null;
+                            const rr = Rx.position(a.position);
+                            if (rr.error && rr.named) { const g = Rx.resolve(rr.named); return g.error ? null : g; }
+                            return rr.error ? null : rr;
+                        };
+                        const n = choicesOver(a, placeOn).length;
                         if (n) return '';
                         if (!a.track && tracks().length > 1) {
-                            const why = tracks().map((x) => { const R = regionsNow(x); const r = R && R.position(a.position); return r && r.error; }).find(Boolean);
+                            const why = tracks().map((x) => {
+                                const R = regionsNow(x);
+                                const r = R && R.position(a.position);
+                                if (r && r.error && r.named) return R.resolve(r.named).error;
+                                return r && r.error;
+                            }).find(Boolean);
                             return why || ('no open track has ' + a.position);
                         }
                     }
@@ -2495,7 +2538,14 @@ function (graph, genegraph_panel_layout) {
                     }
                     const R = regionsNow(t);
                     if (!R) return '';
-                    return R.position(a.position).error || '';
+                    // A NAMED REGION IS NOT A FAILED POSITION. position() reports one as an
+                    // error because it cannot return a point for a stretch, and passing that
+                    // error straight through here refused the whole card: the operation
+                    // frames the stretch instead, so the only thing that blocks is a region
+                    // the track does not have.
+                    const r = R.position(a.position);
+                    if (r.error && r.named) return R.resolve(r.named).error || '';
+                    return r.error || '';
                 }
             },
             {
@@ -2950,9 +3000,73 @@ function (graph, genegraph_panel_layout) {
             },
             {
                 name: 'fit',
-                summary: 'Zoom out until every track is in view.',
+                summary: 'Zoom out until EVERY track is in view. Use this for "fit", "show '
+                    + 'everything", "see all the tracks". For a step of zoom from where the '
+                    + 'view is now, use zoom.',
                 params: {},
                 run: async () => { try { await graph.viewAllTracks(); } catch (e) { } result('Zoomed out to every track.'); }
+            },
+
+            {
+                // "ZOOM OUT" IS NOT "FIT". The editor had fit, zoom to a track, zoom to the
+                // selection and zoom to the variants, and no way to simply pull back a bit
+                // from where you are -- so "zoom out" was answered with "the editor has fit
+                // to show all tracks, but no general zoom out control", which is an accurate
+                // description of a gap rather than an answer. Fit jumps to everything; a
+                // step keeps your place and changes how much of it you see, and those are
+                // different things to want.
+                name: 'zoom',
+                summary: 'ZOOM IN OR OUT A STEP FROM WHERE THE VIEW IS NOW, keeping the middle '
+                    + 'of the screen where it is. This is the answer to "zoom out", "zoom in", '
+                    + '"zoom out a bit", "pull back", "zoom in more", "closer". For showing '
+                    + 'every track at once use fit; for a particular track, selection or '
+                    + 'position use zoom_to_track, zoom_selection or go_to_position.',
+                params: {
+                    direction: {
+                        type: 'enum', values: ['out', 'in'], default: 'out',
+                        about: 'out to see more, in to see less and larger'
+                    },
+                    amount: {
+                        type: 'number', default: 2,
+                        about: 'how many times more or less to show. 2 is a normal step; use 4 '
+                            + 'or 8 only when the request says "a lot" or "way out"'
+                    }
+                },
+                run: async (a) => {
+                    const g = graph.grid;
+                    if (!g || typeof g.getxmin !== 'function' || !graph.zoomRect) {
+                        result('This view cannot be zoomed.');
+                        return;
+                    }
+                    const out = (('' + ((a && a.direction) || 'out')).toLowerCase() !== 'in');
+                    let k = Number((a && a.amount) || 2);
+                    if (!isFinite(k) || k <= 0) k = 2;
+                    k = Math.min(Math.max(k, 1.1), 50);
+                    const f = out ? k : (1 / k);
+                    const x0 = g.getxmin(), x1 = g.getxmax();
+                    const y0 = g.getymin(), y1 = g.getymax();
+                    if (![x0, x1, y0, y1].every((v) => isFinite(v))) {
+                        result('This view cannot be zoomed.');
+                        return;
+                    }
+                    // ABOUT THE MIDDLE OF THE SCREEN. Zooming from a corner walks the view
+                    // sideways with every step, which is how a few zoom-outs end up looking
+                    // at nothing.
+                    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+                    const hw = Math.abs(x1 - x0) / 2 * f, hh = Math.abs(y1 - y0) / 2 * f;
+                    try {
+                        await graph.zoomRect(cx - hw, cx + hw, cy - hh, cy + hh, 20);
+                    } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result('Zoomed ' + (out ? 'out' : 'in') + ' \u00d7' + k + '.');
+                },
+                preview: (a) => {
+                    const out = (('' + ((a && a.direction) || 'out')).toLowerCase() !== 'in');
+                    let k = Number((a && a.amount) || 2);
+                    if (!isFinite(k) || k <= 0) k = 2;
+                    return 'zoom ' + (out ? 'out' : 'in') + ' \u00d7' + k
+                        + ', keeping the middle of the view where it is';
+                }
             },
 
             // SPLICE A TRACK INTO AN mRNA. The track menu has offered this for a while

@@ -1003,6 +1003,18 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:THE VARIANTS ON THE TRACK, CARRIED ONTO THE PROTEIN" \
     "baja/bio/conservation-map.js:IT IS A PROTEIN MAP, AND IT SAYS SO" \
     "py/bio/editor/plan.py:CONSERVATION ACROSS SPECIES IS conservation_map"
+  # Going somewhere by name, and pulling back from where you are. Both are refusals the
+  # catalogue produced for requests the editor could already answer, so the words and the
+  # operations go together: an old capabilities file cannot read a named region, and an old
+  # track-regions cannot tell it one was asked for.
+  install_group "Go to a named region; zoom in and out from where you are" \
+    "baja/bio/track-regions.js:A NAMED REGION IS A PLACE TOO" \
+    "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS A STRETCH, SO IT IS FRAMED, NOT POINTED AT" \
+    "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS NOT A FAILED POSITION" \
+    "baja/manchester/menu/editor-capabilities.js:\"ZOOM OUT\" IS NOT \"FIT\""
+  # The panel that reports slow work was drawn under the card that asked for it.
+  install_group "The working panel is drawn above the card that asked for the work" \
+    "baja/lib/working.js:ABOVE THE CARD THAT ASKED FOR THE WORK"
   install_group "A panel while something slow is running" \
     "baja/lib/working.js:SOMETHING IS HAPPENING, AND HERE IS WHAT" \
     "baja/manchester/menu/editor-capabilities.js:A FORTY-SECOND WAIT NEEDS A PANEL" \

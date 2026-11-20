@@ -37,6 +37,14 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     ok(/inset:\s*0/.test(el.style.cssText),
        'over the canvas, which is not usable meanwhile and whose buttons would otherwise '
        + 'take a second press');
+    // ABOVE THE CARD THAT ASKED FOR THE WORK: at 2147482600 it was drawn underneath the
+    // ask panel's 2147483000, so the spinner ran and was covered by the very card the
+    // user was looking at, which is indistinguishable from no feedback at all.
+    const zWorking = +(/z-index:\s*(\d+)/.exec(el.style.cssText) || [])[1];
+    const askPanel = fs.readFileSync('baja/manchester/menu/editor-command.js', 'utf8');
+    const zAsk = +(/panel\.style\.cssText = 'position:fixed;inset:0;z-index:(\d+)/.exec(askPanel) || [])[1];
+    ok(zAsk > 0 && zWorking > zAsk,
+       'and above the card that asked for it: ' + zWorking + ' vs the ask panel at ' + zAsk);
     ok(/Conservation map for SPAG9/.test(el.textContent), 'saying what is running');
     ok(/Asking Ensembl/.test(el.textContent), 'and what it is waiting on');
     ok(!!el.querySelector('svg animateTransform'), 'with something that moves');
