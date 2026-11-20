@@ -1245,6 +1245,19 @@ if [[ $DO_API -eq 1 ]]; then
   # The three travel together: the launcher gathering variants that the backend does
   # not score sends them nowhere, the backend scoring variants the launcher never
   # sends is dead code, and the tag is where the answer is read.
+  # THE EXON STABILITY REPORT: every exon on the canvas in one ranked table, folding in
+  # everything the PSI run already works out -- reliability weighted by conservation and
+  # functional sites, exons in duplicated sequence that carry no trustworthy number,
+  # published measurements, and what each variant does to inclusion. The per-track
+  # ranking answers "which exon on this transcript"; choosing a target asks "which exon
+  # anywhere", which meant reading five panels side by side.
+  #
+  # Both files or neither: the capability is how the report is reached from the ask box,
+  # and without the module behind it the entry opens onto a missing script -- the failure
+  # the all-or-none rule exists for.
+  install_group "The exon stability report, across every track" \
+    "baja/bio/splicing/exon-stability-report.js:THE EXON STABILITY REPORT: every exon on the canvas" \
+    "baja/manchester/menu/editor-capabilities.js:THE REPORT ACROSS THE WHOLE CANVAS"
   install_group "A variant on the track is scored, not just drawn" \
     "py/bio/splice/splicing-profile.py:WHAT EACH VARIANT DOES TO INCLUSION" \
     "baja/bio/splicing/splicing-profile.js:THE VARIANTS ON THE TRACK GO TO THE MODEL WITH THE SEQUENCE" \

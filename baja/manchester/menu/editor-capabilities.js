@@ -1151,6 +1151,61 @@ function (graph, genegraph_panel_layout) {
                 }
             },
             {
+                // THE REPORT ACROSS THE WHOLE CANVAS. exon_inclusion_psi answers "which
+                // exon on THIS transcript"; the question in front of someone choosing an
+                // ASO target is "which exon anywhere on the canvas", and until now that
+                // meant running PSI on each track and reading five panels side by side.
+                //
+                // It runs PSI where it is missing, unlike the ranking panel, which
+                // deliberately refuses to: ranking is a second look at a run you asked
+                // for, while a report over the canvas IS the request, and an empty table
+                // noting that nothing was scored would answer a different one.
+                name: 'exon_stability_report',
+                summary: 'THE EXON STABILITY REPORT: every exon on every track, ranked by '
+                    + 'how unreliably it splices, in one table. Folds in conservation and '
+                    + 'annotated functional sites, exons whose PSI cannot be trusted '
+                    + 'because they sit in duplicated sequence, published measurements '
+                    + 'where they exist, and what each variant on the track does to '
+                    + 'inclusion. This is the answer to "exon stability report", "which '
+                    + 'exons are unstable across the canvas", "rank every exon", "report '
+                    + 'on exon stability". Runs PSINet on any track that has not been '
+                    + 'scored yet, so it works on a canvas where nothing has been run.',
+                needs: 'track',
+                params: {},
+                run: () => exec('baja/bio/splicing/exon-stability-report.js',
+                                graph, genegraph_panel_layout),
+                preview: () => {
+                    const ts = tracks().filter((t) => {
+                        try {
+                            return (t.annotations || []).some(
+                                (a) => a && ('' + a.type).toLowerCase() === 'exon');
+                        } catch (e) { return false; }
+                    });
+                    const done = ts.filter((t) => {
+                        try {
+                            return (t.track_layers || []).some((x) => x && x.magnitudeMode === 'psi'
+                                && Array.isArray(x.exonStability) && x.exonStability.length);
+                        } catch (e) { return false; }
+                    }).length;
+                    const todo = ts.length - done;
+                    return 'rank every exon on ' + ts.length + ' track'
+                        + (ts.length === 1 ? '' : 's') + ' by how unreliably it splices'
+                        + (todo > 0 ? (', running PSINet first on ' + todo + ' not yet scored') : '');
+                },
+                argBlocker: () => {
+                    const ts = tracks().filter((t) => {
+                        try {
+                            return (t.annotations || []).some(
+                                (a) => a && ('' + a.type).toLowerCase() === 'exon');
+                        } catch (e) { return false; }
+                    });
+                    return ts.length ? ''
+                        : 'no track on the canvas has annotated exons: the report is per exon, '
+                          + 'so a track without them has nothing to report';
+                },
+                whenStuck: MODEL_SHELF
+            },
+            {
                 name: 'exon_inclusion_psi',
                 summary: 'RUN PSINET (BajaSplice) ON A TRACK: predicted exon inclusion (PSI) '
                     + 'is drawn as a sashimi layer, with each exon tagged by how reliably it '
