@@ -537,6 +537,12 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // PARALOGS AND ORTHOLOGS ARE ONE OPERATION. Both are Ensembl homology with
+                // one parameter changed, both are ranked the same way and both want the same
+                // screen; splitting them would have been two of everything for the sake of a
+                // word, and a user who says "homolog" would have had to be routed to one of
+                // them anyway.
+                //
                 // NOTHING IN THE EDITOR KNEW WHAT A PARALOG WAS. "list the closest paralog to
                 // this track" came back as "not something the editor can do: this requires
                 // external database queries for homology relationships" -- a true sentence
@@ -548,18 +554,20 @@ function (graph, genegraph_panel_layout) {
                 // every row loads, through the same path as any other gene, which makes a
                 // paralog loaded here a track the comparison and the exon matching work on
                 // straight away.
-                name: 'list_paralogs',
-                summary: 'FIND THE PARALOGS OF A TRACK\u2019S GENE AND OFFER THEM AS TRACKS TO '
-                    + 'LOAD. Ensembl is asked for the within-species paralogs, they are ranked '
-                    + 'by percent identity over the aligned protein (closest first, and shown '
-                    + 'both ways round since a short paralog inside a long one scores high one '
-                    + 'way only), and a full screen lists them with what each one is and where '
-                    + 'it sits, each row loading that gene as a track. This is the answer to '
-                    + '"list the closest paralog to this track", "what are the paralogs of X", '
-                    + '"find the closest relative of this gene", "load the paralogs", "is there '
-                    + 'a paralog of this". It is about DUPLICATED GENES IN THE SAME SPECIES: '
-                    + 'for how two tracks already on the canvas compare use compare_sequences '
-                    + 'or match_regions_across_tracks instead.',
+                name: 'list_homologs',
+                summary: 'FIND THE HOMOLOGS OF A TRACK\u2019S GENE AND OFFER THEM AS TRACKS TO '
+                    + 'LOAD: its PARALOGS (duplicated genes in the same species) or its '
+                    + 'ORTHOLOGS (the same gene in mouse, rat, dog, fly and the rest). Ensembl '
+                    + 'is asked, they are ranked by percent identity over the aligned protein '
+                    + '(closest first, shown both ways round since a short one inside a long '
+                    + 'one scores high one way only), and a full screen lists them with what '
+                    + 'each is, which species it is in and where it sits, each row loading that '
+                    + 'gene as a track. This is the answer to "list the closest paralog to this '
+                    + 'track", "what are the paralogs of X", "find the mouse ortholog", "load '
+                    + 'the homologs of this gene", "is this conserved in rat", "what is the fly '
+                    + 'version of this". Set `kind` from the request\u2019s own word. For how two '
+                    + 'tracks ALREADY on the canvas compare, use compare_sequences or '
+                    + 'match_regions_across_tracks instead.',
                 needs: 'track',
                 params: {
                     track: {
@@ -572,9 +580,20 @@ function (graph, genegraph_panel_layout) {
                         about: 'the gene symbol, only when the request names a gene rather than '
                             + 'pointing at a track ("paralogs of SPAG9")'
                     },
+                    kind: {
+                        type: 'enum', values: ['paralogs', 'orthologs', 'both'],
+                        default: 'paralogs',
+                        about: 'paralogs for duplicated genes in the SAME species, which is '
+                            + 'what "paralog", "closest relative" and "family member" ask for; '
+                            + 'orthologs for the same gene in ANOTHER species, which is what '
+                            + '"ortholog", "the mouse version", "conserved in rat" and a named '
+                            + 'species ask for; both when the request says "homolog" without '
+                            + 'saying which'
+                    },
                     species: {
                         type: 'string', default: 'human',
-                        about: 'Ensembl species name, only if the request says one'
+                        about: 'the species the TRACK is in, only if the request says one. Not '
+                            + 'the species being looked for: that is what kind=orthologs does'
                     },
                     top: {
                         type: 'number', default: 25,
@@ -586,29 +605,43 @@ function (graph, genegraph_panel_layout) {
                     const sym = paralogGene(a);
                     if (!sym) { result('Which gene? Name it, or select a track.'); return; }
                     const species = ('' + ((a && a.species) || 'human')).trim() || 'human';
-                    try { graph.setMessage('Asking Ensembl for the paralogs of ' + sym + ' \u2026', 20); } catch (e) { }
+                    const kind = ('' + ((a && a.kind) || 'paralogs')).trim().toLowerCase();
+                    const word = (kind.indexOf('ortholog') === 0) ? 'orthologs'
+                        : (kind === 'both' ? 'homologs' : 'paralogs');
+                    // ORTHOLOGS TAKE A MOMENT. Ensembl aligns each pair when it is asked, so
+                    // the wait is real; saying what is being waited for beats a still canvas.
+                    try { graph.setMessage('Asking Ensembl for the ' + word + ' of ' + sym
+                        + ' \u2026 this takes a few seconds', 40); } catch (e) { }
                     let r = null;
                     try {
-                        r = await exec('py/bio/paralogs.py', sym, species, (a && a.top) || 25);
+                        r = await exec('py/bio/homologs.py', sym, species, (a && a.top) || 25, kind);
                     } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
                     if (!r || r.status !== 'OK') {
-                        result((r && r.error) || 'the paralogs could not be looked up');
+                        result((r && r.error) || ('the ' + word + ' could not be looked up'));
                         return r;
                     }
-                    await exec('baja/bio/paralogs-screen.js', graph, genegraph_panel_layout, r);
-                    result((r.paralogs || []).length
-                        ? ((r.paralogs || []).length + ' paralog'
-                            + ((r.paralogs || []).length === 1 ? '' : 's') + ' of ' + sym
-                            + ', closest first. Load any of them as a track from the list.')
-                        : ('Ensembl lists no paralogs for ' + sym + ' in ' + species + '.'));
+                    const got = (r.homologs || r.paralogs || []);
+                    await exec('baja/bio/homologs-screen.js', graph, genegraph_panel_layout, r);
+                    const openable = got.filter((x) => x && x.loadable !== false).length;
+                    result(got.length
+                        ? (got.length + ' ' + (got.length === 1 ? word.replace(/s$/, '') : word)
+                            + ' of ' + sym + ', closest first. '
+                            + (openable === got.length
+                                ? 'Load any of them as a track from the list.'
+                                : (openable + ' of them can be opened here; load those from the list.')))
+                        : ('Ensembl lists no ' + word + ' for ' + sym + ' in ' + species + '.'));
                     return r;
                 },
                 preview: (a) => {
                     const sym = paralogGene(a);
+                    const kind = ('' + ((a && a.kind) || 'paralogs')).trim().toLowerCase();
+                    const word = (kind.indexOf('ortholog') === 0)
+                        ? 'orthologs (the same gene in mouse, rat, dog and the rest)'
+                        : (kind === 'both' ? 'paralogs and orthologs' : 'paralogs');
                     return sym
-                        ? ('ask Ensembl for the paralogs of ' + sym + ', closest first, and list '
-                            + 'them to load as tracks')
-                        : 'list the paralogs \u2014 say which track or gene';
+                        ? ('ask Ensembl for the ' + word + ' of ' + sym + ', closest first, and '
+                            + 'list them to load as tracks')
+                        : 'list the homologs \u2014 say which track or gene';
                 },
                 argBlocker: (a) => {
                     if (paralogGene(a)) return '';

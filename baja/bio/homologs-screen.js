@@ -1,7 +1,11 @@
 function (graph, genegraph_panel_layout, model) {
 
-    // THE PARALOGS OF A TRACK, AS A SCREEN YOU LOAD FROM.
-    //   exec('baja/bio/paralogs-screen.js', graph, layout, { gene, species, paralogs, note })
+    // THE HOMOLOGS OF A TRACK, AS A SCREEN YOU LOAD FROM.
+    //   exec('baja/bio/homologs-screen.js', graph, layout, { gene, species, kind, homologs, note })
+    //
+    // Paralogs and orthologs are the same screen: the same ranking, the same rows, the same
+    // reason for wanting one. The only differences are the word at the top and a species
+    // column that only orthologs need, which is not two screens' worth of difference.
     //
     // "list the closest paralog to this track" was refused outright: nothing in the editor
     // knew what a paralog was. Answering it in a sentence would be the smaller half of the
@@ -23,8 +27,15 @@ function (graph, genegraph_panel_layout, model) {
 
     return (async () => {
         const m = model || {};
-        const list = (m.paralogs || []).filter(Boolean);
-        try { if (window.__bajaParalogScreen && window.__bajaParalogScreen.destroy) window.__bajaParalogScreen.destroy(); } catch (e) { }
+        const list = (m.homologs || m.paralogs || []).filter(Boolean);
+        const kind = ('' + (m.kind || 'paralogues')).toLowerCase();
+        const WORD = (kind.indexOf('ortholog') === 0) ? 'Orthologs'
+            : (kind === 'all' ? 'Homologs' : 'Paralogs');
+        // Only worth a column when the rows differ in it: every paralog is in the gene's
+        // own species, and a column of one repeated value is a column of noise.
+        const showSpecies = list.some((p) => p && p.species_common
+            && p.species_common !== (m.species || 'human'));
+        try { if (window.__bajaHomologScreen && window.__bajaHomologScreen.destroy) window.__bajaHomologScreen.destroy(); } catch (e) { }
 
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const pct = (x) => (x == null || !isFinite(+x)) ? '—' : ((Math.round(+x * 10) / 10).toFixed(1) + '%');
@@ -32,14 +43,16 @@ function (graph, genegraph_panel_layout, model) {
         const gene = '' + (m.gene || 'this track');
 
         const el = document.createElement('div');
-        el.id = 'baja-paralog-screen';
+        el.id = 'baja-homolog-screen';
         el.setAttribute('role', 'dialog');
         el.style.cssText = 'position:fixed;inset:0;z-index:2147482450;display:flex;flex-direction:column;'
             + 'background:#0a2540;padding:16px 20px 12px 20px;overflow:auto;color:#eaf6f9;'
             + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13px;';
 
         const BTN = (id, label, opts) =>
-            '<button type="button" data-id="' + id + '"' + (opts && opts.gene ? (' data-gene="' + esc(opts.gene) + '"') : '')
+            '<button type="button" data-id="' + id + '"'
+            + ((opts && opts.gene) ? (' data-gene="' + esc(opts.gene) + '"') : '')
+            + ((opts && opts.species) ? (' data-species="' + esc(opts.species) + '"') : '')
             + ' style="background:' + ((opts && opts.primary) ? 'rgba(26,163,189,0.22)' : 'transparent')
             + ';border:1px solid rgba(159,196,212,0.5);color:#eaf6f9;border-radius:7px;'
             + 'padding:6px 13px;cursor:pointer;font:inherit;white-space:nowrap;">' + esc(label) + '</button>';
@@ -72,8 +85,21 @@ function (graph, genegraph_panel_layout, model) {
                 + '<td style="padding:9px 10px;vertical-align:top;font-size:12px;color:#cfe9f3;">'
                 + esc(p.description || '') + flag
                 + '<div style="font-size:11px;color:#9fc4d4;margin-top:3px;">' + esc(where) + (kb ? (' · ' + kb) : '') + '</div></td>'
+                + (showSpecies
+                    ? ('<td style="padding:9px 10px;vertical-align:top;white-space:nowrap;font-size:12px;">'
+                        + esc(p.species_common || p.species || '') + '</td>')
+                    : '')
                 + '<td style="padding:9px 10px;vertical-align:top;text-align:right;white-space:nowrap;">'
-                + BTN('load', 'Load as a track', { gene: sym, primary: true })
+                // NOT A BUTTON THAT FAILS. Ensembl has orthologs in hundreds of species and
+                // this editor holds transcript indexes for eight; a row it cannot draw says
+                // so, which is the honest half of offering the rest.
+                + ((p.loadable === false)
+                    ? ('<span style="font-size:11px;color:#9fc4d4;">no transcripts here for '
+                        + esc(p.species_common || p.species || 'that species') + '</span>')
+                    : BTN('load', 'Load as a track',
+                        { gene: sym, primary: true,
+                          species: (p.species_common && p.species_common !== (m.species || 'human'))
+                              ? p.species_common : '' }))
                 + '</td></tr>';
         };
 
@@ -81,20 +107,24 @@ function (graph, genegraph_panel_layout, model) {
             + '<th style="text-align:left;padding:0 10px 6px 10px;">gene</th>'
             + '<th style="text-align:left;padding:0 10px 6px 10px;">identity</th>'
             + '<th style="text-align:left;padding:0 10px 6px 10px;">what it is</th>'
+            + (showSpecies ? '<th style="text-align:left;padding:0 10px 6px 10px;">species</th>' : '')
             + '<th></th></tr>';
 
-        const empty = '<div style="padding:26px 10px;color:#cfe9f3;">Ensembl lists no paralogs for '
-            + esc(gene) + ' in ' + esc(m.species || 'human') + '. A gene with no duplicated '
-            + 'counterpart is an ordinary answer, not a failure.</div>';
+        const empty = '<div style="padding:26px 10px;color:#cfe9f3;">Ensembl lists no '
+            + esc(WORD.toLowerCase()) + ' for ' + esc(gene) + ' in ' + esc(m.species || 'human')
+            + (showSpecies || kind.indexOf('ortholog') === 0
+                ? ' among the species this editor can open. '
+                : '. A gene with no duplicated counterpart is an ordinary answer, not a failure.')
+            + '</div>';
 
         el.innerHTML =
             '<div style="display:flex;align-items:flex-start;gap:12px;padding:2px 4px 12px 4px;">'
             + '<div style="flex:1;min-width:0;">'
-            + '<div style="font-weight:700;font-size:16px;">Paralogs of ' + esc(gene) + '</div>'
+            + '<div style="font-weight:700;font-size:16px;">' + esc(WORD) + ' of ' + esc(gene) + '</div>'
             + '<div style="font-size:12px;color:#cfe9f3;margin-top:3px;">'
             + (list.length
                 ? (list.length + ' of them, closest first. Identity is over the aligned protein, '
-                    + 'shown each way round: a short paralog inside a long one is most of itself '
+                    + 'shown each way round: a short one inside a long one is most of itself '
                     + 'and little of the other.' + (m.note ? (' ' + esc(m.note)) : ''))
                 : '')
             + '</div></div>'
@@ -113,12 +143,12 @@ function (graph, genegraph_panel_layout, model) {
         function close() {
             try { document.removeEventListener('keydown', onKey, true); } catch (e) { }
             try { if (el.parentNode) el.parentNode.removeChild(el); } catch (e) { }
-            if (window.__bajaParalogScreen === pop) window.__bajaParalogScreen = null;
+            if (window.__bajaHomologScreen === pop) window.__bajaHomologScreen = null;
         }
         const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
         document.addEventListener('keydown', onKey, true);
         pop.destroy = close;
-        window.__bajaParalogScreen = pop;
+        window.__bajaHomologScreen = pop;
 
         const say = (t) => { try { const n = el.querySelector('[data-id="said"]'); if (n) n.textContent = t || ''; } catch (e) { } };
 
@@ -130,17 +160,22 @@ function (graph, genegraph_panel_layout, model) {
             if (id !== 'load') return;
             const sym = b.getAttribute('data-gene');
             if (!sym) return;
+            // A GENE IN ANOTHER SPECIES IS NAMED WITH IT. The loader works out species and
+            // symbol from the words it is given, and mouse Spag9 and human SPAG9 are
+            // different genes that differ only in case otherwise.
+            const sp = b.getAttribute('data-species') || '';
+            const query = sp ? (sp + ' ' + sym) : sym;
             // CLOSED BEFORE THE LOAD, not after. Loading a gene opens its own transcript
             // chooser, and leaving this full-screen panel over the top of that would bury
             // the question being asked.
             close();
-            try { graph.setMessage('Loading ' + sym + ' …', 10); } catch (e2) { }
+            try { graph.setMessage('Loading ' + query + ' …', 10); } catch (e2) { }
             try {
                 await exec('baja/manchester/menu/load-by-name.js', graph, genegraph_panel_layout,
-                    { name: sym, kind: 'gene' });
-                pop.loaded.push(sym);
+                    { name: query, kind: 'gene' });
+                pop.loaded.push(query);
             } catch (e2) {
-                try { graph.setMessage('Could not load ' + sym + ': '
+                try { graph.setMessage('Could not load ' + query + ': '
                     + (e2 && e2.message ? e2.message : e2), 8); } catch (e3) { }
             }
         });

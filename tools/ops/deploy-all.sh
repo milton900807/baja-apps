@@ -987,10 +987,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/project-capabilities.js:THE COMMONEST THING ANYBODY DOES TO A COLUMN OF NUMBERS"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
-  install_group "The paralogs of a track, as a screen you load from" \
-    "py/bio/paralogs.py:The paralogs of a gene, closest first" \
-    "baja/bio/paralogs-screen.js:THE PARALOGS OF A TRACK, AS A SCREEN YOU LOAD FROM" \
-    "baja/manchester/menu/editor-capabilities.js:NOTHING IN THE EDITOR KNEW WHAT A PARALOG WAS"
+  install_group "The homologs of a track, as a screen you load from" \
+    "py/bio/homologs.py:PARALOGS AND ORTHOLOGS ARE ONE LOOKUP" \
+    "py/bio/homologs.py:ASKED FOR THE SPECIES THIS EDITOR CAN OPEN" \
+    "baja/bio/homologs-screen.js:THE HOMOLOGS OF A TRACK, AS A SCREEN YOU LOAD FROM" \
+    "baja/manchester/menu/editor-capabilities.js:PARALOGS AND ORTHOLOGS ARE ONE OPERATION" \
+    "py/bio/editor/plan.py:A HOMOLOG IS A LOOKUP, NOT A GAP IN THE CATALOGUE"
   install_group "A planner answer is read however it arrives; RBPs on a named track" \
     "py/bio/editor/plan.py:The first JSON object in a reply, whatever follows it" \
     "baja/manchester/menu/editor-capabilities.js:A SELECTION IS A SCOPE, NOT A PRECONDITION"
