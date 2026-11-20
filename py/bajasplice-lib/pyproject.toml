@@ -26,7 +26,7 @@ include = ["bajasplice*"]
 
 [tool.setuptools.package-data]
 "bajasplice.weights" = ["*.pt"]
-"bajasplice.data" = ["*.sqlite"]
+"bajasplice.data" = ["*.sqlite", "*.tsv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

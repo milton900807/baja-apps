@@ -1054,6 +1054,16 @@ return new Promise(async (resolve, reject) => {
                 // intervals, so the match is by overlap and needs no exon numbering: an
                 // index mapping that went wrong here would mark the wrong exon untrusted
                 // and leave the bad one wearing a confident number.
+                const __mrows = Array.isArray(this.measuredPsi) ? this.measuredPsi : [];
+                const measuredAt = (an) => {
+                    if (!__mrows.length) return null;
+                    const lo2 = Math.min(+an.xi, +an.xf), hi2 = Math.max(+an.xi, +an.xf);
+                    for (const m of __mrows) {
+                        const a2 = Math.min(+m.xi, +m.xf), b2 = Math.max(+m.xi, +m.xf);
+                        if (isFinite(a2) && isFinite(b2) && a2 <= hi2 && b2 >= lo2) return m;
+                    }
+                    return null;
+                };
                 const __uspans = Array.isArray(this.untrustedSpans) ? this.untrustedSpans : [];
                 const untrustedWhy = (an) => {
                     if (!__uspans.length) return null;
@@ -1092,12 +1102,25 @@ return new Promise(async (resolve, reject) => {
                     // "96% constitutive" on an ASO target is the worst of the options here,
                     // because it is legible, confident and wrong. The tag says so instead,
                     // in grey, and names what the sequence is shared with when it is known.
-                    const untrusted = untrustedWhy(an);
-                    const psi = 1 - (skipOf.get(+an.index) || 0);
+                    // A MEASUREMENT OUTRANKS BOTH. Where someone has measured this exon's
+                    // inclusion, that is the number to show: the prediction is the part that
+                    // could not be trusted, and having no trustworthy prediction is a reason
+                    // to show a measurement rather than to show nothing. Said as "measured"
+                    // and drawn in violet so it is never read as model output, and given as
+                    // approximate because the published figure varies by assay and cell type
+                    // -- a bare "10%" would trade one false precision for another.
+                    const meas = measuredAt(an);
+                    const untrusted = meas ? null : untrustedWhy(an);
+                    const psi = (meas && isFinite(+meas.psi))
+                        ? +meas.psi : 1 - (skipOf.get(+an.index) || 0);
                     const pct = (psi >= 0.995) ? 100 : Math.round(psi * 100);
                     // The long form says what the number means; the short one is the number,
                     // for an exon with room for one and not the other.
-                    const full = (untrusted != null)
+                    const full = meas
+                        ? ('e' + an.index + ' \u00b7 ~' + pct + '% measured'
+                           + (meas.gene ? (' \u00b7 ' + meas.gene
+                              + (meas.exon ? (' e' + meas.exon) : '')) : ''))
+                        : (untrusted != null)
                         ? ('e' + an.index + ' \u00b7 PSI not trusted'
                            + (untrusted ? (' \u00b7 ' + untrusted) : ''))
                         : ('e' + an.index + ' \u00b7 ' + pct + '% '
@@ -1107,8 +1130,10 @@ return new Promise(async (resolve, reject) => {
                     // which at ordinary zoom drops a flagged exon straight to the bare word
                     // and loses WHICH exon is flagged -- on a track where some exons are
                     // trusted and some are not, that is the one thing worth keeping.
-                    const mid = (untrusted != null) ? ('e' + an.index + ' \u00b7 not trusted') : null;
-                    const short = (untrusted != null) ? 'untrusted' : (pct + '%');
+                    const mid = meas ? ('e' + an.index + ' \u00b7 ~' + pct + '% measured')
+                        : (untrusted != null) ? ('e' + an.index + ' \u00b7 not trusted') : null;
+                    const short = meas ? ('~' + pct + '%')
+                        : (untrusted != null) ? 'untrusted' : (pct + '%');
                     const span = hi - lo;
                     const wFull = ctx.measureText(full).width;
                     const wMid = mid ? ctx.measureText(mid).width : 0;
@@ -1125,7 +1150,8 @@ return new Promise(async (resolve, reject) => {
                     // Green while the exon is kept, amber once a meaningful share skips it,
                     // red when most transcripts do: the colour is the reading, the number is
                     // the measurement.
-                    const col = (untrusted != null) ? '#475569'
+                    const col = meas ? '#6d28d9'
+                        : (untrusted != null) ? '#475569'
                         : (pct >= 90) ? '#15803d' : (pct >= 50 ? '#b45309' : '#b91c1c');
                     // AN OPAQUE CHIP, NOT A HALO. A white outline on the glyphs lets
                     // whatever is behind show through between the strokes, and behind this

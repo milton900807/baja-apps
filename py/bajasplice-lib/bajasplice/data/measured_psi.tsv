@@ -1,0 +1,23 @@
+# MEASURED exon inclusion, from published assays. NOT model output, and not a
+# correction applied to model output: a separate quantity, displayed as such.
+#
+# This file exists because a handful of clinically important exons sit in
+# duplicated sequence, where short-read PSI is a blend of two genes and no model
+# trained on that label can be right (see untrusted.py). For those, a number
+# someone actually measured beats both the blend and a prediction.
+#
+# KEYED ON THE EXON START, not on a start-end pair. The start is exact and comes
+# from the event table; carrying an end as well would mean carrying an exon
+# length too, and a length that is wrong by a base silently stops the row
+# matching. A row matches an annotated exon when its start falls inside it.
+#
+# psi is the central published figure and psi_lo/psi_hi the spread across
+# assays, because this is not a constant: it varies with cell type, SMN2 copy
+# number and whether the measurement is of an endogenous gene or a reporter.
+# Showing a bare 0.10 would trade one false precision for another.
+#
+# Add a row only with a citation that a reader can check. An uncited row is
+# worse than no row, because it looks like evidence.
+#
+# gene	chrom	exon_start	strand	exon	psi	psi_lo	psi_hi	assay	source
+SMN2	chr5	70076521	+	7	0.10	0.05	0.20	RT-PCR of SMN2 transcripts, exon 7 included vs excluded	https://pmc.ncbi.nlm.nih.gov/articles/PMC3870337/ ; https://www.pnas.org/doi/10.1073/pnas.0700343104

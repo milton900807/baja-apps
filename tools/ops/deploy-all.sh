@@ -1186,6 +1186,25 @@ if [[ $DO_API -eq 1 ]]; then
   # marker is from the previous change and track-layer.js already carries it, so a box
   # still serving the older copy would pass the served-check with the tag in the wrong
   # place. The marker has to be text that only this version has.
+  # A PUBLISHED MEASUREMENT, where the model cannot be right. The group above
+  # withholds PSI at duplicated loci; withholding is the most inference can do, and
+  # for the exons that matter most someone has already measured the answer. SMN2
+  # exon 7 is about a tenth, against the 96% the model learned from a label blended
+  # with SMN1's reads. Shown as a measurement, in violet, with its range and its
+  # citation, and never as corrected model output.
+  #
+  # measured_psi.tsv rides with the code: it is the data the three other files read,
+  # and a box with the lookup but not the table shows nothing while reporting
+  # success. The library files are listed one by one as the BajaNMD group does it,
+  # so the entry script's sys.path fallback finds them on a box where the package
+  # has not been pip-installed into the venv.
+  install_group "Published exon-inclusion measurements, shown as measurements" \
+    "py/bajasplice-lib/bajasplice/measured.py:A SEPARATE QUANTITY, not a correction" \
+    "py/bajasplice-lib/bajasplice/data/measured_psi.tsv:KEYED ON THE EXON START" \
+    "py/bio/splice/splicing-profile.py:PUBLISHED MEASUREMENTS for the same exons" \
+    "baja/bio/splicing/splicing-profile.js:A PUBLISHED MEASUREMENT, where one exists" \
+    "baja/bio/track-layer.js:A MEASUREMENT OUTRANKS BOTH" \
+    "baja/bio/splicing/exon-ai-models.js:WHERE A MEASURED NUMBER CAME FROM"
   install_group "The exon stability tag reads below the exon" \
     "baja/bio/track-layer.js:BELOW THE EXON, which is the only side of it that stays quiet"
   install_group "PSI is withheld where the reads were not uniquely assignable" \

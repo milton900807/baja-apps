@@ -67,7 +67,8 @@ def main(argv=None):
 
     c = sub.add_parser("config", help="show or set data paths")
     for f in ("root", "genome-fasta", "gencode-gtf", "gencode-v29-gtf",
-              "bajaclip-bundle", "eclip-dataset", "untrusted-bed"):
+              "bajaclip-bundle", "eclip-dataset", "untrusted-bed",
+              "measured-psi"):
         c.add_argument(f"--{f}")
     c.add_argument("--save", action="store_true", help="persist to ~/.config/bajasplice/config.json")
 
@@ -96,7 +97,8 @@ def main(argv=None):
         pp = configure(root=args.root, genome_fasta=args.genome_fasta,
                        gencode_gtf=args.gencode_gtf, gencode_v29_gtf=args.gencode_v29_gtf,
                        bajaclip_bundle=args.bajaclip_bundle, eclip_dataset=args.eclip_dataset,
-                       untrusted_bed=args.untrusted_bed, save=args.save)
+                       untrusted_bed=args.untrusted_bed,
+                       measured_psi=args.measured_psi, save=args.save)
         pp.ensure()
         print(json.dumps(pp.to_dict(), indent=2))
         return 0

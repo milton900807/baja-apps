@@ -51,6 +51,10 @@ class Paths:
     # export of mappability.cached_flags. Unset means NOTHING IS FLAGGED, which
     # is why untrusted.py reports which file it used. See untrusted.py.
     untrusted_bed: Optional[Path] = None        # optional low-mappability intervals
+    # Published exon-inclusion measurements, for exons where no model can be
+    # right. Defaults to the table shipped in bajasplice/data; set this only to
+    # override it with your own. See measured.py.
+    measured_psi: Optional[Path] = None         # optional measured-PSI table
 
     @property
     def raw(self) -> Path: return self.root / "data" / "raw"
@@ -101,7 +105,7 @@ def _from_file() -> dict:
 
 def configure(root=None, genome_fasta=None, gencode_gtf=None, gencode_v29_gtf=None,
               bajaclip_bundle=None, eclip_dataset=None, untrusted_bed=None,
-              save: bool = False) -> Paths:
+              measured_psi=None, save: bool = False) -> Paths:
     """Set paths for this session, optionally persisting them."""
     global _PATHS
     stored = _from_file()
@@ -121,6 +125,7 @@ def configure(root=None, genome_fasta=None, gencode_gtf=None, gencode_v29_gtf=No
         bajaclip_bundle=pick(bajaclip_bundle, "BAJASPLICE_BAJACLIP", "bajaclip_bundle"),
         eclip_dataset=pick(eclip_dataset, "BAJASPLICE_ECLIP", "eclip_dataset"),
         untrusted_bed=pick(untrusted_bed, "BAJASPLICE_UNTRUSTED_BED", "untrusted_bed"),
+        measured_psi=pick(measured_psi, "BAJASPLICE_MEASURED_PSI", "measured_psi"),
     )
     if save:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

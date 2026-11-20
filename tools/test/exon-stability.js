@@ -213,6 +213,41 @@ const mkTrack = () => {
     ok(ulabel(5) && /30% stable/.test(ulabel(5).t),
        'and so does one further away: ' + (ulabel(5) || {}).t);
 
+    // A MEASUREMENT OUTRANKS THE WITHHELD CASE. SMN2 exon 7 is both: its PSI cannot be
+    // predicted, AND someone has measured it at about a tenth. Showing "not trusted"
+    // there would be withholding a number we have, so the measurement wins -- but it
+    // must be marked as measured and never pass as model output.
+    const withMeasured = () => {
+        const t2 = { name: 'SMN2', xi: 0, xf: 16000, annotations: mkTrack().annotations,
+                     track_layers: [] };
+        const u = new TrackLayer('SMN2_measured', 0, 0, 16000, 1);
+        u.arc_type = 'SpliceSashimi'; u.magnitudeMode = 'psi'; u.magMax = 1;
+        u.junctions = layer.junctions;
+        // exon 3 is flagged untrusted AND carries a published measurement
+        u.untrustedSpans = [{ xi: 6000, xf: 7500, why: 'SMN1' }];
+        u.measuredPsi = [{ xi: 6000, xf: 7500, psi: 0.10, lo: 0.05, hi: 0.20,
+                           gene: 'SMN2', exon: '7' }];
+        const b = recorder();
+        const g = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
+        u.drawSashimi(tgraph, g, t2);
+        return b.r;
+    };
+    const mr = withMeasured();
+    const m3 = mr.texts.find((t) => /^e3 /.test(t.t));
+    ok(m3 && /10%/.test(m3.t), 'the measured value is shown, not withheld: ' + (m3 || {}).t);
+    ok(m3 && /measured/.test(m3.t), 'and is labelled as a measurement: ' + (m3 || {}).t);
+    ok(m3 && !/not trusted/.test(m3.t),
+       'the untrusted wording gives way to it: ' + (m3 || {}).t);
+    ok(m3 && m3.color === '#6d28d9',
+       'drawn violet, so it is not read as model output: ' + (m3 || {}).color);
+    ok(m3 && /~/.test(m3.t),
+       'given as approximate, since the published figure is a range: ' + (m3 || {}).t);
+    // The prediction for that exon was 70%; the measurement must replace it, not blend.
+    ok(m3 && !/70%/.test(m3.t), 'the prediction is not shown alongside it on the exon');
+    // And an exon with no measurement is untouched by any of this.
+    ok(mr.texts.some((t) => /^e5 . 30% stable/.test(t.t)),
+       'an exon with no measurement keeps its prediction');
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -40,12 +40,16 @@ Params (after the EngineMonitor at param(0)):
                bajasplice/untrusted.py for why this is a lookup and not a model.
 
 Resolves { acceptor, donor, junctions, lostSites, mode, xi, strand, n, context,
-untrusted, untrustedSource, error }. `untrusted` lists the annotated exons whose
+untrusted, untrustedSource, measured, error }. `untrusted` lists the annotated exons whose
 PSI must not be believed, as [{xi, xf, why}] in track coordinates; `why` names
 the locus the sequence is shared with. `untrustedSource` is the interval file
 that was consulted, or null when NONE WAS CONFIGURED -- the caller needs those
 two cases apart, because an empty list means "clean" in one and "not checked"
-in the other. Each junction is { d, a, dp, ap, mag, kind, annotated } (d/a in
+in the other. `measured` lists annotated exons for which a PUBLISHED inclusion
+measurement exists, as [{xi, xf, gene, exon, psi, lo, hi, assay, source}] -- a
+different quantity from the prediction, not a correction to it, and shown as
+such. It is the only honest number at a duplicated locus, where the model's
+training label was a blend of two genes. Each junction is { d, a, dp, ap, mag, kind, annotated } (d/a in
 track-local coords). lostSites lists annotated splice sites the sequence no
 longer supports, as { x, kind, p }.
 
@@ -159,6 +163,22 @@ if mode == "psi" and exons_arg and chrom_arg:
              for e in json.loads(exons_arg) if e and len(e) >= 2])
     except Exception:
         untrusted_spans = []
+
+# PUBLISHED MEASUREMENTS for the same exons. Looked up on the same genomic
+# intervals and for the same reason: at a duplicated locus the model's label was
+# a blend, so withholding its number is the most inference can do and a measured
+# value is the only thing that can replace it. Kept SEPARATE from the prediction
+# all the way to the screen -- it is not a corrected prediction.
+measured_rows = []
+if mode == "psi" and exons_arg and chrom_arg:
+    try:
+        from bajasplice import measured as _measured
+        measured_rows = _measured.for_exons(
+            chrom_arg,
+            [[int(min(e[0], e[1])), int(max(e[0], e[1]))]
+             for e in json.loads(exons_arg) if e and len(e) >= 2])
+    except Exception:
+        measured_rows = []
 
 # Positions below this probability are dropped — the profile is sparse peaks.
 THRESHOLD = 0.02
@@ -879,6 +899,7 @@ works.resolve({
     "psiTissueNote": globals().get("psi_tissue_note", ""),
     "untrusted": json.dumps(untrusted_spans),
     "untrustedSource": untrusted_source,
+    "measured": json.dumps(measured_rows),
     "xi": xi,
     "strand": strand,
     "orientation": orientation,

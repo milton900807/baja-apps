@@ -346,6 +346,23 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                     try { __untrusted = JSON.parse((data && data.untrusted) || '[]') || []; } catch (e) { }
                     layer.untrustedSpans = __untrusted;
                     layer.untrustedSource = (data && data.untrustedSource) || null;
+                    // A PUBLISHED MEASUREMENT, where one exists, which is a different
+                    // quantity from the prediction and not a correction to it. It outranks
+                    // the withheld case: having no trustworthy prediction is a reason to
+                    // show a measurement, not a reason to show nothing when one exists.
+                    // The prediction is kept alongside it so the disagreement stays visible
+                    // -- for SMN2 exon 7 that is about 0.10 measured against 0.96 predicted,
+                    // and hiding the second would hide the reason this path exists.
+                    let __measured = [];
+                    try { __measured = JSON.parse((data && data.measured) || '[]') || []; } catch (e) { }
+                    layer.measuredPsi = __measured;
+                    const __measuredAt = (lo2, hi2) => {
+                        for (const m of __measured) {
+                            const a2 = Math.min(+m.xi, +m.xf), b2 = Math.max(+m.xi, +m.xf);
+                            if (isFinite(a2) && isFinite(b2) && a2 <= hi2 && b2 >= lo2) return m;
+                        }
+                        return null;
+                    };
                     const __whyUntrusted = (lo2, hi2) => {
                         for (const u of __untrusted) {
                             const a2 = Math.min(+u.xi, +u.xf), b2 = Math.max(+u.xi, +u.xf);
@@ -359,6 +376,20 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                             r.untrusted = true;
                             r.untrustedWhy = why;
                             r.word = why ? ('PSI not trusted, shared with ' + why) : 'PSI not trusted';
+                        }
+                        // A measurement makes the exon rankable again: the prediction was
+                        // the untrustworthy part, and reliability computed from a measured
+                        // inclusion is as sound as for any other exon. The predicted value
+                        // is kept under psiPredicted rather than overwritten.
+                        const mm = __measuredAt(r.lo, r.hi);
+                        if (mm && isFinite(+mm.psi)) {
+                            r.psiPredicted = r.psi;
+                            r.psi = +mm.psi;
+                            r.measured = mm;
+                            r.untrusted = false;
+                            r.score = 1 - Math.abs(2 * r.psi - 1);
+                            r.word = (r.score <= 0.15) ? (r.psi >= 0.5 ? 'constitutive' : 'rarely in')
+                                : (r.score <= 0.45) ? 'variable' : 'unstable';
                         }
                         const cons = __consOver(r.lo, r.hi);
                         const nSites = __sitesOver(r.lo, r.hi);

@@ -173,8 +173,21 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                                     html += '<tr style="border-bottom:1px solid #eef;">'
                                         + '<td>' + (i + 1) + '</td>'
                                         + '<td>e' + esc2(e.exon) + '</td>'
-                                        + '<td>' + (e.untrusted ? '\u2013' : (Math.round(100 * e.psi) + '%')) + '</td>'
-                                        + '<td style="color:' + (e.untrusted ? '#475569' : (COL[e.word] || '#0b1a2b'))
+                                        + '<td>' + (e.measured
+                                            // THE DISAGREEMENT STAYS ON SCREEN. On the exon
+                                            // there is room for one number and it should be
+                                            // the measured one; here there is room for both,
+                                            // and the gap between them is the finding -- for
+                                            // SMN2 exon 7, a tenth measured against the 96%
+                                            // the model learned from a blended label.
+                                            ? ('<span style="color:#6d28d9;font-weight:600;">~'
+                                               + Math.round(100 * e.measured.psi) + '% measured</span>'
+                                               + (e.psiPredicted == null ? ''
+                                                  : ('<br><span style="color:#8a94a0;">model said '
+                                                     + Math.round(100 * e.psiPredicted) + '%</span>')))
+                                            : e.untrusted ? '\u2013' : (Math.round(100 * e.psi) + '%')) + '</td>'
+                                        + '<td style="color:' + (e.measured ? '#6d28d9'
+                                            : e.untrusted ? '#475569' : (COL[e.word] || '#0b1a2b'))
                                         + ';font-weight:600;">' + esc2(e.word) + '</td>'
                                         + '<td>' + (e.conservation == null ? '\u2013' : e.conservation.toFixed(2)) + '</td>'
                                         + '<td>' + esc2(e.sites == null ? 0 : e.sites) + '</td>'
@@ -185,6 +198,34 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                                 // two cases that matter are indistinguishable: no untrusted exons
                                 // because the locus is clean, and no untrusted exons because no
                                 // interval file is configured and nothing was ever looked up.
+                                // WHERE A MEASURED NUMBER CAME FROM. A figure with no
+                                // traceable source looks like evidence without being any, so
+                                // the citation travels with it rather than living only in the
+                                // table file on the server.
+                                const meas = rows.filter((e) => e.measured);
+                                if (meas.length) {
+                                    html += '<div style="margin:8px 4px 0 4px;padding:7px;border-left:3px solid #6d28d9;'
+                                        + 'background:#faf8ff;font-size:12.5px;"><b>' + meas.length + '</b> exon'
+                                        + (meas.length === 1 ? ' carries' : 's carry')
+                                        + ' a published measurement, shown in place of the prediction because '
+                                        + 'the prediction is the part that cannot be trusted here. These are '
+                                        + 'measurements, not corrected model output:<ul style="margin:4px 0 0 0;'
+                                        + 'padding-left:18px;">';
+                                    for (const e of meas) {
+                                        const m = e.measured;
+                                        html += '<li>e' + esc2(e.exon) + ' \u00b7 '
+                                            + esc2(m.gene || '') + (m.exon ? (' exon ' + esc2(m.exon)) : '')
+                                            + ' \u00b7 ~' + Math.round(100 * m.psi) + '%'
+                                            + ((m.lo != null && m.hi != null)
+                                               ? (' (' + Math.round(100 * m.lo) + '\u2013'
+                                                  + Math.round(100 * m.hi) + '% across assays)') : '')
+                                            + (m.assay ? (' \u00b7 ' + esc2(m.assay)) : '')
+                                            + (m.source ? (' \u00b7 <span style="color:#5b6b7c;">'
+                                                           + esc2(m.source) + '</span>') : '')
+                                            + '</li>';
+                                    }
+                                    html += '</ul></div>';
+                                }
                                 const nU = rows.filter((e) => e.untrusted).length;
                                 if (!L.untrustedSource) {
                                     html += '<div style="margin:8px 4px 0 4px;padding:7px;border-left:3px solid #94a3b8;'

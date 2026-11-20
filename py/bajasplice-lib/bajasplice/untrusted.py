@@ -215,6 +215,20 @@ def main():
         iv = load()
         print("untrusted_bed: %s" % (p or "NOT CONFIGURED -- nothing will be flagged"))
         print("intervals: %d" % len(iv))
+        # The two halves are reported together because they answer one question:
+        # what does the editor do at a duplicated locus? Without intervals it
+        # states a PSI it cannot stand behind; with them it withholds it; with a
+        # measured row it shows a measurement instead.
+        try:
+            from . import measured as _m
+            rows = _m.load()
+            print("measured_psi: %s" % (_m.table_path() or "NOT FOUND"))
+            print("measured rows: %d" % len(rows))
+            for (c, st), r in sorted(rows.items()):
+                print("  %s %s:%d  ~%.0f%%  %s" % (r.get("gene", "?"), c, st,
+                                                   100 * r["psi"], r.get("assay", "")))
+        except Exception as e:
+            print("measured_psi: could not be read (%s)" % e)
         return 0
 
     import pandas as pd
