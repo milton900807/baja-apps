@@ -1050,6 +1050,17 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS A STRETCH, SO IT IS FRAMED, NOT POINTED AT" \
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS NOT A FAILED POSITION" \
     "baja/manchester/menu/editor-capabilities.js:\"ZOOM OUT\" IS NOT \"FIT\""
+  # A model asked for with several tracks open is a choice, and a model that cannot be
+  # placed at all is still a request for that model.
+  install_group "BajaSplice offers a track, or the shelf it lives on" \
+    "baja/manchester/menu/editor-capabilities.js:A MODEL WITH SEVERAL TRACKS OPEN IS A CHOICE, NOT A REFUSAL" \
+    "baja/manchester/menu/editor-capabilities.js:THE SHELF OF MODELS, as the answer when one of them cannot be placed" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT TO OFFER WHEN IT CANNOT RUN" \
+    "baja/manchester/menu/editor-command.js:A REFUSAL WITH A WAY FORWARD"
+  # The design reading rooms are called what they are.
+  install_group "Design tools, not the Institute for GeneTx Design" \
+    "baja/lib/institute-rna-design.js:serif;\">Design tools</div>" \
+    "baja/lib/library-of-libraries.js:serif;\">Design tools</div>"
   # The exon number was an opaque disc sitting on the middle of the exon, over whatever the
   # exon says underneath it.
   install_group "The exon number is lifted off the exon it labels" \

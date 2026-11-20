@@ -684,6 +684,18 @@ function (graph, genegraph_panel_layout, options) {
                 const labelFor = (k) => (k === 0 ? 'Nothing selected'
                     : (k === 1 ? 'GO' : ('GO · ' + k + ' steps')));
                 const nShown = good.length;
+                // A REFUSAL WITH A WAY FORWARD. "run bajasplice psi" with two transcripts
+                // open used to end at "cannot run: say which track to run it on" over a
+                // Cancel button, which answers a request for a model by closing. A capability
+                // that knows where its own user interface lives says so (whenStuck), and when
+                // nothing can run, that goes beside Cancel: the shelf lists the model with the
+                // tracks to run it on, which is the thing the request was after.
+                const __stuck = (!runnable.length && good.length === 1) ? good[0].p.whenStuck : null;
+                const stuckBtn = __stuck
+                    ? ('<button id="ec-stuck" style="cursor:pointer;border-radius:8px;padding:9px 18px;'
+                        + 'font:700 12.5px Arial;border:1px solid #7fb0e8;background:transparent;color:#7fb0e8;">'
+                        + H(__stuck.label || 'Open it') + '</button>')
+                    : '';
                 out.innerHTML = card(
                     '<div style="font:700 13px Arial;color:' + (danger ? '#fca5a5' : '#7fb0e8') + ';">'
                     + (nShown > 1 ? ('A plan, ' + nShown + ' steps') : 'One operation') + '</div>'
@@ -701,12 +713,22 @@ function (graph, genegraph_panel_layout, options) {
                             + (danger ? 'border:1px solid #ef4444;background:#ef4444;color:#2a0505;'
                                 : 'border:1px solid #22c55e;background:#22c55e;color:#04210f;') + '">' + H(verb) + '</button>')
                         : '')
+                    + stuckBtn
                     + '<button id="ec-no" style="' + btn + '">Cancel</button></div>',
                     danger ? 'rgba(248,113,113,0.5)' : null);
 
                 q('#ec-no').onclick = () => {
                     if (HOST) { done(0); return; }
                     out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { }
+                };
+                const stuckEl = q('#ec-stuck');
+                if (stuckEl && __stuck) stuckEl.onclick = async () => {
+                    stuckEl.disabled = true;
+                    // Closed first, as GO does: a shelf opening behind this panel is the
+                    // same bug twice.
+                    close();
+                    try { await __stuck.run(); } catch (e) { result('Could not open it: ' + (e && e.message ? e.message : e)); }
+                    done(0);
                 };
                 const go = q('#ec-go');
 

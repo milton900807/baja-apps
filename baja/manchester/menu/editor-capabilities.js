@@ -316,6 +316,20 @@ function (graph, genegraph_panel_layout) {
         // and the Ask card shows a Go button for each. __track never comes from the model --
         // validate() drops any key that is not a declared parameter -- only from a choice.
         const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
+        // The track a MODEL runs on: the one chosen or named, else the selected one, else the
+        // only one open. Same rule as pickTrack with the selection preferred, which is what a
+        // model wants -- you select a transcript and run a model on it.
+        const pickModelTrack = (a) => (a && a.__track)
+            || (a && a.track ? matchTrack(a.track) : (oneSelTrack() || oneTrack()));
+        // THE SHELF OF MODELS, as the answer when one of them cannot be placed. A request
+        // that named a model and could not be run is still a request for that model: the
+        // shelf lists every model with the track to run it on, which is a way forward where
+        // "say which track" is a dead end with a Cancel button.
+        const openModelShelf = () => {
+            try { graph.showSideMenu(null); } catch (e) { }
+            return exec('baja/ml/models-library.js', graph, genegraph_panel_layout, scopeTracks());
+        };
+        const MODEL_SHELF = { label: 'Open the models', run: () => openModelShelf() };
         // The track a compound operation runs on: the one named or chosen, else the selected
         // one IF it carries compounds, else the first that does. A report on -- or a screen of
         // -- an empty track is not what was asked for, even when that track is the selected one.
@@ -1085,20 +1099,31 @@ function (graph, genegraph_panel_layout) {
                     }
                 },
                 run: (a) => {
-                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const t = pickModelTrack(a);
                     if (!t) { result('Which track? Name it, or click one first.'); return; }
                     const r = hasSel(t) ? rangeOf(t) : null;
                     return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, r, 'sites');
                 },
                 preview: (a) => {
-                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const t = pickModelTrack(a);
                     const where = t ? (t.name || 'the track') : 'the track';
                     return 'run SpliceNet over ' + (t && hasSel(t) ? ('the selected stretch of ' + where)
                         : ('the whole of ' + where)) + ' and draw donor and acceptor site strength';
                 },
+                // A MODEL WITH SEVERAL TRACKS OPEN IS A CHOICE, NOT A REFUSAL. "run bajasplice"
+                // with two transcripts open stopped at "say which track to run it on", which
+                // is a dead end with a Cancel button under it. Every open track gets its own
+                // Go instead, which is what the operation already does for going somewhere.
+                choices: (a) => choicesOver(a, (x) => ({
+                    detail: (hasSel(x) ? 'the selected stretch' : 'the whole track')
+                        + ' \u00b7 ' + (x.sequence ? x.sequence.length.toLocaleString() + ' nt' : 'no sequence')
+                })),
+                choiceTitle: () => 'Run SpliceNet on which track?',
+                whenStuck: MODEL_SHELF,
                 argBlocker: (a) => {
-                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const t = pickModelTrack(a);
                     if (!t) {
+                        if (!a.track && choicesOver(a, () => ({})).length) return '';
                         return (a && a.track)
                             ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
                                 + tracks().map((x) => x.name || '(unnamed)').join(', '))
@@ -1125,20 +1150,29 @@ function (graph, genegraph_panel_layout) {
                     }
                 },
                 run: (a) => {
-                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const t = pickModelTrack(a);
                     if (!t) { result('Which track? Name it, or click one first.'); return; }
                     // null, not rangeOf(t): PSI mode ignores the range, and passing one
                     // would only suggest in the preview that it had narrowed the run.
                     return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, null, 'psi');
                 },
                 preview: (a) => {
-                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const t = pickModelTrack(a);
                     return 'run PSINet over the whole of ' + (t ? (t.name || 'the track') : 'the track')
                         + ' and draw predicted exon inclusion, each exon tagged by how reliably it splices';
                 },
+                // One Go per open track, as above. PSI reads the ANNOTATED EXONS, so the
+                // count of them is what tells the two tracks apart here.
+                choices: (a) => choicesOver(a, (x) => {
+                    const n = (x.annotations || []).filter((an) => ('' + (an && an.type)).toLowerCase() === 'exon').length;
+                    return { detail: n ? (n + ' annotated exon' + (n === 1 ? '' : 's')) : 'no annotated exons' };
+                }),
+                choiceTitle: () => 'Run PSINet on which track?',
+                whenStuck: MODEL_SHELF,
                 argBlocker: (a) => {
-                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const t = pickModelTrack(a);
                     if (!t) {
+                        if (!a.track && choicesOver(a, () => ({})).length) return '';
                         return (a && a.track)
                             ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
                                 + tracks().map((x) => x.name || '(unnamed)').join(', '))
@@ -3383,7 +3417,11 @@ function (graph, genegraph_panel_layout) {
                 blocker: b, destructive: !!c.destructive,
                 opens: !!c.opens, answers: !!c.answers,
                 choices: choices.length > 1 ? choices : null,
-                choiceTitle: (choices.length > 1 && c.choiceTitle) ? c.choiceTitle(v.args, choices) : null
+                choiceTitle: (choices.length > 1 && c.choiceTitle) ? c.choiceTitle(v.args, choices) : null,
+                // WHAT TO OFFER WHEN IT CANNOT RUN. A capability that has somewhere for the
+                // user to go when it is stuck says so here, and the card puts it beside
+                // Cancel rather than leaving a refusal as the whole answer.
+                whenStuck: c.whenStuck || null
             };
         };
 

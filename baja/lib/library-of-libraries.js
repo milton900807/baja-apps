@@ -172,7 +172,7 @@ function (graph, genegraph_panel_layout) {
             const nTracks = ((graph && graph.track) || []).filter(Boolean).length;
             for (const sh of SHELVES) sh.items = sh.items.filter((it) => !it.needsTracks || nTracks >= it.needsTracks);
             const total = SHELVES.reduce((n, s) => n + s.items.length, 0);
-            head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">Institute for GeneTx Design</div>'
+            head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">Design tools</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
                 + total + ' libraries · pick one to open it</div></div>';
             const x = document.createElement('button');
