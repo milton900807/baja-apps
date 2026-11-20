@@ -62,6 +62,7 @@ function (graph, qtrack, ttrack, opts) {
             // "3' UTR 1" reads as though there were a second one. Only the kinds a track has
             // several of are numbered.
             const NAMED = (i) => K.list ? (K.word + ' ' + i) : K.word;
+            const CAPW = (t) => ('' + t).charAt(0).toUpperCase() + ('' + t).slice(1);
             const nameQ = '' + (qtrack.name || 'the first track');
             const nameT = '' + (ttrack.name || 'the other track');
 
@@ -125,6 +126,13 @@ function (graph, qtrack, ttrack, opts) {
 
             const list = exons.slice(0, MAX_EXONS);
             const rows = [], found = [], missed = [];
+            let W = null;
+            try {
+                W = await exec('baja/lib/working.js',
+                    (K.list ? (CAPW(K.plural) + ' of ' + nameQ) : (CAPW(K.word) + ' of ' + nameQ))
+                        + ' against ' + nameT,
+                    'One search per ' + K.word + ', ' + list.length + ' in all.');
+            } catch (e) { W = null; }
             let n = 0;
             for (const ex of list) {
                 n++;
@@ -136,8 +144,13 @@ function (graph, qtrack, ttrack, opts) {
                     missed.push({ exon: n, why: 'too short to search (' + ((qseq || '').length) + ' nt)' });
                     continue;
                 }
+                // COUNTED OUT LOUD. One search per region means a thirty-exon transcript
+                // is thirty round trips, and a corner message on a timer is not enough to
+                // tell a long job from a dead one.
                 try {
-                    graph.setMessage('Matching exon ' + n + ' of ' + list.length + ' …');
+                    if (W) W.step('Searching ' + K.word + ' ' + n + ' of ' + list.length
+                        + ' against ' + nameT + ' \u2026 ' + found.length + ' matched so far');
+                    else graph.setMessage('Matching ' + K.word + ' ' + n + ' of ' + list.length + ' \u2026');
                 } catch (e) { }
 
                 let res = null;
@@ -178,6 +191,10 @@ function (graph, qtrack, ttrack, opts) {
             }
 
             if (!found.length) {
+                try { if (W) W.fail((K.list
+                    ? ('None of the ' + list.length + ' ' + K.plural)
+                    : ('The ' + K.word)) + ' of ' + nameQ + ' matches anything on ' + nameT
+                    + ' above the noise floor.'); } catch (e) { }
                 resolve({
                     error: (K.list
                         ? ('None of the ' + list.length + ' ' + K.plural + ' of ' + nameQ)
@@ -187,6 +204,9 @@ function (graph, qtrack, ttrack, opts) {
                 });
                 return;
             }
+
+            try { if (W) W.step('Drawing ' + found.length + ' match'
+                + (found.length === 1 ? '' : 'es') + ' \u2026'); } catch (e) { }
 
             // ---- drawn, and linked ------------------------------------------------------
             let drawn = null;
@@ -304,6 +324,7 @@ function (graph, qtrack, ttrack, opts) {
                 try { await exec('baja/bio/decor-help.js', { decor: { help: help } }, graph); }
                 catch (e) { try { graph.setResultMessage(rows[0][1]); } catch (e2) { } }
             }
+            try { if (W) W.done(); } catch (e) { }
             try { window.__bajaExonMatches = { found: found, missed: missed }; } catch (e) { }
             try {
                 graph.setMessage((K.list ? (found.length + ' of ' + list.length + ' ' + K.plural)

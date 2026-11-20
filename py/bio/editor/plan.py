@@ -134,6 +134,12 @@ Rules, in order of importance:
    SAME species, orthologs when another species is named or implied, both for a bare
    "homolog". Never answer one of these by saying the editor cannot query homology.
 
+   CONSERVATION ACROSS SPECIES IS conservation_map, from ONE track: "show the
+   conservation map", "plot the conserved regions", "where is this conserved". It finds
+   the species itself, so do not plan list_homologs first and do not reach for
+   draw_similarity_map, which compares two tracks that are BOTH already on the canvas
+   and will refuse a request that names only one.
+
 10. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the
    operation marked answers_a_question and nothing else. A request to CHANGE what is

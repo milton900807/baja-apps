@@ -56,6 +56,111 @@ function (graph, genegraph_panel_layout) {
             // A copy's number is already gone with the word "copy" above it.
             return n.trim();
         };
+        // THE TRACK THE MAP STARTS FROM, and where its exons fall in PROTEIN residues.
+        //
+        // The map is a protein map: Ensembl's homology alignments are protein alignments,
+        // so a column is a residue and not a base. That is worth saying on the picture
+        // rather than leaving someone to work out why a 6 kb transcript is 1,321 columns
+        // wide. The exon boundaries still belong on it, because the question that follows
+        // "where is this conserved" is almost always "which exon is that".
+        //
+        // RESIDUE k IS CODON k, so an exon that covers a run of codons covers a run of
+        // residues. The walk is the one the editor draws the ORF from, so a boundary lands
+        // where the user can see it rather than on an index into a string.
+        const sourceOf = (t) => {
+            if (!t) return null;
+            const out = { track: '' + (t.name || 'the track') };
+            try { if (t.transcriptID) out.transcript = '' + t.transcriptID; } catch (e) { }
+            const pos = [], seen = {};
+            try {
+                const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
+                for (const c of cdsi) {
+                    if (!c || c.ci !== 0 || seen[c.codon_index]) continue;
+                    const aa = '' + (c.aa || '');
+                    if (!aa || /^stop$/i.test(aa)) break;
+                    seen[c.codon_index] = 1;
+                    pos.push(+c.index);
+                }
+            } catch (e) { }
+            out.residues = pos.length || undefined;
+            if (!pos.length) return out;
+
+            let exons = [];
+            try {
+                const R = regionsNow(t);
+                exons = (R && R.exons) ? (R.exons() || []) : [];
+            } catch (e) { exons = []; }
+            if (!exons.length) return out;
+
+            // Which exon each codon sits in, then the runs of residues per exon. A codon
+            // that straddles a junction belongs to the exon its FIRST base is in, which is
+            // the one a reader would point at.
+            const spans = exons.map((e, i) => ({
+                n: i + 1, lo: Math.min(+e.xi, +e.xf), hi: Math.max(+e.xi, +e.xf)
+            }));
+            const runs = [];
+            for (let r = 0; r < pos.length; r++) {
+                const x = pos[r];
+                let which = 0;
+                for (const sp of spans) { if (x >= sp.lo && x <= sp.hi) { which = sp.n; break; } }
+                if (!which) continue;
+                const last = runs[runs.length - 1];
+                if (last && last.n === which && last.end === r) last.end = r + 1;
+                else runs.push({ n: which, start: r, end: r + 1 });
+            }
+            // 1-based and inclusive, to match everything else the map prints.
+            out.exons = runs.map((x) => ({ n: x.n, start: x.start + 1, end: x.end }));
+
+            // THE VARIANTS ON THE TRACK, CARRIED ONTO THE PROTEIN. A missense variant is a
+            // statement about a residue, and the conservation map is drawn in residues, so
+            // the two belong on the same picture: a variant that lands in a column where
+            // every species agrees is a different proposition from one in a column where
+            // none of them do, and that comparison is the whole reason to look.
+            //
+            // Only missense. A synonymous change alters no residue, a nonsense one ends
+            // the protein rather than changing a residue in it, and an indel shifts
+            // everything after it; drawing any of those as a point on a residue would say
+            // something untrue about that residue. They are counted and named in the note
+            // rather than dropped in silence.
+            const AA = {
+                TTT: 'F', TTC: 'F', TTA: 'L', TTG: 'L', CTT: 'L', CTC: 'L', CTA: 'L', CTG: 'L',
+                ATT: 'I', ATC: 'I', ATA: 'I', ATG: 'M', GTT: 'V', GTC: 'V', GTA: 'V', GTG: 'V',
+                TCT: 'S', TCC: 'S', TCA: 'S', TCG: 'S', CCT: 'P', CCC: 'P', CCA: 'P', CCG: 'P',
+                ACT: 'T', ACC: 'T', ACA: 'T', ACG: 'T', GCT: 'A', GCC: 'A', GCA: 'A', GCG: 'A',
+                TAT: 'Y', TAC: 'Y', TAA: '*', TAG: '*', CAT: 'H', CAC: 'H', CAA: 'Q', CAG: 'Q',
+                AAT: 'N', AAC: 'N', AAA: 'K', AAG: 'K', GAT: 'D', GAC: 'D', GAA: 'E', GAG: 'E',
+                TGT: 'C', TGC: 'C', TGA: '*', TGG: 'W', CGT: 'R', CGC: 'R', CGA: 'R', CGG: 'R',
+                AGT: 'S', AGC: 'S', AGA: 'R', AGG: 'R', GGT: 'G', GGC: 'G', GGA: 'G', GGG: 'G'
+            };
+            try {
+                const vs = (t.snpindels || []).filter(Boolean);
+                const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
+                const byIndex = {};
+                for (const c of cdsi) { if (c) byIndex[Math.round(+c.index)] = c; }
+                const hits = [], skipped = { synonymous: 0, nonsense: 0, outside: 0, indel: 0 };
+                for (const v of vs) {
+                    const ref = ('' + (v.reference || v.ref || '')).toUpperCase();
+                    const alt = ('' + (v.alternate || v.alt || '')).toUpperCase();
+                    if (ref.length !== 1 || alt.length !== 1) { skipped.indel++; continue; }
+                    const c = byIndex[Math.round(+v.xi)];
+                    if (!c) { skipped.outside++; continue; }
+                    const ci = +c.ci, codon = ('' + (c.codon || '')).toUpperCase();
+                    if (codon.length !== 3 || !(ci >= 0 && ci <= 2)) { skipped.outside++; continue; }
+                    const wt = AA[codon], mu = AA[codon.slice(0, ci) + alt + codon.slice(ci + 1)];
+                    if (!wt || !mu) { skipped.outside++; continue; }
+                    if (wt === mu) { skipped.synonymous++; continue; }
+                    if (mu === '*') { skipped.nonsense++; continue; }
+                    hits.push({ residue: (+c.codon_index || 0) + 1, from: wt, to: mu,
+                        label: wt + ((+c.codon_index || 0) + 1) + mu,
+                        id: '' + (v.id || '') });
+                }
+                hits.sort((x, y) => x.residue - y.residue);
+                if (hits.length) out.variants = hits;
+                out.variants_skipped = skipped;
+            } catch (e) { }
+            return out;
+        };
+
         const paralogGene = (a) => {
             const said = ('' + ((a && a.gene) || '')).trim();
             // A PARAMETER'S DEFAULT ARRIVES AS ITS OWN PROSE. An optional param left unset
@@ -537,6 +642,119 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // ONE TRACK, MANY SPECIES. "show spag9 conservation map" was read as
+                // draw_similarity_map and refused for naming only one track: that operation
+                // compares two tracks that are both open, and this question names one track
+                // and no second because the others are not on the canvas at all -- they are
+                // in Ensembl. The map was reachable only from the homolog list, which is a
+                // long way round from a sentence that says exactly what it wants.
+                name: 'conservation_map',
+                summary: 'SHOW WHERE A GENE IS CONSERVED ACROSS SPECIES, as a full-screen map: '
+                    + 'one row per species, one column per residue of this gene, coloured by '
+                    + 'whether each species has the same residue, a conservative substitution, '
+                    + 'a different one or nothing aligned there, with a band counting how many '
+                    + 'agree and a list of the runs where they all do. This is the answer to '
+                    + '"show the conservation map", "plot the conserved regions across '
+                    + 'species", "where is this conserved", "which parts are conserved in '
+                    + 'mouse and fly", "show sequence identity across species". It needs ONE '
+                    + 'track and finds the species itself: do NOT use draw_similarity_map, '
+                    + 'which needs two tracks already on the canvas, and do NOT ask for '
+                    + 'list_homologs first.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the track whose gene to map, by name as canvas_now gives it. '
+                            + 'Omit it when there is only one track or one is selected'
+                    },
+                    gene: {
+                        type: 'string', default: 'taken from the track\u2019s own name',
+                        about: 'the gene symbol, only when the request names a gene rather '
+                            + 'than pointing at a track'
+                    },
+                    across: {
+                        type: 'enum', values: ['species', 'paralogs'], default: 'species',
+                        about: 'species for orthologs, which is what conservation nearly always '
+                            + 'means; paralogs to compare the gene against its own family'
+                    },
+                    species: {
+                        type: 'string', default: 'human',
+                        about: 'the species the TRACK is in, only if the request says one'
+                    }
+                },
+                opens: true,
+                run: async (a) => {
+                    const sym = paralogGene(a);
+                    if (!sym) { result('Which gene? Name it, or select a track.'); return; }
+                    const species = ('' + ((a && a.species) || 'human')).trim() || 'human';
+                    const kind = (('' + ((a && a.across) || 'species')).indexOf('paralog') >= 0)
+                        ? 'paralogues' : 'orthologues';
+                    // A FORTY-SECOND WAIT NEEDS A PANEL, NOT A CORNER MESSAGE. setMessage
+                    // puts one line at the edge of the screen, on a timer, and says nothing
+                    // more while the wait goes on -- which reads as nothing having happened,
+                    // and invites a second press that starts the whole thing again.
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Conservation map for ' + sym,
+                            'Asking Ensembl for the ' + (kind === 'paralogues' ? 'paralogs' : 'orthologs')
+                            + ' and their alignments. Ensembl aligns each species when it is '
+                            + 'asked, so this usually takes half a minute.');
+                    } catch (e) { w = null; }
+                    let r = null;
+                    try {
+                        r = await exec('py/bio/homolog-conservation.py', sym, species, kind,
+                            JSON.stringify({ max_species: 12 }));
+                    } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
+                    if (!r || r.status !== 'OK') {
+                        const why = (r && r.error) || 'the conservation map could not be built';
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
+                        return r;
+                    }
+                    if (!(r.species_rows || []).length) {
+                        // Nothing to stack is an answer about the gene, not a failure.
+                        const why = r.note || ('Ensembl has no aligned '
+                            + (kind === 'paralogues' ? 'paralog' : 'ortholog') + ' of ' + sym
+                            + ' to build a map from.');
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
+                        return r;
+                    }
+                    try { if (w) w.step('Stacking ' + (r.species_rows || []).length
+                        + ' species across ' + r.length + ' residues \u2026'); } catch (e) { }
+                    // The track this started from, named on the picture, with its exons: a
+                    // map with no starting point on it is a map of nothing in particular.
+                    try {
+                        const st = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                        r.source = sourceOf(st);
+                    } catch (e) { }
+                    await exec('baja/bio/conservation-map.js', graph, r);
+                    try { if (w) w.done(); } catch (e) { }
+                    result(r.note || ((r.species_rows || []).length + ' species mapped across '
+                        + r.length + ' residues of ' + sym + '.'));
+                    return r;
+                },
+                preview: (a) => {
+                    const sym = paralogGene(a);
+                    const across = (('' + ((a && a.across) || 'species')).indexOf('paralog') >= 0)
+                        ? 'its paralogs' : 'the species Ensembl has it in';
+                    return sym
+                        ? ('map where ' + sym + ' is conserved across ' + across
+                            + ', residue by residue \u00b7 takes a few seconds')
+                        : 'show the conservation map \u2014 say which track or gene';
+                },
+                argBlocker: (a) => {
+                    if (paralogGene(a)) return '';
+                    if (a && a.track) {
+                        return 'no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    return 'say which track or gene: open tracks are '
+                        + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                }
+            },
+
+            {
                 // PARALOGS AND ORTHOLOGS ARE ONE OPERATION. Both are Ensembl homology with
                 // one parameter changed, both are ranked the same way and both want the same
                 // screen; splitting them would have been two of everything for the sake of a
@@ -610,17 +828,26 @@ function (graph, genegraph_panel_layout) {
                         : (kind === 'both' ? 'homologs' : 'paralogs');
                     // ORTHOLOGS TAKE A MOMENT. Ensembl aligns each pair when it is asked, so
                     // the wait is real; saying what is being waited for beats a still canvas.
-                    try { graph.setMessage('Asking Ensembl for the ' + word + ' of ' + sym
-                        + ' \u2026 this takes a few seconds', 40); } catch (e) { }
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Homologs of ' + sym,
+                            'Asking Ensembl for the ' + word + '.'
+                            + (kind.indexOf('ortholog') === 0
+                                ? ' Each species is aligned when it is asked for, so this takes '
+                                  + 'a few seconds.' : ''));
+                    } catch (e) { w = null; }
                     let r = null;
                     try {
                         r = await exec('py/bio/homologs.py', sym, species, (a && a.top) || 25, kind);
                     } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
                     if (!r || r.status !== 'OK') {
-                        result((r && r.error) || ('the ' + word + ' could not be looked up'));
+                        const why = (r && r.error) || ('the ' + word + ' could not be looked up');
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
                         return r;
                     }
                     const got = (r.homologs || r.paralogs || []);
+                    try { if (w) w.done(); } catch (e) { }
                     await exec('baja/bio/homologs-screen.js', graph, genegraph_panel_layout, r);
                     const openable = got.filter((x) => x && x.loadable !== false).length;
                     result(got.length
@@ -857,11 +1084,13 @@ function (graph, genegraph_panel_layout) {
                 // a layer on each track, one bar per block, matching colours, so the pairs
                 // line up by eye when the tracks are laid one above the other.
                 name: 'draw_similarity_map',
-                summary: 'DRAW A MAP OF WHERE TWO TRACKS ARE SIMILAR: the blocks of sequence '
-                    + 'similarity between them are found and DRAWN as a layer on each track, '
-                    + 'one coloured bar per block, the same colour and number on both so the '
-                    + 'pairs can be read off. This is the answer to "draw a map comparing the '
-                    + 'regions of similarity between X and Y", "map the conserved regions", '
+                summary: 'DRAW A MAP OF WHERE TWO TRACKS ON THE CANVAS ARE SIMILAR: the blocks '
+                    + 'of sequence similarity between them are found and DRAWN as a layer on '
+                    + 'each track, one coloured bar per block, the same colour and number on '
+                    + 'both so the pairs can be read off. It needs TWO tracks that are both '
+                    + 'open; for conservation ACROSS SPECIES from one track, which names no '
+                    + 'second track, use conservation_map instead. This is the answer to "draw '
+                    + 'a map comparing the regions of similarity between X and Y", '
                     + '"show me where these two are the same", "dot plot these", "where do '
                     + 'these two line up". Unlike compare_sequences, which reports one '
                     + 'identity in a panel, this puts the regions on the canvas. Blocks that '

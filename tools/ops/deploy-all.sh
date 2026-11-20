@@ -990,6 +990,17 @@ if [[ $DO_API -eq 1 ]]; then
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
   # needs the homologs module's species restriction and its sequence= switch, so those
   # two go together, and the screen needs the button that reaches the map.
+  # Asked for in a sentence, shown as a protein map with the source transcript's exons
+  # and the track's missense variants on it, and with a panel while it runs.
+  install_group "Conservation map: its own operation, labelled, with exons and variants" \
+    "baja/manchester/menu/editor-capabilities.js:ONE TRACK, MANY SPECIES" \
+    "baja/manchester/menu/editor-capabilities.js:THE VARIANTS ON THE TRACK, CARRIED ONTO THE PROTEIN" \
+    "baja/bio/conservation-map.js:IT IS A PROTEIN MAP, AND IT SAYS SO" \
+    "py/bio/editor/plan.py:CONSERVATION ACROSS SPECIES IS conservation_map"
+  install_group "A panel while something slow is running" \
+    "baja/lib/working.js:SOMETHING IS HAPPENING, AND HERE IS WHAT" \
+    "baja/manchester/menu/editor-capabilities.js:A FORTY-SECOND WAIT NEEDS A PANEL" \
+    "baja/bio/match-regions.js:COUNTED OUT LOUD"
   install_group "A conservation map across every species at once" \
     "py/bio/homolog-conservation.py:NOTHING IS ALIGNED HERE" \
     "py/bio/homologs.py:sequence=protein brings back both rows" \

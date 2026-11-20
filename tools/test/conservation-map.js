@@ -169,6 +169,151 @@ const model = {
     ok(!!document.getElementById('baja-homolog-screen'),
        'over the list rather than instead of it, so Escape comes back to what it is about');
 
+    // ---- asked for in a sentence, not only from the list ---------------------------------
+    // "show spag9 conservation map" was read as draw_similarity_map and refused for naming
+    // only one track. That operation compares two tracks that are both open; this question
+    // names one, because the others are not on the canvas at all.
+    const trk = { name: 'SPAG9_mRNA', xi: 0, xf: 5000, track_layers: [], annotations: [],
+        getSelectedRanges: () => [] };
+    const g2 = { track: [trk], said: [], getTracks: () => [trk],
+        setMessage(m) { this.said.push('' + m); }, setResultMessage(m) { this.said.push('' + m); } };
+    const C = await load('baja/manchester/menu/editor-capabilities.js', g2, {});
+    ok(C.catalogue().some((c) => c.name === 'conservation_map'),
+       'the editor has it as an operation of its own');
+
+    let p = C.preview({ capability: 'conservation_map', args: { track: 'SPAG9_mRNA' } });
+    ok(!p.blocker, 'ONE track is enough: ' + (p.blocker || '(none)'));
+    ok(/map where SPAG9 is conserved/.test(p.text), 'and it says so: ' + p.text);
+    ok(/takes a few seconds/.test(p.text),
+       'with the wait named before the button, since Ensembl aligns on demand');
+
+    pyAsked = null; pyReply = model;
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+    await p.capability.run(p.args);
+    ok(pyAsked && pyAsked[0] === 'SPAG9' && pyAsked[2] === 'orthologues',
+       'orthologs by default, which is what conservation nearly always means: '
+       + JSON.stringify(pyAsked && pyAsked.slice(0, 3)));
+    ok(!!document.getElementById('baja-conservation-map'), 'and the map opens straight away');
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+
+    await C.preview({ capability: 'conservation_map',
+        args: { track: 'SPAG9_mRNA', across: 'paralogs' } }).capability.run(
+        { track: 'SPAG9_mRNA', across: 'paralogs' });
+    ok(pyAsked[2] === 'paralogues', 'and the family can be asked for instead: ' + pyAsked[2]);
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+
+    // Nothing to stack is an answer about the gene, not an error.
+    pyReply = { status: 'OK', gene: 'X', species: 'human', length: 0, species_rows: [],
+        profile: {}, blocks: [], note: 'no aligned homolog came back for X' };
+    g2.said = [];
+    await C.preview({ capability: 'conservation_map', args: { track: 'SPAG9_mRNA' } })
+        .capability.run({ track: 'SPAG9_mRNA' });
+    ok(!document.getElementById('baja-conservation-map'), 'no empty map is opened');
+    ok(/no aligned homolog/.test(g2.said.join(' ')),
+       'and the reason is said: ' + g2.said.join(' | '));
+
+    // The two-track map must stop catching this sentence.
+    const caps = fs.readFileSync('baja/manchester/menu/editor-capabilities.js', 'utf8').replace(/\s+/g, ' ');
+    ok(/conservation ACROSS SPECIES from one track[^$]{0,80}use conservation_map instead/.test(caps),
+       'draw_similarity_map says when it is not the one meant');
+    const plan = fs.readFileSync('py/bio/editor/plan.py', 'utf8');
+    ok(/CONSERVATION ACROSS SPECIES IS conservation_map/.test(plan),
+       'and the planner is told the same');
+
+    // ---- it is a PROTEIN map, and it says whose transcript it started from -------------
+    // "are these transcripts? if so are you showing exons anywhere" -- they are proteins,
+    // which nothing on the picture said, and the exons were nowhere.
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+    const withSrc = JSON.parse(JSON.stringify(model));
+    withSrc.source = { track: 'SPAG9_mRNA', transcript: 'ENST00000262013.12', residues: L,
+        exons: [{ n: 1, start: 1, end: 12 }, { n: 2, start: 13, end: 26 },
+                { n: 3, start: 27, end: 40 }] };
+    await load('baja/bio/conservation-map.js', { setMessage() { } }, withSrc);
+    const e3 = document.getElementById('baja-conservation-map');
+    const t3 = e3.textContent;
+    ok(/PROTEIN/.test(t3) && /one amino acid, not one base/.test(t3),
+       'it says it is a protein map, so 1,321 columns for a 6 kb transcript is explained');
+    ok(/starts from SPAG9_mRNA \(ENST00000262013\.12\)/.test(t3)
+       && /the track on your canvas/.test(t3),
+       'and names the transcript on the canvas it started from: '
+       + (/It starts from[^.]*/.exec(t3) || [''])[0]);
+
+    const exonBars = Array.from(e3.querySelectorAll('svg rect'))
+        .filter((r) => /26,163,189/.test('' + r.getAttribute('fill')));
+    ok(exonBars.length === 3, 'the exons are drawn, one bar each: ' + exonBars.length);
+    const ttl = exonBars[1] && exonBars[1].querySelector('title');
+    ok(ttl && /exon 2 \u00b7 residues 13\u201326/.test(ttl.textContent),
+       'in residue coordinates, since residue k is codon k: ' + (ttl ? ttl.textContent : ''));
+    ok(/lane of numbered blocks is the transcript/.test(t3), 'and the key says what the lane is');
+
+    // A DIFFERENT TRANSCRIPT IS NOT DRAWN. The track on the canvas may not be the one
+    // Ensembl aligned, and boundaries from another protein would be confidently wrong.
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+    const wrongSrc = JSON.parse(JSON.stringify(withSrc));
+    wrongSrc.source.residues = L + 40;
+    await load('baja/bio/conservation-map.js', { setMessage() { } }, wrongSrc);
+    const e4 = document.getElementById('baja-conservation-map');
+    ok(!Array.from(e4.querySelectorAll('svg rect'))
+        .some((r) => /26,163,189/.test('' + r.getAttribute('fill'))),
+       'exon bars are dropped when the track is a different transcript');
+    ok(/different transcripts and the exon boundaries are not drawn/.test(e4.textContent),
+       'and the reason is on the picture: '
+       + (/the track is[^.]*/.exec(e4.textContent) || [''])[0]);
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+
+    // ---- the track's missense variants, on the residues they change ---------------------
+    // "if missense mutations are on the track make sure to carry over the annotations to
+    // these proteins". A variant standing over a column where every species agrees is a
+    // different proposition from one where none do, and that comparison is the point.
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+    const withVars = JSON.parse(JSON.stringify(withSrc));
+    withVars.source.variants = [
+        { residue: 15, from: 'R', to: 'C', label: 'R15C', id: 'rs1' },
+        { residue: 33, from: 'K', to: 'E', label: 'K33E', id: '' }
+    ];
+    withVars.source.variants_skipped = { synonymous: 2, nonsense: 0, indel: 1, outside: 0 };
+    await load('baja/bio/conservation-map.js', { setMessage() { } }, withVars);
+    const e5 = document.getElementById('baja-conservation-map');
+    const dots = Array.from(e5.querySelectorAll('svg circle'));
+    ok(dots.length === 2, 'one mark per missense variant: ' + dots.length);
+    const dt = dots[0].querySelector('title').textContent;
+    ok(/R15C/.test(dt) && /rs1/.test(dt), 'named as the protein change it is: ' + dt);
+    ok(/of 3 species identical here/.test(dt),
+       'and says what the species do at that residue, which is the comparison worth making: '
+       + dt);
+    ok(/2 missense variants from the track are marked/.test(e5.textContent),
+       'the header says they were carried over');
+    ok(/a dot is a missense variant/.test(e5.textContent), 'and the key says what a dot is');
+
+    // Only missense: the rest are not points on a residue, and are named rather than dropped.
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+    const noneCarried = JSON.parse(JSON.stringify(withSrc));
+    noneCarried.source.variants_skipped = { synonymous: 3, nonsense: 1, indel: 2, outside: 0 };
+    await load('baja/bio/conservation-map.js', { setMessage() { } }, noneCarried);
+    const e6 = document.getElementById('baja-conservation-map');
+    ok(!e6.querySelectorAll('svg circle').length, 'nothing is drawn when nothing is missense');
+    ok(/3 synonymous/.test(e6.textContent) && /1 nonsense/.test(e6.textContent)
+       && /2 indels/.test(e6.textContent),
+       'and what was left off is named: ' + (/No missense[^.]*/.exec(e6.textContent) || [''])[0]);
+
+    // A different transcript means the residue numbers point at the wrong columns.
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+    const wrongVars = JSON.parse(JSON.stringify(withVars));
+    wrongVars.source.residues = L + 40;
+    await load('baja/bio/conservation-map.js', { setMessage() { } }, wrongVars);
+    ok(!document.getElementById('baja-conservation-map').querySelectorAll('svg circle').length,
+       'variants are dropped with the exons when the track is a different transcript');
+    try { window.__bajaConservationMap.destroy(); } catch (e) { }
+
+    // The capability is what works the residues out, from the track's own reading frame.
+    const capsrc = fs.readFileSync('baja/manchester/menu/editor-capabilities.js', 'utf8');
+    ok(/THE VARIANTS ON THE TRACK, CARRIED ONTO THE PROTEIN/.test(capsrc),
+       'the capability carries them over');
+    ok(/if \(wt === mu\) \{ skipped\.synonymous\+\+; continue; \}/.test(capsrc),
+       'a synonymous change alters no residue, so it is not one of them');
+    ok(/if \(mu === '\*'\) \{ skipped\.nonsense\+\+; continue; \}/.test(capsrc),
+       'and a nonsense change ends the protein rather than changing a residue in it');
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

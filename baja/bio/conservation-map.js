@@ -15,6 +15,14 @@ function (graph, model) {
     // row and you see one species. The band above them is how many agree at each residue,
     // which is the thing the eye should land on first, so it is drawn largest and darkest.
     //
+    // IT IS A PROTEIN MAP, AND IT SAYS SO. Ensembl's homology alignments are protein
+    // alignments, so a column is a residue and not a base: a 6 kb transcript is 1,321
+    // columns wide and nothing on the picture explained why. The lane across the top is
+    // the transcript on the canvas that this started from, cut into its exons, which
+    // answers the question that always follows "where is this conserved": which exon is
+    // that. Residue k is codon k, so an exon that covers a run of codons covers a run of
+    // residues, and the boundary lands where a reader would point.
+    //
     // COLOUR SAYS WHAT KIND OF AGREEMENT, not how much: identical, a conservative
     // substitution, a different residue, or nothing aligned there at all. Those are four
     // different facts and a single shade of blue would lose three of them -- a stretch
@@ -33,6 +41,24 @@ function (graph, model) {
         const ident = prof.identical || [], simil = prof.similar || [];
         const blocks = (m.blocks || []).slice().sort((a, b) => a.start - b.start);
         const gene = '' + (m.gene || 'this gene');
+        const src = m.source || null;
+        const exons = (src && Array.isArray(src.exons)) ? src.exons : [];
+        // ONLY WHEN IT IS THE SAME PROTEIN. The track on the canvas may be a different
+        // transcript from the one Ensembl aligned, and exon boundaries drawn from a
+        // different protein would be confidently wrong. Within a residue or two is the
+        // same protein; further apart is not, and the lane is dropped with a line saying
+        // why rather than drawn and hoped for.
+        const srcLen = +((src && src.residues) || 0);
+        const exonsFit = !!(exons.length && srcLen && Math.abs(srcLen - L) <= 2);
+        // The same test as the exons: a residue number from another transcript points at
+        // the wrong column, and a variant drawn on the wrong column is worse than none.
+        const vars = (src && Array.isArray(src.variants) && srcLen && Math.abs(srcLen - L) <= 2)
+            ? src.variants.filter((v) => v && +v.residue >= 1 && +v.residue <= L) : [];
+        const exonNote = (exons.length && !exonsFit)
+            ? ('the track is ' + srcLen.toLocaleString() + ' residues and Ensembl aligned '
+                + L.toLocaleString() + ', so they are different transcripts and the exon '
+                + 'boundaries are not drawn')
+            : '';
 
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const num = (x) => (Math.round(+x) || 0).toLocaleString();
@@ -47,11 +73,13 @@ function (graph, model) {
         const RIGHT = 24;
         const LANE = 17, LGAP = 3;
         const PROF = 96;                      // the band of how many agree
+        const EXON = 15;                      // the lane of exons, when they fit
         let W = 0, H = 0, innerW = 0;
         const measure = () => {
             W = Math.max(760, Math.floor(window.innerWidth - 56));
             innerW = W - PAD - RIGHT;
-            H = 34 + PROF + 22 + rows.length * (LANE + LGAP) + 46;
+            H = 34 + PROF + 22 + (vars.length ? 20 : 0) + (exonsFit ? (EXON + 16) : 0)
+                + rows.length * (LANE + LGAP) + 46;
         };
         measure();
 
@@ -128,8 +156,56 @@ function (graph, model) {
                     + nSp) + '</title></rect>';
             }
 
-            // ---- a lane per species ------------------------------------------------------
+            // ---- the variants on the track, on the residues they change --------------------
+            // Drawn against the band above them, which is what makes the point: a lollipop
+            // standing over a column where all six species agree is a different claim from
+            // one over a column where none do.
             let y = top + PROF + 22;
+            if (vars.length) {
+                s += '<text x="' + (PAD - 10) + '" y="' + (y + 11) + '" text-anchor="end" '
+                    + 'font-size="11" fill="#ff9d92">variants</text>';
+                for (const v of vars) {
+                    const x = PAD + Math.floor((v.residue - 0.5) * px / L);
+                    s += '<line x1="' + x + '" y1="' + (y - 18) + '" x2="' + x + '" y2="' + (y + 8)
+                        + '" stroke="rgba(255,157,146,0.75)" stroke-width="1"></line>'
+                        + '<circle cx="' + x + '" cy="' + (y + 10) + '" r="4" fill="#ff6a5a" '
+                        + 'stroke="#07202f" stroke-width="0.8"><title>'
+                        + esc((v.label || ('residue ' + v.residue)) + (v.id ? (' \u00b7 ' + v.id) : '')
+                            + ' \u00b7 ' + (ident[v.residue - 1] || 0) + ' of ' + nSp
+                            + ' species identical here') + '</title></circle>';
+                }
+                y += 20;
+            }
+
+            // ---- the transcript this started from, in its exons ---------------------------
+            if (exonsFit) {
+                s += '<text x="' + (PAD - 10) + '" y="' + (y + EXON - 3) + '" text-anchor="end" '
+                    + 'font-size="12" fill="#eaf6f9">' + esc(src.track || gene)
+                    + (src.transcript ? ('<tspan fill="#9fc4d4" font-size="10"> \u00b7 '
+                        + esc(src.transcript) + '</tspan>') : '') + '</text>';
+                for (const ex of exons) {
+                    const x0 = PAD + Math.floor((ex.start - 1) * px / L);
+                    const x1 = PAD + Math.floor(ex.end * px / L);
+                    const w2 = Math.max(1, x1 - x0);
+                    // Alternating, because a run of exons with no gap between them is one
+                    // long bar unless they take it in turns.
+                    s += '<rect x="' + x0 + '" y="' + y + '" width="' + w2 + '" height="' + EXON + '" '
+                        + 'fill="' + ((ex.n % 2) ? 'rgba(26,163,189,0.55)' : 'rgba(26,163,189,0.28)') + '" '
+                        + 'stroke="rgba(7,32,47,0.9)" stroke-width="0.6">'
+                        + '<title>' + esc('exon ' + ex.n + ' \u00b7 residues ' + num(ex.start)
+                            + '\u2013' + num(ex.end)) + '</title></rect>';
+                    // A number only where it fits: a label wider than its exon spills onto
+                    // the neighbours and reads as belonging to the wrong one.
+                    if (w2 >= 16) {
+                        s += '<text x="' + (x0 + w2 / 2) + '" y="' + (y + EXON - 4) + '" '
+                            + 'text-anchor="middle" font-size="9" fill="#06212f" font-weight="700" '
+                            + 'pointer-events="none">' + ex.n + '</text>';
+                    }
+                }
+                y += EXON + 16;
+            }
+
+            // ---- a lane per species ------------------------------------------------------
             for (const r of rows) {
                 // ON ONE LINE. Stacking the gene symbol under the species name put it
                 // 13px below a lane that is 20px apart, so every label sat on the row
@@ -169,6 +245,21 @@ function (graph, model) {
             + 'background:#0a2540;padding:16px 20px 12px 20px;overflow:auto;color:#eaf6f9;'
             + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13px;';
 
+        // WHAT WAS LEFT OFF AND WHY. A synonymous change alters no residue, a nonsense one
+        // ends the protein rather than changing a residue in it, and an indel moves
+        // everything after it: none of them is a point on a residue, and saying so is
+        // better than a map that quietly holds fewer variants than the track does.
+        const skippedNote = (sk) => {
+            const bits = [];
+            if (sk.synonymous) bits.push(sk.synonymous + ' synonymous');
+            if (sk.nonsense) bits.push(sk.nonsense + ' nonsense');
+            if (sk.indel) bits.push(sk.indel + ' indel' + (sk.indel === 1 ? '' : 's'));
+            if (sk.outside) bits.push(sk.outside + ' outside the reading frame');
+            return bits.length
+                ? (' No missense variant is on the track to carry over (' + bits.join(', ') + ').')
+                : '';
+        };
+
         const key = (c, t) => '<span style="display:inline-flex;align-items:center;gap:5px;">'
             + '<span style="width:11px;height:11px;border-radius:2px;background:' + CC[c] + ';"></span>'
             + esc(t) + '</span>';
@@ -189,14 +280,28 @@ function (graph, model) {
             + '<div style="font-weight:700;font-size:16px;">Conservation of ' + esc(gene) + '</div>'
             + '<div style="font-size:12px;color:#cfe9f3;margin-top:3px;">' + esc(m.note || '')
             + ' · similarity by ' + esc(m.scoring || 'BLOSUM62')
-            + '. Every row is Ensembl’s own alignment of that species to ' + esc(gene)
-            + ', so every column is one residue of ' + esc(gene) + '.</div></div>'
+            + '. Every row is Ensembl’s own alignment of that species’ PROTEIN to the '
+            + esc(gene) + ' protein, so every column is one amino acid, not one base.'
+            + (src ? (' It starts from ' + esc(src.track || gene)
+                + (src.transcript ? (' (' + esc(src.transcript) + ')') : '')
+                + ', the track on your canvas'
+                + (exonsFit ? ', whose exons are the lane under the band.' : '.')) : '')
+            + (exonNote ? (' ' + esc(exonNote) + '.') : '')
+            + (vars.length
+                ? (' ' + vars.length + ' missense variant' + (vars.length === 1 ? '' : 's')
+                    + ' from the track are marked on the residues they change.')
+                : ((src && src.variants_skipped && !exonNote)
+                    ? skippedNote(src.variants_skipped) : ''))
+            + '</div></div>'
             + BTN('blocks', 'Conserved blocks') + BTN('svg', 'SVG') + BTN('close', 'Close')
             + '</div>'
             + '<div data-id="picture" style="background:#07202f;border-radius:9px;padding:8px 0;">' + build() + '</div>'
             + '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#9fc4d4;padding:9px 4px 0 4px;">'
             + key('=', 'identical') + key('+', 'conservative substitution')
             + key('.', 'different residue') + key('-', 'nothing aligned there')
+            + (exonsFit ? '<span>the lane of numbered blocks is the transcript\u2019s own exons</span>' : '')
+            + (vars.length ? '<span style="color:#ff9d92;">a dot is a missense variant from the '
+                + 'track, on the residue it changes</span>' : '')
             + '<span>a column of pixels takes the WORST residue it covers, so one break in a perfect domain still shows</span>'
             + '</div>'
             + (blockRows

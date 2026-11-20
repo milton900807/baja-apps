@@ -164,29 +164,44 @@ function (graph, genegraph_panel_layout, model) {
             // 60% identical because every residue is a coin flip.
             if (id === 'conservation') {
                 b.disabled = true;
-                say('Building the conservation map \u2026 Ensembl aligns each species on '
-                    + 'demand, so this takes a moment.');
+                say('');
+                let w = null;
+                try {
+                    w = await exec('baja/lib/working.js', 'Conservation map for ' + gene,
+                        'Asking Ensembl for the alignments. Each species is aligned when it '
+                        + 'is asked for, so this usually takes half a minute.');
+                } catch (e2) { w = null; }
                 try {
                     const r = await exec('py/bio/homolog-conservation.py', gene,
                         (m.species || 'human'), (kind === 'paralogues' ? 'paralogues' : 'orthologues'),
                         JSON.stringify({ max_species: 12 }));
                     if (!r || r.status !== 'OK') {
-                        say((r && r.error) || 'the conservation map could not be built');
+                        const why = (r && r.error) || 'the conservation map could not be built';
+                        try { if (w) w.fail(why); } catch (e3) { }
+                        say(why);
                         b.disabled = false;
                         return;
                     }
                     if (!(r.species_rows || []).length) {
-                        say(r.note || 'no aligned homolog came back to build a map from');
+                        const why = r.note || 'no aligned homolog came back to build a map from';
+                        try { if (w) w.fail(why); } catch (e3) { }
+                        say(why);
                         b.disabled = false;
                         return;
                     }
+                    try { if (w) w.step('Stacking ' + (r.species_rows || []).length
+                        + ' species across ' + r.length + ' residues \u2026'); } catch (e3) { }
                     const made = await exec('baja/bio/conservation-map.js', graph, r);
+                    try { if (w) w.done(); } catch (e3) { }
                     // Left open behind the map: closing the list would take away the thing
                     // the map is about, and Escape should come back to it.
                     if (made) say('');
                     else { say('the conservation map could not be drawn'); b.disabled = false; }
                 } catch (e2) {
-                    say('the conservation map could not be built: ' + (e2 && e2.message ? e2.message : e2));
+                    const why = 'the conservation map could not be built: '
+                        + (e2 && e2.message ? e2.message : e2);
+                    try { if (w) w.fail(why); } catch (e3) { }
+                    say(why);
                     b.disabled = false;
                 }
                 return;
