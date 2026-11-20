@@ -711,7 +711,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/exon-ai-models.js:THE SAME MODEL, READ FOR BRAIN"
   install_group "exon reliability: tag, score and ranking" \
     "baja/bio/splicing/splicing-profile.js:HOW RELIABLY EACH EXON IS SPLICED IN" \
-    "baja/bio/track-layer.js:RELIABILITY, WRITTEN ON THE EXON" \
+    "baja/bio/track-layer.js:AN OPAQUE CHIP, NOT A HALO" \
     "baja/bio/splicing/exon-ai-models.js:Rank exons by how unreliably they splice" \
     "baja/bio/track.js:A MARKED REGION IS NOT A GENE BODY"
   install_group "exon menu: Predict effect of removing, and the modules it opens" \

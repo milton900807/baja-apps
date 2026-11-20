@@ -26,11 +26,15 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
 
 const recorder = () => {
-    const r = { texts: [], strokes: [] };
+    const r = { texts: [], strokes: [], plates: [] };
     const ctx = {
         canvas: { width: 1600, height: 800 },
         save() { }, restore() { }, beginPath() { }, closePath() { }, setLineDash() { },
-        arc() { }, moveTo() { }, lineTo() { }, stroke() { }, fill() { }, fillRect() { },
+        arc() { }, moveTo() { }, lineTo() { }, stroke() { }, fill() { },
+        // Recorded now: the stability tag sits on an opaque plate, and a test that
+        // cannot see the plate cannot tell a covered label from a transparent one.
+        fillRect(x, y, w, h) { r.plates.push({ x: x, y: y, w: w, h: h, color: this.fillStyle }); },
+        roundRect(x, y, w, h) { r.plates.push({ x: x, y: y, w: w, h: h, color: this.fillStyle }); },
         createLinearGradient: () => ({ addColorStop() { } }),
         measureText: (t) => ({ width: ('' + t).length * 6 }),
         fillText(t, x, y) { r.texts.push({ t: '' + t, x: x, y: y, color: this.fillStyle }); },
@@ -92,8 +96,17 @@ const mkTrack = () => {
     ok(label(3) && label(3).color === '#b45309', 'one that often skips is amber: ' + (label(3) || {}).color);
     ok(label(5) && label(5).color === '#b91c1c', 'one mostly skipped is red: ' + (label(5) || {}).color);
 
-    // Every label is haloed, or it is unreadable wherever an arc runs under it.
-    ok(r.strokes.some((x) => x.t === label(1).t), 'drawn over a white halo');
+    // AN OPAQUE PLATE, NOT A HALO. A halo only outlines the glyphs, so whatever runs
+    // under the label shows through between the strokes; under this one is the
+    // amino-acid row, which is dense and the same size, and the label was reported as
+    // unreadable over it. The plate has to be behind the label and at least as wide.
+    const plate = r.plates.filter((p) => Math.abs((p.y + p.h / 2) - label(1).y) < 2)
+        .sort((a, b) => b.w - a.w)[0];
+    ok(!!plate, 'the label sits on a plate');
+    ok(plate && /255, *255, *255/.test('' + plate.color), 'the plate is opaque white: '
+       + (plate || {}).color);
+    ok(plate && plate.w >= ('' + label(1).t).length * 6,
+       'the plate covers the whole label: ' + (plate || {}).w);
 
     // CLEAR OF THE EXON NUMBER: that badge is a 40px opaque disc centred on the capsule.
     const baselineY = graph.Y(tgraph.Y(0));
@@ -113,7 +126,8 @@ const mkTrack = () => {
         const g2 = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
         layer.drawSashimi(tgraph, g2, t2);
         // Only the stability row: the arcs write their own percentages elsewhere.
-        const row = g2.Y(tgraph.Y(0)) - 30;
+        // BADGE_R (20) + 18: clear of the exon badge AND of the amino-acid row below it
+        const row = g2.Y(tgraph.Y(0)) - 38;
         return b.r.texts.filter((x) => Math.abs(x.y - row) < 0.001);
     };
     const nt = narrow();

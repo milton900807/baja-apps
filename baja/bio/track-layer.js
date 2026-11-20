@@ -1042,10 +1042,12 @@ return new Promise(async (resolve, reject) => {
                     if (!(f <= (skipOf.get(k) || 0))) skipOf.set(k, f);
                 }
                 const BADGE_R = 20;                 // the exon number's disc, at this zoom
-                const ly = baselineY - BADGE_R - 10;
+                // Clear of the badge AND of the amino-acid row, which sits just above the
+                // capsule once zoomed in and is what the tag used to be read through.
+                const ly = baselineY - BADGE_R - 18;
                 const placed = [];
                 ctx.save();
-                ctx.font = 'bold 10px Arial';
+                ctx.font = 'bold 13px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.lineJoin = 'round';
@@ -1079,9 +1081,19 @@ return new Promise(async (resolve, reject) => {
                     // red when most transcripts do: the colour is the reading, the number is
                     // the measurement.
                     const col = (pct >= 90) ? '#15803d' : (pct >= 50 ? '#b45309' : '#b91c1c');
-                    ctx.lineWidth = 3;
-                    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-                    ctx.strokeText(text, cx, ly);
+                    // AN OPAQUE CHIP, NOT A HALO. A white outline on the glyphs lets
+                    // whatever is behind show through between the strokes, and behind this
+                    // is the amino-acid row: dense, same size, and the reason the tag read
+                    // as blocked. A filled plate behind the text covers it outright.
+                    const ch = 16;
+                    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                    if (ctx.roundRect) {
+                        ctx.beginPath();
+                        ctx.roundRect(x0 - 2, ly - ch / 2, (x1 - x0) + 4, ch, 4);
+                        ctx.fill();
+                    } else {
+                        ctx.fillRect(x0 - 2, ly - ch / 2, (x1 - x0) + 4, ch);
+                    }
                     ctx.fillStyle = col;
                     ctx.fillText(text, cx, ly);
                 }
@@ -1156,46 +1168,13 @@ return new Promise(async (resolve, reject) => {
                 ctx.restore();
             }
 
-            // RELIABILITY, WRITTEN ON THE EXON. The arcs say how much of the transcript uses
-            // each junction. What they do not say is whether that level is a decision or a
-            // coin flip, and that is the thing worth acting on: an exon at 99% and one at 2%
-            // are both reliable, one reliably in and one reliably out, while one at 50% is
-            // neither. One short tag per exon, below the baseline so it cannot collide with
-            // the arcs above it, in the same colour bands the ranking uses.
-            //
-            // Drawn only where it FITS. A tag wider than its exon, or one that would touch
-            // the previous tag, is skipped rather than shrunk or overlapped: an unreadable
-            // smear of text over a dense transcript is worse than no text, and every exon
-            // skipped here is still in the ranked list, which is where the full set lives.
-            if (__psiMode && Array.isArray(this.exonStability) && this.exonStability.length) {
-                ctx.save();
-                ctx.font = 'bold 9px Arial';
-                ctx.textAlign = 'center';
-                const __sy = baselineY + 13;
-                const __sCol = {
-                    'constitutive': '#15803d', 'rarely in': '#2563eb',
-                    'variable': '#d97706', 'unstable': '#c0392b'
-                };
-                let __lastRight = -1e9;
-                const __ordered = this.exonStability.slice().sort((a, b) => a.lo - b.lo);
-                for (const e of __ordered) {
-                    const xa = graph.X(tgraph.X(e.lo));
-                    const xb = graph.X(tgraph.X(e.hi));
-                    if (!isFinite(xa) || !isFinite(xb)) continue;
-                    const mid = (xa + xb) / 2, wide = Math.abs(xb - xa);
-                    const txt = Math.round(100 * e.psi) + '% ' + e.word;
-                    const tw = ctx.measureText(txt).width;
-                    if (tw > wide - 4) continue;
-                    if (mid - tw / 2 < __lastRight + 3) continue;
-                    ctx.fillStyle = 'rgba(255,255,255,0.82)';
-                    ctx.fillRect(mid - tw / 2 - 2, __sy - 8, tw + 4, 11);
-                    ctx.fillStyle = __sCol[e.word] || '#0b1a2b';
-                    ctx.fillText(txt, mid, __sy);
-                    __lastRight = mid + tw / 2;
-                }
-                ctx.restore();
-            }
-
+            // The per-exon reliability tag is drawn ONCE, in the exon-stability pass
+            // above, off track.annotations. An earlier pass here drew a second tag from
+            // layer.exonStability, below the baseline, so every exon carried two labels
+            // saying the same thing in different words and the pair collided with the
+            // exon badge between them. The scoring on layer.exonStability is still used:
+            // it is what the reliability RANKING reads, and it is weighted by conservation
+            // and by functional sites, which the drawn tag deliberately is not.
             ctx.lineWidth = 1;
             ctx.textAlign = 'left';
         }
