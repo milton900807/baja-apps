@@ -346,7 +346,24 @@ def _clean(out: Dict[str, Any], catalogue: List[Dict[str, Any]]) -> Dict[str, An
         missing = [k for k, s in specs.items()
                    if isinstance(s, dict) and s.get("required") and args.get(k) is None]
         if missing:
-            problems.append("%s needs %s and none was given" % (name, ", ".join(missing)))
+            # A STEP ONE ARGUMENT SHORT IS STILL THE RIGHT STEP, so it is sent rather
+            # than dropped. Dropping it left the card with no step to talk about and
+            # nothing but the refusal text, which is how "add pathologic mutations to
+            # selected sequence" -- load_variants over the selection, missing only a db
+            # -- came back as "Nothing in the editor does that".
+            #
+            # The client validates every step against the same declarations, so this
+            # one is refused again there; the difference is that there the declaration
+            # is in hand, and a refusal that knows the argument it wants can offer the
+            # values that would be accepted. Nothing is filled in on the way: the step
+            # travels incomplete, and stays incomplete until the user picks.
+            #
+            # No entry in `problems`: the client's refusal says the same thing with the
+            # choice attached, and the same sentence twice reads as two faults.
+            step = {"capability": name, "args": args, "needs": missing[:4]}
+            if dropped:
+                step["dropped"] = dropped[:8]
+            steps.append(step)
             continue
         step: Dict[str, Any] = {"capability": name, "args": args}
         if dropped:

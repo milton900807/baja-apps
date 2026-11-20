@@ -70,5 +70,43 @@ for bad, why in [('', 'nothing'), ('no json here', 'no JSON'), ('{"a": ', 'trunc
         ok('Extra data' not in str(e) and len(str(e)) > 10,
            'it refuses ' + why + ' in plain words: ' + str(e))
 
+# A STEP ONE ARGUMENT SHORT IS STILL THE RIGHT STEP.
+#
+# "add pathologic mutations to selected sequence" is load_variants over the selection
+# with no db. This side used to drop the step and report only the refusal, so the card
+# had nothing to talk about and said "Nothing in the editor does that" -- about an
+# operation the editor has. The step now travels incomplete, and the client, which holds
+# the same declarations, refuses it there with the accepted values attached.
+CAT = [{
+    "name": "load_variants",
+    "summary": "fetch variants",
+    "params": {
+        "db": {"type": "enum", "values": ["clinvar", "dbsnp", "gnomad", "cosmic"], "required": True},
+        "types": {"type": "enum[]", "values": ["snp", "ins", "del"]},
+    },
+}]
+
+r = mod._clean({"steps": [{"capability": "load_variants", "args": {"types": ["snp"]}}]}, CAT)
+ok(len(r.get('steps', [])) == 1, 'the incomplete step is sent, not dropped: ' + json.dumps(r)[:90])
+ok(r['steps'][0].get('needs') == ['db'], 'and says which argument it is short of: '
+   + json.dumps(r['steps'][0].get('needs')))
+ok(r['steps'][0]['args'].get('db') is None, 'nothing was filled in for the user')
+ok(r['steps'][0]['args'].get('types') == ['snp'], 'and the arguments it did have survive')
+ok(not r.get('problems'), 'with no second copy of the message: ' + json.dumps(r.get('problems')))
+
+# A complete step is untouched by any of that.
+r = mod._clean({"steps": [{"capability": "load_variants", "args": {"db": "clinvar"}}]}, CAT)
+ok(r['steps'][0]['args']['db'] == 'clinvar' and 'needs' not in r['steps'][0],
+   'a complete step carries no needs marker: ' + json.dumps(r['steps'][0]))
+
+# A BAD VALUE IS STILL A REFUSAL. There is nothing to ask about: the user named a
+# database and it is not one of these, so the step must not travel as if it were salvageable.
+r = mod._clean({"steps": [{"capability": "load_variants", "args": {"db": "ensembl"}}]}, CAT)
+ok(not r.get('steps'), 'a step with an impossible value is still dropped')
+ok(r.get('problems'), 'and says so: ' + json.dumps(r.get('problems')))
+
+r = mod._clean({"steps": [{"capability": "nope", "args": {}}]}, CAT)
+ok(not r.get('steps') and r.get('problems'), 'an unknown operation is still refused')
+
 print(('\n%d failed' % fails) if fails else '\nall assertions passed')
 sys.exit(1 if fails else 0)

@@ -3587,7 +3587,22 @@ function (graph, genegraph_panel_layout) {
             }
             for (const k of Object.keys(specs)) {
                 if (specs[k].required && args[k] == null) {
-                    return { ok: false, capability: c, problem: 'needs ' + k + ' and none was given' };
+                    // A MISSING ARGUMENT IS A QUESTION, NOT A DEAD END. Refusing is right --
+                    // nothing above may substitute a value the user did not give -- but the
+                    // refusal knows precisely what it needs and, for an enum, every answer
+                    // that would be accepted. "add pathologic mutations to selected sequence"
+                    // is load_variants without a db: one word short of runnable, and the four
+                    // words that would complete it are right here. They travel with the
+                    // refusal so the card can offer them; offering is not substituting, and
+                    // the value is still the user's to pick.
+                    return {
+                        ok: false, capability: c,
+                        problem: 'needs ' + k + ' and none was given',
+                        missing: k,
+                        missingValues: (specs[k].type === 'enum' && Array.isArray(specs[k].values))
+                            ? specs[k].values.slice() : null,
+                        missingAbout: specs[k].about || ''
+                    };
                 }
                 if (args[k] == null && specs[k].default != null) args[k] = specs[k].default;
             }
@@ -3615,7 +3630,13 @@ function (graph, genegraph_panel_layout) {
 
         const preview = (step) => {
             const v = validate(step);
-            if (!v.ok) return { ok: false, text: v.problem };
+            if (!v.ok) {
+                return {
+                    ok: false, text: v.problem, capability: v.capability || null,
+                    missing: v.missing || null, missingValues: v.missingValues || null,
+                    missingAbout: v.missingAbout || ''
+                };
+            }
             const c = v.capability;
             // Which tracks this step could run on, when it names none. One: it simply runs
             // there. Several: the card offers a Go for each rather than guessing.

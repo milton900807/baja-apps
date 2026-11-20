@@ -1218,6 +1218,20 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/splicing-profile.js:A PUBLISHED MEASUREMENT, where one exists" \
     "baja/bio/track-layer.js:A MEASUREMENT OUTRANKS BOTH" \
     "baja/bio/splicing/exon-ai-models.js:WHERE A MEASURED NUMBER CAME FROM"
+  # ONE ARGUMENT SHORT IS NOT "NOTHING IN THE EDITOR DOES THAT". "add pathologic
+  # mutations to selected sequence" is load_variants over the selection with no db:
+  # the planner dropped the step and reported only the refusal, so the card had no
+  # step to talk about. The step now travels incomplete and the card offers the four
+  # databases as buttons. Nothing is filled in on the way -- the value is the user's
+  # to pick, which is the rule the plan fallback above already states.
+  #
+  # All three together: plan.py sending the step with no card able to offer the
+  # choice is the same dead end with an extra step in it, and the card offering a
+  # choice it never receives is dead code.
+  install_group "A missing argument is asked for, not refused" \
+    "py/bio/editor/plan.py:A STEP ONE ARGUMENT SHORT IS STILL THE RIGHT STEP" \
+    "baja/manchester/menu/editor-capabilities.js:A MISSING ARGUMENT IS A QUESTION, NOT A DEAD END" \
+    "baja/manchester/menu/editor-command.js:ONE WORD SHORT IS NOT"
   install_group "The exon stability tag reads below the exon" \
     "baja/bio/track-layer.js:MEASURED FROM THE LINE THE EXON IS ON"
   install_group "PSI is withheld where the reads were not uniquely assignable" \

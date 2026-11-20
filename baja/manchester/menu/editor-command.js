@@ -560,10 +560,44 @@ function (graph, genegraph_panel_layout, options) {
                         }
                     }
 
+                    // ONE WORD SHORT IS NOT "NOTHING IN THE EDITOR DOES THAT".
+                    //
+                    // "add pathologic mutations to selected sequence" is load_variants over
+                    // the selection with db unset: the editor does exactly that, and the
+                    // refusal already knows which argument is missing and every value that
+                    // would be accepted. Saying nothing does it, under a note naming an
+                    // argument the user never saw a list for, is both wrong and a dead end.
+                    //
+                    // So the values are offered as buttons. Picking one puts it in the step
+                    // and re-renders the plan, which lands on the ordinary card with its own
+                    // run button -- the argument is supplied by the user's click, and nothing
+                    // runs until they press run. That keeps the rule the planner side states:
+                    // the guess is offered, never taken.
+                    const askable = bad.filter((x) => x.p && x.p.missing
+                        && Array.isArray(x.p.missingValues) && x.p.missingValues.length);
+                    const askRows = askable.map((x, i) => {
+                        const c = x.p.capability;
+                        return '<div style="margin-top:9px;">'
+                            + '<div style="font:12.5px Arial;color:#9fb3c8;">'
+                            + H((c && c.name) || 'this operation') + ' needs <b>' + H(x.p.missing)
+                            + '</b>' + (x.p.missingAbout ? (' \u2014 ' + H(x.p.missingAbout)) : '')
+                            + '</div><div style="margin-top:6px;">'
+                            + x.p.missingValues.map((v, j) =>
+                                '<a href="#" id="ec-pick-' + i + '-' + j + '" '
+                                + 'style="display:inline-block;margin:3px 6px 0 0;padding:4px 10px;'
+                                + 'border-radius:6px;border:1px solid rgba(255,255,255,0.18);'
+                                + 'font:12.5px Arial;color:#7fb0e8;text-decoration:none;">'
+                                + H(v) + '</a>').join('')
+                            + '</div></div>';
+                    }).join('');
+
                     out.innerHTML = card(
-                        '<div style="font:700 13.5px Arial;color:#e8f0fb;">Nothing in the editor does that.</div>'
+                        '<div style="font:700 13.5px Arial;color:#e8f0fb;">'
+                        + (askable.length ? 'Which one?' : 'Nothing in the editor does that.')
+                        + '</div>'
                         + bad.map((x) => '<div style="font:12.5px Arial;color:#fca5a5;margin-top:7px;">'
                             + '&#9888; refused: ' + H(x.p.text) + '</div>').join('')
+                        + askRows
                         + warn
                         + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
                         + '<a id="ec-all" href="#" style="color:#7fb0e8;">See everything it can do</a>'
@@ -571,6 +605,22 @@ function (graph, genegraph_panel_layout, options) {
                         + 'and pick from there.</div>'
                         + dismissRow('ec-x1'));
                     wireDismiss('ec-x1');
+                    askable.forEach((x, i) => {
+                        x.p.missingValues.forEach((v, j) => {
+                            const el = q('#ec-pick-' + i + '-' + j);
+                            if (!el) return;
+                            el.onclick = (e) => {
+                                try { e.preventDefault(); } catch (e2) { }
+                                // Rebuilt rather than mutated: render() re-parses r.steps, so
+                                // the filled argument has to go back the way it came.
+                                const filled = steps.map((st) => (st === x.step)
+                                    ? Object.assign({}, st, { args: Object.assign({}, st.args || {},
+                                        { [x.p.missing]: v }) })
+                                    : st);
+                                render(Object.assign({}, r, { steps: JSON.stringify(filled) }), ask);
+                            };
+                        });
+                    });
                     const all = q('#ec-all');
                     if (all) all.onclick = (e) => { try { e.preventDefault(); } catch (e2) { } showAll(); };
                     return;
