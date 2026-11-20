@@ -3675,10 +3675,83 @@ function (graph, genegraph_panel_layout) {
             try { return R.available(); } catch (e) { return null; }
         };
 
+        // WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT, without asking anything.
+        //
+        // The planner is a server call and it can fail: the service can be down, the request
+        // can time out, or the model can decline it -- "add pathological mutations in the
+        // selected sequence" was read as a request to create something harmful, when in this
+        // editor it is load_variants over a selection, which is what a genome browser does.
+        // A failure there left the ask box with nothing but the error.
+        //
+        // This is deliberately dumb: words shared with an operation's own name and summary,
+        // with the handful of synonyms that differ between how people say a thing and how
+        // the catalogue spells it. It does not run anything and it does not guess arguments.
+        // It offers the operation, and the user picks -- which is the honest thing to do
+        // with a guess, and leaves them somewhere rather than nowhere.
+        const SUGGEST_ALSO = {
+            mutation: 'variant', mutations: 'variants', snp: 'variant', snps: 'variant',
+            pathological: 'pathogenic', pathogenic: 'clinvar', disease: 'clinvar',
+            clinical: 'clinvar', exon: 'exons', protein: 'translation',
+            domain: 'domains', skipping: 'skip', conserved: 'conservation'
+        };
+        const suggest = (text, limit) => {
+            const words = ('' + (text || '')).toLowerCase().match(/[a-z0-9']+/g) || [];
+            if (!words.length) return [];
+            const want = new Set();
+            for (const w of words) {
+                if (w.length < 3) continue;
+                want.add(w);
+                if (SUGGEST_ALSO[w]) want.add(SUGGEST_ALSO[w]);
+            }
+            // A RARE WORD IS WORTH MORE THAN A COMMON ONE. Counting shared words alone put
+            // clear_sequence_selection level with load_variants for "add pathological
+            // mutations in selected sequence", because "sequence" and "selected" are in half
+            // the catalogue while "pathogenic" is in one operation. Each word is worth how
+            // few operations use it, which is what makes it a clue at all.
+            const bag = [];
+            for (const c of LIST) {
+                bag.push({
+                    c: c,
+                    name: new Set(('' + (c.name || '')).toLowerCase().match(/[a-z0-9']+/g) || []),
+                    all: new Set((((c.name || '') + ' ' + (c.summary || '')).toLowerCase().match(/[a-z0-9']+/g) || []))
+                });
+            }
+            const weight = (w) => {
+                let k = 0;
+                for (const b of bag) if (b.all.has(w)) k++;
+                return k ? Math.log(1 + (bag.length / k)) : 0;
+            };
+            const scored = [];
+            for (const b of bag) {
+                let n = 0;
+                for (const w of want) {
+                    if (!b.all.has(w)) continue;
+                    // A name hit counts twice: a word in the operation's own name is what it
+                    // is called, not something its description happens to mention.
+                    n += weight(w) * (b.name.has(w) ? 3 : 1);
+                }
+                // THE VERB SAYS WHAT KIND OF OPERATION IT IS. "add pathological mutations"
+                // and "are any of these pathogenic" share almost every noun and want
+                // different operations: one puts something on the track, the other reads
+                // what is already there. Asking for a thing to appear favours the loaders;
+                // asking a question favours the ones that answer one.
+                if (/^(add|load|put|get|fetch|show|draw|bring|import)$/.test(words[0] || '')
+                    && /^(load|add|create|draw)_/.test('' + b.c.name)) n *= 1.25;
+                if (/^(are|is|which|what|how|do|does|why)$/.test(words[0] || '')
+                    && /^(ask|find|check|list)/.test('' + b.c.name)) n *= 1.25;
+                if (n > 0) scored.push({ name: b.c.name, summary: b.c.summary, score: Math.round(n * 100) / 100 });
+            }
+            scored.sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name));
+            // A single shared word is a coincidence, not a suggestion, once anything scores
+            // better: keep what is within reach of the best and drop the long tail.
+            const best = scored.length ? scored[0].score : 0;
+            return scored.filter((x) => x.score >= Math.max(1.2, best * 0.45)).slice(0, Math.max(1, limit || 3));
+        };
+
         return {
             list: LIST, byName: byName, validate: validate, preview: preview,
             regionInfo: regionInfo, regionsOf: regionsOf, selCountOf: selCountOf,
-            blocker: blocker, catalogue: catalogue,
+            blocker: blocker, catalogue: catalogue, suggest: suggest,
             vhits: vhits, vrows: vrows, crows: crows, selectVariants: selectVariants,
             selTracks: selTracks, oneSelTrack: oneSelTrack, tracks: tracks, rangeOf: rangeOf,
             VS: VS, F: F

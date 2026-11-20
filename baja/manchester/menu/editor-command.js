@@ -800,6 +800,40 @@ function (graph, genegraph_panel_layout, options) {
                 };
             };
 
+            // A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX.
+            //
+            // The planner is a server call: the service can be down, the request can time
+            // out, or the model can decline it. "add pathological mutations in selected
+            // sequence on smn1" was declined outright, though in this editor that is
+            // load_variants with ClinVar over the selection -- the annotation job a genome
+            // browser does. The card said "Could not read that" and stopped, which leaves
+            // someone with a correct request and nowhere to go.
+            //
+            // So the editor says what it thinks the request is about, from its own catalogue,
+            // and offers those operations as cards to open. It does not run them and it does
+            // not fill in arguments: a guess is offered, never taken.
+            const planFailed = (why) => {
+                let near = [];
+                try { near = CAP.suggest(q('#ec-q').value, 3) || []; } catch (e) { near = []; }
+                const btn = 'cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'
+                    + 'border:1px solid #2d6b9a;background:transparent;color:#9fd0f5;margin:6px 6px 0 0;';
+                q('#ec-out').innerHTML =
+                    '<div style="font:12.5px Arial;color:#fca5a5;">Could not plan that here'
+                    + (why ? (': ' + H(why)) : '.') + '</div>'
+                    + (near.length
+                        ? ('<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;">'
+                            + 'The editor has these, which may be what you meant:</div>'
+                            + '<div>' + near.map((c) => '<button data-cap="' + H(c.name) + '" style="' + btn + '">'
+                                + H(c.name.replace(/_/g, ' ')) + '</button>').join('') + '</div>')
+                        : '')
+                    + dismissRow('ec-x2');
+                wireDismiss('ec-x2');
+                for (const b of q('#ec-out').querySelectorAll('button[data-cap]')) {
+                    b.onclick = () => render({ status: 'OK', steps: [{ capability: b.getAttribute('data-cap'), args: {} }] },
+                        ('' + q('#ec-q').value).trim());
+                }
+            };
+
             const run = async () => {
                 if (busy) return;
                 const ask = ('' + q('#ec-q').value).trim();
@@ -824,16 +858,12 @@ function (graph, genegraph_panel_layout, options) {
                         em, ask, JSON.stringify(CAP.catalogue()), JSON.stringify(context()), '');
                 } catch (e) {
                     busy = false; try { graph.__ecInFlight = false; } catch (e2) { } setBusy(false);
-                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that: '
-                        + H(e && e.message ? e.message : e) + '</div>' + dismissRow('ec-x2');
-                    wireDismiss('ec-x2');
+                    planFailed(e && e.message ? e.message : e);
                     return;
                 }
                 busy = false; try { graph.__ecInFlight = false; } catch (e) { } setBusy(false);
                 if (!r || r.status !== 'OK') {
-                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that'
-                        + (r && r.error ? (': ' + H(r.error)) : '.') + '</div>' + dismissRow('ec-x3');
-                    wireDismiss('ec-x3');
+                    planFailed(r && r.error ? r.error : '');
                     return;
                 }
                 render(r, ask);

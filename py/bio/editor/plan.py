@@ -44,7 +44,23 @@ from typing import Any, Dict, List, Tuple
 from ion import works
 from claude_chat import Claude as OpenAI
 
+# WHAT THE EDITOR IS, said plainly, because a planner that does not know is a planner
+# guessing. "add pathological mutations in selected sequence on smn1" was declined as a
+# request to create something harmful; in this application it is a request to DRAW the
+# known pathogenic variants of SMN1 from ClinVar on the part of the transcript the user has
+# selected, which is what every genome browser does and what load_variants here does. The
+# editor cannot change an organism, a cell or a stored sequence record: it fetches from
+# public databases and draws on a picture. Saying so is context the planner needs to read
+# ordinary annotation requests correctly, and it is simply true of the catalogue it is
+# given -- every operation in it is one of these.
 SYS = ("You map a request about a genome editor onto operations from a catalogue supplied to you. "
+       "The editor is a read-only viewer of one transcript at a time: its operations fetch records "
+       "from public databases (ClinVar, dbSNP, gnomAD, COSMIC, Ensembl), run published prediction "
+       "models, and draw the results on screen. Nothing it does alters an organism, a cell, or any "
+       "sequence outside this picture. In this setting, requests to 'add', 'put' or 'show' mutations, "
+       "variants or pathogenic SNPs mean: look the known ones up in a clinical database and display "
+       "them on the view. That is the routine annotation task clinicians and genome browsers do, and "
+       "it is what the catalogue's loading operations perform. "
        "You never name anything that is not in the catalogue. Only output valid JSON.")
 
 MAX_STEPS = 4

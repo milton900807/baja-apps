@@ -1077,6 +1077,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-layer.js:HOW STABLY EACH EXON SPLICES, said on the exon itself" \
     "flexigraph/gene-draw.js:ON THE EXON, WHICH IS WHERE IT IS READ" \
     "flexigraph/gene-draw.js:FALLS BACK TO A COLOR, NOT TO ITSELF"
+  # A plan the server could not make used to be the end of the ask box. The planner's own
+  # context and the client's fallback are one change: either alone leaves the dead end.
+  install_group "A failed plan offers what the editor has" \
+    "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
+    "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
   # The gene-level coupling number has no exon in it. This asks the same question per exon,
   # from the skip isoform. Two new modules and the operation that drives them: all or none,
   # or the operation calls something that is not there.
