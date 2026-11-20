@@ -390,6 +390,16 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                     let __vfx = [];
                     try { __vfx = JSON.parse((data && data.variantEffects) || '[]') || []; } catch (e) { }
                     layer.variantEffects = __vfx;
+                    // Variant scoring failing is not the run failing. Kept visible rather
+                    // than swallowed: an empty "with variant" column that means "it went
+                    // wrong" must not read as "no variant moved anything".
+                    layer.variantError = (data && data.variantError) || null;
+                    if (layer.variantError) {
+                        try {
+                            log('BajaSplice: variant scoring failed on '
+                                + (track.name || 'track') + ' - ' + layer.variantError);
+                        } catch (e) { }
+                    }
                     let __measured = [];
                     try { __measured = JSON.parse((data && data.measured) || '[]') || []; } catch (e) { }
                     layer.measuredPsi = __measured;

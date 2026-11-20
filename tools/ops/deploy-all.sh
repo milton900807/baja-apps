@@ -1267,8 +1267,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Overlay panels can be maximized" \
     "baja/lib/canvas-overlay-panel.js:MAXIMIZED: the whole viewport, not the canvas rect"
   install_group "A variant on the track is scored, not just drawn" \
-    "py/bio/splice/splicing-profile.py:WHAT EACH VARIANT DOES TO INCLUSION" \
-    "baja/bio/splicing/splicing-profile.js:THE VARIANTS ON THE TRACK GO TO THE MODEL WITH THE SEQUENCE" \
+    "py/bio/splice/splicing-profile.py:_BASE IS A LOOKUP TABLE, NOT A DICT" \
+    "baja/bio/splicing/splicing-profile.js:Variant scoring failing is not the run failing" \
     "baja/bio/track-layer.js:THE WORST A VARIANT DOES TO THIS EXON"
   install_group "A missing argument is asked for, not refused" \
     "py/bio/editor/plan.py:A STEP ONE ARGUMENT SHORT IS STILL THE RIGHT STEP" \

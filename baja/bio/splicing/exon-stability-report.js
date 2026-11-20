@@ -234,12 +234,14 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
 
         // ---------------------------------------------------------------- gathering -----
         const rows = [];
-        const notes = { noContext: [], noMappability: [], untrusted: 0, measured: 0, variants: 0 };
+        const notes = { noContext: [], noMappability: [], untrusted: 0, measured: 0,
+                        variants: 0, variantFailed: [] };
         for (const t of all) {
             const L = psiLayer(t);
             if (!L) continue;
             const nm = t.name || 'track';
             if (!L.exonStabilityHasContext) notes.noContext.push(nm);
+            if (L.variantError) notes.variantFailed.push(nm + ': ' + L.variantError);
             if (!L.untrustedSource) notes.noMappability.push(nm);
             for (const e of L.exonStability) {
                 const r = {
@@ -535,6 +537,14 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
             foot.push(notes.measured + ' exon' + (notes.measured === 1 ? ' carries' : 's carry')
                 + ' a published measurement, shown in place of the prediction. '
                 + 'These are measurements, not corrected model output.');
+        }
+        if (notes.variantFailed.length) {
+            // An empty "with variant" column has two meanings and they are opposites.
+            foot.push('Variant scoring FAILED on ' + H(notes.variantFailed.join('; '))
+                + '. The inclusion numbers for '
+                + (notes.variantFailed.length === 1 ? 'that track' : 'those tracks')
+                + ' are unaffected, but an empty "with variant" cell there means it was '
+                + 'not scored, not that nothing moved.');
         }
         if (notes.variants) {
             foot.push('"with variant" is the model scored on the MUTATED sequence. An empty '

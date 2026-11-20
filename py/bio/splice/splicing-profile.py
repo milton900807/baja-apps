@@ -789,115 +789,136 @@ else:
                 # event that dPSI alone would report as nothing happening. lostSites
                 # counts annotated sites the mutated sequence no longer supports, so
                 # that case is visible rather than silently benign.
+                # AND IT CANNOT TAKE THE RUN DOWN WITH IT. Variant effects are an
+                # addition to the PSI answer, not a precondition for it: an exception
+                # here used to abort the whole run through the enclosing try, so a bug in
+                # scoring the variants cost the inclusion numbers as well. The failure is
+                # reported in variantError instead and the run carries on.
                 variant_effects = []
+                variant_error = None
                 try:
                     _vlist = json.loads(variants_arg) if variants_arg else []
                 except Exception:
                     _vlist = []
-                if _vlist and events:
-                    def _win_of(center, cc):
-                        w = np.zeros(total, np.int64)
-                        lo, hi = center - half, center + half
-                        a0, b0 = max(0, lo), min(n, hi)
-                        if b0 > a0:
-                            w[a0 - lo:b0 - lo] = cc[a0:b0]
-                        return one_hot(w)
+                try:
+                    _do_variants = bool(_vlist and events)
+                except Exception:
+                    _do_variants = False
+                if _do_variants:
+                    try:
+                        def _win_of(center, cc):
+                            w = np.zeros(total, np.int64)
+                            lo, hi = center - half, center + half
+                            a0, b0 = max(0, lo), min(n, hi)
+                            if b0 > a0:
+                                w[a0 - lo:b0 - lo] = cc[a0:b0]
+                            return one_hot(w)
 
-                    def _psi_of(evs, cc):
-                        ww, gg = [], []
-                        for ev in evs:
-                            c1d, a_acc, a_don, c2a = ev["sites"]
-                            exon_len, up, dn = ev["exon_len"], ev["up"], ev["dn"]
-                            ww.append(np.stack([_win_of(c1d, cc), _win_of(a_acc, cc),
-                                                _win_of(a_don, cc), _win_of(c2a, cc)]))
-                            gg.append(np.array([
-                                np.log10(max(exon_len, 1)), np.log10(max(up, 1)),
-                                np.log10(max(dn, 1)), 1.0 if exon_len % 3 == 0 else 0.0,
-                                gcf(cc[a_acc + 1:a_don]), gcf(cc[c1d:c1d + 200])],
-                                dtype=np.float32))
-                        wv = torch.from_numpy(np.stack(ww)).to(device)
-                        gv = torch.from_numpy(np.stack(gg)).to(device)
-                        with torch.no_grad():
-                            o, _ = pnet(wv, gv)
-                            pr = torch.sigmoid(o)
-                            if tis_idx:
-                                sel2 = torch.tensor(tis_idx, dtype=torch.long, device=pr.device)
-                                return pr.index_select(1, sel2).mean(dim=1).cpu().numpy()
-                            return pr.mean(dim=1).cpu().numpy()
+                        def _psi_of(evs, cc):
+                            ww, gg = [], []
+                            for ev in evs:
+                                c1d, a_acc, a_don, c2a = ev["sites"]
+                                exon_len, up, dn = ev["exon_len"], ev["up"], ev["dn"]
+                                ww.append(np.stack([_win_of(c1d, cc), _win_of(a_acc, cc),
+                                                    _win_of(a_don, cc), _win_of(c2a, cc)]))
+                                gg.append(np.array([
+                                    np.log10(max(exon_len, 1)), np.log10(max(up, 1)),
+                                    np.log10(max(dn, 1)), 1.0 if exon_len % 3 == 0 else 0.0,
+                                    gcf(cc[a_acc + 1:a_don]), gcf(cc[c1d:c1d + 200])],
+                                    dtype=np.float32))
+                            wv = torch.from_numpy(np.stack(ww)).to(device)
+                            gv = torch.from_numpy(np.stack(gg)).to(device)
+                            with torch.no_grad():
+                                o, _ = pnet(wv, gv)
+                                pr = torch.sigmoid(o)
+                                if tis_idx:
+                                    sel2 = torch.tensor(tis_idx, dtype=torch.long, device=pr.device)
+                                    return pr.index_select(1, sel2).mean(dim=1).cpu().numpy()
+                                return pr.mean(dim=1).cpu().numpy()
 
-                    def _logit(v):
-                        v = float(min(max(v, 1e-6), 1 - 1e-6))
-                        return float(np.log(v / (1 - v)))
+                        def _logit(v):
+                            v = float(min(max(v, 1e-6), 1 - 1e-6))
+                            return float(np.log(v / (1 - v)))
 
-                    # How far from a site a base can be and still be in its window. Outside
-                    # every window the model cannot see the base at all, so there is nothing
-                    # to score and an entry would be a row of zeros claiming an answer.
-                    for _v in _vlist[:64]:
-                        try:
-                            vpos = int(_v.get("pos"))
-                            vref = str(_v.get("ref") or "").strip().upper()
-                            valt = str(_v.get("alt") or "").strip().upper()
-                        except Exception:
-                            continue
-                        # Substitutions only. An indel shifts every coordinate downstream,
-                        # so the windows, the exon length and the junction geometry all move;
-                        # scoring one as if it were a substitution would quietly answer a
-                        # different question. Skipped, and said so rather than guessed.
-                        if len(vref) != 1 or len(valt) != 1 or valt not in "ACGT":
+                        # How far from a site a base can be and still be in its window. Outside
+                        # every window the model cannot see the base at all, so there is nothing
+                        # to score and an entry would be a row of zeros claiming an answer.
+                        for _v in _vlist[:64]:
+                            try:
+                                vpos = int(_v.get("pos"))
+                                vref = str(_v.get("ref") or "").strip().upper()
+                                valt = str(_v.get("alt") or "").strip().upper()
+                            except Exception:
+                                continue
+                            # Substitutions only. An indel shifts every coordinate downstream,
+                            # so the windows, the exon length and the junction geometry all move;
+                            # scoring one as if it were a substitution would quietly answer a
+                            # different question. Skipped, and said so rather than guessed.
+                            if len(vref) != 1 or len(valt) != 1 or valt not in "ACGT":
+                                variant_effects.append({
+                                    "pos": vpos, "ref": vref, "alt": valt,
+                                    "name": str(_v.get("name") or ""),
+                                    "skipped": "only single-base substitutions are scored"})
+                                continue
+                            j = x2tx(vpos)
+                            if not (0 <= j < n):
+                                continue
+                            # The transcript is the reverse complement on a minus-strand track,
+                            # while ref/alt are written on the plus strand: complement the base
+                            # before writing it in, or the variant scored is not the one asked for.
+                            # _BASE IS A LOOKUP TABLE, NOT A DICT: 256 entries indexed by the
+                            # byte of the base (genome.py builds it that way, so one_hot can
+                            # index it with a whole sequence at once). Calling .get on it
+                            # raised AttributeError, and because this block sits inside the
+                            # run's own try, the failure took the WHOLE PSI result down -- a
+                            # track with variants on it returned nothing at all.
+                            acode = int(_BASE[ord(valt)]) if len(valt) == 1 else 0
+                            if minus:
+                                acode = int(_COMP[acode])
+                            if acode <= 0:
+                                continue
+                            mcodes = codes.copy()
+                            mcodes[j] = acode
+                            hit = [(i2, ev) for i2, ev in enumerate(events)
+                                   if any(abs(j - c) <= half for c in ev["sites"])]
+                            if not hit:
+                                continue
+                            alt_psi = _psi_of([e for _, e in hit], mcodes)
+                            # The event whose inclusion moves most is the one to report: a
+                            # variant in a shared junction reaches two exons, and the bigger
+                            # move is the one worth the row.
+                            best = None
+                            for (i2, ev), pa2 in zip(hit, alt_psi):
+                                d = float(pa2) - float(psi[i2])
+                                if best is None or abs(d) > abs(best[2]):
+                                    best = (ev, float(pa2), d, float(psi[i2]))
+                            ev, pa2, d, pr2 = best
+                            # The annotated sites this mutation can no longer support. Recomputed
+                            # rather than inferred from dPSI, because the two answer different
+                            # questions and a cryptic rescue separates them.
+                            lost = 0
+                            try:
+                                for cidx, arr2 in ((ev["sites"][0], don), (ev["sites"][1], acc),
+                                                   (ev["sites"][2], don), (ev["sites"][3], acc)):
+                                    if abs(j - cidx) <= 2 and prob_at(arr2, cidx) >= SITE_THRESHOLD:
+                                        lost += 1
+                            except Exception:
+                                lost = 0
+                            a_acc, a_don = ev["sites"][1], ev["sites"][2]
                             variant_effects.append({
                                 "pos": vpos, "ref": vref, "alt": valt,
                                 "name": str(_v.get("name") or ""),
-                                "skipped": "only single-base substitutions are scored"})
-                            continue
-                        j = x2tx(vpos)
-                        if not (0 <= j < n):
-                            continue
-                        # The transcript is the reverse complement on a minus-strand track,
-                        # while ref/alt are written on the plus strand: complement the base
-                        # before writing it in, or the variant scored is not the one asked for.
-                        acode = int(_BASE.get(valt, 0))
-                        if minus:
-                            acode = int(_COMP[acode])
-                        if acode <= 0:
-                            continue
-                        mcodes = codes.copy()
-                        mcodes[j] = acode
-                        hit = [(i2, ev) for i2, ev in enumerate(events)
-                               if any(abs(j - c) <= half for c in ev["sites"])]
-                        if not hit:
-                            continue
-                        alt_psi = _psi_of([e for _, e in hit], mcodes)
-                        # The event whose inclusion moves most is the one to report: a
-                        # variant in a shared junction reaches two exons, and the bigger
-                        # move is the one worth the row.
-                        best = None
-                        for (i2, ev), pa2 in zip(hit, alt_psi):
-                            d = float(pa2) - float(psi[i2])
-                            if best is None or abs(d) > abs(best[2]):
-                                best = (ev, float(pa2), d, float(psi[i2]))
-                        ev, pa2, d, pr2 = best
-                        # The annotated sites this mutation can no longer support. Recomputed
-                        # rather than inferred from dPSI, because the two answer different
-                        # questions and a cryptic rescue separates them.
-                        lost = 0
-                        try:
-                            for cidx, arr2 in ((ev["sites"][0], don), (ev["sites"][1], acc),
-                                               (ev["sites"][2], don), (ev["sites"][3], acc)):
-                                if abs(j - cidx) <= 2 and prob_at(arr2, cidx) >= SITE_THRESHOLD:
-                                    lost += 1
-                        except Exception:
-                            lost = 0
-                        a_acc, a_don = ev["sites"][1], ev["sites"][2]
-                        variant_effects.append({
-                            "pos": vpos, "ref": vref, "alt": valt,
-                            "name": str(_v.get("name") or ""),
-                            "exon": ev.get("exon"),
-                            "psiRef": round(pr2, 4), "psiAlt": round(pa2, 4),
-                            "dpsi": round(d, 4),
-                            "dpsiLogit": round(_logit(pa2) - _logit(pr2), 3),
-                            "canonicalSite": lost,
-                            "inExon": bool(a_acc < j < a_don),
-                        })
+                                "exon": ev.get("exon"),
+                                "psiRef": round(pr2, 4), "psiAlt": round(pa2, 4),
+                                "dpsi": round(d, 4),
+                                "dpsiLogit": round(_logit(pa2) - _logit(pr2), 3),
+                                "canonicalSite": lost,
+                                "inExon": bool(a_acc < j < a_don),
+                            })
+                    except Exception as _ve:
+                        # Reported, not raised: see the note above the block.
+                        variant_error = "%s: %s" % (type(_ve).__name__, _ve)
+                        variant_effects = []
 
                 psi_tissues = tis_used
                 psi_tissue_note = (
@@ -1044,6 +1065,7 @@ works.resolve({
     "untrustedSource": untrusted_source,
     "measured": json.dumps(measured_rows),
     "variantEffects": json.dumps(globals().get("variant_effects", [])),
+    "variantError": globals().get("variant_error", None),
     "xi": xi,
     "strand": strand,
     "orientation": orientation,
