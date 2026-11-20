@@ -743,21 +743,31 @@ function () {
                                 // analysis (baja/bio/orfs/exon-removal-impact.js), so the two agree.
                                 label: 'Predict effect of removing',
                                 click: async (xwc, ywc) => {
-                                    // The answer opens IN the menu's own panel, where the menu was (a floating
-                                    // menu session is still open while this item runs, so showSideMenu below
-                                    // draws there), with Remove exon / Back / Close under it. Where no floating
-                                    // menu is open (the selection box, a phone) the same list is a side menu.
+                                    // THE PANEL OPENS BEFORE THE WORK, not after it. A floating menu ends its
+                                    // session ~80 ms after an item's click returns unless that item opened
+                                    // another menu (the same rule the AI Models item above is written around),
+                                    // and an async click returns to the menu system the moment it first awaits.
+                                    // This item awaited exon-removal-impact.js and only then drew, so by the
+                                    // time it drew, the session it was drawing into had closed and the item
+                                    // looked like it did nothing at all. Opening a placeholder synchronously
+                                    // keeps the session alive and gives the click visible feedback; the answer
+                                    // replaces it in the same panel. Reached from the side panel there is no
+                                    // session to lose, which is why this only ever failed from the exon menu.
                                     if (!selectedTrack) { graph.setMessage(" No track selected "); return; }
                                     const esc = (t) => ('' + t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
                                     // Plain-text labels of the result rows. The menu orderer (gene.js __orderMenu) moves
                                     // any row whose label holds Back / Cancel / Close / Done to the bottom as navigation;
                                     // a zero-width space inside those words keeps a sentence where it was written.
                                     const plain = (t) => ('' + t).replace(/\b(back|cancel|close|done)\b/gi, (w) => w[0] + '\u200b' + w.slice(1));
-                                    let r = null;
-                                    try { r = await exec('baja/bio/orfs/exon-removal-impact.js', selectedTrack, annotation); } catch (e) { r = null; }
-                                    const title = 'Effect of removing ' + (annotation.name || 'this exon');
+                                    const title = 'Effect of removing ' + ((annotation && annotation.name) || 'this exon');
                                     const back = { label: '\u2039 Back', click: () => { graph.showSideMenu(t); }, move: () => { } };
                                     const close = { label: 'Close', click: () => { graph.showSideMenu(null); }, move: () => { } };
+                                    graph.showSideMenu([
+                                        { type: 'html', label: plain('Working\u2026'), html: '<div style="padding:2px 0">Working\u2026</div>' },
+                                        { type: 'separator' }, close
+                                    ], null, title);
+                                    let r = null;
+                                    try { r = await exec('baja/bio/orfs/exon-removal-impact.js', selectedTrack, annotation); } catch (e) { r = null; }
                                     if (!r || !r.ok) {
                                         const why = (r && r.reason) || 'Could not assess this exon.';
                                         graph.showSideMenu([{ type: 'html', label: plain(why), html: esc(why) }, { type: 'separator' }, back, close], null, title);

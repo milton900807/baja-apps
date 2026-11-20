@@ -673,6 +673,21 @@ if [[ $DO_API -eq 1 ]]; then
   # exact failure this group's all-or-none rule exists to prevent. Listing it here as well
   # means the card and the script it opens travel together; whichever group runs first
   # installs the same file and the others are inert.
+  # Predict effect of removing, in the exon menu, and everything it opens. The menu
+  # item shipped; NONE of the modules behind it ever did, so on the server the exec
+  # threw and the item reported its fallback, "Could not assess this exon.", for every
+  # exon. codons.js and retranslate-after-exon-change.js go with it: the first is what
+  # exon-removal-impact.js translates with, the second is what Remove exon re-translates
+  # with, and both were equally unlisted. Shipping the item without them would only move
+  # the failure.
+  #
+  # All of them or none: the menu item calling a module that is not there is exactly the
+  # state this group exists to end.
+  install_group "exon menu: Predict effect of removing, and the modules it opens" \
+    "baja/manchester/menu/menu-factory.js:THE PANEL OPENS BEFORE THE WORK, not after it" \
+    "baja/bio/orfs/exon-removal-impact.js:What removing (skipping) one exon would do to the transcript" \
+    "baja/bio/aa/codons.js:aminoDict" \
+    "baja/bio/orfs/retranslate-after-exon-change.js:Re-derive a track"
   install_group "BajaNMD on an exon" \
     "baja/bio/splicing/exon-ai-models.js:made the user hunt for the row they had already pointed at" \
     "baja/bio/splicing/bajanmd.js:GIVEN AN EXON, IT ANSWERS ABOUT THAT EXON" \
