@@ -473,6 +473,112 @@ def t_paralog_labels():
     return r
 
 
+def t_smn_discrimination():
+    """Can the model tell SMN1 exon 7 from SMN2 exon 7?
+
+    This is the test that says whether the blended-label problem has actually
+    been fixed, and it is the sharpest one the genome offers. The two exons are
+    the same 54 bases but for c.840C>T, and the truth could hardly be further
+    apart: SMN1 exon 7 is included in essentially every transcript, SMN2 exon 7
+    in roughly a tenth of them, and that difference is why SMA is a disease and
+    why nusinersen works. The C>T weakens an exonic splicing enhancer, so a
+    model that reads enhancers at all has something to find here.
+
+    A model trained on cassette.tsv cannot pass. Both exons are labelled high
+    there -- SMN2's at 0.84, because SMN1 is 99.9% identical and short reads do
+    not separate them -- so the model is taught that both are included and
+    predicts 0.9652 for SMN2. Training with --drop-untrusted removes both
+    labels, which does not supply the right answer but does stop supplying the
+    wrong one, leaving the model to predict from sequence. Whether it then gets
+    it right is exactly what this measures, and a fail here is informative
+    rather than fatal: it says PSINet is not reading the enhancer, which is a
+    model-capacity finding and not a data-cleaning one.
+
+    Reported as the GAP, not as SMN2's value alone. Asking for "about 0.10"
+    would be asking the model to reproduce a number it was never shown; asking
+    it to put SMN1 clearly above SMN2 is asking it to have learned the one base
+    that distinguishes them.
+    """
+    import pandas as pd, os
+    from bajasplice.config import paths
+
+    r = Result("smn_discrimination", "SMN1 vs SMN2 exon 7, one base apart",
+               "SMN1 exon 7 is predicted clearly above SMN2 exon 7; gap >= 0.30 "
+               "in predicted PSI (truth is about 1.00 against 0.10)",
+               threshold=0.30)
+    f = os.path.join(str(paths().interim), "cassette.tsv")
+    if not os.path.isfile(f):
+        r.note = "cassette.tsv not found"
+        return r
+    ev = pd.read_csv(f, sep="\t")
+
+    # SMN2 exon 7 by the coordinate the paralog guard already pins. SMN1's twin
+    # is found by SEQUENCE rather than by a second hardcoded coordinate: the two
+    # exons are near-identical, which is the whole problem and also the most
+    # reliable way to identify the pair.
+    s2 = ev.index[(ev.gene_name.astype(str) == "SMN2") & (ev.a_start == 70076521)]
+    s1_rows = ev.index[ev.gene_name.astype(str) == "SMN1"]
+    if not len(s2) or not len(s1_rows):
+        r.note = "SMN1 and SMN2 exon 7 are not both in cassette.tsv"
+        return r
+
+    try:
+        from bajasplice.genome import GenomeReader
+        from bajasplice.psi_variants import load_psinet, psi_of
+    except Exception as e:
+        r.note = "could not load the model (%s)" % e
+        return r
+
+    g = GenomeReader()
+    seq_of = lambda row: g.codes(str(row.chrom), int(row.a_start), int(row.a_end),
+                                 str(row.strand))
+    e2 = ev.loc[s2[0]]
+    t2 = seq_of(e2)
+    best, best_d = None, None
+    for i in s1_rows:
+        t1 = seq_of(ev.loc[i])
+        if len(t1) != len(t2):
+            continue
+        d = int((t1 != t2).sum())
+        if best_d is None or d < best_d:
+            best, best_d = i, d
+    if best is None:
+        r.note = "no SMN1 exon of the same length as SMN2 exon 7"
+        return r
+    e1 = ev.loc[best]
+
+    try:
+        model, margs, dev = load_psinet()
+    except Exception as e:
+        r.note = "no psi_ctx2000 checkpoint (%s)" % e
+        return r
+
+    def pred(row):
+        v, _ = psi_of(model, margs, dev, str(row.chrom), str(row.strand),
+                      int(row.c1_end), int(row.a_start), int(row.a_end),
+                      int(row.c2_start), genome=g)
+        return float(v)
+
+    p1, p2 = pred(e1), pred(e2)
+    r.value = p1 - p2
+    r.status = "pass" if r.value >= r.threshold else "fail"
+    r.detail = {
+        "smn1_predicted": round(p1, 4), "smn2_predicted": round(p2, 4),
+        "gap": round(p1 - p2, 4),
+        "exon_mismatches": best_d,
+        "smn1_exon": "%s:%d-%d" % (e1.chrom, int(e1.a_start), int(e1.a_end)),
+        "smn2_exon": "%s:%d-%d" % (e2.chrom, int(e2.a_start), int(e2.a_end)),
+        # the labels, so it is visible that the training target was wrong and
+        # not merely noisy: both read high when one of them is about 0.10
+        "smn1_label": (round(float(e1.psi_mean), 4) if "psi_mean" in ev.columns else None),
+        "smn2_label": (round(float(e2.psi_mean), 4) if "psi_mean" in ev.columns else None),
+        "note": "a fail means the model is not reading the enhancer c.840C>T "
+                "weakens; retrain with `bajasplice train psi --drop-untrusted` "
+                "before concluding anything from a model fit to the blend",
+    }
+    return r
+
+
 def t_eclip():
     r = Result("eclip_rbp_specificity", "ENCODE eCLIP, held-out windows",
                "on bound-vs-bound windows the matched RBP channel beats a "
@@ -519,6 +625,7 @@ TESTS: dict[str, Callable[[], Result]] = {
     "eclip": t_eclip,
     "annotated": t_annotated,
     "paralog-labels": t_paralog_labels,
+    "smn-discrimination": t_smn_discrimination,
     "clinvar-regulatory": t_clinvar_regulatory,
 }
 

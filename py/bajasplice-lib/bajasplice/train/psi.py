@@ -74,9 +74,18 @@ def main():
     ap.add_argument("--init-from", type=str, default=None,
                     help="SpliceNet checkpoint to initialise the trunk from")
     ap.add_argument("--tag", type=str, default="psi")
+    # TRAIN WITHOUT THE BLENDED LABELS. An exon with a near-identical twin in
+    # another gene was quantified from reads either could have produced, so its
+    # PSI is the wrong gene's answer and the model learns it as this gene's.
+    # SMN2 exon 7 is the case that matters: labelled 0.84, truly about 0.10.
+    # Costs ~0.9% of the events. See datasets.load_events for why it is not the
+    # default, and evaluate smn-discrimination for whether it worked.
+    ap.add_argument("--drop-untrusted", action="store_true",
+                    help="exclude exons whose PSI is a blend of two paralogs")
     args = ap.parse_args()
 
-    ev, psi = load_events(min_reads=args.min_reads)
+    ev, psi = load_events(min_reads=args.min_reads,
+                          drop_untrusted=args.drop_untrusted, verbose=True)
     print(f"events: {len(ev):,}", ev.split.value_counts().to_dict(), flush=True)
     n_tis = psi.shape[1]
 
