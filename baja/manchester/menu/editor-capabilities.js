@@ -1060,17 +1060,92 @@ function (graph, genegraph_panel_layout) {
                 }
             },
             {
+                // SAME FAULT AS rbp_profile HAD, and the same fix. These asked for a
+                // selection and refused without one -- "run bajasplice on dnm3" came back
+                // "cannot run: no sequence is selected: drag across a track first" -- while
+                // splicing-profile.js has run on a whole track all along. Worse for PSI,
+                // which ignores the range outright: it needs the track's exon structure,
+                // not a stretch of sequence, so demanding a drag asked for something the
+                // model never used. A selection narrows the sites mode; without one, both
+                // do the whole track.
                 name: 'splice_site_strength',
-                summary: 'Run SpliceNet over the selected sequence and draw donor and acceptor '
-                    + 'site strength.',
-                needs: 'selection', params: {},
-                run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'sites'); }
+                summary: 'RUN SPLICENET (BajaSplice) ON A TRACK: donor and acceptor site '
+                    + 'strength is predicted along the sequence and drawn as a sashimi layer. '
+                    + 'This is the answer to "run bajasplice on X", "splice site strength", '
+                    + '"how strong are the splice sites", "score the donors and acceptors", '
+                    + '"run splicenet". WHEN A STRETCH IS SELECTED it runs on the selection; '
+                    + 'with nothing selected it does the whole track. For predicted exon '
+                    + 'inclusion rather than site strength, use exon_inclusion_psi.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    }
+                },
+                run: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const r = hasSel(t) ? rangeOf(t) : null;
+                    return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, r, 'sites');
+                },
+                preview: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const where = t ? (t.name || 'the track') : 'the track';
+                    return 'run SpliceNet over ' + (t && hasSel(t) ? ('the selected stretch of ' + where)
+                        : ('the whole of ' + where)) + ' and draw donor and acceptor site strength';
+                },
+                argBlocker: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) {
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to run it on: there is more than one open';
+                    }
+                    return '';
+                }
             },
             {
                 name: 'exon_inclusion_psi',
-                summary: 'Run PSINet over the selected sequence and draw predicted exon inclusion (PSI).',
-                needs: 'selection', params: {},
-                run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
+                summary: 'RUN PSINET (BajaSplice) ON A TRACK: predicted exon inclusion (PSI) '
+                    + 'is drawn as a sashimi layer, with each exon tagged by how reliably it '
+                    + 'is spliced in. This is the answer to "run psinet on X", "exon '
+                    + 'inclusion", "what is the PSI", "which exons are skipped", "how '
+                    + 'reliably does this exon splice". It uses the track\u2019s ANNOTATED '
+                    + 'EXON STRUCTURE, not a stretch of sequence, so it always does the whole '
+                    + 'track and a selection does not narrow it.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    }
+                },
+                run: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    // null, not rangeOf(t): PSI mode ignores the range, and passing one
+                    // would only suggest in the preview that it had narrowed the run.
+                    return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, null, 'psi');
+                },
+                preview: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    return 'run PSINet over the whole of ' + (t ? (t.name || 'the track') : 'the track')
+                        + ' and draw predicted exon inclusion, each exon tagged by how reliably it splices';
+                },
+                argBlocker: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) {
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to run it on: there is more than one open';
+                    }
+                    return '';
+                }
             },
             {
                 // UNLOADING HAD NO OPERATION WHILE LOADING HAD ONE. "remove the rna seq

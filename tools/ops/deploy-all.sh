@@ -693,6 +693,14 @@ if [[ $DO_API -eq 1 ]]; then
   # gene-BODY draw class, which stroked the exon edge around whatever was selected: a
   # black box around the selection that read as a feature boundary. It now calls mark(),
   # which keeps the theme's colour and drops the outline.
+  # "run bajasplice on dnm3" from the Ask bar. Both splicing operations declared
+  # needs: 'selection' and refused without a drag, while splicing-profile.js has run on
+  # a whole track all along -- the same fault rbp_profile already carries a comment
+  # about. Worse for PSI, which ignores the range outright because it needs the track's
+  # exon structure rather than a stretch of sequence, so the drag it demanded was for
+  # something the model never read.
+  install_group "Ask: run BajaSplice on a named track, with no selection" \
+    "baja/manchester/menu/editor-capabilities.js:SAME FAULT AS rbp_profile HAD"
   install_group "exon reliability: tag, score and ranking" \
     "baja/bio/splicing/splicing-profile.js:HOW RELIABLY EACH EXON IS SPLICED IN" \
     "baja/bio/track-layer.js:RELIABILITY, WRITTEN ON THE EXON" \
