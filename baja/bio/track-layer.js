@@ -1082,6 +1082,47 @@ return new Promise(async (resolve, reject) => {
                 ctx.fillText(__msg, __tx, __ty);
                 ctx.restore();
             }
+
+            // RELIABILITY, WRITTEN ON THE EXON. The arcs say how much of the transcript uses
+            // each junction. What they do not say is whether that level is a decision or a
+            // coin flip, and that is the thing worth acting on: an exon at 99% and one at 2%
+            // are both reliable, one reliably in and one reliably out, while one at 50% is
+            // neither. One short tag per exon, below the baseline so it cannot collide with
+            // the arcs above it, in the same colour bands the ranking uses.
+            //
+            // Drawn only where it FITS. A tag wider than its exon, or one that would touch
+            // the previous tag, is skipped rather than shrunk or overlapped: an unreadable
+            // smear of text over a dense transcript is worse than no text, and every exon
+            // skipped here is still in the ranked list, which is where the full set lives.
+            if (__psiMode && Array.isArray(this.exonStability) && this.exonStability.length) {
+                ctx.save();
+                ctx.font = 'bold 9px Arial';
+                ctx.textAlign = 'center';
+                const __sy = baselineY + 13;
+                const __sCol = {
+                    'constitutive': '#15803d', 'rarely in': '#2563eb',
+                    'variable': '#d97706', 'unstable': '#c0392b'
+                };
+                let __lastRight = -1e9;
+                const __ordered = this.exonStability.slice().sort((a, b) => a.lo - b.lo);
+                for (const e of __ordered) {
+                    const xa = graph.X(tgraph.X(e.lo));
+                    const xb = graph.X(tgraph.X(e.hi));
+                    if (!isFinite(xa) || !isFinite(xb)) continue;
+                    const mid = (xa + xb) / 2, wide = Math.abs(xb - xa);
+                    const txt = Math.round(100 * e.psi) + '% ' + e.word;
+                    const tw = ctx.measureText(txt).width;
+                    if (tw > wide - 4) continue;
+                    if (mid - tw / 2 < __lastRight + 3) continue;
+                    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+                    ctx.fillRect(mid - tw / 2 - 2, __sy - 8, tw + 4, 11);
+                    ctx.fillStyle = __sCol[e.word] || '#0b1a2b';
+                    ctx.fillText(txt, mid, __sy);
+                    __lastRight = mid + tw / 2;
+                }
+                ctx.restore();
+            }
+
             ctx.lineWidth = 1;
             ctx.textAlign = 'left';
         }

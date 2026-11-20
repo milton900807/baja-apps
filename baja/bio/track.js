@@ -97,6 +97,20 @@ return new Promise(async (resolve, reject) => {
       ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
       ctx.restore();
     }
+    // A MARKED REGION IS NOT A GENE BODY. The marked-region rectangle used to call
+    // body(), which meant the selection was painted as though it were an exon: the
+    // exon fill, and then the exon's EDGE stroked around it. That edge is a hard black
+    // rule around whatever is selected, and it reads as a feature boundary that is not
+    // there -- over an exon it looked like a second box drawn around the exon itself.
+    // The mark keeps the theme's colour, so a theme still owns how a selection looks,
+    // and loses the outline, because nothing about a selection is an edge.
+    mark(ctx, x, y, w, h) {
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = this.fill();
+      ctx.fillRect(x, y, w, h);
+      ctx.restore();
+    }
   }
 
   // Outline only: the body is a frame, the track shows through it. Reads as a drawing rather
@@ -8248,7 +8262,7 @@ return new Promise(async (resolve, reject) => {
             if (rw > 1 && rh > 1) {
               // Through the theme's gene-draw class. Classic reproduces the cyan wash and
               // outline this drew before; the others change the mark itself.
-              try { (this.__geneDraw || geneDrawFor(this.theme, GX_T)).body(ctx, rx, ry, rw, rh); } catch (e) { }
+              try { (this.__geneDraw || geneDrawFor(this.theme, GX_T)).mark(ctx, rx, ry, rw, rh); } catch (e) { }
               ctx.save();
               ctx.fillStyle = 'rgba(18,194,224,0.00)';    // the wash is the draw class's job now
               ctx.fillRect(rx, ry, rw, rh);

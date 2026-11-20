@@ -683,6 +683,21 @@ if [[ $DO_API -eq 1 ]]; then
   #
   # All of them or none: the menu item calling a module that is not there is exactly the
   # state this group exists to end.
+  # Per-exon splicing reliability: the tag drawn on each exon in a PSI run, the score
+  # behind it, and the ranking that reads it. The score lives in splicing-profile.js,
+  # the tag is drawn in track-layer.js and the ranking is a BajaSplice submenu entry,
+  # so all three move together or the tag appears with no ranking behind it, or the
+  # ranking finds a layer that carries no score.
+  #
+  # track.js rides along because the marked-region rectangle was calling the theme's
+  # gene-BODY draw class, which stroked the exon edge around whatever was selected: a
+  # black box around the selection that read as a feature boundary. It now calls mark(),
+  # which keeps the theme's colour and drops the outline.
+  install_group "exon reliability: tag, score and ranking" \
+    "baja/bio/splicing/splicing-profile.js:HOW RELIABLY EACH EXON IS SPLICED IN" \
+    "baja/bio/track-layer.js:RELIABILITY, WRITTEN ON THE EXON" \
+    "baja/bio/splicing/exon-ai-models.js:Rank exons by how unreliably they splice" \
+    "baja/bio/track.js:A MARKED REGION IS NOT A GENE BODY"
   install_group "exon menu: Predict effect of removing, and the modules it opens" \
     "baja/manchester/menu/menu-factory.js:THE PANEL OPENS BEFORE THE WORK, not after it" \
     "baja/bio/orfs/exon-removal-impact.js:What removing (skipping) one exon would do to the transcript" \

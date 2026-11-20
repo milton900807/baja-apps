@@ -104,6 +104,74 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                             move: () => log('')
                         },
                         {
+                            // Reads the PSI run already on the track rather than re-running
+                            // the model: the per-exon reliability is computed during that run
+                            // and kept on the layer, so ranking is free once PSI has been done
+                            // and impossible before it. Saying which is better than silently
+                            // running a model the user did not ask for.
+                            label: 'Rank exons by how unreliably they splice',
+                            click: () => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                const esc2 = (t) => ('' + (t == null ? '' : t))
+                                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                const L = (selectedTrack.track_layers || []).filter((x) => x
+                                    && x.magnitudeMode === 'psi'
+                                    && Array.isArray(x.exonStability) && x.exonStability.length).pop();
+                                if (!L) {
+                                    showModal({ wid: 'card', data: { cards: [[{ 'width': '100%', 'component': { wid: 'html', data:
+                                        '<div style="padding:8px 4px;font-weight:700;">Rank exons by reliability</div>'
+                                        + '<div style="padding:0 4px 8px 4px;font-size:12.5px;">Run <b>Exon inclusion, '
+                                        + 'PSI (PSINet)</b> on this track first. The reliability of each exon is worked '
+                                        + 'out during that run and kept with the layer, so there is nothing to rank '
+                                        + 'until it has been done.</div>' } }]] } });
+                                    return;
+                                }
+                                const rows = L.exonStability.slice().sort((a, b) => b.rank - a.rank);
+                                const COL = { 'constitutive': '#15803d', 'rarely in': '#2563eb',
+                                              'variable': '#d97706', 'unstable': '#c0392b' };
+                                let html = '<div style="padding:8px 4px;font-weight:700;">Exons ranked by how '
+                                    + 'unreliably they splice <span style="font-weight:400;color:#5b6b7c;">\u00b7 '
+                                    + esc2(selectedTrack.name || 'track') + '</span></div>'
+                                    + '<div style="padding:0 4px 8px 4px;font-size:12.5px;color:#5b6b7c;">'
+                                    + 'Reliability is distance from the nearest extreme: an exon at 99% and one at 2% '
+                                    + 'are both reliable, one reliably in and one reliably out, and one at 50% is '
+                                    + 'neither. '
+                                    + (L.exonStabilityHasContext
+                                        ? 'Weighted up by conservation and by annotated functional sites inside the '
+                                          + 'exon, so an unreliable exon that carries a binding site outranks an '
+                                          + 'equally unreliable one that carries nothing.'
+                                        : 'No conservation or domain layer is loaded on this track, so this is '
+                                          + 'reliability alone; load either and run PSI again to weight it.')
+                                    + '</div>'
+                                    + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                                    + '<tr style="text-align:left;border-bottom:1px solid #ccd;"><th>#</th><th>exon</th>'
+                                    + '<th>inclusion</th><th>reliability</th><th>conservation</th><th>sites</th>'
+                                    + '<th>score</th></tr>';
+                                rows.forEach((e, i) => {
+                                    html += '<tr style="border-bottom:1px solid #eef;">'
+                                        + '<td>' + (i + 1) + '</td>'
+                                        + '<td>e' + esc2(e.exon) + '</td>'
+                                        + '<td>' + Math.round(100 * e.psi) + '%</td>'
+                                        + '<td style="color:' + (COL[e.word] || '#0b1a2b') + ';font-weight:600;">'
+                                        + esc2(e.word) + '</td>'
+                                        + '<td>' + (e.conservation == null ? '\u2013' : e.conservation.toFixed(2)) + '</td>'
+                                        + '<td>' + esc2(e.sites == null ? 0 : e.sites) + '</td>'
+                                        + '<td>' + (e.rank == null ? '' : e.rank.toFixed(3)) + '</td></tr>';
+                                });
+                                html += '</table>';
+                                if (L.exonStabilityFit != null && L.exonStabilityFit < 0.6) {
+                                    html += '<div style="margin:8px 4px 0 4px;padding:7px;border-left:3px solid #d97706;'
+                                        + 'background:#fffaf0;font-size:12.5px;">Only '
+                                        + Math.round(100 * L.exonStabilityFit) + '% of the arcs landed on an exon edge, '
+                                        + 'so the exon numbering may not line up with the drawn exons here. Treat the '
+                                        + 'order as indicative.</div>';
+                                }
+                                showModal({ wid: 'card', data: { cards: [[{ 'width': '100%',
+                                    'component': { wid: 'html', data: html } }]] } });
+                            },
+                            move: () => log('')
+                        },
+                        {
                             label: 'Cis-regulatory windows at the acceptor',
                             click: () => run('baja/bio/splicing/cis-attribution.js', { site: acceptorAt, which: 'acceptor' }),
                             move: () => log('')

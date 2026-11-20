@@ -107,13 +107,14 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                 // PSI mode needs real exon structure — send the track's annotated
                 // exons (track-local [xi, xf], transcript order) if it has them.
                 let exonsArg = '';
+                let __exonPairs = [];
                 if (mode === 'psi' && track.getExons) {
                     try {
                         const ex = (track.getExons() || [])
                             .map((e) => [+e.xi, +e.xf])
                             .filter((p) => isFinite(p[0]) && isFinite(p[1]))
                             .sort((a, b) => a[0] - b[0]);
-                        if (ex.length) exonsArg = JSON.stringify(ex);
+                        if (ex.length) { exonsArg = JSON.stringify(ex); __exonPairs = ex; }
                     } catch (e) { }
                 }
 
@@ -213,6 +214,132 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
                         share: (j.share == null ? null : +j.share)
                     };
                 });
+                // HOW RELIABLY EACH EXON IS SPLICED IN. The arcs already carry the inclusion
+                // level; what they do not say is whether that level is a decision or a
+                // coin flip. An exon at 99% and one at 2% are both RELIABLE, one reliably
+                // in and one reliably out; an exon at 50% is the unreliable one, and it is
+                // the one worth an oligo, a variant hunt or a second look. So the score is
+                // distance from the nearest extreme, 1 - |2*PSI - 1|: zero at 0% and at
+                // 100%, one at 50%.
+                //
+                // The arcs number exons in transcript order (1-based) while the exon list
+                // is sorted by ascending x, so the two disagree on a minus-strand track.
+                // Rather than trust a strand rule, both mappings are TESTED against the
+                // arc endpoints, which have to land on the exon's own edges, and the one
+                // that fits is used. A wrong mapping here would put every label on the
+                // wrong exon and still look plausible.
+                if (mode === 'psi' && __exonPairs.length && layer.junctions.length) {
+                    const n = __exonPairs.length;
+                    const bounds = __exonPairs.map((p) => [Math.min(p[0], p[1]), Math.max(p[0], p[1])]);
+                    const at = (num, flip) => bounds[flip ? (n - num) : (num - 1)];
+                    const fit = (flip) => {
+                        let ok = 0, seen = 0;
+                        for (const j of layer.junctions) {
+                            if (j.exon == null) continue;
+                            const b = at(j.exon, flip);
+                            if (!b) continue;
+                            seen++;
+                            const near = Math.min(Math.abs(j.d - b[0]), Math.abs(j.d - b[1]),
+                                                  Math.abs(j.a - b[0]), Math.abs(j.a - b[1]));
+                            if (near <= 3) ok++;
+                        }
+                        return seen ? ok / seen : -1;
+                    };
+                    const fFalse = fit(false), fTrue = fit(true);
+                    const flip = fTrue > fFalse;
+                    const rows = [];
+                    if (Math.max(fFalse, fTrue) > 0) {
+                        const psiOf = {};
+                        for (const j of layer.junctions) {
+                            if (j.exon == null || !isFinite(+j.mag)) continue;
+                            // a skip arc reports the share that LEAVES the exon out
+                            const v = (j.kind === 'skip') ? (1 - +j.mag) : +j.mag;
+                            if (v < 0 || v > 1) continue;
+                            (psiOf[j.exon] = psiOf[j.exon] || []).push(v);
+                        }
+                        for (const k of Object.keys(psiOf)) {
+                            const num = +k;
+                            const b = at(num, flip);
+                            if (!b) continue;
+                            const vs = psiOf[k].slice().sort((x, y) => x - y);
+                            const psi = vs[Math.floor(vs.length / 2)];
+                            const score = 1 - Math.abs(2 * psi - 1);
+                            const word = (score <= 0.15) ? (psi >= 0.5 ? 'constitutive' : 'rarely in')
+                                : (score <= 0.45) ? 'variable' : 'unstable';
+                            rows.push({ exon: num, lo: b[0], hi: b[1], psi: psi, score: score, word: word });
+                        }
+                        rows.sort((a, b2) => b2.score - a.score);
+                    }
+                    // WHAT ELSE MAKES AN UNRELIABLE EXON WORTH THE TROUBLE. Instability on
+                    // its own ranks a 50/50 exon in an unremarkable stretch above a 60/40
+                    // exon carrying a GTP-binding site, and the second is the one to act on.
+                    // Conservation and annotated functional sites are already on the track
+                    // once they have been loaded, so they are folded in as a WEIGHT on
+                    // instability rather than as points of their own: an exon that is
+                    // spliced reliably is not a problem however conserved it is, so
+                    // instability stays necessary and these only break ties between exons
+                    // that are already unreliable.
+                    //
+                    // Both are read straight off the track's layers. Absent, their terms
+                    // are zero and the weight falls to its floor, so the ranking degrades
+                    // to pure instability instead of failing.
+                    const __layers = (track && track.track_layers) || [];
+                    const __isCons = (L) => L && (L.data_type === 'SEQSIM' || L.data_type === 'PROTSIM'
+                        || /conservation|phylop|phastcons/i.test('' + (L.name || '')));
+                    const __pts = (L) => (Array.isArray(L.polygonpts) && L.polygonpts.length)
+                        ? L.polygonpts : (Array.isArray(L.pts) ? L.pts : []);
+                    const __consLayer = __layers.find(__isCons);
+                    let __consMax = 0;
+                    if (__consLayer) {
+                        for (const p of __pts(__consLayer)) {
+                            const v = +(p.y != null ? p.y : p[1]);
+                            if (isFinite(v) && v > __consMax) __consMax = v;
+                        }
+                    }
+                    const __consOver = (lo2, hi2) => {
+                        if (!__consLayer || !(__consMax > 0)) return null;
+                        let sum = 0, n2 = 0;
+                        for (const p of __pts(__consLayer)) {
+                            const x = +(p.x != null ? p.x : p[0]);
+                            const v = +(p.y != null ? p.y : p[1]);
+                            if (!isFinite(x) || !isFinite(v) || x < lo2 || x > hi2) continue;
+                            sum += v; n2++;
+                        }
+                        return n2 ? Math.max(0, Math.min(1, (sum / n2) / __consMax)) : null;
+                    };
+                    // A CDD site layer draws one-residue features as intervals; a domain
+                    // layer draws wide ones the same way. Both count, and a site inside an
+                    // exon is the stronger signal, so the count is what is used, capped.
+                    const __siteLayers = __layers.filter((L) => L && L.data_type === 'CDD'
+                        && Array.isArray(L.intervals) && L.intervals.length);
+                    const __sitesOver = (lo2, hi2) => {
+                        let n2 = 0;
+                        for (const L of __siteLayers) {
+                            for (const iv of L.intervals) {
+                                const a2 = Math.min(+iv.x1, +iv.x2), b2 = Math.max(+iv.x1, +iv.x2);
+                                if (isFinite(a2) && isFinite(b2) && a2 <= hi2 && b2 >= lo2) n2++;
+                            }
+                        }
+                        return n2;
+                    };
+                    for (const r of rows) {
+                        const cons = __consOver(r.lo, r.hi);
+                        const nSites = __sitesOver(r.lo, r.hi);
+                        r.conservation = (cons == null) ? null : +cons.toFixed(3);
+                        r.sites = nSites;
+                        // three sites is as much as the term can add; beyond that an exon is
+                        // not more important, the annotation is just denser
+                        const siteTerm = Math.min(1, nSites / 3);
+                        const consTerm = (cons == null) ? 0 : cons;
+                        r.weight = +(0.5 + 0.25 * consTerm + 0.25 * siteTerm).toFixed(3);
+                        r.rank = +(r.score * r.weight).toFixed(4);
+                    }
+                    rows.sort((a, b2) => b2.rank - a.rank);
+                    layer.exonStability = rows;
+                    layer.exonStabilityFit = Math.max(fFalse, fTrue);
+                    layer.exonStabilityHasContext = !!__consLayer || !!__siteLayers.length;
+                }
+
                 // Competing sites at each annotated edge (PSI mode), kept with the layer so a
                 // later run on an edited copy of the transcript can be compared with this one.
                 let __comp = [];
