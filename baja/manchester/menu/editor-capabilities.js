@@ -1172,8 +1172,12 @@ function (graph, genegraph_panel_layout) {
                     + 'scored yet, so it works on a canvas where nothing has been run.',
                 needs: 'track',
                 params: {},
+                // frameRange is this module's, tuned on the real canvas, so it is handed
+                // over rather than reimplemented: a second copy of that arithmetic would
+                // drift and the report would frame exons differently from everything else.
                 run: () => exec('baja/bio/splicing/exon-stability-report.js',
-                                graph, genegraph_panel_layout),
+                                graph, genegraph_panel_layout, null,
+                                (t, lo, hi) => frameRange(t, lo, hi)),
                 preview: () => {
                     const ts = tracks().filter((t) => {
                         try {

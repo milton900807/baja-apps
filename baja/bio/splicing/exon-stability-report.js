@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout, presetTracks) {
+function (graph, genegraph_panel_layout, presetTracks, navigate) {
     // THE EXON STABILITY REPORT: every exon on the canvas, ranked by how unreliably it
     // splices, with everything the models already know about it folded in.
     //
@@ -24,12 +24,21 @@ function (graph, genegraph_panel_layout, presetTracks) {
         const H = (t) => ('' + (t == null ? '' : t))
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-        const hasExons = (t) => {
+        // WHAT THE PSI RUN COUNTS AS AN EXON, not what looks like one here. The per-exon
+        // reliability is only produced when splicing-profile.js finds exons through
+        // getExons(); a track whose annotations say "Exon" but whose getExons() is empty
+        // would be admitted by an annotations-only test, scored, and then yield nothing,
+        // and the report would wait three minutes for a layer that was never coming.
+        const exonCount = (t) => {
+            let n = 0;
+            try { n = ((t.getExons && t.getExons()) || []).length; } catch (e) { n = 0; }
+            if (n) return n;
             try {
-                return ((t.annotations || []).filter(
-                    (a) => a && ('' + a.type).toLowerCase() === 'exon').length) > 0;
-            } catch (e) { return false; }
+                return (t.annotations || []).filter(
+                    (a) => a && ('' + a.type).toLowerCase() === 'exon').length;
+            } catch (e) { return 0; }
         };
+        const hasExons = (t) => exonCount(t) > 0;
         // The most recent PSI layer carrying per-exon reliability. `pop()` and not `find()`:
         // a track re-run after an edit holds both layers, and the answer is the last one.
         const psiLayer = (t) => {
@@ -37,6 +46,19 @@ function (graph, genegraph_panel_layout, presetTracks) {
                 return (t.track_layers || []).filter((x) => x && x.magnitudeMode === 'psi'
                     && Array.isArray(x.exonStability) && x.exonStability.length).pop() || null;
             } catch (e) { return null; }
+        };
+        // A PSI LAYER OF ANY KIND IS THE COMPLETION SIGNAL, and the test for whether a run
+        // is needed at all. Waiting for one that carries reliability conflates two
+        // different things: a run that has not happened, and a run that happened and could
+        // not match its arcs to the annotated exons. The second produces a layer with no
+        // reliability on it, and waiting for reliability there meant re-running a track
+        // that had already answered and then sitting out the full timeout per track, which
+        // is a report that looks like it is doing nothing. The empty case is explained
+        // below instead, by name.
+        const anyPsi = (t) => {
+            try {
+                return (t.track_layers || []).some((x) => x && x.magnitudeMode === 'psi');
+            } catch (e) { return false; }
         };
 
         let all = [];
@@ -46,13 +68,38 @@ function (graph, genegraph_panel_layout, presetTracks) {
                 .filter((t) => t && (t.grid || t.tgraph) && hasExons(t));
         } catch (e) { all = []; }
 
+        // A REPORT THAT RETURNS NOTHING IS INDISTINGUISHABLE FROM A CRASH. Every exit from
+        // here opens the panel and says what happened. The first version closed on a
+        // transient status line when it had no rows, which read as the tool doing nothing
+        // at all -- and the reasons it can have no rows (no exons, a run that did not come
+        // back, a layer with no reliability on it) are exactly what the user needs told.
+        const nothing = (why) => {
+            try {
+                OV.open({
+                    id: 'exon-stability-report',
+                    title: 'Exon stability report \u00b7 nothing to report',
+                    body: '<div style="font:13px Arial;color:#eaf6f9;line-height:1.7;">' + why + '</div>'
+                });
+            } catch (e) {
+                try { graph.setMessage(' ' + ('' + why).replace(/<[^>]+>/g, '') + ' '); } catch (e2) { }
+            }
+            resolve(false);
+        };
+
         if (!all.length) {
-            graph.setMessage(' No track on the canvas has annotated exons to report on. ');
-            resolve(false); return;
+            const open = (graph.track || []).filter(Boolean).length;
+            nothing(open
+                ? ('None of the ' + open + ' track' + (open === 1 ? '' : 's') + ' on the canvas '
+                   + 'has annotated exons. The report is per exon, and exon reliability is '
+                   + 'worked out from the transcript\u2019s own exon structure, so a track '
+                   + 'loaded as plain sequence has nothing to report. Load a transcript with '
+                   + 'its exons annotated and run it again.')
+                : 'There are no tracks on the canvas.');
+            return;
         }
 
         // ---------------------------------------------------------------- running -------
-        const missing = all.filter((t) => !psiLayer(t));
+        const missing = all.filter((t) => !anyPsi(t));
         const ran = [];
         const failed = [];
         if (missing.length) {
@@ -76,9 +123,8 @@ function (graph, genegraph_panel_layout, presetTracks) {
                 // never lands must not hang the report.
                 const got = await (async () => {
                     const t0 = Date.now();
-                    while (Date.now() - t0 < 180000) {
-                        const L = psiLayer(t);
-                        if (L) return L;
+                    while (Date.now() - t0 < 120000) {
+                        if (anyPsi(t)) return true;
                         await new Promise((r) => setTimeout(r, 250));
                     }
                     return null;
@@ -99,7 +145,10 @@ function (graph, genegraph_panel_layout, presetTracks) {
             if (!L.untrustedSource) notes.noMappability.push(nm);
             for (const e of L.exonStability) {
                 const r = {
-                    track: nm, exon: e.exon, psi: e.psi, score: e.score, word: e.word,
+                    // lo/hi are the exon's own span on the track, carried because that is
+                    // what navigation frames. Left out of the first version, which gave
+                    // every row a click that went nowhere.
+                    track: nm, tobj: t, exon: e.exon, lo: e.lo, hi: e.hi, psi: e.psi, score: e.score, word: e.word,
                     conservation: e.conservation, sites: e.sites, rank: e.rank,
                     untrusted: !!e.untrusted, untrustedWhy: e.untrustedWhy || '',
                     measured: e.measured || null, psiPredicted: e.psiPredicted,
@@ -114,18 +163,57 @@ function (graph, genegraph_panel_layout, presetTracks) {
         }
 
         if (!rows.length) {
-            graph.setMessage(' Nothing to report: no track produced exon reliability. ');
-            resolve(false); return;
+            const lines = all.map((t) => {
+                const nm = t.name || 'track';
+                const L = psiLayer(t);
+                if (failed.indexOf(nm) >= 0) {
+                    return '<li><b>' + H(nm) + '</b> \u2014 PSINet was run but no result came '
+                        + 'back within three minutes.</li>';
+                }
+                if (!L) {
+                    return '<li><b>' + H(nm) + '</b> \u2014 no PSI layer, and the run produced '
+                        + 'none.</li>';
+                }
+                return '<li><b>' + H(nm) + '</b> \u2014 a PSI layer is present but carries no '
+                    + 'per-exon reliability. That happens when the arcs could not be matched '
+                    + 'to the annotated exons, so there is nothing to rank.</li>';
+            }).join('');
+            nothing('No track produced exon reliability, so there is nothing to rank:'
+                + '<ul style="margin:8px 0 0 0;padding-left:18px;">' + lines + '</ul>'
+                + '<div style="margin-top:10px;color:#8fb8c8;">Running <b>Exon inclusion, PSI '
+                + '(PSINet)</b> on one track by hand will show the error the run hit, which '
+                + 'this report can only report as absence.</div>');
+            return;
         }
 
         // UNTRUSTED EXONS SINK, whatever their score. Their PSI is a blend of two genes'
         // reads, so a rank computed from it is not about this exon at all, and letting one
         // float to the top of a report someone picks a target from is the failure the
         // whole mappability path exists to prevent.
-        rows.sort((a, b) => {
-            if (a.untrusted !== b.untrusted) return a.untrusted ? 1 : -1;
-            return (b.rank || 0) - (a.rank || 0);
-        });
+        // SORTED BY RELIABILITY, which is the quantity the report is named for: distance
+        // from the nearest extreme, so the exon that is neither reliably in nor reliably
+        // out comes first. `rank` is that score WEIGHTED by conservation and functional
+        // sites, which is a different and more opinionated ordering -- it is still a
+        // column, and still one of the orders the headers offer, but it is not what
+        // "sort by reliability" means and should not be the default silently.
+        const SORTS = {
+            reliability: (a, b) => (b.score || 0) - (a.score || 0),
+            score: (a, b) => (b.rank || 0) - (a.rank || 0),
+            inclusion: (a, b) => (a.psi || 0) - (b.psi || 0),
+            track: (a, b) => ('' + a.track).localeCompare('' + b.track)
+                             || ((+a.exon) - (+b.exon)),
+            exon: (a, b) => ((+a.exon) - (+b.exon))
+        };
+        // UNTRUSTED EXONS SINK WHATEVER THE SORT, because every one of these orderings is
+        // computed from a number those exons do not honestly have.
+        const sortRows = (key) => {
+            const f = SORTS[key] || SORTS.reliability;
+            rows.sort((a, b) => {
+                if (a.untrusted !== b.untrusted) return a.untrusted ? 1 : -1;
+                return f(a, b);
+            });
+        };
+        sortRows('reliability');
 
         // ---------------------------------------------------------------- rendering ----
         const pc = (v) => (v == null || !isFinite(+v)) ? '–' : (Math.round(100 * +v) + '%');
@@ -155,33 +243,163 @@ function (graph, genegraph_panel_layout, presetTracks) {
                 + 'exons.</div>';
         }
 
-        body += '<table style="width:100%;border-collapse:collapse;font:12px Arial;">'
-            + '<tr style="text-align:left;color:#8fb8c8;border-bottom:1px solid rgba(255,255,255,0.14);">'
-            + '<th style="padding:4px 6px;">#</th><th>track</th><th>exon</th><th>inclusion</th>'
-            + '<th>reliability</th><th>with variant</th><th>cons</th><th>sites</th><th>score</th></tr>';
+        // ------------------------------------------------------------- the picture -----
+        //
+        // THE CHART IS THE REPORT; THE TABLE IS THE EVIDENCE. Reliability is distance from
+        // the nearest extreme, which is an awkward quantity to read as a column of decimals:
+        // 0.04 and 0.96 are a constitutive exon and a coin flip, and nothing about the
+        // digits says which matters. Drawn, it is obvious -- every exon is a bar whose
+        // HEIGHT is inclusion and whose COLOUR is reliability, so a transcript of tall
+        // green bars with one amber stub in the middle tells the whole story before anyone
+        // reads a number.
+        //
+        // One row per track, exons in transcript order rather than ranked, because the
+        // order on the track is how the reader finds the exon again. The ranked table
+        // below answers "which one first"; this answers "where is it and what is around
+        // it", and those are different questions.
+        //
+        // Laid out with inline styles and no canvas: the panel body is HTML, this has to
+        // survive being copied into a document, and a canvas would be a blank rectangle
+        // there.
+        // Declared before the chart, which uses it too: a bar is as good a thing to click
+        // as a row, and on a long transcript it is the one the reader is already looking at.
+        const navs = {};
+        let navN = 0;
+        const navId = (r) => {
+            const id = 'esr-nav-' + (navN++);
+            navs[id] = { t: r.tobj, lo: r.lo, hi: r.hi, label: r.track + ' e' + r.exon };
+            return id;
+        };
 
-        rows.forEach((r, i) => {
-            const incl = r.measured
-                ? ('<span style="color:#c4b5fd;">~' + pc(r.measured.psi) + ' measured</span>')
-                : r.untrusted ? '<span style="color:#8fb8c8;">–</span>' : pc(r.psi);
-            const vcell = r.variant
-                ? ('<span style="color:#ffb4a2;">' + pc(r.variant.psiAlt) + ' '
-                   + H((r.variant.ref || '?') + '>' + (r.variant.alt || '?'))
-                   + (+r.variant.canonicalSite > 0 ? ' · site' : '') + '</span>')
-                : '<span style="color:#5d7f90;">–</span>';
-            body += '<tr style="border-bottom:1px solid rgba(255,255,255,0.08);">'
-                + '<td style="padding:4px 6px;color:#8fb8c8;">' + (i + 1) + '</td>'
-                + '<td>' + H(r.track) + '</td>'
-                + '<td>e' + H(r.exon) + '</td>'
-                + '<td>' + incl + '</td>'
-                + '<td style="color:' + (r.untrusted ? '#8fb8c8' : (COL[r.word] || '#eaf6f9'))
-                + ';">' + H(r.word) + '</td>'
-                + '<td>' + vcell + '</td>'
-                + '<td>' + (r.conservation == null ? '–' : (+r.conservation).toFixed(2)) + '</td>'
-                + '<td>' + H(r.sites == null ? 0 : r.sites) + '</td>'
-                + '<td>' + (r.rank == null ? '–' : (+r.rank).toFixed(3)) + '</td></tr>';
-        });
-        body += '</table>';
+        const BAR_H = 54;
+        const colourOf = (r) => {
+            if (r.untrusted) return '#5d7f90';                 // no trustworthy number
+            if (r.measured) return '#c4b5fd';                  // measured, not predicted
+            if (r.variant) return '#ff6b6b';                   // a variant moves it
+            if (r.score == null) return '#8fb8c8';
+            return (r.score <= 0.15) ? '#22c55e'               // reliably in or reliably out
+                : (r.score <= 0.45) ? '#ffd79a' : '#ff9f68';   // variable, then unstable
+        };
+
+        const byTrack = {};
+        for (const r of rows) (byTrack[r.track] = byTrack[r.track] || []).push(r);
+
+        body += '<div style="margin:4px 0 14px 0;">';
+        for (const nm of Object.keys(byTrack)) {
+            // Transcript order for the picture. rows arrived ranked, which is right for the
+            // table and wrong here: a chart in rank order is a bar chart of numbers, not a
+            // picture of a transcript.
+            const es = byTrack[nm].slice().sort((a, b) => (+a.exon) - (+b.exon));
+            const worst = es.filter((r) => !r.untrusted)
+                .sort((a, b) => (b.rank || 0) - (a.rank || 0))[0];
+            body += '<div style="margin-bottom:12px;">'
+                + '<div style="font:600 12.5px Arial;color:#eaf6f9;margin-bottom:4px;">'
+                + H(nm) + '<span style="color:#8fb8c8;font-weight:400;"> \u00b7 '
+                + es.length + ' exon' + (es.length === 1 ? '' : 's')
+                + (worst ? (' \u00b7 least reliable: e' + H(worst.exon)) : '') + '</span></div>'
+                + '<div style="display:flex;align-items:flex-end;gap:3px;height:' + (BAR_H + 18)
+                + 'px;padding:4px 2px;background:rgba(255,255,255,0.03);border-radius:6px;'
+                + 'overflow-x:auto;">';
+            for (const r of es) {
+                // An untrusted exon has no inclusion to draw, so it is a hollow stub rather
+                // than a bar of some invented height: height is the one thing on this chart
+                // that means a number, and giving it one would be inventing the number the
+                // rest of this work exists to withhold.
+                const shown = r.untrusted ? null
+                    : (r.measured ? +r.measured.psi : +r.psi);
+                const h = (shown == null) ? 6 : Math.max(3, Math.round(BAR_H * Math.max(0, Math.min(1, shown))));
+                const col = colourOf(r);
+                const tip = nm + ' e' + r.exon + ' \u2014 '
+                    + (r.untrusted ? ('no trustworthy inclusion: shares sequence with '
+                                      + (r.untrustedWhy || 'another gene'))
+                       : (r.measured ? ('~' + pc(r.measured.psi) + ' measured') : pc(r.psi))
+                         + ', ' + r.word)
+                    + (r.variant ? ('; ' + (r.variant.ref || '?') + '>' + (r.variant.alt || '?')
+                                    + ' takes it to ' + pc(r.variant.psiAlt)) : '');
+                body += '<div id="' + navId(r) + '" title="' + H(tip)
+                    + ' \u2014 click to go there" style="flex:0 0 auto;width:26px;cursor:pointer;'
+                    + 'display:flex;flex-direction:column;align-items:center;justify-content:flex-end;">';
+                // WHERE A VARIANT TAKES IT, drawn under the bar it starts from, so the drop
+                // is a distance on the page rather than two numbers to subtract.
+                if (r.variant && isFinite(+r.variant.psiAlt) && !r.untrusted) {
+                    const ah = Math.max(2, Math.round(BAR_H * Math.max(0, Math.min(1, +r.variant.psiAlt))));
+                    body += '<div style="position:relative;width:22px;height:' + h + 'px;">'
+                        + '<div style="position:absolute;bottom:0;left:0;width:22px;height:' + h
+                        + 'px;background:' + col + ';opacity:0.30;border-radius:3px 3px 0 0;"></div>'
+                        + '<div style="position:absolute;bottom:0;left:0;width:22px;height:' + ah
+                        + 'px;background:' + col + ';border-radius:3px 3px 0 0;"></div>'
+                        + '</div>';
+                } else {
+                    body += '<div style="width:22px;height:' + h + 'px;background:' + col + ';'
+                        + (r.untrusted ? 'opacity:0.45;' : '') + 'border-radius:3px 3px 0 0;"></div>';
+                }
+                body += '<div style="font:10px Arial;color:#8fb8c8;margin-top:3px;">'
+                    + H(r.exon) + '</div></div>';
+            }
+            body += '</div></div>';
+        }
+        // The legend names every colour the chart can draw, including the two that mean
+        // "this is not a prediction" -- a reader who takes a violet bar for a model output
+        // has been misled by the picture.
+        body += '<div style="font:11.5px Arial;color:#8fb8c8;display:flex;gap:14px;'
+            + 'flex-wrap:wrap;margin-top:2px;">'
+            + [['#22c55e', 'reliable (in or out)'], ['#ffd79a', 'variable'],
+               ['#ff9f68', 'unstable'], ['#ff6b6b', 'moved by a variant'],
+               ['#c4b5fd', 'measured, not predicted'], ['#5d7f90', 'no trustworthy number']]
+                .map(([c, t]) => '<span><span style="display:inline-block;width:9px;height:9px;'
+                    + 'background:' + c + ';border-radius:2px;margin-right:4px;"></span>' + t + '</span>')
+                .join('')
+            + '<span>bar height = inclusion</span></div>';
+        body += '</div>';
+
+        // EVERY ROW GOES TO ITS EXON. A report that names an exon and leaves the reader
+        // to find it on the canvas has only half-answered: the point of ranking exons is
+        // to go and look at the one that came first. Each row and each bar frames its own
+        // exon on its own track, through the same navigation the editor uses elsewhere.
+        const HEADS = [['', null], ['track', 'track'], ['exon', 'exon'],
+                       ['inclusion', 'inclusion'], ['reliability', 'reliability'],
+                       ['with variant', null], ['cons', null], ['sites', null],
+                       ['score', 'score']];
+        let sortKey = 'reliability';
+        const tableHtml = () => {
+            let h = '<table style="width:100%;border-collapse:collapse;font:12px Arial;">'
+                + '<tr style="text-align:left;color:#8fb8c8;border-bottom:1px solid rgba(255,255,255,0.14);">';
+            HEADS.forEach(([label, key], i) => {
+                const on = (key && key === sortKey);
+                h += '<th style="padding:4px 6px;font-weight:' + (on ? '700' : '400') + ';">'
+                    + (key
+                        ? ('<a href="#" id="esr-sort-' + key + '" style="color:'
+                           + (on ? '#4fd0e6' : '#8fb8c8') + ';text-decoration:none;">'
+                           + H(label) + (on ? ' \u25be' : '') + '</a>')
+                        : H(label))
+                    + '</th>';
+            });
+            h += '</tr>';
+            rows.forEach((r, i) => {
+                const incl = r.measured
+                    ? ('<span style="color:#c4b5fd;">~' + pc(r.measured.psi) + ' measured</span>')
+                    : r.untrusted ? '<span style="color:#8fb8c8;">\u2013</span>' : pc(r.psi);
+                const vcell = r.variant
+                    ? ('<span style="color:#ffb4a2;">' + pc(r.variant.psiAlt) + ' '
+                       + H((r.variant.ref || '?') + '>' + (r.variant.alt || '?'))
+                       + (+r.variant.canonicalSite > 0 ? ' \u00b7 site' : '') + '</span>')
+                    : '<span style="color:#5d7f90;">\u2013</span>';
+                h += '<tr id="' + navId(r) + '" title="go to ' + H(r.track + ' exon ' + r.exon)
+                    + '" style="border-bottom:1px solid rgba(255,255,255,0.08);cursor:pointer;">'
+                    + '<td style="padding:4px 6px;color:#8fb8c8;">' + (i + 1) + '</td>'
+                    + '<td style="color:#4fd0e6;">' + H(r.track) + '</td>'
+                    + '<td>e' + H(r.exon) + '</td>'
+                    + '<td>' + incl + '</td>'
+                    + '<td style="color:' + (r.untrusted ? '#8fb8c8' : (COL[r.word] || '#eaf6f9'))
+                    + ';">' + H(r.word) + '</td>'
+                    + '<td>' + vcell + '</td>'
+                    + '<td>' + (r.conservation == null ? '\u2013' : (+r.conservation).toFixed(2)) + '</td>'
+                    + '<td>' + H(r.sites == null ? 0 : r.sites) + '</td>'
+                    + '<td>' + (r.rank == null ? '\u2013' : (+r.rank).toFixed(3)) + '</td></tr>';
+            });
+            return h + '</table>';
+        };
+        body += '<div id="esr-table">' + tableHtml() + '</div>';
 
         // WHAT THE NUMBERS DO NOT SAY. A report is read away from the screen that produced
         // it, so each caveat that applies has to travel with it: the ranking means something
@@ -238,6 +456,47 @@ function (graph, genegraph_panel_layout, presetTracks) {
             title: 'Exon stability report · ' + summary,
             body: body
         });
+
+        // GOING TO AN EXON, and the sort. Both are wired after the panel exists, and
+        // both are re-wired after a re-sort: the table is rebuilt, so every handler
+        // attached to the old rows went with them.
+        const goTo = async (id) => {
+            const d = navs[id];
+            if (!d || !d.t) return;
+            try { graph.selectedTrack = d.t; } catch (e) { }
+            if (typeof navigate === 'function') {
+                try { await navigate(d.t, d.lo, d.hi); } catch (e) { }
+            }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            try { graph.setMessage(' ' + d.label + ' '); } catch (e) { }
+        };
+        const wire = () => {
+            try {
+                for (const id of Object.keys(navs)) {
+                    const el = p && p.body && p.body.querySelector('#' + id);
+                    if (el) el.onclick = (e) => { try { e.preventDefault(); } catch (e2) { } goTo(id); };
+                }
+                for (const k of Object.keys(SORTS)) {
+                    const a = p && p.body && p.body.querySelector('#esr-sort-' + k);
+                    if (!a) continue;
+                    a.onclick = (e) => {
+                        try { e.preventDefault(); } catch (e2) { }
+                        sortKey = k;
+                        sortRows(k);
+                        // The ids are handed out as the table is written, so a rebuild
+                        // issues new ones; the old entries would otherwise accumulate and
+                        // point at rows that no longer exist.
+                        for (const id of Object.keys(navs)) {
+                            if (/^esr-nav-/.test(id) && !(p.body.querySelector('#' + id))) delete navs[id];
+                        }
+                        const host = p.body.querySelector('#esr-table');
+                        if (host) host.innerHTML = tableHtml();
+                        wire();
+                    };
+                }
+            } catch (e) { }
+        };
+        wire();
 
         // Plain text for pasting into a document or a ticket. The overlay keeps event
         // handlers, unlike the host's showModal, so this can be wired directly.

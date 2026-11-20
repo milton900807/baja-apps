@@ -1256,8 +1256,8 @@ if [[ $DO_API -eq 1 ]]; then
   # and without the module behind it the entry opens onto a missing script -- the failure
   # the all-or-none rule exists for.
   install_group "The exon stability report, across every track" \
-    "baja/bio/splicing/exon-stability-report.js:THE EXON STABILITY REPORT: every exon on the canvas" \
-    "baja/manchester/menu/editor-capabilities.js:THE REPORT ACROSS THE WHOLE CANVAS"
+    "baja/bio/splicing/exon-stability-report.js:THE CHART IS THE REPORT; THE TABLE IS THE EVIDENCE" \
+    "baja/manchester/menu/editor-capabilities.js:frameRange is this module"
   install_group "A variant on the track is scored, not just drawn" \
     "py/bio/splice/splicing-profile.py:WHAT EACH VARIANT DOES TO INCLUSION" \
     "baja/bio/splicing/splicing-profile.js:THE VARIANTS ON THE TRACK GO TO THE MODEL WITH THE SEQUENCE" \

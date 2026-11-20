@@ -55,7 +55,16 @@ const scored = (name, rows, extra) => ({
     const realOpen = global.lion_engine.exec;
     global.lion_engine.exec = async (p, ...a) => {
         if (/canvas-overlay-panel/.test(p)) {
-            return { open: (o) => { opened = o; return { body: document.createElement('div') }; } };
+            return { open: (o) => {
+                opened = o;
+                const el = document.createElement('div');
+                // The real panel holds the body in the DOM, which is what the report
+                // queries to wire its rows: a stub that returns an empty div would let a
+                // broken selector pass.
+                try { el.innerHTML = o.body; } catch (e) { }
+                opened.el = el;
+                return { body: el };
+            } };
         }
         return realOpen(p, ...a);
     };
@@ -109,14 +118,94 @@ const scored = (name, rows, extra) => ({
        'a variant effect is in the table with its base change');
     ok(/moved by a variant/.test(opened.title), 'and counted: ' + opened.title);
 
-    // A track with no annotated exons has nothing to report and must not be an error.
+    // A REPORT THAT RETURNS NOTHING IS INDISTINGUISHABLE FROM A CRASH. Every exit opens
+    // the panel and says what happened. The first version closed on a transient status
+    // line when it had no rows, which read as the tool doing nothing at all.
     opened = null;
     const bare = [{ name: 'plain', grid: {}, tgraph: {}, annotations: [], track_layers: [] }];
     let said = '';
     const r = await run({ track: bare, getTracks: () => bare,
         setMessage: (m) => { said = m; }, canvas: { width: 1200, height: 800 } });
-    ok(r === false && !opened, 'a canvas with no annotated exons opens no panel');
-    ok(/annotated exons/.test(said), 'and says why: ' + said.trim());
+    ok(r === false, 'a canvas with no annotated exons reports no rows');
+    ok(!!opened, 'and STILL opens the panel, rather than appearing to do nothing');
+    ok(/annotated exons/.test(opened.body), 'saying why: ' + opened.body.slice(0, 80));
+    ok(/nothing to report/.test(opened.title), 'with a title that says so: ' + opened.title);
+
+    // A track that has exons but whose PSI run produced no reliability is the other way to
+    // get an empty report, and it must name the track rather than say nothing happened.
+    opened = null;
+    const stuck = [{ name: 'quiet', grid: {}, tgraph: {},
+        annotations: [{ type: 'Exon', index: 1, xi: 1, xf: 9 }],
+        track_layers: [{ magnitudeMode: 'psi', exonStability: [] }] }];
+    await run({ track: stuck, getTracks: () => stuck, setMessage() { },
+        canvas: { width: 1200, height: 800 } });
+    ok(opened && /quiet/.test(opened.body), 'an exon-bearing track with no reliability is named');
+    ok(opened && /Exon inclusion/.test(opened.body),
+       'with the one step that would show the real error');
+
+    // THE PICTURE. Bar height is inclusion, colour is reliability.
+    opened = null;
+    const pic = [scored('P', [R({ exon: 1, psi: 1.0, score: 0.0, word: 'constitutive', rank: 0 }),
+                              R({ exon: 2, psi: 0.5, score: 1.0, word: 'unstable', rank: 1 })])];
+    await run({ track: pic, getTracks: () => pic, setMessage() { },
+        canvas: { width: 1200, height: 800 } });
+    ok(/bar height = inclusion/.test(opened.body), 'the chart says what height means');
+    ok(/#22c55e/.test(opened.body) && /#ff9f68/.test(opened.body),
+       'a reliable exon and an unstable one are drawn in different colours');
+    ok(/least reliable: e2/.test(opened.body),
+       'and the track line names its worst exon');
+    // Transcript order in the picture, rank order in the table: finding the exon again
+    // needs the first, choosing one needs the second.
+    const chart = opened.body.slice(0, opened.body.indexOf('<table'));
+    ok(chart.indexOf('>1<') < chart.indexOf('>2<'), 'the chart runs in transcript order');
+
+    // An untrusted exon must not be given a bar height, since height means a number and
+    // that is the number this whole path exists to withhold.
+    opened = null;
+    const unt = [scored('U', [R({ exon: 1, untrusted: true, untrustedWhy: 'SMN1',
+                                  word: 'PSI not trusted', psi: 0.84 })])];
+    await run({ track: unt, getTracks: () => unt, setMessage() { },
+        canvas: { width: 1200, height: 800 } });
+    ok(/no trustworthy number/.test(opened.body), 'the legend names the untrusted colour');
+    ok(/height:6px/.test(opened.body),
+       'and the exon is a stub, not a bar at its blended value');
+
+    // NAVIGATION. A report that names an exon and leaves you to find it has only
+    // half-answered. Every row and every bar frames its own exon on its own track.
+    opened = null;
+    const navs = [];
+    const t5 = [scored('N', [R({ exon: 3, lo: 500, hi: 620, score: 0.9, rank: 0.9 }),
+                             R({ exon: 8, lo: 900, hi: 980, score: 0.2, rank: 0.2 })])];
+    const g5 = { track: t5, getTracks: () => t5, setMessage() { }, canvas: { width: 1200, height: 800 } };
+    await (async () => {
+        const src = fs.readFileSync('baja/bio/splicing/exon-stability-report.js', 'utf8');
+        const f = await new AF('exec', 'args', core + '\nreturn (' + src + ')')(global.lion_engine.exec, {});
+        return f(g5, {}, null, (t, lo, hi) => { navs.push([t.name, lo, hi]); });
+    })();
+    const el = opened.el;
+    const rowEls = el.querySelectorAll('[id^="esr-nav-"]');
+    ok(rowEls.length >= 4, 'rows AND bars are clickable: ' + rowEls.length + ' targets');
+    rowEls[rowEls.length - 1].onclick({ preventDefault() { } });
+    await new Promise((r) => setTimeout(r, 10));
+    ok(navs.length === 1, 'clicking one frames exactly one exon: ' + JSON.stringify(navs));
+    ok(navs[0][0] === 'N' && navs[0][1] != null && navs[0][2] != null,
+       'on its own track, over its own span: ' + JSON.stringify(navs[0]));
+    ok(g5.selectedTrack === t5[0], 'and selects that track');
+
+    // SORTED BY RELIABILITY, the quantity the report is named for, not by the weighted
+    // score, which is a different and more opinionated ordering.
+    const tbl = el.querySelector('#esr-table').innerHTML;
+    ok(tbl.indexOf('e3') < tbl.indexOf('e8'), 'the least reliable exon is first');
+    ok(/esr-sort-reliability/.test(tbl), 'and the column headers offer other orders');
+    const sortEl = el.querySelector('#esr-sort-exon');
+    ok(!!sortEl, 'including by exon');
+    sortEl.onclick({ preventDefault() { } });
+    const tbl2 = el.querySelector('#esr-table').innerHTML;
+    ok(tbl2.indexOf('>e3<') < tbl2.indexOf('>e8<'), 're-sorting rebuilds the table');
+    // The rebuilt rows must still navigate: the old handlers went with the old rows.
+    const after = el.querySelectorAll('#esr-table [id^="esr-nav-"]');
+    ok(after.length > 0 && typeof after[0].onclick === 'function',
+       'and the new rows are wired again');
 
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
