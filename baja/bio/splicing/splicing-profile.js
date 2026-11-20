@@ -145,7 +145,27 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                 // an exon's PSI label was built from reads a paralog could equally have
                 // produced, which is how SMN2 exon 7 came to be labelled 96% stable.
                 const chromArg = (mode === 'psi' && track && track.chr != null) ? ('' + track.chr) : '';
-                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation, tissueArg, chromArg);
+                // THE VARIANTS ON THE TRACK GO TO THE MODEL WITH THE SEQUENCE. A variant
+                // loaded from ClinVar is an annotation: it marks a position and changes
+                // nothing, so a PSI run scored the reference and the exon kept its old
+                // number with a pathogenic lollipop sitting under it. Reading that as "this
+                // mutation does not affect splicing" is the wrong conclusion and an easy one.
+                // Sent here, each one is written into the sequence and its exon scored again.
+                let variantsArg = '';
+                if (mode === 'psi' && track && Array.isArray(track.snpindels) && track.snpindels.length) {
+                    try {
+                        const vs = track.snpindels.map((v) => ({
+                            pos: Math.floor(+(v.xi != null ? v.xi : v.pos)),
+                            ref: '' + ((v.ref != null ? v.ref : v.reference) || ''),
+                            alt: '' + ((v.alt != null ? v.alt : v.alternate) || ''),
+                            name: '' + (v.name || v.id || '')
+                        })).filter((v) => isFinite(v.pos) && v.alt);
+                        // A cap, because each variant is a forward pass: 64 is far more than
+                        // a track carries in practice and bounds a pathological case.
+                        if (vs.length) variantsArg = JSON.stringify(vs.slice(0, 64));
+                    } catch (e) { variantsArg = ''; }
+                }
+                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation, tissueArg, chromArg, variantsArg);
 
                 if (data && data.error) {
                     graph.setMessage(' Splicing error: ' + data.error + ' ');
@@ -353,6 +373,12 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                     // The prediction is kept alongside it so the disagreement stays visible
                     // -- for SMN2 exon 7 that is about 0.10 measured against 0.96 predicted,
                     // and hiding the second would hide the reason this path exists.
+                    // WHAT EACH VARIANT DID TO ITS EXON. Kept on the layer so the tag can
+                    // say "98%, 31% with this variant" instead of a bare 98% drawn beside a
+                    // pathogenic marker, and so the ranking can show the move.
+                    let __vfx = [];
+                    try { __vfx = JSON.parse((data && data.variantEffects) || '[]') || []; } catch (e) { }
+                    layer.variantEffects = __vfx;
                     let __measured = [];
                     try { __measured = JSON.parse((data && data.measured) || '[]') || []; } catch (e) { }
                     layer.measuredPsi = __measured;
@@ -381,6 +407,22 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                         // the untrustworthy part, and reliability computed from a measured
                         // inclusion is as sound as for any other exon. The predicted value
                         // is kept under psiPredicted rather than overwritten.
+                        // The worst thing any variant does to this exon. Containment first,
+                        // then nearness: a canonical site mutation sits just OUTSIDE the
+                        // exon it destroys, in the intron, so an inside-only test would
+                        // miss exactly the class with the largest effect.
+                        let __worst = null;
+                        for (const v of __vfx) {
+                            if (v.skipped || !isFinite(+v.dpsi)) continue;
+                            const inside = (+v.pos >= r.lo && +v.pos <= r.hi);
+                            const near = (+v.pos >= r.lo - 30 && +v.pos <= r.hi + 30);
+                            if (!inside && !near) continue;
+                            const better = !__worst
+                                || (inside && !__worst.inside)
+                                || (inside === __worst.inside && Math.abs(+v.dpsi) > Math.abs(+__worst.v.dpsi));
+                            if (better) __worst = { v: v, inside: inside };
+                        }
+                        if (__worst) { r.variant = __worst.v; }
                         const mm = __measuredAt(r.lo, r.hi);
                         if (mm && isFinite(+mm.psi)) {
                             r.psiPredicted = r.psi;

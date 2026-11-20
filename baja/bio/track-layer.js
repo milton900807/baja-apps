@@ -1054,6 +1054,32 @@ return new Promise(async (resolve, reject) => {
                 // intervals, so the match is by overlap and needs no exon numbering: an
                 // index mapping that went wrong here would mark the wrong exon untrusted
                 // and leave the bad one wearing a confident number.
+                // THE WORST A VARIANT DOES TO THIS EXON. Containment first, then nearness:
+                // a canonical GT/AG mutation sits just OUTSIDE the exon it destroys, in the
+                // intron, so an inside-only test would miss the class with the largest
+                // effect of all.
+                const __vfx = Array.isArray(this.variantEffects) ? this.variantEffects : [];
+                const variantAt = (an) => {
+                    if (!__vfx.length) return null;
+                    const lo2 = Math.min(+an.xi, +an.xf), hi2 = Math.max(+an.xi, +an.xf);
+                    let best = null;
+                    for (const v of __vfx) {
+                        if (v.skipped || !isFinite(+v.dpsi)) continue;
+                        const inside = (+v.pos >= lo2 && +v.pos <= hi2);
+                        if (!inside && !(+v.pos >= lo2 - 30 && +v.pos <= hi2 + 30)) continue;
+                        if (!best || (inside && !best.inside)
+                            || (inside === best.inside && Math.abs(+v.dpsi) > Math.abs(+best.v.dpsi))) {
+                            best = { v: v, inside: inside };
+                        }
+                    }
+                    // Only when it moved something. A variant the model says does nothing to
+                    // splicing is a real answer and belongs in the table, not written across
+                    // the exon: most pathogenic variants are pathogenic in the PROTEIN and
+                    // leave inclusion alone, and tagging those would cry wolf on every one.
+                    if (!best) return null;
+                    const d = Math.abs(+best.v.dpsi);
+                    return (d >= 0.05 || +best.v.canonicalSite > 0) ? best.v : null;
+                };
                 const __mrows = Array.isArray(this.measuredPsi) ? this.measuredPsi : [];
                 const measuredAt = (an) => {
                     if (!__mrows.length) return null;
@@ -1134,16 +1160,26 @@ return new Promise(async (resolve, reject) => {
                     // approximate because the published figure varies by assay and cell type
                     // -- a bare "10%" would trade one false precision for another.
                     const meas = measuredAt(an);
+                    const vfx = meas ? null : variantAt(an);
                     const untrusted = meas ? null : untrustedWhy(an);
                     const psi = (meas && isFinite(+meas.psi))
                         ? +meas.psi : 1 - (skipOf.get(+an.index) || 0);
                     const pct = (psi >= 0.995) ? 100 : Math.round(psi * 100);
+                    // WITH THE VARIANT, said as a move and not as a single number: the
+                    // reader needs what it was as well as what it becomes, or a low number
+                    // reads as an exon that was always weak. Declared here, with pct,
+                    // because every form of the label below is free to use it.
+                    const vpct = vfx ? Math.round(100 * (+vfx.psiAlt)) : null;
                     // The long form says what the number means; the short one is the number,
                     // for an exon with room for one and not the other.
                     const full = meas
                         ? ('e' + an.index + ' \u00b7 ~' + pct + '% measured'
                            + (meas.gene ? (' \u00b7 ' + meas.gene
                               + (meas.exon ? (' e' + meas.exon) : '')) : ''))
+                        : vfx
+                        ? ('e' + an.index + ' \u00b7 ' + pct + '% \u2192 ' + vpct + '% with '
+                           + (vfx.ref || '?') + '>' + (vfx.alt || '?')
+                           + (+vfx.canonicalSite > 0 ? ' \u00b7 splice site' : ''))
                         : (untrusted != null)
                         ? ('e' + an.index + ' \u00b7 PSI not trusted'
                            + (untrusted ? (' \u00b7 ' + untrusted) : ''))
@@ -1155,8 +1191,14 @@ return new Promise(async (resolve, reject) => {
                     // and loses WHICH exon is flagged -- on a track where some exons are
                     // trusted and some are not, that is the one thing worth keeping.
                     const mid = meas ? ('e' + an.index + ' \u00b7 ~' + pct + '% measured')
+                        // The base change rides in the middle form too: it is three
+                        // characters and it is what tells the reader WHICH lollipop under
+                        // the exon did this, on a track carrying eleven of them.
+                        : vfx ? ('e' + an.index + ' \u00b7 ' + pct + '% \u2192 ' + vpct + '% '
+                                 + (vfx.ref || '?') + '>' + (vfx.alt || '?'))
                         : (untrusted != null) ? ('e' + an.index + ' \u00b7 not trusted') : null;
                     const short = meas ? ('~' + pct + '%')
+                        : vfx ? (pct + '\u2192' + vpct + '%')
                         : (untrusted != null) ? 'untrusted' : (pct + '%');
                     const span = hi - lo;
                     const wFull = ctx.measureText(full).width;
@@ -1174,9 +1216,14 @@ return new Promise(async (resolve, reject) => {
                     // Green while the exon is kept, amber once a meaningful share skips it,
                     // red when most transcripts do: the colour is the reading, the number is
                     // the measurement.
+                    // Coloured by what the exon becomes WITH the variant, not by what it was:
+                    // the point of the tag is the consequence.
+                    const cpct = vfx ? vpct : pct;
                     const col = meas ? '#6d28d9'
+                        : vfx ? ((+vfx.dpsi <= -0.05 || +vfx.canonicalSite > 0) ? '#b91c1c'
+                                 : (cpct >= 90 ? '#15803d' : cpct >= 50 ? '#b45309' : '#b91c1c'))
                         : (untrusted != null) ? '#475569'
-                        : (pct >= 90) ? '#15803d' : (pct >= 50 ? '#b45309' : '#b91c1c');
+                        : (cpct >= 90) ? '#15803d' : (cpct >= 50 ? '#b45309' : '#b91c1c');
                     // AN OPAQUE CHIP, NOT A HALO. A white outline on the glyphs lets
                     // whatever is behind show through between the strokes, and behind this
                     // is the amino-acid row: dense, same size, and the reason the tag read

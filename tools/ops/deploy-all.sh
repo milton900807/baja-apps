@@ -1235,6 +1235,20 @@ if [[ $DO_API -eq 1 ]]; then
   # All three together: plan.py sending the step with no card able to offer the
   # choice is the same dead end with an extra step in it, and the card offering a
   # choice it never receives is dead code.
+  # THE VARIANT GOES INTO THE SEQUENCE THE MODEL SCORES. A ClinVar variant loaded
+  # onto a track is an annotation: it marks a position and changes nothing, so a PSI
+  # run scored the reference and the exon kept "98% stable" with a pathogenic
+  # lollipop under it. Read as "this mutation does not affect splicing" that is the
+  # wrong conclusion and an easy one. Each variant is now written into the sequence
+  # and its cassette event scored again, and the tag says the move.
+  #
+  # The three travel together: the launcher gathering variants that the backend does
+  # not score sends them nowhere, the backend scoring variants the launcher never
+  # sends is dead code, and the tag is where the answer is read.
+  install_group "A variant on the track is scored, not just drawn" \
+    "py/bio/splice/splicing-profile.py:WHAT EACH VARIANT DOES TO INCLUSION" \
+    "baja/bio/splicing/splicing-profile.js:THE VARIANTS ON THE TRACK GO TO THE MODEL WITH THE SEQUENCE" \
+    "baja/bio/track-layer.js:THE WORST A VARIANT DOES TO THIS EXON"
   install_group "A missing argument is asked for, not refused" \
     "py/bio/editor/plan.py:A STEP ONE ARGUMENT SHORT IS STILL THE RIGHT STEP" \
     "baja/manchester/menu/editor-capabilities.js:A MISSING ARGUMENT IS A QUESTION, NOT A DEAD END" \

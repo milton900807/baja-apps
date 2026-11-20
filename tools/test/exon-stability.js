@@ -287,6 +287,73 @@ const mkTrack = () => {
     ok(ob.exonStabilityRowY === 432,
        'the row follows the line the exons are drawn on: ' + ob.exonStabilityRowY);
 
+    // WHAT THE VARIANT DOES TO THE EXON. A ClinVar variant loaded onto the track is an
+    // annotation: the sequence is unchanged, so a PSI run scored the reference and the
+    // exon kept its old number under a pathogenic lollipop. The model now scores the
+    // mutated sequence, and the tag says the move.
+    const withVariant = (effects) => {
+        const t2 = { name: 'SMN1', xi: 0, xf: 16000, annotations: mkTrack().annotations,
+                     track_layers: [] };
+        const u = new TrackLayer('SMN1_var', 0, 0, 16000, 1);
+        u.arc_type = 'SpliceSashimi'; u.magnitudeMode = 'psi'; u.magMax = 1;
+        u.junctions = layer.junctions;
+        u.variantEffects = effects;
+        const b = recorder();
+        const g = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
+        u.drawSashimi(tgraph, g, t2);
+        return b.r;
+    };
+    // exon 1 is at 2000..3500 and reads 100% constitutive on the reference
+    const broke = withVariant([{ pos: 2500, ref: 'C', alt: 'T', psiRef: 1.0, psiAlt: 0.31,
+                                 dpsi: -0.69, dpsiLogit: -5.2, canonicalSite: 0, exon: 1 }]);
+    const b1 = broke.texts.find((t) => /^e1 /.test(t.t));
+    ok(b1 && /31%/.test(b1.t), 'the exon now says what it becomes: ' + (b1 || {}).t);
+    ok(b1 && /100%/.test(b1.t), 'and what it was, so a drop reads as a drop: ' + (b1 || {}).t);
+    ok(b1 && /C>T/.test(b1.t), 'naming the variant responsible: ' + (b1 || {}).t);
+    ok(b1 && b1.color === '#b91c1c', 'drawn red, because it collapsed: ' + (b1 || {}).color);
+
+    // A SPLICE SITE MUTATION SITS OUTSIDE THE EXON IT DESTROYS. Exon 1 ends at 3500, so
+    // its donor is in the intron just past it: an inside-only test would miss the class
+    // with the largest effect of all.
+    const site = withVariant([{ pos: 3502, ref: 'G', alt: 'A', psiRef: 1.0, psiAlt: 0.08,
+                                dpsi: -0.92, dpsiLogit: -7.1, canonicalSite: 1, exon: 1 }]);
+    const s1 = site.texts.find((t) => /^e1 /.test(t.t));
+    ok(s1 && /8%/.test(s1.t), 'a donor mutation just outside the exon still counts: ' + (s1 || {}).t);
+    // "splice site" only fits the long form, so it is checked where there is room for it
+    // rather than asserted on an exon that cannot hold it.
+    const wideSite = () => {
+        const t2 = { name: 'SMN1', xi: 0, xf: 16000, track_layers: [], annotations: [
+            { type: 'Exon', index: 1, xi: 2000, xf: 8000, showIndex: true }] };
+        const u = new TrackLayer('wide_var', 0, 0, 16000, 1);
+        u.arc_type = 'SpliceSashimi'; u.magnitudeMode = 'psi'; u.magMax = 1;
+        u.junctions = layer.junctions;
+        u.variantEffects = [{ pos: 8002, ref: 'G', alt: 'A', psiRef: 1.0, psiAlt: 0.08,
+                              dpsi: -0.92, dpsiLogit: -7.1, canonicalSite: 1, exon: 1 }];
+        const b = recorder();
+        const g = { canvas: { getCTX: () => b.ctx }, width: 1600, X: (x) => x / 10, Y: (y) => 400 - y };
+        u.drawSashimi(tgraph, g, t2);
+        return b.r.texts.find((t) => /^e1 /.test(t.t));
+    };
+    const ws = wideSite();
+    ok(ws && /splice site/.test(ws.t), 'given room it is named a splice site: ' + (ws || {}).t);
+
+    // AND THE CASE THAT MUST NOT FIRE. Most pathogenic variants are pathogenic in the
+    // PROTEIN -- a missense or a nonsense -- and leave inclusion alone. Tagging those
+    // would cry wolf on every ClinVar lollipop and teach the reader to ignore the tag.
+    const quiet = withVariant([{ pos: 2500, ref: 'C', alt: 'T', psiRef: 1.0, psiAlt: 0.995,
+                                 dpsi: -0.005, dpsiLogit: -0.1, canonicalSite: 0, exon: 1 }]);
+    const q1 = quiet.texts.find((t) => /^e1 /.test(t.t));
+    ok(q1 && /100% constitutive/.test(q1.t),
+       'a variant that does nothing to splicing leaves the tag alone: ' + (q1 || {}).t);
+    ok(q1 && !/\u2192/.test(q1.t), 'with no arrow implying a move that did not happen');
+
+    // An indel comes back marked skipped rather than scored, and must not be drawn as
+    // though it had been: a row of zeros claiming an answer is worse than no row.
+    const skipped = withVariant([{ pos: 2500, ref: 'CTT', alt: 'C',
+                                   skipped: 'only single-base substitutions are scored' }]);
+    const k1 = skipped.texts.find((t) => /^e1 /.test(t.t));
+    ok(k1 && /100% constitutive/.test(k1.t), 'a skipped variant changes nothing: ' + (k1 || {}).t);
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
