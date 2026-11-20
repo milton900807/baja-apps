@@ -92,3 +92,28 @@ def test_malformed_rows_are_skipped():
     iv = untrusted.Intervals.load(fh.name)
     assert len(iv) == 1
     assert iv.hits("chr5", *SMN2_E7) == ["SMN1"]
+
+
+def test_ucsc_table_dump_with_leading_bin_column():
+    """genomicSuperDups.txt is the same intervals shifted right by a `bin`.
+
+    Reading chrom from the wrong column gives a file that parses, flags nothing
+    and is indistinguishable from a clean locus, so the offset is detected.
+    """
+    fh = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False)
+    fh.write("585\tchr5\t70070000\t70080000\tchr5:70070000\t1000\t+\n"
+             "585\tchr7\t1000\t1100\tchr7:1000\t1000\t+\n")
+    fh.close()
+    iv = untrusted.Intervals.load(fh.name)
+    assert len(iv) == 2
+    assert iv.hits("chr5", *SMN2_E7) == ["chr5:70070000"]
+    assert iv.hits("chr5", 70090000, 70090100) == []
+
+
+def test_plain_bed_still_wins_over_the_shift():
+    """A 3-column BED has no name column and must not be read as bin-prefixed."""
+    fh = tempfile.NamedTemporaryFile("w", suffix=".bed", delete=False)
+    fh.write("chr5\t70070000\t70080000\n")
+    fh.close()
+    iv = untrusted.Intervals.load(fh.name)
+    assert len(iv) == 1 and iv.hits("chr5", *SMN2_E7) == [""]

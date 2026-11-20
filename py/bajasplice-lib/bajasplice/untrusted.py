@@ -83,21 +83,39 @@ class Intervals(object):
 
     @classmethod
     def load(cls, path):
-        """Read a BED. Column 4, when present, names what the twin is."""
+        """Read a BED. Column 4, when present, names what the twin is.
+
+        A UCSC table dump (genomicSuperDups.txt and friends) is the same thing
+        shifted one column right by a leading `bin`, and the offsets are NOT
+        worth asking a user to know: reading chrom from the wrong column yields
+        a file that parses, flags nothing, and looks like a clean locus. So the
+        shift is detected per line instead -- the columns either read as
+        chrom/start/end or they do not.
+        """
         raw = {}
         with open(path) as fh:
             for line in fh:
                 if not line.strip() or line.startswith(("#", "track", "browser")):
                     continue
                 f = line.split()
-                if len(f) < 3:
-                    continue
-                try:
-                    lo, hi = int(f[1]), int(f[2])
-                except ValueError:
-                    continue            # a header row with named columns
-                raw.setdefault(_norm(f[0]), []).append(
-                    (lo, hi, f[3] if len(f) > 3 else ""))
+                cols = None
+                for off in (0, 1):      # plain BED, then bin-prefixed
+                    if len(f) < off + 3:
+                        continue
+                    try:
+                        lo, hi = int(f[off + 1]), int(f[off + 2])
+                    except ValueError:
+                        continue
+                    c = f[off]
+                    # a chromosome is not a number; without this a bin-prefixed
+                    # row would match at off=0 with chrom="585"
+                    if c.lstrip("-").isdigit() and len(f) > off + 3:
+                        continue
+                    cols = (c, lo, hi, f[off + 3] if len(f) > off + 3 else "")
+                    break
+                if cols is None:
+                    continue            # a header row, or a line that is not an interval
+                raw.setdefault(_norm(cols[0]), []).append(cols[1:])
         by_chrom = {}
         for c, rows in raw.items():
             rows.sort()
