@@ -1256,8 +1256,15 @@ if [[ $DO_API -eq 1 ]]; then
   # and without the module behind it the entry opens onto a missing script -- the failure
   # the all-or-none rule exists for.
   install_group "The exon stability report, across every track" \
-    "baja/bio/splicing/exon-stability-report.js:THE CHART IS THE REPORT; THE TABLE IS THE EVIDENCE" \
+    "baja/bio/splicing/exon-stability-report.js:THE PANEL OPENS FIRST AND FILLS IN" \
     "baja/manchester/menu/editor-capabilities.js:frameRange is this module"
+  # Every panel that holds a table has the same problem: fitted to the canvas rect, the
+  # exon stability report showed about ten rows of forty and clipped its chart. The
+  # toggle lives in the shared shell rather than in one caller because fitToCanvas runs
+  # again on every resize -- a caller styling the panel itself would lose its sizing the
+  # first time the window moved.
+  install_group "Overlay panels can be maximized" \
+    "baja/lib/canvas-overlay-panel.js:MAXIMIZED: the whole viewport, not the canvas rect"
   install_group "A variant on the track is scored, not just drawn" \
     "py/bio/splice/splicing-profile.py:WHAT EACH VARIANT DOES TO INCLUSION" \
     "baja/bio/splicing/splicing-profile.js:THE VARIANTS ON THE TRACK GO TO THE MODEL WITH THE SEQUENCE" \

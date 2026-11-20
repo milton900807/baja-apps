@@ -73,16 +73,42 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
         // transient status line when it had no rows, which read as the tool doing nothing
         // at all -- and the reasons it can have no rows (no exons, a run that did not come
         // back, a layer with no reliability on it) are exactly what the user needs told.
-        const nothing = (why) => {
+        // THE PANEL OPENS FIRST AND FILLS IN. Scoring a canvas of transcripts takes real
+        // time -- a forward pass per cassette exon, and another per variant on the track --
+        // and the first version did all of it before showing anything, so the report was a
+        // long silence ending in a window. Silence is the one thing a long job must not do:
+        // there is no way to tell it from a crash, and the honest answer to "is it working"
+        // was only available once it had finished working.
+        //
+        // So the window appears at once with every track listed, and each line changes as
+        // its run finishes. The same panel then becomes the report, rather than a second
+        // window replacing the first.
+        let p = null;
+        const paint = (title, html) => {
             try {
-                OV.open({
-                    id: 'exon-stability-report',
-                    title: 'Exon stability report \u00b7 nothing to report',
-                    body: '<div style="font:13px Arial;color:#eaf6f9;line-height:1.7;">' + why + '</div>'
-                });
+                if (!p) {
+                    // OPENED MAXIMIZED. This panel is a chart plus a table of every exon on
+                    // the canvas: fitted to the canvas rect it showed about ten rows of
+                    // forty and clipped the chart, and the canvas underneath is not what
+                    // the reader is looking at while reading it. Restore is in the header.
+                    p = OV.open({ id: 'exon-stability-report', title: title, body: html,
+                                  maximized: true });
+                } else {
+                    if (p.body) p.body.innerHTML = html;
+                    // The title is the header's first child (canvas-overlay-panel.js builds
+                    // it that way). Updated too, or the finished report stays titled
+                    // "working..." and the panel contradicts itself.
+                    const h1 = p.head && p.head.firstChild;
+                    if (h1 && 'textContent' in h1) h1.textContent = '' + title;
+                }
             } catch (e) {
-                try { graph.setMessage(' ' + ('' + why).replace(/<[^>]+>/g, '') + ' '); } catch (e2) { }
+                try { graph.setMessage(' ' + ('' + html).replace(/<[^>]+>/g, '').slice(0, 160) + ' '); } catch (e2) { }
             }
+            return p;
+        };
+        const nothing = (why) => {
+            paint('Exon stability report \u00b7 nothing to report',
+                  '<div style="font:13px Arial;color:#eaf6f9;line-height:1.7;">' + why + '</div>');
             resolve(false);
         };
 
@@ -102,10 +128,53 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
         const missing = all.filter((t) => !anyPsi(t));
         const ran = [];
         const failed = [];
+
+        // One line per track, with what is happening to it. "already scored" matters as
+        // much as "running": a reader who cannot see which tracks needed work cannot tell
+        // a fast report from a report that quietly skipped something.
+        const state = {};
+        for (const t of all) {
+            state[t.name || 'track'] = (missing.indexOf(t) >= 0) ? 'queued' : 'already scored';
+        }
+        const GLYPH = { 'queued': '\u25cb', 'running': '\u25d0', 'done': '\u25cf',
+                        'already scored': '\u25cf', 'no result': '\u2715' };
+        const COLOUR = { 'queued': '#5d7f90', 'running': '#4fd0e6', 'done': '#22c55e',
+                         'already scored': '#8fb8c8', 'no result': '#ffb4a2' };
+        const t0All = Date.now();
+        const progress = () => {
+            const lines = all.map((t) => {
+                const nm = t.name || 'track';
+                const st = state[nm] || 'queued';
+                const nx = exonCount(t);
+                return '<div style="margin-top:5px;color:' + COLOUR[st] + ';">'
+                    + GLYPH[st] + '&nbsp;&nbsp;<b style="color:#eaf6f9;">' + H(nm) + '</b>'
+                    + ' <span style="color:#8fb8c8;">\u00b7 ' + nx + ' exon'
+                    + (nx === 1 ? '' : 's') + ' \u00b7 ' + st + '</span></div>';
+            }).join('');
+            const left = all.filter((t) => {
+                const st = state[t.name || 'track'];
+                return st === 'queued' || st === 'running';
+            }).length;
+            return '<div style="font:13px Arial;color:#eaf6f9;line-height:1.6;">'
+                + '<div style="color:#8fb8c8;">'
+                + (left
+                    ? ('Scoring ' + left + ' track' + (left === 1 ? '' : 's') + ' with PSINet. '
+                       + 'Each is a forward pass per cassette exon, and another per variant on '
+                       + 'the track, so a long transcript takes a little while.')
+                    : 'Collecting the results\u2026')
+                + '</div>' + lines
+                + '<div style="margin-top:10px;color:#5d7f90;font-size:12px;">'
+                + Math.round((Date.now() - t0All) / 1000) + 's elapsed</div></div>';
+        };
+        paint('Exon stability report \u00b7 working\u2026', progress());
+
         if (missing.length) {
             for (let i = 0; i < missing.length; i++) {
                 const t = missing[i];
                 const nm = (t.name || ('track ' + (i + 1)));
+                state[nm] = 'running';
+                paint('Exon stability report \u00b7 ' + (i + 1) + ' of ' + missing.length,
+                      progress());
                 try {
                     graph.setMessage(' Exon stability report · running PSINet on ' + nm
                         + ' (' + (i + 1) + ' of ' + missing.length + ')… ');
@@ -129,7 +198,10 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
                     }
                     return null;
                 })();
-                if (got) ran.push(nm); else failed.push(nm);
+                if (got) { ran.push(nm); state[nm] = 'done'; }
+                else { failed.push(nm); state[nm] = 'no result'; }
+                paint('Exon stability report \u00b7 ' + (i + 1) + ' of ' + missing.length,
+                      progress());
             }
             try { exec('baja/lib/work-status.js', null); } catch (e) { }
         }
@@ -451,11 +523,9 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
             + 'style="color:#4fd0e6;font:12.5px Arial;">Copy as text</a>'
             + '<span id="esr-said" style="color:#8fb8c8;font:12.5px Arial;margin-left:8px;"></span></div>';
 
-        const p = OV.open({
-            id: 'exon-stability-report',
-            title: 'Exon stability report · ' + summary,
-            body: body
-        });
+        // The same panel that has been showing progress since the start becomes the
+        // report: opening a second one here would leave the progress window behind it.
+        paint('Exon stability report · ' + summary, body);
 
         // GOING TO AN EXON, and the sort. Both are wired after the panel exists, and
         // both are re-wired after a re-sort: the table is rebuilt, so every handler

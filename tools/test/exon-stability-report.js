@@ -56,14 +56,20 @@ const scored = (name, rows, extra) => ({
     global.lion_engine.exec = async (p, ...a) => {
         if (/canvas-overlay-panel/.test(p)) {
             return { open: (o) => {
-                opened = o;
                 const el = document.createElement('div');
-                // The real panel holds the body in the DOM, which is what the report
-                // queries to wire its rows: a stub that returns an empty div would let a
-                // broken selector pass.
+                const head = document.createElement('div');
+                const h1 = document.createElement('div');
+                h1.textContent = '' + (o.title || '');
+                head.appendChild(h1);
+                // The real panel holds the body in the DOM and is REPAINTED in place as
+                // the work proceeds, so the report's live state is the element, never the
+                // string it was first opened with. A stub that only kept the string would
+                // be testing the progress screen and calling it the report.
                 try { el.innerHTML = o.body; } catch (e) { }
-                opened.el = el;
-                return { body: el };
+                opened = { el: el, head: head,
+                           get body() { return el.innerHTML; },
+                           get title() { return h1.textContent; } };
+                return { body: el, head: head };
             } };
         }
         return realOpen(p, ...a);
@@ -206,6 +212,59 @@ const scored = (name, rows, extra) => ({
     const after = el.querySelectorAll('#esr-table [id^="esr-nav-"]');
     ok(after.length > 0 && typeof after[0].onclick === 'function',
        'and the new rows are wired again');
+
+    // THE PANEL OPENS BEFORE THE WORK, NOT AFTER IT. Scoring a canvas takes real time,
+    // and the first version showed nothing until it had finished: a long silence ending
+    // in a window, which cannot be told from a crash.
+    opened = null;
+    const seen = [];
+    const slow = [{
+        name: 'slowtrack', grid: {}, tgraph: {},
+        annotations: [{ type: 'Exon', index: 1, xi: 10, xf: 90 }],
+        track_layers: []
+    }];
+    const gSlow = { track: slow, getTracks: () => slow, setMessage() { },
+        canvas: { width: 1200, height: 800 } };
+    // The run is what the report waits on; it lands a layer a moment after being asked,
+    // so the panel must already be up by then.
+    const realExec2 = global.lion_engine.exec;
+    global.lion_engine.exec = async (pth, ...a) => {
+        if (/splicing-profile/.test(pth)) {
+            seen.push(opened ? opened.body : null);
+            setTimeout(() => {
+                slow[0].track_layers.push({ magnitudeMode: 'psi', exonStability: [
+                    { exon: 1, lo: 10, hi: 90, psi: 0.5, score: 1, word: 'unstable', rank: 0.5 }],
+                    exonStabilityHasContext: true, untrustedSource: '/x.bed', exonStabilityFit: 1 });
+            }, 40);
+            return true;
+        }
+        return realExec2(pth, ...a);
+    };
+    await (async () => {
+        const src = fs.readFileSync('baja/bio/splicing/exon-stability-report.js', 'utf8');
+        const f = await new AF('exec', 'args', core + '\nreturn (' + src + ')')(global.lion_engine.exec, {});
+        return f(gSlow, {});
+    })();
+    global.lion_engine.exec = realExec2;
+    ok(seen.length === 1 && seen[0] != null,
+       'the panel is already open when the first run is dispatched');
+    ok(/slowtrack/.test(seen[0] || ''), 'listing the track being worked on');
+    ok(/running|queued/.test(seen[0] || ''), 'and saying what is happening to it');
+    ok(/PSINet/.test(seen[0] || ''), 'with what is taking the time');
+    // And the same panel becomes the report rather than a second window appearing.
+    ok(/bar height = inclusion/.test(opened.body),
+       'the same panel then becomes the report');
+    ok(!/elapsed/.test(opened.body), 'with the progress screen gone from it');
+    ok(/1 exon/.test(opened.title) && !/working/.test(opened.title),
+       'and the title updated off "working": ' + opened.title);
+
+    // A canvas where everything is already scored must still say so, or a fast report
+    // is indistinguishable from one that skipped tracks.
+    opened = null;
+    const done2 = [scored('ready', [R({})])];
+    await run({ track: done2, getTracks: () => done2, setMessage() { },
+        canvas: { width: 1200, height: 800 } });
+    ok(/1 exon/.test(opened.title), 'an already-scored canvas reports immediately');
 
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
