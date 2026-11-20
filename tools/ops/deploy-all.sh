@@ -987,6 +987,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/project-capabilities.js:THE COMMONEST THING ANYBODY DOES TO A COLUMN OF NUMBERS"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
+  # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
+  # needs the homologs module's species restriction and its sequence= switch, so those
+  # two go together, and the screen needs the button that reaches the map.
+  install_group "A conservation map across every species at once" \
+    "py/bio/homolog-conservation.py:NOTHING IS ALIGNED HERE" \
+    "py/bio/homologs.py:sequence=protein brings back both rows" \
+    "baja/bio/conservation-map.js:WHERE A GENE IS CONSERVED, ACROSS EVERY SPECIES AT ONCE" \
+    "baja/bio/homologs-screen.js:WHERE, NOT JUST HOW MUCH"
   install_group "The homologs of a track, as a screen you load from" \
     "py/bio/homologs.py:PARALOGS AND ORTHOLOGS ARE ONE LOOKUP" \
     "py/bio/homologs.py:ASKED FOR THE SPECIES THIS EDITOR CAN OPEN" \

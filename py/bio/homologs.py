@@ -103,7 +103,7 @@ def _get(url, tries=3):
     raise last
 
 
-def _homologies(symbol, species, kind="paralogues"):
+def _homologies(symbol, species, kind="paralogues", sequence="none"):
     """One homology call.
 
     ASKED FOR THE SPECIES THIS EDITOR CAN OPEN, not for all of them. An unrestricted
@@ -118,8 +118,11 @@ def _homologies(symbol, species, kind="paralogues"):
     # answered from it. sequence=none keeps the full record's identities while leaving
     # behind the aligned protein sequences, which are the bulk of the response and are
     # not read here.
-    url = ("%s/homology/symbol/%s/%s?type=%s;sequence=none;"
-           "content-type=application/json" % (ENSEMBL, species, symbol, kind))
+    # sequence=protein brings back both rows of every pairwise alignment, which is what
+    # the conservation map is built from; none keeps the reply small when only the
+    # identities are wanted.
+    url = ("%s/homology/symbol/%s/%s?type=%s;sequence=%s;"
+           "content-type=application/json" % (ENSEMBL, species, symbol, kind, sequence))
     if kind in ("orthologues", "all"):
         src = ("" + (species or "")).strip().lower()
         targets = [latin for latin in sorted(set(LOADABLE))

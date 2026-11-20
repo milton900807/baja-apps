@@ -128,6 +128,7 @@ function (graph, genegraph_panel_layout, model) {
                     + 'and little of the other.' + (m.note ? (' ' + esc(m.note)) : ''))
                 : '')
             + '</div></div>'
+            + (list.length ? BTN('conservation', 'Conservation map') : '')
             + BTN('close', 'Close')
             + '</div>'
             + (list.length
@@ -157,6 +158,39 @@ function (graph, genegraph_panel_layout, model) {
             if (!b) return;
             const id = b.getAttribute('data-id');
             if (id === 'close') { close(); return; }
+            // WHERE, NOT JUST HOW MUCH. The list answers "how alike", one number per
+            // species; the map answers "where", which is the question behind it: a protein
+            // 60% identical because two domains are perfect is a different protein from one
+            // 60% identical because every residue is a coin flip.
+            if (id === 'conservation') {
+                b.disabled = true;
+                say('Building the conservation map \u2026 Ensembl aligns each species on '
+                    + 'demand, so this takes a moment.');
+                try {
+                    const r = await exec('py/bio/homolog-conservation.py', gene,
+                        (m.species || 'human'), (kind === 'paralogues' ? 'paralogues' : 'orthologues'),
+                        JSON.stringify({ max_species: 12 }));
+                    if (!r || r.status !== 'OK') {
+                        say((r && r.error) || 'the conservation map could not be built');
+                        b.disabled = false;
+                        return;
+                    }
+                    if (!(r.species_rows || []).length) {
+                        say(r.note || 'no aligned homolog came back to build a map from');
+                        b.disabled = false;
+                        return;
+                    }
+                    const made = await exec('baja/bio/conservation-map.js', graph, r);
+                    // Left open behind the map: closing the list would take away the thing
+                    // the map is about, and Escape should come back to it.
+                    if (made) say('');
+                    else { say('the conservation map could not be drawn'); b.disabled = false; }
+                } catch (e2) {
+                    say('the conservation map could not be built: ' + (e2 && e2.message ? e2.message : e2));
+                    b.disabled = false;
+                }
+                return;
+            }
             if (id !== 'load') return;
             const sym = b.getAttribute('data-gene');
             if (!sym) return;
