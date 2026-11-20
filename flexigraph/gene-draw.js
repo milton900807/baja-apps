@@ -20,7 +20,12 @@ function () {
     // read against the paper.
     const __ink = (graph) => {
         const t = __theme(graph);
-        return (t && t.ink) || __ink(graph);
+        // FALLS BACK TO A COLOR, NOT TO ITSELF. This read `|| __ink(graph)`, which on a graph
+        // carrying no theme recursed until the stack gave out and took the whole frame with
+        // it. track.js publishes __trackTheme on every real draw, so it never fired there --
+        // it fired for anything else holding a graph, and a blank canvas is a hard failure to
+        // read back to a missing default.
+        return (t && t.ink) || '#0a2540';
     };
     // One annotation color by name, from the theme-derived palette track.js publishes.
     const __ann = (graph, key, fallback) => {
@@ -993,11 +998,24 @@ function () {
                     const small = (annotation.index >= 0 && screencell < 0.52);
                     const radius = small ? 10 : 20;
                     const fontSize = small ? 8 : 15;
-                    // Center the badge x on the exon (midpoint of its span). When
-                    // zoomed out (small), lift it above the exon so the exon block
-                    // doesn't obscure the number; centered on the lane when zoomed in.
+                    // THE NUMBER SITS ABOVE THE EXON, NOT ON IT. Zoomed in, the badge is a
+                    // 40px opaque white disc and it was centred on the capsule, so it covered
+                    // the middle of whatever the exon says underneath it -- a PSINet "99%
+                    // constitutive" read as "99%  utive", which is worse than no label at all
+                    // because the part it leaves showing looks like the whole of it.
+                    //
+                    // Lifted clear of the capsule's top edge by its own radius plus a little,
+                    // and joined to the exon by a hairline so a badge standing off the track
+                    // still reads as belonging to the exon beneath it rather than floating
+                    // between two of them. The exon's own width is EXON_H below (the capsule
+                    // is drawn exonWidth + 2 tall), so the lift follows the exon if that
+                    // changes rather than being a number guessed against it.
                     const x = (graph.X(xs) + graph.X(xf)) / 2;
-                    const y = small ? (graph.Y(yv) + (radius + 28)) : graph.Y(yv);
+                    const EXON_H = exonWidth + 2;
+                    const yExon = graph.Y(yv);
+                    // graph.Y() is a SCREEN y: smaller is higher up, so above is a subtraction.
+                    const lift = EXON_H / 2 + radius + 4;
+                    const y = small ? (yExon + (radius + 28)) : (yExon - lift);
 
                     // Hide overlapping exon-index badges: if this badge's circle
                     // would collide with the previous badge kept on this track/frame,
@@ -1017,6 +1035,16 @@ function () {
                         ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
                         ctx.shadowColor = 'transparent';
                         ctx.lineWidth = 1;
+                        if (!small) {
+                            // Hairline from the badge down to the top of the capsule. Drawn
+                            // first so the disc is painted over its end rather than the line
+                            // crossing the number.
+                            ctx.beginPath();
+                            ctx.strokeStyle = 'rgba(12,92,112,0.45)';
+                            ctx.moveTo(x, y + radius);
+                            ctx.lineTo(x, yExon - EXON_H / 2);
+                            ctx.stroke();
+                        }
                         ctx.beginPath();
                         ctx.arc(x, y, radius, 0, 2 * Math.PI);
                         ctx.fillStyle = 'white';     // white background

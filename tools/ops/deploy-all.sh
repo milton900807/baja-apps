@@ -1050,6 +1050,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS A STRETCH, SO IT IS FRAMED, NOT POINTED AT" \
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS NOT A FAILED POSITION" \
     "baja/manchester/menu/editor-capabilities.js:\"ZOOM OUT\" IS NOT \"FIT\""
+  # The exon number was an opaque disc sitting on the middle of the exon, over whatever the
+  # exon says underneath it.
+  install_group "The exon number is lifted off the exon it labels" \
+    "flexigraph/gene-draw.js:THE NUMBER SITS ABOVE THE EXON, NOT ON IT" \
+    "flexigraph/gene-draw.js:FALLS BACK TO A COLOR, NOT TO ITSELF"
   # Which track exon 12 is on is the user's call, so each one that has it gets a Go.
   install_group "A named region is offered on every track that has one" \
     "baja/manchester/menu/editor-capabilities.js:A NAMED REGION GETS ONE GO PER TRACK, LIKE EVERY OTHER PLACE"
