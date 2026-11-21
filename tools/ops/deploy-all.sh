@@ -1145,6 +1145,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:It was run, here, a moment ago"
+  # Reported three times as giving no feedback at all: every earlier version of the
+  # spinner had to load, or claim a singleton, or win a race, before it could appear.
+  install_group "GO says what it is doing with nothing to load first" \
+    "baja/manchester/menu/editor-command.js:NOTHING TO LOAD, NOTHING TO RACE: THE STRIP IS BUILT HERE"
   # A long comparison said nothing until it finished, and the exon labels were dark type
   # on a dark lane wherever the bar was narrower than the label.
   install_group "The comparison says it is running, and its labels can be read" \

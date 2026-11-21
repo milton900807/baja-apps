@@ -35,19 +35,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const cmd = fs.readFileSync('baja/manchester/menu/editor-command.js', 'utf8');
 
     // ---- the wiring ---------------------------------------------------------------------
+    // The editor card's own strip is checked in tools/test/go-strip.js, which drives it.
+    // What matters here is that EVERY path through the card goes through one wrapper.
     ok(/const withSpinner = async \(p0, run\) =>/.test(cmd),
        'the card has one wrapper for running a step');
     ok(/await withSpinner\(now && now\.ok \? now : x\.p,/.test(cmd),
        'and EVERY step goes through it, whether it was re-previewed or not');
     ok(!/try \{ await \(now && now\.ok \? now\.capability\.run/.test(cmd),
        'with no path left that runs a step around it');
-    ok(/if \(window\.__bajaWorking\) return;/.test(cmd),
-       'an operation that raised its own panel keeps it: working.js is a singleton');
-    ok(/w\.fail\('' \+ \(e && e\.message \? e\.message : e\)\)/.test(cmd),
-       'a failure leaves the reason on the panel rather than vanishing');
-    ok(/const SPIN_AFTER = 350;/.test(cmd),
-       'and an instant step shows nothing: the panel waits a moment first');
-    ok(/title\.length > 90/.test(cmd),
+    ok(/await withSpinner\(p0, \(\) => p0\.capability\.run\(o\.args\)\)/.test(cmd),
+       'the per-track GO included, which used to run outside it');
+    ok(/el\.style\.display = window\.__bajaWorking \? 'none' : 'flex'/.test(cmd),
+       'an operation that raised its own panel keeps the screen to itself');
+    ok(/const SPIN_AFTER = 150;/.test(cmd),
+       'and an instant step shows nothing: it waits a moment first');
+    ok(/title\.length > 110/.test(cmd),
        'the title is the card\'s own description of the step, trimmed to fit');
 
     // ---- the panel it raises ------------------------------------------------------------
