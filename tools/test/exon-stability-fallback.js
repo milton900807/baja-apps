@@ -69,7 +69,12 @@ const mkTrack = () => ({
     // AN EXON NO ARC GOES NEAR is not a constitutive exon, it is one nothing was said
     // about. Exon 5 (2500-2650) has no arc within reach of it; exons 1 and 4 are each
     // touched by an arc END, which is this exon being spliced in and is a real answer.
-    ok(!at(5), 'an exon no arc touches gets no row at all: ' + JSON.stringify(rows.map((r) => r.exon)));
+    // EVERY EXON IS LISTED, in order: dropping the ones with nothing over them makes the
+    // gaps look like exons that do not exist, and the reader cannot tell the run covered
+    // the whole transcript.
+    ok(!!at(5) && at(5).unknown === true && at(5).psi === null,
+       'an exon no arc touches is listed and says so, rather than vanishing: ' + JSON.stringify(at(5)));
+    ok(rows.length === 5, 'all five exons are in the answer: ' + JSON.stringify(rows.map((r) => r.exon)));
     ok(at(1) && at(1).psi === 1 && at(4) && at(4).psi === 1,
        'while an arc landing on an edge means that exon is in: '
        + JSON.stringify([at(1) && at(1).psi, at(4) && at(4).psi]));

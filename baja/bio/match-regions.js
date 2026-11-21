@@ -338,6 +338,9 @@ function (graph, qtrack, ttrack, opts) {
                     }
                     if (!best) return null;
                     if (best.untrusted) return { untrusted: true, why: best.untrustedWhy || '' };
+                    // An exon the run had nothing to say about is a row, not a gap: it says
+                    // so, rather than being left blank where a number belongs.
+                    if (best.unknown) return { unknown: true, from: best.from || 'arcs' };
                     const psi = +best.psi;
                     if (!isFinite(psi)) return null;
                     return {

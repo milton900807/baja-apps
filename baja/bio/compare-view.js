@@ -129,10 +129,14 @@ function (model) {
         // share skips it, red when most transcripts do. A measurement is violet and marked
         // with a tilde, because a measured inclusion is not model output and must never be
         // read as one.
-        const stabFill = (st) => (!st || st.untrusted) ? '#9fc4d4'
+        const stabFill = (st) => (!st || st.untrusted || st.unknown) ? '#9fc4d4'
             : st.measured ? '#c4b5fd'
             : (st.pct >= 90) ? '#86efac' : (st.pct >= 50) ? '#fcd34d' : '#fca5a5';
+        // An exon with no arcs over it gets a dash, not a blank: the row then reads as
+        // complete, and a gap in it means an exon nobody asked about rather than one the
+        // picture forgot.
         const stabText = (st) => (!st) ? '' : st.untrusted ? 'not trusted'
+            : st.unknown ? '\u2013'
             : ((st.measured ? '~' : '') + st.pct + '%');
         // Collision is settled per lane, left to right: a number half over its neighbour is
         // worse than the gap it fills, and which exon it belongs to stops being readable.
