@@ -239,16 +239,42 @@ function (model) {
             labelDy = computeLabelDy();
             // Where each exon's stability number goes: the middle of its bar on that lane,
             // gathered from the same coordinates the bars are drawn at.
-            const marksA = [], marksB = [];
-            for (const b of blocks) {
-                const ax = (sa(Math.min(b.a.x1, b.a.x2)) + sa(Math.max(b.a.x1, b.a.x2))) / 2;
-                const bx = (sb(Math.min(b.b.x1, b.b.x2)) + sb(Math.max(b.b.x1, b.b.x2))) / 2;
-                if (b.a && b.a.stab) marksA.push({ x: ax, st: b.a.stab });
-                if (b.b && b.b.stab) marksB.push({ x: bx, st: b.b.stab });
-            }
-            for (const u of (m.unmatched || [])) {
-                if (!u || !u.a || !u.a.stab) continue;
-                marksA.push({ x: (sa(Math.min(u.a.x1, u.a.x2)) + sa(Math.max(u.a.x1, u.a.x2))) / 2, st: u.a.stab });
+            let marksA = [], marksB = [];
+            // EACH TRACK SCORES ITS OWN EXONS, NOT THE MATCHED ONES. Taking the figures off matched
+            // blocks meant the lower lane carried numbers only where a block had landed on
+            // it: a track whose exons were all measured showed a handful of figures and
+            // blanks between them, which reads as the measurement having failed there. Each
+            // exon is scored on its own track, so each one is drawn from its own track's
+            // rows, at its own coordinates.
+            const own = (list, sc, t) => {
+                const lo = Math.min(+t.x1, +t.x2), hi = Math.max(+t.x1, +t.x2);
+                const out = [];
+                for (const r of (list || [])) {
+                    if (!r || !r.st) continue;
+                    const mid = (Math.min(+r.x1, +r.x2) + Math.max(+r.x1, +r.x2)) / 2;
+                    if (!isFinite(mid) || mid < lo || mid > hi) continue;   // off the drawn stretch
+                    out.push({ x: sc(mid), st: r.st });
+                }
+                return out;
+            };
+            const SM = m.stabilityMarks || {};
+            marksA = own(SM.a, sa, A);
+            marksB = own(SM.b, sb, B);
+            // The matched blocks are the fallback, for a model built before the rows
+            // travelled with it.
+            if (!marksA.length || !marksB.length) {
+                for (const b of blocks) {
+                    const ax = (sa(Math.min(b.a.x1, b.a.x2)) + sa(Math.max(b.a.x1, b.a.x2))) / 2;
+                    const bx = (sb(Math.min(b.b.x1, b.b.x2)) + sb(Math.max(b.b.x1, b.b.x2))) / 2;
+                    if (!marksA.length && b.a && b.a.stab) marksA.push({ x: ax, st: b.a.stab });
+                    if (!marksB.length && b.b && b.b.stab) marksB.push({ x: bx, st: b.b.stab });
+                }
+                if (!SM.a || !SM.a.length) {
+                    for (const u of (m.unmatched || [])) {
+                        if (!u || !u.a || !u.a.stab) continue;
+                        marksA.push({ x: (sa(Math.min(u.a.x1, u.a.x2)) + sa(Math.max(u.a.x1, u.a.x2))) / 2, st: u.a.stab });
+                    }
+                }
             }
             return '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" '
                 + 'viewBox="0 0 ' + W + ' ' + H + '" style="display:block;max-width:100%;height:auto;">'
@@ -278,21 +304,47 @@ function (model) {
             // exon is unmeasured or that PSI was never run on that track.
             + (() => {
                 const st = m.stability || {};
-                if (!st.a && !st.b) {
+                // WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS. The note used to be written
+                // from whether the lookup existed, so a run that produced figures and drew
+                // them could still be described as showing none.
+                const SM2 = m.stabilityMarks || {};
+                const drawnA = !!(st.a || (SM2.a && SM2.a.length));
+                const drawnB = !!(st.b || (SM2.b && SM2.b.length));
+                if (!drawnA && !drawnB) {
+                    // NOT "IT IS NOT SHOWN", AND NOT A GUESS AT WHY.
+                    //
+                    // This line used to read "PSI ran but matched no arcs to the annotated
+                    // exons of either track", which is a specific claim about numbering that
+                    // it was in no position to make: both tracks come back empty when the run
+                    // was refused outright, when it produced no junctions, or when the track
+                    // carries no exon annotations, and the numbering sentence was printed for
+                    // all of them. On top of that it led with the figures being absent, which
+                    // is the one thing a reader can already see.
+                    //
+                    // So it says what happened, per track, in the run's own words where the
+                    // run recorded them -- "No cassette-exon events detected in that
+                    // sequence" is an answer about the transcript, and acting on it means
+                    // reaching for a different track, not pressing GO again.
+                    const na = esc(A.name || 'the first track'), nb = esc(B.name || 'the second');
+                    const wa = st.whyA ? esc(st.whyA) : '', wb = st.whyB ? esc(st.whyB) : '';
+                    const said = (!wa && !wb) ? ''
+                        : (wa && wb && wa === wb) ? (' Neither track has one: ' + wa + '.')
+                            : (' ' + [wa ? (na + ': ' + wa) : '', wb ? (nb + ': ' + wb) : '']
+                                .filter(Boolean).join('. ') + '.');
                     return '<div style="font-size:11.5px;color:#9fc4d4;margin-top:4px;">'
                         + (st.tried
-                            // It was run, here, a moment ago: telling someone to run what
-                            // just ran reads as the editor not knowing what it did.
-                            ? ('Exon stability is not shown: PSI ran but matched no arcs to the '
-                                + 'annotated exons of either track.')
-                            : ('Exon stability is not shown: run PSI on '
-                                + esc(A.name || 'either track') + ' or ' + esc(B.name || 'the other')
-                                + ' to put each exon\u2019s inclusion beside it.'))
+                            ? ('PSI was run on both tracks just now and neither came back with an '
+                                + 'inclusion figure for its exons.')
+                            : ('No PSI run on ' + na + ' or ' + nb + ' yet, so the exons carry no '
+                                + 'inclusion figure.'))
+                        + said
                         + '</div>';
                 }
-                const missing = !st.a ? (A.name || 'the first track')
-                    : !st.b ? (B.name || 'the second track') : null;
-                const why = st.tried ? ' PSI found nothing to score on ' : ' Not run on ';
+                const missing = !drawnA ? (A.name || 'the first track')
+                    : !drawnB ? (B.name || 'the second track') : null;
+                // The same reason the both-missing line gives, for the lane that has none.
+                const oneWhy = (!drawnA ? st.whyA : st.whyB) || '';
+                const why = oneWhy ? ' No figures on ' : (st.tried ? ' PSI found nothing to score on ' : ' Not run on ');
                 return '<div style="font-size:11.5px;color:#9fc4d4;margin-top:4px;">'
                     + 'The second row of figures is each exon\u2019s stability: how much of the '
                     + 'message keeps it. Green is kept, amber is often skipped, red is mostly '
@@ -306,7 +358,7 @@ function (model) {
                             + 'number the arcs against these exons, so there is no weighting or '
                             + 'variant effect in these figures.'
                         : '')
-                    + (missing ? (why + esc(missing) + '.') : '')
+                    + (missing ? (why + esc(missing) + (oneWhy ? (': ' + esc(oneWhy)) : '') + '.') : '')
                     + '</div>';
             })()
             + '</div>'

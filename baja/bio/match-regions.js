@@ -316,11 +316,19 @@ function (graph, qtrack, ttrack, opts) {
             // picture would end up disagreeing with the one on the track behind it. Without
             // a PSI run there is nothing to carry, and the view says so rather than
             // printing a blank where a number belongs.
+            // WHY THERE IS NOTHING, PER TRACK, kept as it is found. The report used to have
+            // to guess, and guessed wrong: it announced a numbering failure on runs that
+            // never produced an arc.
+            const whyNone = new Map();
             const stabilityOf = async (t) => {
                 let list2 = null;
                 try { list2 = await exec('baja/bio/splicing/exon-stability.js', t); }
-                catch (e) { list2 = null; }
-                if (!list2 || !list2.length) return null;
+                catch (e) { list2 = null; whyNone.set(t, 'reading its PSI layer failed: ' + ((e && e.message) || e)); }
+                if (!list2 || !list2.length) {
+                    if (list2 && list2.why) whyNone.set(t, list2.why);
+                    return null;
+                }
+                whyNone.delete(t);
                 // Which reading this is -- the scored rows, or the weaker one taken off the
                 // arcs by position -- travels WITH the lookup rather than being guessed at
                 // afterwards by probing it.
@@ -353,7 +361,11 @@ function (graph, qtrack, ttrack, opts) {
                         exon: best.exon
                     };
                 };
-                return { at: at, from: from };
+                // The rows themselves travel too, so the picture can put a figure on EVERY
+                // exon of a lane rather than only on the ones a match landed on. A track's
+                // own exons are measured on their own; whether a block over on the other
+                // track matched them has nothing to do with it.
+                return { at: at, from: from, rows: list2 };
             };
             // AND RUN IT IF IT HAS NOT BEEN RUN. Leaving the row empty under a note saying
             // to go and run PSI is the editor asking for something it can do itself, on
@@ -382,6 +394,25 @@ function (graph, qtrack, ttrack, opts) {
             const stabA = await stabilityOf(qtrack), stabB = await stabilityOf(ttrack);
             const stabFrom = (stabA && stabA.from) || (stabB && stabB.from) || '';
             const stabAt = (f, x1, x2) => { try { return (f && f.at) ? f.at(x1, x2) : null; } catch (e) { return null; } };
+            // EVERY EXON OF THAT TRACK, at its own coordinates and in its own numbering.
+            const allMarks = (f) => {
+                if (!f || !f.rows || !f.rows.length) return [];
+                const out = [];
+                for (const r of f.rows) {
+                    const lo = Math.min(+r.lo, +r.hi), hi = Math.max(+r.lo, +r.hi);
+                    if (!isFinite(lo) || !isFinite(hi)) continue;
+                    const st = stabAt(f, lo, hi);
+                    if (st) out.push({ x1: lo, x2: hi, st: st });
+                }
+                return out;
+            };
+            const whyOf = (t) => {
+                try {
+                    const r = (t && t.psiRefusal && t.psiRefusal.why) ? ('' + t.psiRefusal.why) : '';
+                    const clean = r.replace(/\s+/g, ' ').trim().replace(/^[.\s]+|[.\s]+$/g, '');
+                    return clean || whyNone.get(t) || '';
+                } catch (e) { return ''; }
+            };
 
             const extentOf = (t) => {
                 const len = (t.sequence && t.sequence.length)
@@ -416,7 +447,11 @@ function (graph, qtrack, ttrack, opts) {
                     // `tried` so the view can tell "nobody has run PSI" from "it was run
                     // and had nothing to say about these exons": telling someone to run what
                     // just ran is worse than saying nothing.
-                    stability: { a: !!stabA, b: !!stabB, tried: psiTried, from: stabFrom }
+                    // The refusal the PSI run itself recorded is the best answer there is to
+                    // "why is there no figure", so it is preferred over anything inferred here.
+                    stabilityMarks: { a: allMarks(stabA), b: allMarks(stabB) },
+                    stability: { a: !!stabA, b: !!stabB, tried: psiTried, from: stabFrom,
+                        whyA: whyOf(qtrack), whyB: whyOf(ttrack) }
                 });
             } catch (e) { shown = null; }
 

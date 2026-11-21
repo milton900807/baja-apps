@@ -335,8 +335,12 @@ const mk = (name, exons) => {
         blocks: [{ n: 1, label: 'e1', identity: 0.5, a: { x1: 10, x2: 20 }, b: { x1: 30, x2: 40 } }],
         unmatched: [], rows: [['a', 'b']], stability: { a: false, b: false }
     });
-    ok(/run PSI on/.test(document.getElementById('baja-compare-view').textContent),
-       'an unscored pair says how to fill the row');
+    // It says what the state is rather than that the figures are "not shown": leading with
+    // the absence tells the reader what they can already see.
+    ok(/No PSI run on A or B yet/.test(document.getElementById('baja-compare-view').textContent)
+        && !/not shown/.test(document.getElementById('baja-compare-view').textContent),
+       'an unscored pair says nobody has run it: '
+       + document.getElementById('baja-compare-view').textContent.slice(0, 140));
     try { document.getElementById('baja-compare-view').querySelector('button[data-id="close"]')
         .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
 

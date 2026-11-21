@@ -22,9 +22,15 @@ function (track) {
     // the weaker answer -- no weighting, no variant effects -- and it says so in `from`,
     // which is what the report prints beside it.
 
+    // AN EMPTY ANSWER SAYS WHY IT IS EMPTY. Handing back a bare [] left the caller with
+    // nothing to report but a guess, and the guess it printed was "PSI ran but matched no
+    // arcs to the annotated exons" -- which is a specific claim about numbering, made in
+    // cases where the run never produced an arc at all. The reason travels on the array.
+    const none = (why) => { const r = []; r.why = why; return r; };
+
     const t = track || {};
     const layers = (t.track_layers || []).filter((x) => x && x.magnitudeMode === 'psi');
-    if (!layers.length) return [];
+    if (!layers.length) return none('PSI has not been run on it');
 
     // The most recent: a track re-run after an edit holds both, and the answer is the last.
     const scored = layers.filter((x) => Array.isArray(x.exonStability) && x.exonStability.length).pop();
@@ -34,7 +40,7 @@ function (track) {
 
     const L = layers[layers.length - 1];
     const js = (L.junctions || []).filter(Boolean);
-    if (!js.length) return [];
+    if (!js.length) return none('the PSI run on it left no junctions');
     const magMax = (+L.magMax > 0) ? +L.magMax : 1;
 
     const exons = (t.annotations || [])
@@ -42,7 +48,7 @@ function (track) {
             && isFinite(+a.xi) && isFinite(+a.xf))
         .map((a) => ({ a: a, lo: Math.min(+a.xi, +a.xf), hi: Math.max(+a.xi, +a.xf) }))
         .sort((p, q) => p.lo - q.lo);
-    if (!exons.length) return [];
+    if (!exons.length) return none('it has no annotated exons to put a figure on');
 
     // A measurement outranks anything computed, as it does on the canvas.
     const measured = (L.measuredPsi || []).filter(Boolean);

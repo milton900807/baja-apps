@@ -1156,7 +1156,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-command.js:EVERY OPERATION THAT TAKES TIME SAYS SO, WITHOUT BEING ASKED TO" \
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
-    "baja/bio/compare-view.js:It was run, here, a moment ago"
+    "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # The report announced "PSI ran but matched no arcs to the annotated exons" for runs that
+  # were refused outright, and the lower lane carried figures only where a match landed.
+  install_group "A figure on every exon, and the real reason when there is none" \
+    "baja/bio/compare-view.js:EACH TRACK SCORES ITS OWN EXONS, NOT THE MATCHED ONES" \
+    "baja/bio/match-regions.js:EVERY EXON OF THAT TRACK, at its own coordinates" \
+    "baja/bio/splicing/exon-stability.js:AN EMPTY ANSWER SAYS WHY IT IS EMPTY"
   # Reported three times as giving no feedback at all: every earlier version of the
   # spinner had to load, or claim a singleton, or win a race, before it could appear.
   install_group "GO says what it is doing with nothing to load first" \
