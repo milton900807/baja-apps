@@ -1255,6 +1255,17 @@ if [[ $DO_API -eq 1 ]]; then
   # Both files or neither: the capability is how the report is reached from the ask box,
   # and without the module behind it the entry opens onto a missing script -- the failure
   # the all-or-none rule exists for.
+  # DRAW BEFORE YOU AWAIT. A floating menu ends its session ~80 ms after an item's click
+  # returns, and an async click returns the moment it first awaits, so an item that awaits
+  # its work and only then draws is drawing into a closed session and does nothing at all.
+  # Redirect acceptor (AG scan) had this outright; AI Models has it intermittently, saved
+  # only by its module usually being cached. Both now draw a placeholder first.
+  #
+  # Its own group: menu-factory.js already carries markers from the earlier fix to
+  # Predict effect of removing, and a box serving that copy would pass their served-check
+  # with these two items still broken.
+  install_group "Exon menu items draw before they await" \
+    "baja/manchester/menu/menu-factory.js:DRAWS BEFORE IT AWAITS, like its neighbours below"
   install_group "The exon stability report, across every track" \
     "baja/bio/splicing/exon-stability-report.js:A REFUSAL ENDS THE WAIT AND CARRIES ITS REASON" \
     "baja/bio/splicing/splicing-profile.js:WHY A RUN DID NOT PRODUCE A LAYER, left on the track" \

@@ -724,8 +724,17 @@ function () {
                                 // the exon opens) ends its session ~80 ms after an item's click returns unless
                                 // that item opened another menu, so a list opened 100 ms later landed in the
                                 // side panel instead of in place.
+                                // DRAWS BEFORE IT AWAITS, like its neighbours below. This one looked
+                                // correct because it usually is: exon-ai-models.js is nearly always
+                                // already loaded by the time anyone opens this menu, so the await
+                                // resolves within the same tick and the menu session is still open.
+                                // On a cold load it is not, and the item does nothing -- an
+                                // intermittent version of the fault the two items below had outright.
                                 'label': 'AI Models', click: (async () => {
                                     {
+                                        graph.showSideMenu([{ type: 'html', label: 'Loading\u2026',
+                                                              html: 'Loading the models\u2026' }],
+                                                           null, 'AI Models');
 
                                         const models = await exec('baja/bio/splicing/exon-ai-models.js',
                                             graph, genegraph_panel_layout, selectedTrack, annotation);
@@ -745,8 +754,8 @@ function () {
                                 click: async (xwc, ywc) => {
                                     // THE PANEL OPENS BEFORE THE WORK, not after it. A floating menu ends its
                                     // session ~80 ms after an item's click returns unless that item opened
-                                    // another menu (the same rule the AI Models item above is written around),
-                                    // and an async click returns to the menu system the moment it first awaits.
+                                    // another menu, and an async click returns to the menu system the moment
+                                    // it first awaits.
                                     // This item awaited exon-removal-impact.js and only then drew, so by the
                                     // time it drew, the session it was drawing into had closed and the item
                                     // looked like it did nothing at all. Opening a placeholder synchronously
@@ -816,6 +825,15 @@ function () {
                                 // applies it.
                                 label: 'Redirect acceptor (AG scan)',
                                 click: async (xwc, ywc) => {
+                                    // THE PANEL OPENS BEFORE THE WORK, for the same reason as Predict effect
+                                    // of removing above: a floating menu ends its session ~80 ms after an
+                                    // item's click returns unless that item opened another menu, and an async
+                                    // click returns to the menu system the moment it first awaits. This item
+                                    // awaited ag-scan.js -- which itself loads and awaits
+                                    // exon-removal-impact.js -- and only then drew, so by the time it drew,
+                                    // the session it was drawing into had closed and the item did nothing at
+                                    // all. Reached from the side panel there is no session to lose, which is
+                                    // why it only ever failed from the exon menu.
                                     if (!selectedTrack) { graph.setMessage(" No track selected "); return; }
                                     const esc = (t) => ('' + t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
                                     // __orderMenu moves any row whose label holds Back / Cancel / Close / Done
@@ -825,10 +843,15 @@ function () {
                                     const back = { label: '\u2039 Back', click: () => { graph.showSideMenu(t); }, move: () => { } };
                                     const close = { label: 'Close', click: () => { graph.showSideMenu(null); }, move: () => { } };
                                     const show = async (pick) => {
-                                        let r = null;
-                                        try { r = await exec('baja/bio/splicing/ag-scan.js', selectedTrack, annotation, { pick: pick || 0 }); } catch (e) { r = null; }
+                                        let r = null, err = null;
+                                        // The reason is kept rather than flattened to null. "Could not scan
+                                        // this exon" sends the reader looking for a problem the scan has
+                                        // already named, and a thrown error names it most precisely of all.
+                                        try { r = await exec('baja/bio/splicing/ag-scan.js', selectedTrack, annotation, { pick: pick || 0 }); }
+                                        catch (e) { r = null; err = (e && (e.message || e)) || 'unknown error'; }
                                         if (!r || !r.ok) {
-                                            const why = (r && r.reason) || 'Could not scan this exon.';
+                                            const why = (r && r.reason)
+                                                || (err ? ('The scan failed: ' + err) : 'Could not scan this exon.');
                                             graph.showSideMenu([{ type: 'html', label: plain(why), html: esc(why) }, { type: 'separator' }, back, close], null, title);
                                             return;
                                         }
@@ -874,6 +897,13 @@ function () {
                                             close
                                         ], null, title);
                                     };
+                                    // Drawn synchronously, before the first await: this is what keeps the
+                                    // menu session open, and it also gives the click immediate feedback on a
+                                    // scan that has a model load behind it. show() replaces it in place.
+                                    graph.showSideMenu([
+                                        { type: 'html', label: 'Scanning\u2026', html: 'Scanning downstream for the next AG\u2026' },
+                                        { type: 'separator' }, back, close
+                                    ], null, title);
                                     await show(0);
                                 },
                                 move: () => {
