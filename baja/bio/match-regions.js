@@ -191,6 +191,26 @@ function (graph, qtrack, ttrack, opts) {
             }
 
             if (!found.length) {
+                // A FAILURE IS NOT A NEGATIVE RESULT. DNM3's genomic track is 571 kb and the
+                // searcher refused anything over 400 kb, so all 22 searches returned the same
+                // error -- and this reported it as "none of the 22 exons of DNM1 matches
+                // anything on DNM3 above the noise floor", which about two paralogues is
+                // false. Nothing was searched. When the searches did not run, say why they
+                // did not run; "no match" is a claim about the sequences and has to be
+                // earned by actually comparing them.
+                const errs = missed.filter((m) => m && m.why && !/noise floor|too short/.test(m.why));
+                if (errs.length >= Math.max(1, Math.ceil(missed.length * 0.5))) {
+                    const why = errs[0].why;
+                    const same = errs.every((m) => m.why === why);
+                    const msg = (same
+                        ? ('The search could not run against ' + nameT + ': ' + why)
+                        : ('The searches against ' + nameT + ' failed: ' + why))
+                        + (errs.length < list.length
+                            ? (' (' + errs.length + ' of ' + list.length + ' ' + K.plural + ')') : '');
+                    try { if (W) W.fail(msg); } catch (e) { }
+                    resolve({ error: msg });
+                    return;
+                }
                 try { if (W) W.fail((K.list
                     ? ('None of the ' + list.length + ' ' + K.plural)
                     : ('The ' + K.word)) + ' of ' + nameQ + ' matches anything on ' + nameT

@@ -197,6 +197,36 @@ const mk = (name, exons) => {
        'nothing matching is said plainly rather than drawn as an empty layer: ' + r.error);
     ok(!(A2.track_layers || []).length, 'and nothing is drawn');
 
+    // ---- a failure is not a negative result ---------------------------------------------
+    // DNM3's genomic track is 571 kb, the searcher refused anything over 400 kb, and all 22
+    // searches returned that error. It was reported as "none of the 22 exons of DNM1
+    // matches anything on DNM3 above the noise floor" -- false about two paralogues, and
+    // said without anything having been compared.
+    pyReply = { status: 'ERROR', error: 'that track is 571,219 bases, too long to scan here' };
+    const A3 = mk('DNM1', [[100, 300], [500, 700]]);
+    const B3 = mk('DNM3', [[0, 2000]]);
+    r = await load('baja/bio/match-regions.js', graph, A3, B3, {});
+    ok(!!r.error && /could not run/.test(r.error),
+       'the reason the searches failed is what comes back: ' + r.error);
+    ok(!!r.error && /too long to scan/.test(r.error),
+       'carrying what the searcher actually said: ' + r.error);
+    ok(!!r.error && !/noise floor/.test(r.error),
+       'and it does not claim the sequences were compared and found wanting: ' + r.error);
+
+    // A single failure among real matches is still a match report, not an error.
+    let nth = 0;
+    pyReply = () => {
+        nth++;
+        return (nth === 1) ? { status: 'ERROR', error: 'the search failed' }
+            : { status: 'OK', hits: [{ start: 900, end: 1100, query_start: 100, query_end: 300,
+                query_coverage: 1, identity: 0.9, score: 200, strand: '+' }] };
+    };
+    const A4 = mk('DNM1', [[100, 300], [500, 700]]);
+    const B4 = mk('DNM3', [[0, 2000]]);
+    nth = 0;
+    r = await load('baja/bio/match-regions.js', graph, A4, B4, {});
+    ok(!r.error, 'one failed search among matches does not become the whole answer: ' + (r.error || 'no error'));
+
     // ---- a track with no exons ----------------------------------------------------------
     const bare = mk('plain', []);
     r = await load('baja/bio/match-regions.js', graph, bare, B, {});

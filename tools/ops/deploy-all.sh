@@ -1083,6 +1083,14 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # A 571 kb gene track was refused by the searcher and the refusal was reported as "no
+  # match". The limit goes and the caller stops turning errors into negative results: both
+  # halves, or one of them still lies about the other.
+  install_group "Search a long track instead of refusing it" \
+    "py/bio/search-region-in-track.py:NO LIMIT ON HOW MUCH TARGET THERE IS" \
+    "py/bio/search-region-in-track.py:SEEDS FIRST, THE WHOLE THING IF THEY FIND NOTHING" \
+    "py/bio/search-region-in-track.py:A FAST PATH THAT IS NOT CONVINCING IS WORSE THAN NO FAST PATH" \
+    "baja/bio/match-regions.js:A FAILURE IS NOT A NEGATIVE RESULT"
   # Two open tracks were handled and three were not.
   install_group "Compare across every open track" \
     "baja/manchester/menu/editor-capabilities.js:THREE OPEN TRACKS ARE NOT FEWER THAN TWO"

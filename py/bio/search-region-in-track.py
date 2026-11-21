@@ -27,6 +27,7 @@ happens to be reversed.
 
 from ion import works
 import json
+import time
 
 MATCH = 2.0
 MISMATCH = -3.0
@@ -41,7 +42,30 @@ EXTEND_GAP = -2.0
 # sequence, and X against Z is a mismatch like any other.
 MASK_T = "X"        # what has been found in the target
 MASK_Q = "Z"        # what has been found in the query
-MAX_TARGET = 400000  # a whole gene track is fine; a chromosome is not, and would hang the server
+# ALIGN EVERYTHING UP TO HERE, NARROW FIRST ABOVE IT.
+#
+# DNM3's genomic track is 571 kb and this was a flat refusal at 400 kb, so every exon of
+# DNM1 searched against it came back as an error -- and the caller reported twenty-two
+# errors as "none of the 22 exons matches anything above the noise floor", which is a
+# statement about two paralogous genes that is simply false.
+#
+# Smith-Waterman over a megabase per exon is minutes of work, so above the window the
+# search does what any real one does: exact k-mer seeds say which few places are worth
+# aligning, and the alignment runs there. The per-call alignment cost stays inside the
+# bound that was always accepted; what grows is one linear scan of the target.
+WINDOW = 400000       # how much target one alignment is given at a time
+# NO LIMIT ON HOW MUCH TARGET THERE IS. There was one, at 400 kb, and a 571 kb gene track
+# hit it: the search refused, and the caller turned a refusal into "nothing matched". The
+# size of the thing being searched is not a reason to refuse to search it. What was really
+# bounded was one alignment, and that is bounded still -- by the window above, with the
+# target covered in windows -- so a long target costs more time rather than an error.
+TIME_BUDGET = 150.0   # seconds of exhaustive sweeping before reporting what was covered
+SEED_K = 9            # short enough to survive paralogous divergence. At 73% identity --
+                      # what two paralogous coding exons look like -- a 150 nt exon shares
+                      # almost no exact 12-mer with its partner, so seeding on 12 found
+                      # nothing in a place where the alignment scores twice the floor
+SEED_BUCKET = 2000    # diagonal width: a seed cluster is a diagonal band, not an exact line
+SEED_REGIONS = 8      # how many places to align in; the best hit is taken across them
 
 
 def _clean(s):
@@ -74,6 +98,99 @@ def _aligner(blocks=False):
     al.open_gap_score = BLOCK_OPEN_GAP if blocks else OPEN_GAP
     al.extend_gap_score = BLOCK_EXTEND_GAP if blocks else EXTEND_GAP
     return al
+
+
+def _chunks(n, query_len):
+    """The whole target in overlapping windows.
+
+    The exhaustive path. One alignment is still given at most WINDOW bases, which is the
+    cost that was always accepted; the windows overlap by more than one alignment's width
+    so a hit that straddles a boundary is found whole in the next one.
+    """
+    over = min(WINDOW // 2, max(4 * query_len, 2000))
+    out = []
+    s0 = 0
+    while s0 < n:
+        e0 = min(n, s0 + WINDOW)
+        out.append((s0, e0))
+        if e0 >= n:
+            break
+        s0 = e0 - over
+    return out
+
+
+def _candidate_regions(query, target):
+    """Where in a long target this query could plausibly align, from exact k-mer seeds.
+
+    Seeds are counted per diagonal band (target position minus query position), which is
+    where a real alignment puts them: a band with many seeds is a place the sequences line
+    up, a band with one is chance. Each surviving band becomes a window with a query length
+    of slack on both sides, so an alignment that starts before the first seed and ends after
+    the last still fits inside the window it is searched in.
+
+    Returns [(start, end)] in target coordinates, merged and sorted. An empty list means no
+    seed anywhere, which for a 12-mer over a gene is a real answer: nothing matches.
+    """
+    k = SEED_K
+    if len(query) < k or len(target) < k:
+        return [(0, len(target))]
+    qk = {}
+    for i in range(len(query) - k + 1):
+        qk.setdefault(query[i:i + k], []).append(i)
+    votes = {}
+    for j in range(len(target) - k + 1):
+        where = qk.get(target[j:j + k])
+        if not where:
+            continue
+        for i in where:
+            b = (j - i) // SEED_BUCKET
+            v = votes.get(b)
+            if v is None:
+                votes[b] = [1, j, j]
+            else:
+                v[0] += 1
+                if j < v[1]:
+                    v[1] = j
+                if j > v[2]:
+                    v[2] = j
+    if not votes:
+        return []
+    # A FAST PATH THAT IS NOT CONVINCING IS WORSE THAN NO FAST PATH. Random 9-mers in a
+    # megabase of sequence fill every diagonal band with one or two votes, and the true
+    # band for two exons at 73% identity holds about three -- so ranking by votes buried
+    # the real place under noise and spent eight alignments proving it. Unless some band
+    # stands out, this says so by returning nothing, and the caller sweeps the target
+    # properly instead of being told where to look by a coin toss.
+    strongest = max(v[0] for v in votes.values())
+    if strongest < max(4, len(query) // 25):
+        return []
+    top = sorted(votes.values(), key=lambda v: -v[0])[:SEED_REGIONS]
+    pad = len(query) + SEED_BUCKET
+    spans = sorted((max(0, v[1] - pad), min(len(target), v[2] + pad + k)) for v in top)
+    merged = []
+    for s0, e0 in spans:
+        if merged and s0 <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e0)
+        else:
+            merged.append([s0, e0])
+    return [(a, b) for a, b in merged]
+
+
+def _scan(al, query, work, regions):
+    """The best alignment of query anywhere in the given regions of `work`."""
+    best = None
+    for (s0, e0) in regions:
+        if e0 - s0 < 12:
+            continue
+        r = _best(al, query, "".join(work[s0:e0]))
+        if not r:
+            continue
+        # Back into target coordinates before anything compares two regions' hits.
+        r["t0"] += s0
+        r["t1"] += s0
+        if best is None or r["score"] > best["score"]:
+            best = r
+    return best
 
 
 def _best(al, query, target):
@@ -129,10 +246,6 @@ try:
         works.resolve({"status": "ERROR", "error": "the query region is too short to search with (%d bases)" % len(query)})
     elif len(target) < 12:
         works.resolve({"status": "ERROR", "error": "the track being searched has no sequence"})
-    elif len(target) > MAX_TARGET:
-        works.resolve({"status": "ERROR",
-                       "error": "that track is %s bases, too long to scan here (limit %s). Search a region of it."
-                                % (format(len(target), ","), format(MAX_TARGET, ","))})
     else:
         # Blocks when the caller is drawing a map (it masks the query too); otherwise the
         # blastn costs, which is what a search for one region wants.
@@ -143,10 +256,27 @@ try:
         work = list(target)
         hits = []
         strands = [(1, query)] + ([(-1, _rc(query))] if both else [])
+        narrowed = len(target) > WINDOW
+        partial = False
+        # SEEDS FIRST, THE WHOLE THING IF THEY FIND NOTHING.
+        #
+        # Exact k-mers say which few places are worth aligning, which turns a megabase
+        # target into a handful of windows. Seeds can miss, though, and a search that
+        # reports "no match" because a heuristic looked in the wrong places is the bug this
+        # file exists to fix -- so when the seeded pass comes back empty the target is swept
+        # in overlapping windows instead, and "nothing matched" is only ever said after
+        # something has actually looked everywhere.
+        if not narrowed:
+            regions = {st: [(0, len(target))] for st, _q in strands}
+        else:
+            regions = {st: _candidate_regions(qs, target) for st, qs in strands}
         for _ in range(max_hits):
             best = None
             for strand, qseq in strands:
-                r = _best(al, qseq, "".join(work))
+                reg = regions.get(strand) or []
+                if not reg:
+                    continue
+                r = _scan(al, qseq, work, reg)
                 if r and (best is None or r["score"] > best["score"]):
                     r["strand"] = strand
                     best = r
@@ -171,6 +301,31 @@ try:
                         qwork[i] = MASK_Q
                 masked_q = "".join(qwork)
                 strands = [(1, masked_q)] + ([(-1, _rc(masked_q))] if both else [])
+
+        # Nothing, and the seeds chose where to look: look everywhere instead. `work` is
+        # untouched because masking only happens after a hit, so this starts clean.
+        if narrowed and not hits:
+            started = time.time()
+            chunks = _chunks(len(target), len(query))
+            done = 0
+            for (c0, c1) in chunks:
+                best = None
+                for strand, qseq in strands:
+                    r = _scan(al, qseq, work, [(c0, c1)])
+                    if r and (best is None or r["score"] > best["score"]):
+                        r["strand"] = strand
+                        best = r
+                done += 1
+                if best and best["score"] >= floor:
+                    hits.append(best)
+                    if len(hits) >= max_hits:
+                        break
+                if time.time() - started > TIME_BUDGET:
+                    partial = True
+                    break
+            swept = done / float(len(chunks) or 1)
+        else:
+            swept = 1.0
 
         hits.sort(key=lambda h: -h["score"])
         out = []
@@ -210,6 +365,11 @@ try:
                          int(BLOCK_EXTEND_GAP if mask_query else EXTEND_GAP),
                          "both strands" if both else "plus strand"),
             "floor": floor,
+            # What was actually looked at, so a caller can tell "nothing is there" from
+            # "not all of it was searched" without guessing.
+            "narrowed": bool(narrowed),
+            "partial": bool(partial),
+            "swept": round(swept, 4),
             "hits": out,
         })
 
