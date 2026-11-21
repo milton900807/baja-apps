@@ -19,7 +19,24 @@ function (title, detail) {
     // a panel that can be clicked past invites the second press.
 
     return (async () => {
-        try { if (window.__bajaWorking && window.__bajaWorking.destroy) window.__bajaWorking.destroy(); } catch (e) { }
+        // A NESTED PANEL DOES NOT END THE ONE UNDER IT.
+        //
+        // This used to destroy whatever panel was up before putting its own there, which
+        // was fine for two unrelated operations and wrong for the common case: an
+        // operation that raises a panel and then calls another operation that raises one
+        // too. The inner panel killed the outer one's node, the inner one's done() took
+        // itself away, and the outer operation carried on for another minute writing
+        // step() into a node that was no longer in the document -- feedback that stopped
+        // dead partway through, which is what "it ran and then went quiet" was.
+        //
+        // So the panels are a stack: a new one hides the one beneath it, and taking it
+        // away puts the one beneath it back, with whatever text it has since been given.
+        let under = null;
+        try {
+            const cur = window.__bajaWorking;
+            if (cur && cur.el && cur.el.parentNode) { under = cur; cur.el.style.display = 'none'; }
+            else if (cur && cur.destroy) { cur.destroy(); }
+        } catch (e) { under = null; }
 
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const el = document.createElement('div');
@@ -66,6 +83,14 @@ function (title, detail) {
                 try {
                     const d = el.querySelector('[data-id="detail"]');
                     if (d) d.textContent = '' + (text || '');
+                    // An operation still reporting progress is still running, so if
+                    // something took its panel away, its next word brings it back rather
+                    // than being written into a node nobody can see.
+                    if (!el.parentNode) {
+                        document.body.appendChild(el);
+                        el.style.display = 'flex';
+                        window.__bajaWorking = w;
+                    }
                 } catch (e) { }
             },
             // The panel goes when the work does, and takes its clock with it: a timer left
@@ -73,7 +98,12 @@ function (title, detail) {
             done() {
                 try { clearInterval(timer); } catch (e) { }
                 try { if (el.parentNode) el.parentNode.removeChild(el); } catch (e) { }
-                if (window.__bajaWorking === w) window.__bajaWorking = null;
+                // Back to the operation that was already running, if there was one: it has
+                // not finished, and the screen should go on saying so.
+                let back = null;
+                try { if (under && under.el) { under.el.style.display = 'flex'; back = under; } } catch (e) { }
+                if (window.__bajaWorking === w) window.__bajaWorking = back;
+                under = null;
             },
             // A failure stays on screen until it is read, which a corner message does not.
             fail(text) {

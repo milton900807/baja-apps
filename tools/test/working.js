@@ -73,12 +73,23 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     close.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     ok(!document.getElementById('baja-working'), 'Close puts it away');
 
-    // Only one at a time: a second slow thing replaces the first rather than stacking.
-    await load('baja/lib/working.js', 'One', 'a');
+    // ONE PANEL ON SCREEN AT A TIME, but a panel raised while another operation is still
+    // running does not END that operation: it covers it and gives it back. The operation
+    // underneath is usually the one that started this one (the comparison that runs PSI),
+    // and destroying its panel left it running with nowhere to report. The nesting itself
+    // is driven in tools/test/working-nesting.js.
+    const wOne = await load('baja/lib/working.js', 'One', 'a');
+    const wTwo = await load('baja/lib/working.js', 'Two', 'b');
+    const vis = () => Array.from(document.querySelectorAll('#baja-working'))
+        .filter((p) => p.style.display !== 'none');
+    ok(vis().length === 1, 'one panel on screen: ' + vis().length);
+    ok(/Two/.test(vis()[0].textContent), 'the newest one');
+    wTwo.done();
+    ok(vis().length === 1 && /One/.test(vis()[0].textContent),
+       'and the one that was still running comes back when it goes');
+    wOne.done();
+    ok(document.querySelectorAll('#baja-working').length === 0, 'both gone at the end');
     await load('baja/lib/working.js', 'Two', 'b');
-    ok(document.querySelectorAll('#baja-working').length === 1,
-       'one panel at a time: ' + document.querySelectorAll('#baja-working').length);
-    ok(/Two/.test(document.getElementById('baja-working').textContent), 'the newest one');
     try { window.__bajaWorking.done(); } catch (e) { }
 
     // Escape gives up WAITING, not the work: there is no handle to stop the work, and

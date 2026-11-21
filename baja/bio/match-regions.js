@@ -419,6 +419,27 @@ function (graph, qtrack, ttrack, opts) {
                     ? t.sequence.length : Math.abs((+t.xf) - (+t.xi));
                 return { x1: +t.xi, x2: (+t.xi) + len };
             };
+            // WHAT CAME BACK, BEFORE THE PICTURE REPLACES IT. The PSI run is the slow part
+            // and its own panel went away when it finished, so the last thing the user saw
+            // was a run starting and then nothing: no word on whether it produced figures,
+            // and the picture arriving separately. The count is said here, on the panel that
+            // is still up, and the picture it is about is drawn in the same breath.
+            const nFig = (f) => {
+                if (!f || !f.rows) return 0;
+                let n2 = 0;
+                for (const r of f.rows) if (r && isFinite(+r.psi)) n2++;
+                return n2;
+            };
+            try {
+                if (W) {
+                    const na = nFig(stabA), nb = nFig(stabB);
+                    W.step((na || nb)
+                        ? ('Exon stability: ' + na + ' scored on ' + nameQ + ', ' + nb + ' on '
+                            + nameT + ' \u00b7 drawing them on the comparison \u2026')
+                        : 'Drawing the comparison \u2026');
+                }
+            } catch (e) { }
+
             let shown = null;
             try {
                 shown = await exec('baja/bio/compare-view.js', {
@@ -469,6 +490,10 @@ function (graph, qtrack, ttrack, opts) {
                 catch (e) { try { graph.setResultMessage(rows[0][1]); } catch (e2) { } }
             }
             try { if (W) W.done(); } catch (e) { }
+            // THE TRACK BEHIND THE PICTURE CARRIES THE SAME FIGURES. A PSI run started from
+            // here adds its layer while the canvas is covered by the panel, so the exon
+            // badges only appeared on the next thing that happened to redraw.
+            try { if (psiTried) { if (graph.rescale) graph.rescale(); if (graph.wake) graph.wake(); } } catch (e) { }
             try { window.__bajaExonMatches = { found: found, missed: missed }; } catch (e) { }
             try {
                 graph.setMessage((K.list ? (found.length + ' of ' + list.length + ' ' + K.plural)
