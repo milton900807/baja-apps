@@ -186,10 +186,19 @@ function (model) {
                 + 'fill="hsla(' + h + ',70%,58%,0.92)"></rect>'
                 + '<rect x="' + b0 + '" y="' + yB + '" width="' + wb + '" height="' + LANE + '" '
                 + 'fill="hsla(' + h + ',70%,58%,0.92)"></rect>'
+                // LIGHT TYPE WITH A DARK OUTLINE, not dark type on the bar. The bar is as
+                // wide as the block it stands for, and most blocks are a few pixels: the
+                // label then sits on the dark lane behind it rather than on its own colour,
+                // which is near-black on navy and effectively invisible. An outline reads on
+                // both -- on a bright bar and on the lane -- so one rule covers every width.
                 + '<text x="' + ((a0 + a1) / 2) + '" y="' + (yA + LANE - 8) + '" text-anchor="middle" '
-                + 'font-size="10" fill="#07202f" font-weight="700" pointer-events="none">' + esc(label) + '</text>'
+                + 'font-size="10" fill="#eaf6f9" font-weight="700" pointer-events="none" '
+                + 'stroke="rgba(4,16,30,0.9)" stroke-width="2.8" paint-order="stroke" '
+                + 'stroke-linejoin="round">' + esc(label) + '</text>'
                 + '<text x="' + ((p0 + p1) / 2) + '" y="' + (yB + LANE - 8) + '" text-anchor="middle" '
-                + 'font-size="10" fill="#07202f" font-weight="700" pointer-events="none">' + esc(label) + '</text>'
+                + 'font-size="10" fill="#eaf6f9" font-weight="700" pointer-events="none" '
+                + 'stroke="rgba(4,16,30,0.9)" stroke-width="2.8" paint-order="stroke" '
+                + 'stroke-linejoin="round">' + esc(label) + '</text>'
                 + '<text x="' + ((a0 + a1 + p0 + p1) / 4) + '" y="' + (mid + 3 + labelDy[i]) + '" '
                 + 'text-anchor="middle" font-size="10" fill="#eaf6f9" pointer-events="none" '
                 + 'stroke="rgba(4,16,30,0.85)" stroke-width="2.6" paint-order="stroke" '

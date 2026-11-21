@@ -1792,6 +1792,24 @@ function (graph, genegraph_panel_layout) {
                         result('Two tracks are needed to compare. Name them, or open two.');
                         return;
                     }
+                    // SAYS THAT IT IS RUNNING. Comparing three tracks is three alignments on
+                    // the server, each of a whole protein, and this said nothing at all until
+                    // the report opened: a long silence is indistinguishable from a dead
+                    // click, and the honest answer to "is it working" was only available once
+                    // it had finished working. Every other long operation in the catalogue
+                    // puts the panel up; this one did not.
+                    let W = null;
+                    try {
+                        W = await exec('baja/lib/working.js',
+                            'Comparing ' + ts.map((x) => x.name || 'a track').join(', '),
+                            a.region
+                                ? ('Over ' + ('' + a.region).replace(/_/g, ' ')
+                                    + ((a.index != null) ? (' ' + a.index) : '') + ' of each.')
+                                : 'One alignment per pair.');
+                    } catch (e) { W = null; }
+                    const step = (m) => { try { if (W) W.step(m); } catch (e) { } };
+                    const stop = () => { try { if (W) W.done(); } catch (e) { } };
+                    const giveUp = (m) => { try { if (W) W.fail(m); } catch (e) { } };
                     // One region per track, resolved on each track's own coordinates: exon 16
                     // of one transcript is not at the same place as exon 16 of another, and
                     // comparing one track's exon against the other's whole sequence would
@@ -1800,12 +1818,16 @@ function (graph, genegraph_panel_layout) {
                     const missing = [];
                     if (a.region) {
                         for (const t of ts) {
+                            step('Reading ' + ('' + a.region).replace(/_/g, ' ')
+                                + ((a.index != null) ? (' ' + a.index) : '')
+                                + ' on ' + (t.name || 'a track'));
                             const R = await regionsOf(t);
                             const r = R ? R.resolve(a) : { error: 'no regions' };
                             if (r.error) { missing.push((t.name || 'a track') + ': ' + r.error); ranges.push(null); }
                             else ranges.push({ start: r.start, end: r.end, label: r.label });
                         }
                         if (missing.length) {
+                            giveUp('Cannot compare that region: ' + missing.join('; '));
                             result('Cannot compare that region: ' + missing.join('; '));
                             return;
                         }
@@ -1817,14 +1839,30 @@ function (graph, genegraph_panel_layout) {
                     // of DNA and has no peptide of its own.
                     const wantsProtein = ((a.mode || 'protein') === 'protein') && !a.region;
                     if (wantsProtein) {
-                        const r = await exec('baja/bio/protein/compare-proteins.js', graph, ts, {});
+                        const r = await exec('baja/bio/protein/compare-proteins.js', graph, ts,
+                            { onStep: step });
                         // A backend that cannot be reached is a reason to fall back, not to
                         // fail: the browser can still answer the question, and the panel says
                         // which aligner ran.
-                        if (r && !r.unavailable) { if (r.error) result(r.error); return r; }
+                        if (r && !r.unavailable) {
+                            stop();
+                            if (r.error) result(r.error);
+                            return r;
+                        }
+                        // The fallback is a different wait, and a panel that still reads
+                        // "aligning on the server" while the browser does it is lying.
+                        step('The server did not answer \u00b7 aligning here instead');
                     }
-                    return exec('baja/manchester/menu/compare-track-sequences.js', graph, ts,
-                        { mode: (a.mode || 'protein'), ranges: ranges });
+                    step('Aligning ' + ts.length + ' track' + (ts.length === 1 ? '' : 's') + ' here');
+                    try {
+                        const out = await exec('baja/manchester/menu/compare-track-sequences.js', graph, ts,
+                            { mode: (a.mode || 'protein'), ranges: ranges });
+                        stop();
+                        return out;
+                    } catch (e) {
+                        giveUp('The comparison failed: ' + (e && e.message ? e.message : e));
+                        throw e;
+                    }
                 },
                 preview: (a) => {
                     const ts = comparands(a);

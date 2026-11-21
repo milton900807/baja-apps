@@ -1089,6 +1089,12 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # A long comparison said nothing until it finished, and the exon labels were dark type
+  # on a dark lane wherever the bar was narrower than the label.
+  install_group "The comparison says it is running, and its labels can be read" \
+    "baja/manchester/menu/editor-capabilities.js:SAYS THAT IT IS RUNNING. Comparing three tracks" \
+    "baja/bio/protein/compare-proteins.js:SAYS WHERE IT HAS GOT TO" \
+    "baja/bio/compare-view.js:LIGHT TYPE WITH A DARK OUTLINE, not dark type on the bar"
   # The comparison says which exons correspond; stability says whether they are reliably
   # in the message at all. Carried and drawn: the model and the view ship together.
   install_group "Exon stability in the comparison picture" \

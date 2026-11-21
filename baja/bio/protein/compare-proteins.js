@@ -23,6 +23,11 @@ function (graph, tracks, opts) {
         try {
             const ts = (tracks || []).filter(Boolean);
             if (ts.length < 2) { resolve({ error: 'two tracks are needed to compare proteins' }); return; }
+            // SAYS WHERE IT HAS GOT TO. The alignment is one call to the server for every
+            // pair at once, so there is no per-pair progress to report -- but translating,
+            // waiting on the aligner and drawing the blocks are three different waits, and
+            // a caller showing a panel can only say which one it is in if it is told.
+            const step = (typeof (opts && opts.onStep) === 'function') ? opts.onStep : (() => { });
 
             const peptideOf = (t) => {
                 let orf = null;
@@ -69,6 +74,7 @@ function (graph, tracks, opts) {
             };
 
             const items = [], without = [], byName = {};
+            step('Translating ' + ts.length + ' track' + (ts.length === 1 ? '' : 's'));
             for (const t of ts) {
                 const s = peptideOf(t);
                 if (s && s.length >= 10) {
@@ -88,6 +94,8 @@ function (graph, tracks, opts) {
 
             let res = null;
             try {
+                step('Aligning ' + items.length + ' protein' + (items.length === 1 ? '' : 's')
+                    + ' on the server');
                 res = await exec('py/bio/protein/align-proteins.py', items, { mode: 'local' });
             } catch (e) { res = null; }
             // Nothing came back at all: the caller falls back to the in-browser aligner
@@ -110,6 +118,7 @@ function (graph, tracks, opts) {
             // The BEST pair only. Each track carries one layer of this kind, so drawing
             // three pairs over two tracks would leave the last one standing and the panel
             // describing a picture that is no longer there.
+            step('Drawing the matched blocks');
             let drawn = null;
             const withBlocks = (res.pairs || []).filter((p) => !p.error && (p.blocks || []).length
                 && byName[p.a] && byName[p.b]);

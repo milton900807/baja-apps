@@ -282,6 +282,14 @@ const mk = (name, exons) => {
     // The exon number stays where it was, inside its bar.
     ok(texts.some((t) => t.s === 'e1' && t.y > laneTop && t.y < laneTop + LANEH),
        'the exon label is still in the lane');
+    // A BAR IS AS WIDE AS ITS BLOCK, and most blocks are a few pixels: a label in dark type
+    // then sits on the dark lane rather than on its own colour, which is near-black on navy.
+    const lab = texts.find((t) => t.s === 'e1');
+    ok(lab && lab.fill === '#eaf6f9', 'and is light, not dark on dark: ' + (lab && lab.fill));
+    const labEl = Array.from(svgEl.querySelectorAll('text')).find((t) => t.textContent === 'e1');
+    ok(labEl && /rgba\(4,16,30/.test(labEl.getAttribute('stroke') || '')
+       && labEl.getAttribute('paint-order') === 'stroke',
+       'with an outline so it reads on a bright bar too: ' + (labEl && labEl.getAttribute('stroke')));
     try { document.getElementById('baja-compare-view').querySelector('button[data-id="close"]')
         .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
 
