@@ -208,7 +208,14 @@ function (o) {
         // words side by side and no bracket anywhere is a formula the engine can read, so it
         // is never written as one. The commonest of these, a total (or average, smallest,
         // largest, count) of what is above, is answered here with the formula itself and no
-        // model. Anything else goes on as a request, with the "=" kept as what it meant.
+        // model.
+        //
+        // EVERYTHING ELSE IS WORKED OUT, AND SO IS A FORMULA THAT IS ALREADY RED. Other
+        // words ("=fuel plus crew salaries") go to the operation that writes one formula
+        // from a description. So does Enter pressed on a cell that is red (o.repair): the
+        // field holds the very text that failed, and writing it back a second time is the
+        // one thing certain not to help. That operation checks what it is given and tries
+        // it before writing, and leaves the cell alone when it cannot do better.
         const formulaBody = text.charAt(0) === '=' ? text.slice(1).trim() : '';
         const words = !!formulaBody && !/[()\[\]{}]/.test(formulaBody)
             && /[A-Za-z]\w*\s+[A-Za-z]/.test(formulaBody.replace(/\b(and|or|not)\b/gi, '+'));
@@ -235,11 +242,24 @@ function (o) {
                 return;
             }
         }
-        const said = words
-            ? (formulaBody + ' (asked for with an "=" in front: the answer is a formula written '
-                + 'into the selected cell, not a typed-in value)')
-            : text;
-        if (!words && text.charAt(0) === '=') {
+        if (words || (o && o.repair && text.charAt(0) === '=')) {
+            let put = null;
+            try {
+                put = await withSpinner('Working out a formula for ' + text, 'write_formula',
+                    () => exec('baja/plate/ops/formula-from-words.js', o.pm, { what: text }));
+            } catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+            if (put && put.error) {
+                say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                    + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                    + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                    + '">Close</button></div>');
+                try { q('#pc-cancel').onclick = close; } catch (e) { }
+                return;
+            }
+            close();
+            return;
+        }
+        if (text.charAt(0) === '=') {
             let put = null;
             try { put = await withSpinner(text, 'set_formula', () => exec('baja/plate/ops/set-formula.js', o.pm, { formula: text })); }
             catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
@@ -295,8 +315,8 @@ function (o) {
         const askedKind = asked ? ('' + (asked.type || 'object')).trim() : '';
         const request = asked
             ? ('On the ' + askedKind + (askedName ? (' named "' + askedName + '"') : '')
-                + (asked.about ? (' (' + asked.about + ')') : '') + ': ' + said)
-            : said;
+                + (asked.about ? (' (' + asked.about + ')') : '') + ': ' + text)
+            : text;
 
         let r = null;
         try {

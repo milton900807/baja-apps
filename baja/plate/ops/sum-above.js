@@ -152,6 +152,8 @@ function (pm, o) {
                     const wr = t.getWellRange([cell]);
                     try { t.formula[wr] = f; } catch (e) { }
                     try { pt.addFormula(t.name + '' + wr, f); } catch (e) { }
+                    // A cell that was red for what it used to hold is not red for this.
+                    try { if (cell.clearError) cell.clearError(); } catch (e) { }
                     try { cell.setValue(f); } catch (e) { }
                     done.push({ formula: f, rows: (end - top + 1), column: pos.c, empty: empty });
                     if (label && !labelCell && !labelled && cells.length === 1 && pos.c > 0) {

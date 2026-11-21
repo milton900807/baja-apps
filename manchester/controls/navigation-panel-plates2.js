@@ -48,6 +48,44 @@ function (plate_graph, selectedPlate, selectedPoint) {
         const runCommandText = async (str, panel, legacy, legacyFirst) => {
             const t = ('' + (str || '')).trim();
             if (!t) return;
+            // ENTER ON A RED CELL IS A REQUEST TO FIX IT, NOT TO WRITE IT AGAIN.
+            //
+            // Selecting a cell puts its formula in this field, so pressing Enter on a cell
+            // holding "=sum the cells above" sent back the text that had just failed, the
+            // formula engine failed on it again, and the cell stayed red. Nothing typed is
+            // lost by reading it differently: the field holds what the cell already holds.
+            // So when one cell is selected, it is red, and the field still says what the
+            // cell says, the cell's own text (which has its spaces, where the stored formula
+            // has had them taken out) goes to the card to be worked out into a formula. A
+            // field the user has changed is a new formula and goes the usual way.
+            const red = (() => {
+                try {
+                    if (!selectedPlate || typeof selectedPlate.getSelectedWellsInOrder !== 'function') return null;
+                    const ws = selectedPlate.getSelectedWellsInOrder() || [];
+                    if (ws.length !== 1 || !ws[0] || typeof ws[0].hasError !== 'function' || !ws[0].hasError()) return null;
+                    const squash = (x) => ('' + (x == null ? '' : x)).replace(/\s+/g, '').replace(/^=+/, '').toLowerCase();
+                    const typed = squash(t);
+                    if (!typed) return null;
+                    let stored = null;
+                    try { stored = selectedPlate.formula[selectedPlate.getWellRange(ws)]; } catch (e) { stored = null; }
+                    if (squash(ws[0].value) !== typed && squash(stored) !== typed) return null;
+                    const own = ('' + (ws[0].value == null ? '' : ws[0].value)).trim();
+                    // The cell's own text when it is the same formula with its spaces kept.
+                    const said = (own && squash(own) === typed) ? own : t;
+                    return (said.charAt(0) === '=') ? said : ('=' + said);
+                } catch (e) { return null; }
+            })();
+            if (red) {
+                try { if (panel && panel.setText) panel.setText(''); } catch (e) { }
+                try {
+                    await exec('baja/plate/menu/project-command.js', {
+                        menus: (() => { try { return __lastMenus || []; } catch (e) { return []; } })(),
+                        pm: plate_graph, text: red, repair: true, context: {},
+                        setError: (m) => { try { pt.setMessage(m, 8); } catch (e) { } }
+                    });
+                } catch (e) { try { pt.setMessage('Could not repair that cell: ' + (e && e.message ? e.message : e), 8); } catch (e2) { } }
+                return;
+            }
             if (!looksLikeASentence(t)) return legacy(t, panel);
             if (legacyFirst) {
                 let handled = false;

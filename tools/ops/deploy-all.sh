@@ -1055,6 +1055,17 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "The project card says an operation is running" \
     "baja/plate/menu/project-command.js:EVERY OPERATION THAT TAKES TIME SAYS SO, HERE AS IN THE EDITOR" \
     "baja/lib/working.js:ABOVE THE CARD THAT ASKED FOR THE WORK"
+  # Enter on a red cell works its text out into a formula. The field decides to ask, the
+  # card routes it, the operation checks and writes it, the python proposes it, and the
+  # catalogue lets a plain sentence reach the same operation: an old copy of any one of
+  # them and Enter writes the broken text back again.
+  install_group "Enter on a red cell works out the formula it was meant to be" \
+    "manchester/controls/navigation-panel-plates2.js:ENTER ON A RED CELL IS A REQUEST TO FIX IT, NOT TO WRITE IT AGAIN" \
+    "baja/plate/menu/project-command.js:EVERYTHING ELSE IS WORKED OUT, AND SO IS A FORMULA THAT IS ALREADY RED" \
+    "baja/plate/ops/formula-from-words.js:A FORMULA WORKED OUT FROM WORDS, OR FROM A FORMULA THAT DID NOT WORK" \
+    "py/bio/project/formula-write.py:A CELL HOLDING WORDS AFTER AN \"=\" IS A DESCRIPTION OF A FORMULA" \
+    "baja/plate/menu/project-capabilities.js:A FORMULA DESCRIBED RATHER THAN WRITTEN" \
+    "baja/plate/ops/sum-above.js:A cell that was red for what it used to hold is not red for this"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

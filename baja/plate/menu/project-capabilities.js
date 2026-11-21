@@ -312,6 +312,26 @@ function () {
             }
         },
         {
+            // A FORMULA DESCRIBED RATHER THAN WRITTEN. sum_above answers the commonest
+            // description of one; this answers the rest, and repairs one that went red.
+            name: 'write_formula',
+            summary: 'work out ONE FORMULA from a description and write it in the selected '
+                + 'cell. THIS IS THE ANSWER to "make this cell fuel plus crew salaries", '
+                + '"this should be insurance divided by twelve", "put a formula here for '
+                + 'the average of the Amount column", and to "fix this formula" on a cell '
+                + 'that is red. The formula is checked against the tables on the canvas '
+                + 'and tried before it is written. For a total of the cells directly '
+                + 'above use sum_above; for a whole table of content use fill_table',
+            module: 'baja/plate/ops/formula-from-words.js',
+            params: {
+                what: { type: 'string', required: true,
+                    about: 'what the formula should work out, in the user\u2019s own words; '
+                        + 'pass the request through rather than summarising it' },
+                table: { type: 'string', default: 'the table the selected cell is in',
+                    about: 'the NAME of the table, if the request says it' }
+            }
+        },
+        {
             name: 'set_column_values',
             summary: 'write a list of values down one column of a table, from the top',
             module: 'baja/plate/ops/set-column-values.js',
@@ -723,6 +743,10 @@ function () {
             if (args.add) bits.push((args.add > 0 ? 'plus ' : 'minus ') + Math.abs(args.add));
             if (args.round && args.round !== 'none') bits.push('rounded to the nearest ' + args.round);
             return 'change the selected cells: ' + (bits.join(', ') || 'no change');
+        }
+        if (name === 'write_formula') {
+            return 'work out a formula for the selected cell'
+                + (args.table ? (' in "' + args.table + '"') : '') + ': ' + args.what;
         }
         if (name === 'fill_table') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';

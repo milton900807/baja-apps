@@ -14,8 +14,12 @@ const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
 let askedModel = 0;
+let askedFormula = [], formulaAnswer = { status: 'OK', formula: '', note: 'not enough to go on' };
 const load = async (p, ...a) => {
     if (p === 'py/bio/project/menu-pick.py') { askedModel++; return { status: 'OK' }; }
+    if (p === 'py/bio/project/formula-write.py') { askedFormula.push(a); return formulaAnswer; }
+    if (p === 'baja/plate/ops/frun-object.js') { return { results: [1] }; }
+    if (p === 'baja/plate/ops/diagnose-formula.js') { return { ok: true, why: '', suggest: '' }; }
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
     const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(path, 'utf8') + ')')(load, {});
     return f(...a);
@@ -157,9 +161,19 @@ const mkTable = (name, cols, rows) => {
         ok(await type('=the largest one above', foot) === '=max(flight_cost[1:1][1:9])', 'largest: ' + foot.value);
         ok(await type('=total this column', foot) === '=sum(flight_cost[1:1][1:9])', 'total this column: ' + foot.value);
 
-        // words that are not a total go on as a request, and are never written as a formula
-        const v = await type('=fuel plus crew salaries', foot);
-        ok(v === '' && askedModel === 1, 'other words are worked out as a request, not written into the cell: "' + v + '", asked ' + askedModel);
+        // words that are not a total are worked out into a formula, checked and written
+        askedFormula = [];
+        formulaAnswer = { status: 'OK', formula: '=flight_cost[1:1][1:1]+flight_cost[1:1][2:2]', note: '' };
+        let v = await type('=fuel plus crew salaries', foot);
+        ok(v === '=flight_cost[1:1][1:1]+flight_cost[1:1][2:2]' && askedFormula.length === 1 && askedModel === 0,
+           'other words become the formula they describe, with no menu search: ' + v);
+        ok(askedFormula[0][0] === '=fuel plus crew salaries' && /"row": 10|"row":10/.test(askedFormula[0][1]),
+           'the generator is told the words and which cell: ' + askedFormula[0][0]);
+        // and when nothing usable comes back the words are never written as a formula
+        formulaAnswer = { status: 'OK', formula: '', note: 'it does not say which rows' };
+        v = await type('=the usual thing please', foot);
+        ok(v === '' && /That did not happen/.test(document.body.textContent || '') && /does not say which rows/.test(document.body.textContent || ''),
+           'and words that cannot be worked out are said, not written: "' + v + '"');
 
         // and a total with nothing to total says why
         await type('=sum the cells above', fc.wells[1][0]);
