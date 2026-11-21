@@ -1083,6 +1083,9 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # Two open tracks were handled and three were not.
+  install_group "Compare across every open track" \
+    "baja/manchester/menu/editor-capabilities.js:THREE OPEN TRACKS ARE NOT FEWER THAN TWO"
   # A selection over an exon meant dragging it by hand.
   install_group "Select exon sequence, from the exon menu" \
     "baja/manchester/menu/menu-factory.js:SEQUENCE, which is what half the other"

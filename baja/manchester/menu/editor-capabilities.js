@@ -254,6 +254,9 @@ function (graph, genegraph_panel_layout) {
         };
         const comparands = (a) => {
             const which = ('' + ((a && a.which) || '')).trim().toLowerCase();
+            // "on all tracks" said outright, which is worth having as a value rather than
+            // leaving to the fallback: it makes the request's own words visible on the card.
+            if (which === 'all' || which === 'all_tracks') return tracks().slice();
             if (which === 'mrna' || which === 'mrna_tracks') {
                 const m = mrnaTracks();
                 if (m.length >= 2) return m;
@@ -270,6 +273,16 @@ function (graph, genegraph_panel_layout) {
             const all = tracks();
             if (all.length === 2) return all.slice();
             try { if (graph.selectedTracks && graph.selectedTracks.length >= 2) return graph.selectedTracks.slice(); } catch (e) { }
+            // THREE OPEN TRACKS ARE NOT FEWER THAN TWO. This ended here, so "compare exon 6
+            // on all tracks" with three open was refused for having no tracks to compare --
+            // every one of them was sitting on screen. Two open was handled and more than
+            // two was not, which is a rule nobody could have guessed from the outside.
+            //
+            // Widening is only silent if nobody is told: the card previews the comparison by
+            // name ("compare exon 6 of DNM1, DNM3 and DNM3-208") before there is anything to
+            // press, so what it will do is on screen, and a request that meant two of them
+            // can say which two.
+            if (all.length >= 2) return all.slice();
             return all.length === 1 ? all.slice() : [];
         };
         const oneSelTrack = () => {
@@ -1764,11 +1777,13 @@ function (graph, genegraph_panel_layout) {
                             + 'selected tracks, or when exactly two are open'
                     },
                     which: {
-                        type: 'enum', values: ['mrna'],
+                        type: 'enum', values: ['mrna', 'all'],
                         about: 'set to mrna for a request about THE mRNA TRACKS as a group '
                             + '("compare the proteins between the mRNA tracks", "the mRNA '
                             + 'tracks"), instead of naming them one by one. A track counts as '
-                            + 'mRNA when its name says so or when it has no introns'
+                            + 'mRNA when its name says so or when it has no introns. Set to '
+                            + 'all for "on all tracks", "across all the tracks", "on every '
+                            + 'track", which compares every track that is open'
                     }
                 },
                 run: async (a) => {
@@ -1817,15 +1832,26 @@ function (graph, genegraph_panel_layout) {
                     const what = a.region
                         ? (('' + a.region).replace(/_/g, ' ') + ((a.index != null) ? (' ' + a.index) : ''))
                         : ({ protein: 'the translated ORFs', coding: 'the coding sequences' }[a.mode] || 'the sequences');
-                    return 'compare ' + what + ' of ' + (names.length ? names.join(' and ') : 'the tracks')
+                    // "DNM1, DNM3 and DNM3-208", not "DNM1 and DNM3 and DNM3-208": this card
+                    // is the only place the user sees which tracks are about to be compared,
+                    // so it has to read like a list of them.
+                    const listed = names.length < 2 ? (names[0] || 'the tracks')
+                        : (names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
+                    return 'compare ' + what + ' of ' + (names.length ? listed : 'the tracks')
                         + ' and report the identity between them';
                 },
                 argBlocker: (a) => {
                     const ts = comparands(a);
                     if (ts.length < 2) {
+                        // Say what IS open: "none could be identified" with three tracks on
+                        // screen reads as the editor having lost them.
+                        const open = tracks();
                         return ts.length
                             ? 'two tracks are needed to compare: only ' + (ts[0].name || 'one') + ' is here'
-                            : 'two tracks are needed to compare, and none could be identified';
+                            : (open.length
+                                ? ('two tracks are needed to compare, and none of these matched: '
+                                    + open.map((x) => x.name || '(unnamed)').join(', '))
+                                : 'two tracks are needed to compare, and none are open');
                     }
                     return '';
                 }
