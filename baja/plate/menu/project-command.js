@@ -158,7 +158,45 @@ function (o) {
         // Before the menubar check as well: whether a formula can be typed has nothing to do
         // with what is on the menu, and "there is no menu on screen" is a strange answer to
         // somebody who typed a sum.
-        if (text.charAt(0) === '=') {
+        //
+        // WORDS AFTER AN "=" ARE A REQUEST FOR A FORMULA, NOT A FORMULA. "=sum the cells
+        // above" was put in the cell exactly as typed, and the cell went red: the "=" said
+        // "I want a formula here" and the rest said which one, in English. Nothing with two
+        // words side by side and no bracket anywhere is a formula the engine can read, so it
+        // is never written as one. The commonest of these, a total (or average, smallest,
+        // largest, count) of what is above, is answered here with the formula itself and no
+        // model. Anything else goes on as a request, with the "=" kept as what it meant.
+        const formulaBody = text.charAt(0) === '=' ? text.slice(1).trim() : '';
+        const words = !!formulaBody && !/[()\[\]{}]/.test(formulaBody)
+            && /[A-Za-z]\w*\s+[A-Za-z]/.test(formulaBody.replace(/\b(and|or|not)\b/gi, '+'));
+        if (words) {
+            const low = formulaBody.toLowerCase();
+            const how = /\b(average|mean|avg)\b/.test(low) ? 'average'
+                : /\b(min|minimum|smallest|lowest|least)\b/.test(low) ? 'min'
+                : /\b(max|maximum|largest|highest|biggest|most)\b/.test(low) ? 'max'
+                : (/\b(count|number of)\b/.test(low) || /\bhow many\b/.test(low)) ? 'count'
+                : /\b(sum|total|add|adds|added)\b/.test(low) ? 'sum' : '';
+            if (how && /\b(above|column)\b/.test(low)) {
+                let put = null;
+                try { put = await exec('baja/plate/ops/sum-above.js', o.pm, { how: how }); }
+                catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+                if (put && put.error) {
+                    say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                        + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                        + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                        + '">Close</button></div>');
+                    try { q('#pc-cancel').onclick = close; } catch (e) { }
+                    return;
+                }
+                close();
+                return;
+            }
+        }
+        const said = words
+            ? (formulaBody + ' (asked for with an "=" in front: the answer is a formula written '
+                + 'into the selected cell, not a typed-in value)')
+            : text;
+        if (!words && text.charAt(0) === '=') {
             let put = null;
             try { put = await exec('baja/plate/ops/set-formula.js', o.pm, { formula: text }); }
             catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
@@ -214,8 +252,8 @@ function (o) {
         const askedKind = asked ? ('' + (asked.type || 'object')).trim() : '';
         const request = asked
             ? ('On the ' + askedKind + (askedName ? (' named "' + askedName + '"') : '')
-                + (asked.about ? (' (' + asked.about + ')') : '') + ': ' + text)
-            : text;
+                + (asked.about ? (' (' + asked.about + ')') : '') + ': ' + said)
+            : said;
 
         let r = null;
         try {

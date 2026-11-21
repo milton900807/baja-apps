@@ -1044,6 +1044,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/fill-table.js:A TABLE WORKED OUT FROM ANOTHER TABLE READS IT, WITH FORMULAS" \
     "py/bio/project/table-fill.py:A TABLE WORKED OUT FROM ANOTHER TABLE IS THE ONE EXCEPTION" \
     "baja/plate/menu/project-capabilities.js:WORKED OUT FROM ANOTHER TABLE MEANS READING IT"
+  # "=sum the cells above" is a request for a formula, not a formula. The command handler
+  # calls the totalling operation as it now stands, so the two go together.
+  install_group "Words after an = become the formula they describe" \
+    "baja/plate/menu/project-command.js:WORDS AFTER AN \"=\" ARE A REQUEST FOR A FORMULA, NOT A FORMULA" \
+    "baja/plate/ops/sum-above.js:A TOTAL ROW IS WRITTEN BEFORE THE FIGURES AS OFTEN AS AFTER THEM"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
