@@ -1089,6 +1089,13 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # Pressing GO on anything slow gave a closed card and a silent canvas, and the stability
+  # row told the user to go and run PSI instead of running it.
+  install_group "The spinner is not opt-in, and PSI runs itself" \
+    "baja/manchester/menu/editor-command.js:EVERY OPERATION THAT TAKES TIME SAYS SO, WITHOUT BEING ASKED TO" \
+    "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
+    "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
+    "baja/bio/compare-view.js:It was run, here, a moment ago"
   # A long comparison said nothing until it finished, and the exon labels were dark type
   # on a dark lane wherever the bar was narrower than the label.
   install_group "The comparison says it is running, and its labels can be read" \

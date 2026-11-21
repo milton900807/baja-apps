@@ -809,6 +809,59 @@ function (graph, genegraph_panel_layout, options) {
                     syncGo();
                 }
 
+                // EVERY OPERATION THAT TAKES TIME SAYS SO, WITHOUT BEING ASKED TO.
+                //
+                // The panel was opt-in: an operation had to raise it itself, so most of them
+                // did not, and pressing GO on anything slow gave a closed card and a silent
+                // canvas. Which operations are slow is not knowable in advance either -- the
+                // same comparison is instant on two short tracks and a minute on two
+                // genomic ones -- so it cannot be decided per operation at all.
+                //
+                // It is decided by the clock instead, at the one place every operation runs
+                // through. Anything still going after a moment gets the spinner, with the
+                // card's own description of the step as its title, so what is running is
+                // named rather than being "Working". Anything that finishes before that
+                // shows nothing, because a flash of a panel on an instant operation is its
+                // own kind of noise.
+                //
+                // An operation that raises its own panel keeps it: working.js is a
+                // singleton, and a second one would replace the first and lose the detail
+                // it was reporting. So this only opens one where there is none.
+                const SPIN_AFTER = 350;
+                const withSpinner = async (p0, run) => {
+                    let w = null, timer = null, mine = false, settled = false;
+                    const title = (p0 && p0.text) ? ('' + p0.text) : 'Working';
+                    timer = setTimeout(async () => {
+                        timer = null;
+                        try { if (window.__bajaWorking) return; } catch (e) { }
+                        try {
+                            w = await exec('baja/lib/working.js',
+                                title.length > 90 ? (title.slice(0, 88) + '\u2026') : title,
+                                (p0 && p0.capability && p0.capability.name) ? p0.capability.name : '');
+                            mine = true;
+                            // It finished while the panel was being built: take it straight
+                            // back down rather than leaving it over a canvas that is done.
+                            if (settled) { try { w.done(); } catch (e) { } w = null; }
+                        } catch (e) { w = null; }
+                    }, SPIN_AFTER);
+                    try {
+                        const out = await run();
+                        settled = true;
+                        return out;
+                    } catch (e) {
+                        settled = true;
+                        // The reason goes on the panel before it closes: a spinner that
+                        // vanishes leaves the same silence it was put up to fill.
+                        try { if (w && mine) w.fail('' + (e && e.message ? e.message : e)); } catch (e2) { }
+                        w = null;
+                        throw e;
+                    } finally {
+                        settled = true;
+                        if (timer) { clearTimeout(timer); timer = null; }
+                        try { if (w && mine) w.done(); } catch (e) { }
+                    }
+                };
+
                 if (go) go.onclick = async () => {
                     // Read BEFORE the panel closes: the boxes go with it.
                     const picked = chosen();
@@ -838,7 +891,8 @@ function (graph, genegraph_panel_layout, options) {
                             failed = now.capability.name + ': more than one track fits (' + now.choices.map((o) => o.label).join(', ') + '): name the one you mean';
                             break;
                         }
-                        try { await (now && now.ok ? now.capability.run(now.args) : x.p.capability.run(x.p.args)); ran++; }
+                        try { await withSpinner(now && now.ok ? now : x.p,
+                            () => (now && now.ok ? now.capability.run(now.args) : x.p.capability.run(x.p.args))); ran++; }
                         catch (e) { failed = (x.p.capability.name + ': ' + (e && e.message ? e.message : e)); break; }
                     }
                     // Operations report their own outcome; only a multi-step plan or a

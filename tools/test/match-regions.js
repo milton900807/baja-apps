@@ -15,6 +15,7 @@ const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
 let searches = [], helpShown = null, pyReply = null, viewModel = null, captureModel = false;
+let psiRuns = [], psiGives = null, psiThrows = false;
 const load = async (p, ...a) => {
     if (('' + p).indexOf('search-region-in-track.py') >= 0) {
         searches.push({ q: a[0], t: a[1], o: a[2] });
@@ -22,6 +23,12 @@ const load = async (p, ...a) => {
     }
     if (('' + p).indexOf('decor-help') >= 0) { helpShown = a[0] && a[0].decor && a[0].decor.help; return true; }
     if (('' + p).indexOf('compare-view.js') >= 0 && captureModel) { viewModel = a[0]; return null; }
+    if (('' + p).indexOf('splicing-profile.js') >= 0) {
+        psiRuns.push({ track: a[2] && a[2].name, mode: a[4] });
+        if (psiThrows) throw new Error('the model did not answer');
+        if (psiGives) { (a[2].track_layers = a[2].track_layers || []).push(psiGives(a[2])); }
+        return true;
+    }
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
     const src = fs.readFileSync(path, 'utf8');
     let f;
@@ -246,15 +253,44 @@ const mk = (name, exons) => {
     ok(blk2 && blk2.a.stab && blk2.a.stab.untrusted === true && blk2.a.stab.pct == null,
        'an untrusted exon carries no percentage at all: ' + JSON.stringify(blk2 && blk2.a.stab));
 
-    // No PSI run: nothing is carried, and the view is told so rather than left to guess.
+    // NOT SCORED YET: run it rather than asking the user to. The note telling someone to
+    // go and run PSI was the editor asking for something it can do itself, on tracks it is
+    // already holding.
     const A6 = mk('DNM1', [[100, 300]]);
     const B6 = mk('DNM3', [[0, 2000]]);
-    viewModel = null; callN = 0;
-    r = await load('baja/bio/match-regions.js', graph, A6, B6, {});
-    ok(viewModel && viewModel.stability && !viewModel.stability.a && !viewModel.stability.b,
-       'an unscored track says so: ' + JSON.stringify(viewModel && viewModel.stability));
-    ok(viewModel && !(viewModel.blocks || [{}])[0].a.stab,
-       'and no number is invented for it');
+    viewModel = null; callN = 0; psiRuns = [];
+    psiGives = (t) => ({ magnitudeMode: 'psi', exonStability: [
+        { exon: 1, lo: 100, hi: 300, psi: 0.88, word: 'stable' },
+        { exon: 1, lo: 850, hi: 1150, psi: 0.7, word: 'stable' }] });
+    r = await load('baja/bio/match-regions.js', graph, A6, B6, { layout: {} });
+    ok(psiRuns.length === 2 && psiRuns.every((x) => x.mode === 'psi'),
+       'PSI is run on both tracks, in psi mode: ' + JSON.stringify(psiRuns));
+    ok(viewModel && viewModel.stability && viewModel.stability.a && viewModel.stability.b,
+       'so the picture has the row after all: ' + JSON.stringify(viewModel && viewModel.stability));
+    ok(viewModel && (viewModel.blocks || [{}])[0].a.stab
+       && (viewModel.blocks || [{}])[0].a.stab.pct === 88,
+       'carrying the number that run produced: ' + JSON.stringify((viewModel.blocks || [{}])[0].a.stab));
+
+    // A track that already has PSI is not re-run: it is a model call per track.
+    psiRuns = []; viewModel = null; callN = 0;
+    r = await load('baja/bio/match-regions.js', graph, A6, B6, { layout: {} });
+    ok(psiRuns.length === 0, 'and it is not run again on a track that has it: ' + JSON.stringify(psiRuns));
+
+    // A PSI RUN THAT FAILS DOES NOT LOSE THE COMPARISON. The picture is the answer; the
+    // stability row is an addition to it.
+    const A7 = mk('DNM1', [[100, 300]]);
+    const B7 = mk('DNM3', [[0, 2000]]);
+    psiRuns = []; viewModel = null; callN = 0; psiGives = null;
+    const realLoad = pyReply;
+    psiThrows = true;
+    r = await load('baja/bio/match-regions.js', graph, A7, B7, { layout: {} });
+    psiThrows = false;
+    ok(!!viewModel, 'the picture is still drawn when PSI fails');
+    ok(viewModel && viewModel.stability && viewModel.stability.tried === true
+       && !viewModel.stability.a,
+       'and the view is told it was TRIED, not that nobody has run it: '
+       + JSON.stringify(viewModel && viewModel.stability));
+    ok(viewModel && !(viewModel.blocks || [{}])[0].a.stab, 'with no number invented for it');
     captureModel = false;
 
     // ---- and the view draws them outside the lanes --------------------------------------

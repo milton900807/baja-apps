@@ -347,6 +347,30 @@ function (graph, qtrack, ttrack, opts) {
                     };
                 };
             };
+            // AND RUN IT IF IT HAS NOT BEEN RUN. Leaving the row empty under a note saying
+            // to go and run PSI is the editor asking for something it can do itself, on
+            // tracks it is already holding. It is a model run per track and it is slow, so
+            // it is said out loud while it happens rather than looking like a stall.
+            let psiTried = false;
+            if (o.runPsi !== false) {
+                for (const t of [qtrack, ttrack]) {
+                    if (!t || stabilityOf(t)) continue;
+                    const nm = t.name || 'the track';
+                    try {
+                        if (W) W.step('Running PSI on ' + nm + ' for exon stability \u2026');
+                        else graph.setMessage('Running PSI on ' + nm + ' \u2026');
+                    } catch (e) { }
+                    psiTried = true;
+                    try {
+                        await exec('baja/bio/splicing/splicing-profile.js', graph,
+                            o.layout || null, t, null, 'psi');
+                    } catch (e) {
+                        // A PSI run that fails is not a reason to lose the comparison: the
+                        // picture is the answer, and the stability row is an addition to it.
+                        try { if (W) W.step('PSI did not run on ' + nm + ' \u00b7 carrying on'); } catch (e2) { }
+                    }
+                }
+            }
             const stabA = stabilityOf(qtrack), stabB = stabilityOf(ttrack);
             const stabAt = (f, x1, x2) => { try { return f ? f(x1, x2) : null; } catch (e) { return null; } };
 
@@ -380,7 +404,10 @@ function (graph, qtrack, ttrack, opts) {
                     rows: rows,
                     // Which tracks have been scored at all, so an empty row reads as "not
                     // run here" rather than as an exon nobody could measure.
-                    stability: { a: !!stabA, b: !!stabB }
+                    // `tried` so the view can tell "nobody has run PSI" from "it was run
+                    // and had nothing to say about these exons": telling someone to run what
+                    // just ran is worse than saying nothing.
+                    stability: { a: !!stabA, b: !!stabB, tried: psiTried }
                 });
             } catch (e) { shown = null; }
 

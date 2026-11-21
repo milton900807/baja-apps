@@ -276,17 +276,24 @@ function (model) {
                 const st = m.stability || {};
                 if (!st.a && !st.b) {
                     return '<div style="font-size:11.5px;color:#9fc4d4;margin-top:4px;">'
-                        + 'Exon stability is not shown: run PSI on '
-                        + esc(A.name || 'either track') + ' or ' + esc(B.name || 'the other')
-                        + ' to put each exon\u2019s inclusion beside it.</div>';
+                        + (st.tried
+                            // It was run, here, a moment ago: telling someone to run what
+                            // just ran reads as the editor not knowing what it did.
+                            ? ('Exon stability is not shown: PSI ran but matched no arcs to the '
+                                + 'annotated exons of either track.')
+                            : ('Exon stability is not shown: run PSI on '
+                                + esc(A.name || 'either track') + ' or ' + esc(B.name || 'the other')
+                                + ' to put each exon\u2019s inclusion beside it.'))
+                        + '</div>';
                 }
                 const missing = !st.a ? (A.name || 'the first track')
                     : !st.b ? (B.name || 'the second track') : null;
+                const why = st.tried ? ' PSI found nothing to score on ' : ' Not run on ';
                 return '<div style="font-size:11.5px;color:#9fc4d4;margin-top:4px;">'
                     + 'The second row of figures is each exon\u2019s stability: how much of the '
                     + 'message keeps it. Green is kept, amber is often skipped, red is mostly '
                     + 'skipped, violet is measured rather than predicted.'
-                    + (missing ? (' Not run on ' + esc(missing) + '.') : '')
+                    + (missing ? (why + esc(missing) + '.') : '')
                     + '</div>';
             })()
             + '</div>'

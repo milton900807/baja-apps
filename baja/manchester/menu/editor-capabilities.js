@@ -1518,7 +1518,12 @@ function (graph, genegraph_panel_layout) {
                     if (!tt) { result('Which track should each one be searched against? Name it.'); return; }
                     const out = await exec('baja/bio/match-regions.js', graph, qt, tt,
                         { features: a.features || 'exons', max_regions: a.max_regions || 60,
-                          strands: a.strands || 'both' });
+                          strands: a.strands || 'both',
+                          // RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT. The
+                          // stability row was left empty with a note saying to go and run
+                          // PSI, which is the editor asking the user to do something it can
+                          // do itself, on tracks it is already holding.
+                          layout: genegraph_panel_layout, runPsi: true });
                     if (out && out.error) result(out.error);
                     else if (out && out.count != null) {
                         result(out.count + ' of ' + out.of + ' ' + (out.plural || 'regions') + ' of '
