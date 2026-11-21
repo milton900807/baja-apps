@@ -1267,7 +1267,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Exon menu items draw before they await" \
     "baja/manchester/menu/menu-factory.js:DRAWS BEFORE IT AWAITS, like its neighbours below"
   install_group "The exon stability report, across every track" \
-    "baja/bio/splicing/exon-stability-report.js:A REFUSAL ENDS THE WAIT AND CARRIES ITS REASON" \
+    "baja/bio/splicing/exon-stability-report.js:TYPESET FOR PAPER, not a screenshot of the panel" \
     "baja/bio/splicing/splicing-profile.js:WHY A RUN DID NOT PRODUCE A LAYER, left on the track" \
     "baja/manchester/menu/editor-capabilities.js:frameRange is this module"
   # Every panel that holds a table has the same problem: fitted to the canvas rect, the

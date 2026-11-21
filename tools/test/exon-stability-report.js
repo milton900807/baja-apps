@@ -326,6 +326,44 @@ const scored = (name, rows, extra) => ({
     ok(/within two minutes/.test(opened.body),
        'a genuine timeout says so: ' + opened.body.replace(/<[^>]+>/g, ' ').slice(0, 120));
 
+    // THE PDF. Typeset for paper rather than a screenshot of a dark scrolling panel, and
+    // printed from a hidden iframe so no popup blocker is involved.
+    opened = null;
+    const t6 = [scored('PDFT', [
+        R({ exon: 1, psi: 0.98, score: 0.04, word: 'constitutive', rank: 0.02, sites: 3 }),
+        R({ exon: 2, psi: 0.44, score: 0.88, word: 'unstable', rank: 0.70, sites: 1 })
+    ], { exonStabilityHasContext: false, untrustedSource: null })];
+    await run({ track: t6, getTracks: () => t6, setMessage() { },
+        canvas: { width: 1200, height: 800 } });
+    const pel = opened.el.querySelector('#esr-pdf');
+    ok(!!pel, 'the report offers a PDF download');
+
+    // Printing happens in an iframe appended to the page, and its document is the
+    // printable version: capture it rather than trusting the link exists.
+    let printed = null;
+    const realPrint = dom.window.HTMLIFrameElement;
+    pel.onclick({ preventDefault() { } });
+    const fr = document.querySelector('iframe[aria-hidden="true"]');
+    ok(!!fr, 'which prints from a hidden iframe, not a popup');
+    try { printed = fr.contentDocument.documentElement.outerHTML; } catch (e) { printed = null; }
+    ok(printed && /Exon stability report/.test(printed), 'the printed page is titled');
+    ok(printed && /PDFT/.test(printed) && /e2/.test(printed),
+       'and carries the tracks and exons');
+    ok(printed && /table-header-group/.test(printed),
+       'with a table header that repeats across pages');
+    ok(printed && /print-color-adjust: exact/.test(printed),
+       'and backgrounds kept, since the bar colours are the content');
+    ok(printed && /color: #111/.test(printed),
+       'typeset dark-on-light rather than printing the dark panel');
+    // THE CAVEATS PRINT WITH IT. A PDF travels further than the panel ever does, so a
+    // table that leaves the room without its qualifications is the dangerous artifact.
+    ok(printed && /Mappability was not checked/i.test(printed),
+       'the mappability caveat is on the printed page');
+    ok(printed && /not comparable/i.test(printed),
+       'and so is the unweighted-score caveat');
+    ok(!/cursor:pointer/.test(printed || ''),
+       'without the panel\u2019s interactive styling');
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

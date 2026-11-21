@@ -564,7 +564,89 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
 
         body += '<div style="margin-top:12px;"><a href="#" id="esr-copy" '
             + 'style="color:#4fd0e6;font:12.5px Arial;">Copy as text</a>'
+            + '<a href="#" id="esr-pdf" style="color:#4fd0e6;font:12.5px Arial;margin-left:14px;">'
+            + 'Download PDF</a>'
             + '<span id="esr-said" style="color:#8fb8c8;font:12.5px Arial;margin-left:8px;"></span></div>';
+
+        // ---------------------------------------------------------------- the printed page --
+        //
+        // TYPESET FOR PAPER, not a screenshot of the panel. The panel is a dark, scrolling
+        // window with inline colours on nearly every element; forcing it light with
+        // overriding styles would either lose the colours that carry meaning or leave pale
+        // grey text on white. The report's data is all still in hand here, so the printed
+        // version is built from it directly: light ground, repeated table header, page
+        // breaks that do not split a track's chart.
+        //
+        // It goes through the browser's own print dialog, where the destination is "Save as
+        // PDF". No library and no server: a page that prints correctly is a PDF that is
+        // correct, and the text stays selectable and searchable rather than becoming an
+        // image of a table.
+        const printableHtml = () => {
+            const when = new Date().toISOString().slice(0, 10);
+            let h = '<!doctype html><html><head><meta charset="utf-8">'
+                + '<title>Exon stability report</title><style>'
+                + '@page { size: A4 landscape; margin: 14mm; }'
+                // Chrome drops backgrounds when printing unless told otherwise, and in this
+                // report the bar colours ARE the content.
+                + '* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
+                + 'body { font: 11px Helvetica, Arial, sans-serif; color: #111; margin: 0; }'
+                + 'h1 { font-size: 16px; margin: 0 0 2px 0; }'
+                + '.sub { color: #555; font-size: 11px; margin-bottom: 10px; }'
+                + '.trk { page-break-inside: avoid; margin-bottom: 10px; }'
+                + '.trk h2 { font-size: 12px; margin: 0 0 3px 0; }'
+                + '.bars { display: flex; align-items: flex-end; gap: 2px; height: 62px;'
+                + ' border-bottom: 1px solid #ccc; padding-bottom: 2px; }'
+                + '.bar { width: 16px; text-align: center; }'
+                + '.n { font-size: 8px; color: #666; }'
+                + 'table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 8px; }'
+                + 'th { text-align: left; border-bottom: 1.5px solid #333; padding: 3px 4px; }'
+                + 'td { border-bottom: 1px solid #e3e3e3; padding: 3px 4px; }'
+                + 'thead { display: table-header-group; }'   // repeat the header on every page
+                + 'tr { page-break-inside: avoid; }'
+                + '.foot { margin-top: 10px; font-size: 9.5px; color: #444; line-height: 1.5; }'
+                + '.foot div { margin-top: 4px; }'
+                + '</style></head><body>'
+                + '<h1>Exon stability report</h1>'
+                + '<div class="sub">' + H(summary) + ' \u00b7 ' + when + '</div>';
+
+            for (const nm of Object.keys(byTrack)) {
+                const es = byTrack[nm].slice().sort((a, b) => (+a.exon) - (+b.exon));
+                const worst = es.filter((r) => !r.untrusted)
+                    .sort((a, b) => (b.rank || 0) - (a.rank || 0))[0];
+                h += '<div class="trk"><h2>' + H(nm) + ' \u00b7 ' + es.length + ' exon'
+                    + (es.length === 1 ? '' : 's')
+                    + (worst ? (' \u00b7 least reliable: e' + H(worst.exon)) : '') + '</h2><div class="bars">';
+                for (const r of es) {
+                    const shown = r.untrusted ? null : (r.measured ? +r.measured.psi : +r.psi);
+                    const hh = (shown == null) ? 5
+                        : Math.max(2, Math.round(56 * Math.max(0, Math.min(1, shown))));
+                    h += '<div class="bar"><div style="height:' + hh + 'px;background:'
+                        + colourOf(r) + ';"></div><div class="n">' + H(r.exon) + '</div></div>';
+                }
+                h += '</div></div>';
+            }
+
+            h += '<table><thead><tr><th>#</th><th>track</th><th>exon</th><th>inclusion</th>'
+                + '<th>reliability</th><th>with variant</th><th>cons</th><th>sites</th>'
+                + '<th>score</th></tr></thead><tbody>';
+            rows.forEach((r, i) => {
+                h += '<tr><td>' + (i + 1) + '</td><td>' + H(r.track) + '</td><td>e' + H(r.exon) + '</td>'
+                    + '<td>' + (r.measured ? ('~' + pc(r.measured.psi) + ' measured')
+                        : r.untrusted ? 'not trusted' : pc(r.psi)) + '</td>'
+                    + '<td>' + H(r.word) + '</td>'
+                    + '<td>' + (r.variant ? (pc(r.variant.psiAlt) + ' '
+                        + H((r.variant.ref || '?') + '>' + (r.variant.alt || '?'))) : '') + '</td>'
+                    + '<td>' + (r.conservation == null ? '' : (+r.conservation).toFixed(2)) + '</td>'
+                    + '<td>' + H(r.sites == null ? 0 : r.sites) + '</td>'
+                    + '<td>' + (r.rank == null ? '' : (+r.rank).toFixed(3)) + '</td></tr>';
+            });
+            h += '</tbody></table>';
+            // The caveats print with it. A table that leaves the room without them is the
+            // same table with its qualifications quietly dropped, and a PDF travels further
+            // than the panel ever does.
+            h += '<div class="foot">' + foot.map((f) => '<div>' + f + '</div>').join('') + '</div>';
+            return h + '</body></html>';
+        };
 
         // The same panel that has been showing progress since the start becomes the
         // report: opening a second one here would leave the progress window behind it.
@@ -614,6 +696,38 @@ function (graph, genegraph_panel_layout, presetTracks, navigate) {
         // Plain text for pasting into a document or a ticket. The overlay keeps event
         // handlers, unlike the host's showModal, so this can be wired directly.
         try {
+            // PRINTED FROM A HIDDEN IFRAME, not a new window. A window.open is a popup and
+            // gets blocked often enough to be unreliable, and it leaves a stray tab behind;
+            // an iframe prints from inside this page and is removed afterwards.
+            const pdf = p && p.body && p.body.querySelector('#esr-pdf');
+            if (pdf) {
+                pdf.onclick = (e) => {
+                    try { e.preventDefault(); } catch (e2) { }
+                    const said = p.body.querySelector('#esr-said');
+                    let fr = null;
+                    try {
+                        fr = document.createElement('iframe');
+                        fr.setAttribute('aria-hidden', 'true');
+                        fr.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;'
+                            + 'opacity:0;border:0;';
+                        document.body.appendChild(fr);
+                        const d = fr.contentDocument || (fr.contentWindow && fr.contentWindow.document);
+                        d.open(); d.write(printableHtml()); d.close();
+                        // The dialog has to wait for layout, or it prints a blank first page.
+                        setTimeout(() => {
+                            try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e2) { }
+                            // Removed well after the dialog opens: printing from a frame that
+                            // has been detached produces an empty document in some browsers.
+                            setTimeout(() => { try { fr.remove(); } catch (e3) { } }, 60000);
+                        }, 250);
+                        if (said) said.textContent = 'choose "Save as PDF" in the print dialog';
+                    } catch (e2) {
+                        try { if (fr) fr.remove(); } catch (e3) { }
+                        if (said) said.textContent = 'could not open the print dialog';
+                    }
+                };
+            }
+
             const a = p && p.body && p.body.querySelector('#esr-copy');
             if (a) {
                 a.onclick = (e) => {
