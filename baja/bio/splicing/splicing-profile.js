@@ -687,7 +687,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
             if (!all.length) { graph.setMessage(' No tracks on the canvas to run on. '); return; }
             // One history entry for the whole board run, so a single undo takes it all back.
             try { graph.pushOntoHistory(); } catch (e) { }
-            (async () => {
+            return (async () => {
                 let done = 0;
                 for (let i = 0; i < all.length; i++) {
                     const t = all[i];
@@ -712,6 +712,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                 const __msg = ' BajaSplice applied to ' + done + ' of ' + all.length
                     + ' track' + (all.length === 1 ? '' : 's') + '. ';
                 try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
+                return done;
             })();
         };
 
@@ -736,12 +737,11 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                 // An explicit list satisfies the board-level request: consume the flag so it does
                 // not turn the next per-track action into a board-wide one.
                 try { window.__bajaApplyAllTracks = false; } catch (e) { }
-                runAllTracks(mode, __presetList);
-                return;
+                return runAllTracks(mode, __presetList);
             }
             let __all = false;
             try { __all = !!window.__bajaApplyAllTracks; window.__bajaApplyAllTracks = false; } catch (e) { }
-            if (__all) { try { graph.setMouseMode('navigate'); } catch (e) { } restoreEditor(); runAllTracks(mode); return; }
+            if (__all) { try { graph.setMouseMode('navigate'); } catch (e) { } restoreEditor(); return runAllTracks(mode); }
             graph.setMouseMode('msg: Click on a track to build a splicing sashimi plot');
             restoreEditor();
             // Launched from the Selected Sequence menu — track and range already known.
@@ -754,8 +754,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                     graph.setMessage(' Running splicing on ' + (pt.name || 'the selected track')
                         + (pr ? (' (' + (pr.end - pr.start) + ' nt selection)') : ' (whole track)') + '… ');
                 } catch (e) { }
-                runOnTrack(pt, mode, pr);
-                return;
+                return runOnTrack(pt, mode, pr);
             }
             graph.addMouseDownListener(async (x, y) => {
                 const ti = graph.getTrack(x, y);
@@ -773,8 +772,24 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
         // choice they have just made. The menu remains only for a caller that passes nothing.
         const __mode = (typeof presetMode === 'string') ? presetMode.trim().toLowerCase() : '';
         if (__mode === 'sites' || __mode === 'psi') {
-            armTrackClick(__mode);
-            resolve(true);
+            // A CALLER THAT WAITED GOT ITS ANSWER BEFORE THE MODEL HAD RUN.
+            //
+            // This resolved as soon as the run was STARTED. A person clicking the model in
+            // the library cannot tell the difference, but a caller that awaits it can: the
+            // exon comparison awaited this, read the track the instant it came back, found
+            // no PSI layer because the model was still running, and reported "PSI has not
+            // been run on it" one line under "PSI was run on both tracks just now". The run
+            // then finished into a canvas nobody was looking at any more.
+            //
+            // So when the track and the mode are both known, the promise is the run: it
+            // resolves with what the run returned, false when it was refused. Only the path
+            // that is still waiting for a click resolves early, because there is nothing to
+            // wait for yet.
+            let started = null;
+            try { started = armTrackClick(__mode); } catch (e) { started = null; }
+            if (started && typeof started.then === 'function') {
+                started.then((r) => resolve(r === undefined ? true : r), () => resolve(false));
+            } else resolve(true);
             return;
         }
         graph.showMenu([

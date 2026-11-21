@@ -1157,6 +1157,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # splicing-profile resolved as soon as the run was STARTED, so the exon comparison read
+  # the track before the model had finished and reported that PSI had never been run.
+  install_group "A preset PSI run is the promise, not the start of one" \
+    "baja/bio/splicing/splicing-profile.js:A CALLER THAT WAITED GOT ITS ANSWER BEFORE THE MODEL HAD RUN"
   # The panel destroyed whatever was up before it, so an operation that ran another one
   # lost its own panel partway through and reported the rest into a detached node.
   install_group "A nested panel does not end the one under it" \
