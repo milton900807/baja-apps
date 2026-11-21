@@ -20,7 +20,7 @@ ok(/const asked = \(context && context\.asked_from\) \|\| null;/.test(pc),
    'the request reads what it was asked from, out of the context');
 ok(/'On the ' \+ askedKind/.test(pc), 'and names the kind of window first');
 ok(/' named "' \+ askedName/.test(pc), 'then the window’s own name');
-ok(/\+ ': ' \+ text\)/.test(pc), 'then what was typed');
+ok(/\+ ': ' \+ said\)/.test(pc), 'then what was typed');
 ok(/: text;/.test(pc), 'and a request with nothing to preface is sent as it was typed');
 ok(/menu-pick\.py', request,/.test(pc), 'the prefixed request is what the model is asked');
 

@@ -13,9 +13,20 @@ function () {
     // formula punctuation at all and at least three plain words is treated as a sentence.
 
     const looksLikeASentence = (str) => {
-        const t = ('' + (str || '')).trim();
+        let t = ('' + (str || '')).trim();
         if (t.length < 8) return false;
-        if (/^=/.test(t)) return false;
+
+        // AN "=" IN FRONT OF A SENTENCE DOES NOT MAKE IT A FORMULA. "=sum the cells above"
+        // was handed to the formula engine because of its first character, written into the
+        // cell exactly as typed, and the cell went red. The "=" there means "I want a
+        // formula", and the words say which one. So the "=" is set aside and what follows
+        // is held to the same lopsided test as anything else: one bracket, colon-joined
+        // range or second "=" and it is a formula again, as =mean(A1:A12) always was.
+        if (/^=/.test(t)) {
+            t = t.replace(/^=\s*/, '');
+            // Arithmetic is not prose, whatever is on either side of it.
+            if (/[+*/^<>]|\d/.test(t)) return false;
+        }
 
         // Brackets, parentheses, pipes, equals and semicolons belong to the formula language
         // and to almost nothing anybody types as a request.
