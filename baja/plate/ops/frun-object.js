@@ -2221,6 +2221,12 @@ function (expression, pt, owner) {
                             // pass's answer instead. Skipping it there is what stops a total
                             // over an open range from growing by itself forever.
                             if (__ownWells.size && __ownWells.has(item)) continue;
+                            // AN EMPTY CELL ADDS NOTHING, WHATEVER EMPTY LOOKS LIKE. null
+                            // and '' already came through as 0, but a cell never written to
+                            // holds undefined, which is NaN, and the total went red over a
+                            // column that simply had not been filled in yet.
+                            if (item === undefined || (item && typeof item === 'object'
+                                && 'value' in item && item.value === undefined)) continue;
                             const value = (typeof item === 'object' && item !== null && 'value' in item)
                                 ? Number(item.value)
                                 : Number(item);

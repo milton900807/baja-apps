@@ -34,6 +34,182 @@ function (graph, genegraph_panel_layout) {
 
     return (async () => {
         const server = () => { try { return window['env']['apiUrl']; } catch (e) { return ''; } };
+        // ONE DESCRIPTION OF WHICH LAYERS A REQUEST MEANS, loaded once so the card that
+        // previews a removal and the removal itself cannot answer differently. Previews are
+        // synchronous, which is why it is awaited here rather than where it is used.
+        let LM = null;
+        try { LM = await exec('baja/bio/layer-match.js'); } catch (e) { LM = null; }
+
+        // THE GENE A TRACK IS OF. A track is named for its gene and then for what was made
+        // from it -- SPAG9, SPAG9_mRNA, SPAG9_mRNA_copy, MAPK8IP3** -- and Ensembl wants the
+        // symbol alone. The suffixes this strips are the ones the editor itself adds; a name
+        // it does not recognise is passed through untouched rather than guessed at, since a
+        // wrong symbol looks up somebody else's gene and says nothing about this track.
+        const geneOfTrack = (t) => {
+            let n = ('' + ((t && t.name) || '')).trim();
+            if (!n) return '';
+            n = n.replace(/\*+$/, '');
+            n = n.replace(/[_\-\s]*(copy|pathogenic)\d*$/i, '');
+            n = n.replace(/[_\-\s]*(mrna|pre_?mrna|cds|exons?|transcript|protein|gene)$/i, '');
+            // NOT a trailing number: the digits in SPAG9, MAPK8IP3 and NDUFA4 are part of
+            // the symbol, and stripping them asked Ensembl about a gene called SPAG.
+            // A copy's number is already gone with the word "copy" above it.
+            return n.trim();
+        };
+        // THE TRACK THE MAP STARTS FROM, and where its exons fall in PROTEIN residues.
+        //
+        // The map is a protein map: Ensembl's homology alignments are protein alignments,
+        // so a column is a residue and not a base. That is worth saying on the picture
+        // rather than leaving someone to work out why a 6 kb transcript is 1,321 columns
+        // wide. The exon boundaries still belong on it, because the question that follows
+        // "where is this conserved" is almost always "which exon is that".
+        //
+        // RESIDUE k IS CODON k, so an exon that covers a run of codons covers a run of
+        // residues. The walk is the one the editor draws the ORF from, so a boundary lands
+        // where the user can see it rather than on an index into a string.
+        const sourceOf = (t) => {
+            if (!t) return null;
+            const out = { track: '' + (t.name || 'the track') };
+            try { if (t.transcriptID) out.transcript = '' + t.transcriptID; } catch (e) { }
+            const pos = [], seen = {};
+            try {
+                const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
+                for (const c of cdsi) {
+                    if (!c || c.ci !== 0 || seen[c.codon_index]) continue;
+                    const aa = '' + (c.aa || '');
+                    if (!aa || /^stop$/i.test(aa)) break;
+                    seen[c.codon_index] = 1;
+                    pos.push(+c.index);
+                }
+            } catch (e) { }
+            out.residues = pos.length || undefined;
+            if (!pos.length) return out;
+
+            let exons = [];
+            try {
+                const R = regionsNow(t);
+                exons = (R && R.exons) ? (R.exons() || []) : [];
+            } catch (e) { exons = []; }
+            if (!exons.length) return out;
+
+            // Which exon each codon sits in, then the runs of residues per exon. A codon
+            // that straddles a junction belongs to the exon its FIRST base is in, which is
+            // the one a reader would point at.
+            const spans = exons.map((e, i) => ({
+                n: i + 1, lo: Math.min(+e.xi, +e.xf), hi: Math.max(+e.xi, +e.xf)
+            }));
+            const runs = [];
+            for (let r = 0; r < pos.length; r++) {
+                const x = pos[r];
+                let which = 0;
+                for (const sp of spans) { if (x >= sp.lo && x <= sp.hi) { which = sp.n; break; } }
+                if (!which) continue;
+                const last = runs[runs.length - 1];
+                if (last && last.n === which && last.end === r) last.end = r + 1;
+                else runs.push({ n: which, start: r, end: r + 1 });
+            }
+            // 1-based and inclusive, to match everything else the map prints.
+            out.exons = runs.map((x) => ({ n: x.n, start: x.start + 1, end: x.end }));
+
+            // THE VARIANTS ON THE TRACK, CARRIED ONTO THE PROTEIN. A missense variant is a
+            // statement about a residue, and the conservation map is drawn in residues, so
+            // the two belong on the same picture: a variant that lands in a column where
+            // every species agrees is a different proposition from one in a column where
+            // none of them do, and that comparison is the whole reason to look.
+            //
+            // Only missense. A synonymous change alters no residue, a nonsense one ends
+            // the protein rather than changing a residue in it, and an indel shifts
+            // everything after it; drawing any of those as a point on a residue would say
+            // something untrue about that residue. They are counted and named in the note
+            // rather than dropped in silence.
+            const AA = {
+                TTT: 'F', TTC: 'F', TTA: 'L', TTG: 'L', CTT: 'L', CTC: 'L', CTA: 'L', CTG: 'L',
+                ATT: 'I', ATC: 'I', ATA: 'I', ATG: 'M', GTT: 'V', GTC: 'V', GTA: 'V', GTG: 'V',
+                TCT: 'S', TCC: 'S', TCA: 'S', TCG: 'S', CCT: 'P', CCC: 'P', CCA: 'P', CCG: 'P',
+                ACT: 'T', ACC: 'T', ACA: 'T', ACG: 'T', GCT: 'A', GCC: 'A', GCA: 'A', GCG: 'A',
+                TAT: 'Y', TAC: 'Y', TAA: '*', TAG: '*', CAT: 'H', CAC: 'H', CAA: 'Q', CAG: 'Q',
+                AAT: 'N', AAC: 'N', AAA: 'K', AAG: 'K', GAT: 'D', GAC: 'D', GAA: 'E', GAG: 'E',
+                TGT: 'C', TGC: 'C', TGA: '*', TGG: 'W', CGT: 'R', CGC: 'R', CGA: 'R', CGG: 'R',
+                AGT: 'S', AGC: 'S', AGA: 'R', AGG: 'R', GGT: 'G', GGC: 'G', GGA: 'G', GGG: 'G'
+            };
+            try {
+                const vs = (t.snpindels || []).filter(Boolean);
+                const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
+                const byIndex = {};
+                for (const c of cdsi) { if (c) byIndex[Math.round(+c.index)] = c; }
+                const hits = [], skipped = { synonymous: 0, nonsense: 0, outside: 0, indel: 0 };
+                for (const v of vs) {
+                    const ref = ('' + (v.reference || v.ref || '')).toUpperCase();
+                    const alt = ('' + (v.alternate || v.alt || '')).toUpperCase();
+                    if (ref.length !== 1 || alt.length !== 1) { skipped.indel++; continue; }
+                    const c = byIndex[Math.round(+v.xi)];
+                    if (!c) { skipped.outside++; continue; }
+                    const ci = +c.ci, codon = ('' + (c.codon || '')).toUpperCase();
+                    if (codon.length !== 3 || !(ci >= 0 && ci <= 2)) { skipped.outside++; continue; }
+                    const wt = AA[codon], mu = AA[codon.slice(0, ci) + alt + codon.slice(ci + 1)];
+                    if (!wt || !mu) { skipped.outside++; continue; }
+                    if (wt === mu) { skipped.synonymous++; continue; }
+                    if (mu === '*') { skipped.nonsense++; continue; }
+                    hits.push({ residue: (+c.codon_index || 0) + 1, from: wt, to: mu,
+                        label: wt + ((+c.codon_index || 0) + 1) + mu,
+                        id: '' + (v.id || '') });
+                }
+                hits.sort((x, y) => x.residue - y.residue);
+                if (hits.length) out.variants = hits;
+                out.variants_skipped = skipped;
+            } catch (e) { }
+            return out;
+        };
+
+        // LOOKED UP ONCE PER GENE. The homology call takes the better part of a minute
+        // because Ensembl aligns each species when it is asked, and the map and the track
+        // trace want the same answer. Asking twice for the same gene is a minute of
+        // someone's time for nothing, so the last answer is kept and handed back.
+        const conservationFor = async (sym, species, kind, w) => {
+            try {
+                const c = window.__bajaConservationCache;
+                if (c && c.gene === sym && c.species === species && c.kind === kind && c.data) {
+                    try { if (w) w.step('Using the alignments already fetched for ' + sym + ' \u2026'); } catch (e) { }
+                    return c.data;
+                }
+            } catch (e) { }
+            let r = null;
+            try {
+                r = await exec('py/bio/homolog-conservation.py', sym, species, kind,
+                    JSON.stringify({ max_species: 12 }));
+            } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
+            if (r && r.status === 'OK' && (r.species_rows || []).length) {
+                try {
+                    window.__bajaConservationCache = { gene: sym, species: species, kind: kind, data: r };
+                } catch (e) { }
+            }
+            return r;
+        };
+
+        const paralogGene = (a) => {
+            const said = ('' + ((a && a.gene) || '')).trim();
+            // A PARAMETER'S DEFAULT ARRIVES AS ITS OWN PROSE. An optional param left unset
+            // comes through as the sentence describing the default -- "taken from the
+            // track's own name" -- and taking that as a symbol asked Ensembl for a gene by
+            // that name. A symbol has no spaces, which is the cheap and reliable test.
+            if (said && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(said)) return said;
+            const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+            return t ? geneOfTrack(t) : '';
+        };
+
+        // WHICH TRACKS A REMOVAL ACTS ON: the one named, else the one that is selected or
+        // the only one open, else EVERY open track that actually carries a matching layer.
+        // Refusing with "say which track" when the editor can see exactly which tracks have
+        // one is work handed back to the user for nothing.
+        const removalTracks = (a) => {
+            const m = '' + ((a && a.match) || '');
+            if (a && a.track) { const t = matchTrack(a.track); return t ? [t] : []; }
+            const one = oneTrack();
+            if (one) return [one];
+            if (!LM) return [];
+            return tracks().filter((t) => Array.isArray(t.track_layers)
+                && t.track_layers.length && LM.match(t.track_layers, m).length);
+        };
         const tracks = () => (graph.track || []).filter(Boolean);
         const hasSel = (t) => {
             try { return t && t.markstart != null && t.markend != null && t.markend > t.markstart && t.markstart >= 0; }
@@ -78,6 +254,9 @@ function (graph, genegraph_panel_layout) {
         };
         const comparands = (a) => {
             const which = ('' + ((a && a.which) || '')).trim().toLowerCase();
+            // "on all tracks" said outright, which is worth having as a value rather than
+            // leaving to the fallback: it makes the request's own words visible on the card.
+            if (which === 'all' || which === 'all_tracks') return tracks().slice();
             if (which === 'mrna' || which === 'mrna_tracks') {
                 const m = mrnaTracks();
                 if (m.length >= 2) return m;
@@ -94,6 +273,16 @@ function (graph, genegraph_panel_layout) {
             const all = tracks();
             if (all.length === 2) return all.slice();
             try { if (graph.selectedTracks && graph.selectedTracks.length >= 2) return graph.selectedTracks.slice(); } catch (e) { }
+            // THREE OPEN TRACKS ARE NOT FEWER THAN TWO. This ended here, so "compare exon 6
+            // on all tracks" with three open was refused for having no tracks to compare --
+            // every one of them was sitting on screen. Two open was handled and more than
+            // two was not, which is a rule nobody could have guessed from the outside.
+            //
+            // Widening is only silent if nobody is told: the card previews the comparison by
+            // name ("compare exon 6 of DNM1, DNM3 and DNM3-208") before there is anything to
+            // press, so what it will do is on screen, and a request that meant two of them
+            // can say which two.
+            if (all.length >= 2) return all.slice();
             return all.length === 1 ? all.slice() : [];
         };
         const oneSelTrack = () => {
@@ -140,6 +329,38 @@ function (graph, genegraph_panel_layout) {
         // and the Ask card shows a Go button for each. __track never comes from the model --
         // validate() drops any key that is not a declared parameter -- only from a choice.
         const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
+        // The track a MODEL runs on: the one chosen or named, else the selected one, else the
+        // only one open. Same rule as pickTrack with the selection preferred, which is what a
+        // model wants -- you select a transcript and run a model on it.
+        const pickModelTrack = (a) => (a && a.__track)
+            || (a && a.track ? matchTrack(a.track) : (oneSelTrack() || oneTrack()));
+        // THE SHELF OF MODELS, as the answer when one of them cannot be placed. A request
+        // that named a model and could not be run is still a request for that model: the
+        // shelf lists every model with the track to run it on, which is a way forward where
+        // "say which track" is a dead end with a Cancel button.
+        const openModelShelf = () => {
+            try { graph.showSideMenu(null); } catch (e) { }
+            return exec('baja/ml/models-library.js', graph, genegraph_panel_layout, scopeTracks());
+        };
+        const MODEL_SHELF = { label: 'Open the models', run: () => openModelShelf() };
+
+        // AN UNSET OPTIONAL PARAM ARRIVES AS THE PROSE OF ITS DEFAULT, not as the value: a
+        // tour with no time given hands this the whole sentence the default was written in.
+        // So both of these read what they need out of whatever they are given and fall back
+        // to the sensible thing, rather than trusting the argument to be a number or a word.
+        // A plain "intron" wins; anything naming BOTH is the default's own prose describing
+        // the choice ('what to step through: "exons" or "introns"'), which is not a choice.
+        const tourKind = (a) => {
+            const v = ('' + ((a && a.region) || '')).toLowerCase();
+            return (/intron/.test(v) && !/exon/.test(v)) ? 'intron' : 'exon';
+        };
+        const tourSeconds = (a) => {
+            const m = ('' + ((a && a.seconds) != null ? a.seconds : '')).match(/\d+(?:\.\d+)?/);
+            const n = m ? parseFloat(m[0]) : NaN;
+            // A tour that flickers past is not a tour, and one that holds for a minute an
+            // exon is a hang with a progress bar.
+            return (isFinite(n) && n > 0) ? Math.min(60, Math.max(0.2, n)) : 3;
+        };
         // The track a compound operation runs on: the one named or chosen, else the selected
         // one IF it carries compounds, else the first that does. A report on -- or a screen of
         // -- an empty track is not what was asked for, even when that track is the selected one.
@@ -490,6 +711,341 @@ function (graph, genegraph_panel_layout) {
                 }
             },
 
+            {
+                // THE ANSWER FOR THIS REGION, WHERE THE REGION IS. The full-screen map
+                // answers "where is this gene conserved" for the whole protein; with a
+                // stretch selected the question is narrower, and so is the useful answer:
+                // how conserved is THIS, against the rest of the same protein, drawn on the
+                // bases rather than in a window with its own axis to line up by eye.
+                name: 'draw_conservation',
+                summary: 'DRAW CONSERVATION ON THE TRACK ITSELF, as a trace along the coding '
+                    + 'sequence: one bar per codon, full height where every species has the '
+                    + 'same residue. WHEN A STRETCH OF SEQUENCE IS SELECTED it also reports '
+                    + 'how conserved that stretch is against the rest of the same protein, '
+                    + 'which is the only way a percentage means anything. This is the answer '
+                    + 'to "show the conservation of this region", "how conserved is this '
+                    + 'bit", "draw conservation on the track", "is this stretch conserved". '
+                    + 'Use conservation_map instead for the full-screen picture of every '
+                    + 'species side by side; this one puts the numbers on the canvas.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the track to draw on, by name as canvas_now gives it. Omit it '
+                            + 'when there is only one track or one is selected'
+                    },
+                    gene: {
+                        type: 'string', default: 'taken from the track\u2019s own name',
+                        about: 'the gene symbol, only when the track is named for something else'
+                    },
+                    across: {
+                        type: 'enum', values: ['species', 'paralogs'], default: 'species',
+                        about: 'species for orthologs, which is what conservation nearly always '
+                            + 'means; paralogs to compare the gene against its own family'
+                    },
+                    species: {
+                        type: 'string', default: 'human',
+                        about: 'the species the TRACK is in, only if the request says one'
+                    }
+                },
+                run: async (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const sym = paralogGene(a) || ('' + (t.name || ''));
+                    if (!sym) { result('Which gene? Name it, or select a track.'); return; }
+                    const species = ('' + ((a && a.species) || 'human')).trim() || 'human';
+                    const kind = (('' + ((a && a.across) || 'species')).indexOf('paralog') >= 0)
+                        ? 'paralogues' : 'orthologues';
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Conservation of ' + sym,
+                            'Asking Ensembl for the ' + (kind === 'paralogues' ? 'paralogs' : 'orthologs')
+                            + ' and their alignments.');
+                    } catch (e) { w = null; }
+                    const r = await conservationFor(sym, species, kind, w);
+                    if (!r || r.status !== 'OK' || !(r.species_rows || []).length) {
+                        const why = (r && r.error) || (r && r.note)
+                            || 'the conservation could not be worked out';
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
+                        return r;
+                    }
+                    try { if (w) w.step('Drawing it on ' + (t.name || 'the track') + ' \u2026'); } catch (e) { }
+                    // The selection if there is one, else the whole coding sequence.
+                    const rg = hasSel(t) ? rangeOf(t) : null;
+                    const out = await exec('baja/bio/conservation-layer.js', graph, t, r, rg);
+                    try { if (w) w.done(); } catch (e) { }
+                    if (out && out.error) result(out.error);
+                    else if (out) result(out.answer);
+                    return out;
+                },
+                preview: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const sym = paralogGene(a) || (t ? ('' + (t.name || '')) : '');
+                    const where = t ? (t.name || 'the track') : 'the track';
+                    return (t && hasSel(t))
+                        ? ('draw conservation of ' + sym + ' on ' + where + ' and measure the '
+                            + 'selected stretch against the rest of the protein')
+                        : ('draw conservation of ' + sym + ' along ' + where
+                            + ' \u00b7 select a stretch first to have it measured on its own');
+                },
+                argBlocker: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) {
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to draw on: there is more than one open';
+                    }
+                    // Said before the button: a gene track with no ORF has no residues, and
+                    // the request can be pointed at the mRNA instead.
+                    try {
+                        const has = t.orf && Array.isArray(t.orf.cdsi) && t.orf.cdsi.length;
+                        if (!has) {
+                            return (t.name || 'that track') + ' has no reading frame on it, so '
+                                + 'there is no codon to put a residue on';
+                        }
+                    } catch (e) { }
+                    return '';
+                }
+            },
+
+            {
+                // ONE TRACK, MANY SPECIES. "show spag9 conservation map" was read as
+                // draw_similarity_map and refused for naming only one track: that operation
+                // compares two tracks that are both open, and this question names one track
+                // and no second because the others are not on the canvas at all -- they are
+                // in Ensembl. The map was reachable only from the homolog list, which is a
+                // long way round from a sentence that says exactly what it wants.
+                name: 'conservation_map',
+                summary: 'SHOW WHERE A GENE IS CONSERVED ACROSS SPECIES, as a full-screen map: '
+                    + 'one row per species, one column per residue of this gene, coloured by '
+                    + 'whether each species has the same residue, a conservative substitution, '
+                    + 'a different one or nothing aligned there, with a band counting how many '
+                    + 'agree and a list of the runs where they all do. This is the answer to '
+                    + '"show the conservation map", "plot the conserved regions across '
+                    + 'species", "where is this conserved", "which parts are conserved in '
+                    + 'mouse and fly", "show sequence identity across species". It needs ONE '
+                    + 'track and finds the species itself: do NOT use draw_similarity_map, '
+                    + 'which needs two tracks already on the canvas, and do NOT ask for '
+                    + 'list_homologs first.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the track whose gene to map, by name as canvas_now gives it. '
+                            + 'Omit it when there is only one track or one is selected'
+                    },
+                    gene: {
+                        type: 'string', default: 'taken from the track\u2019s own name',
+                        about: 'the gene symbol, only when the request names a gene rather '
+                            + 'than pointing at a track'
+                    },
+                    across: {
+                        type: 'enum', values: ['species', 'paralogs'], default: 'species',
+                        about: 'species for orthologs, which is what conservation nearly always '
+                            + 'means; paralogs to compare the gene against its own family'
+                    },
+                    species: {
+                        type: 'string', default: 'human',
+                        about: 'the species the TRACK is in, only if the request says one'
+                    }
+                },
+                opens: true,
+                run: async (a) => {
+                    const sym = paralogGene(a);
+                    if (!sym) { result('Which gene? Name it, or select a track.'); return; }
+                    const species = ('' + ((a && a.species) || 'human')).trim() || 'human';
+                    const kind = (('' + ((a && a.across) || 'species')).indexOf('paralog') >= 0)
+                        ? 'paralogues' : 'orthologues';
+                    // A FORTY-SECOND WAIT NEEDS A PANEL, NOT A CORNER MESSAGE. setMessage
+                    // puts one line at the edge of the screen, on a timer, and says nothing
+                    // more while the wait goes on -- which reads as nothing having happened,
+                    // and invites a second press that starts the whole thing again.
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Conservation map for ' + sym,
+                            'Asking Ensembl for the ' + (kind === 'paralogues' ? 'paralogs' : 'orthologs')
+                            + ' and their alignments. Ensembl aligns each species when it is '
+                            + 'asked, so this usually takes half a minute.');
+                    } catch (e) { w = null; }
+                    const r = await conservationFor(sym, species, kind, w);
+                    if (!r || r.status !== 'OK') {
+                        const why = (r && r.error) || 'the conservation map could not be built';
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
+                        return r;
+                    }
+                    if (!(r.species_rows || []).length) {
+                        // Nothing to stack is an answer about the gene, not a failure.
+                        const why = r.note || ('Ensembl has no aligned '
+                            + (kind === 'paralogues' ? 'paralog' : 'ortholog') + ' of ' + sym
+                            + ' to build a map from.');
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
+                        return r;
+                    }
+                    try { if (w) w.step('Stacking ' + (r.species_rows || []).length
+                        + ' species across ' + r.length + ' residues \u2026'); } catch (e) { }
+                    // The track this started from, named on the picture, with its exons: a
+                    // map with no starting point on it is a map of nothing in particular.
+                    try {
+                        const st = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                        r.source = sourceOf(st);
+                    } catch (e) { }
+                    await exec('baja/bio/conservation-map.js', graph, r);
+                    try { if (w) w.done(); } catch (e) { }
+                    result(r.note || ((r.species_rows || []).length + ' species mapped across '
+                        + r.length + ' residues of ' + sym + '.'));
+                    return r;
+                },
+                preview: (a) => {
+                    const sym = paralogGene(a);
+                    const across = (('' + ((a && a.across) || 'species')).indexOf('paralog') >= 0)
+                        ? 'its paralogs' : 'the species Ensembl has it in';
+                    return sym
+                        ? ('map where ' + sym + ' is conserved across ' + across
+                            + ', residue by residue \u00b7 takes a few seconds')
+                        : 'show the conservation map \u2014 say which track or gene';
+                },
+                argBlocker: (a) => {
+                    if (paralogGene(a)) return '';
+                    if (a && a.track) {
+                        return 'no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    return 'say which track or gene: open tracks are '
+                        + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                }
+            },
+
+            {
+                // PARALOGS AND ORTHOLOGS ARE ONE OPERATION. Both are Ensembl homology with
+                // one parameter changed, both are ranked the same way and both want the same
+                // screen; splitting them would have been two of everything for the sake of a
+                // word, and a user who says "homolog" would have had to be routed to one of
+                // them anyway.
+                //
+                // NOTHING IN THE EDITOR KNEW WHAT A PARALOG WAS. "list the closest paralog to
+                // this track" came back as "not something the editor can do: this requires
+                // external database queries for homology relationships" -- a true sentence
+                // about the catalogue and a useless one to the user, since the editor already
+                // talks to Ensembl for every gene it loads and homology is one more endpoint.
+                //
+                // AND LISTING IS HALF THE JOB. What a paralog is asked for is the next thing:
+                // put it beside this one and compare them. So the answer is a screen whose
+                // every row loads, through the same path as any other gene, which makes a
+                // paralog loaded here a track the comparison and the exon matching work on
+                // straight away.
+                name: 'list_homologs',
+                summary: 'FIND THE HOMOLOGS OF A TRACK\u2019S GENE AND OFFER THEM AS TRACKS TO '
+                    + 'LOAD: its PARALOGS (duplicated genes in the same species) or its '
+                    + 'ORTHOLOGS (the same gene in mouse, rat, dog, fly and the rest). Ensembl '
+                    + 'is asked, they are ranked by percent identity over the aligned protein '
+                    + '(closest first, shown both ways round since a short one inside a long '
+                    + 'one scores high one way only), and a full screen lists them with what '
+                    + 'each is, which species it is in and where it sits, each row loading that '
+                    + 'gene as a track. This is the answer to "list the closest paralog to this '
+                    + 'track", "what are the paralogs of X", "find the mouse ortholog", "load '
+                    + 'the homologs of this gene", "is this conserved in rat", "what is the fly '
+                    + 'version of this". Set `kind` from the request\u2019s own word. For how two '
+                    + 'tracks ALREADY on the canvas compare, use compare_sequences or '
+                    + 'match_regions_across_tracks instead.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the track whose gene to look up, by name as canvas_now gives it. '
+                            + 'Omit it when there is only one track or one is selected'
+                    },
+                    gene: {
+                        type: 'string', default: 'taken from the track\u2019s own name',
+                        about: 'the gene symbol, only when the request names a gene rather than '
+                            + 'pointing at a track ("paralogs of SPAG9")'
+                    },
+                    kind: {
+                        type: 'enum', values: ['paralogs', 'orthologs', 'both'],
+                        default: 'paralogs',
+                        about: 'paralogs for duplicated genes in the SAME species, which is '
+                            + 'what "paralog", "closest relative" and "family member" ask for; '
+                            + 'orthologs for the same gene in ANOTHER species, which is what '
+                            + '"ortholog", "the mouse version", "conserved in rat" and a named '
+                            + 'species ask for; both when the request says "homolog" without '
+                            + 'saying which'
+                    },
+                    species: {
+                        type: 'string', default: 'human',
+                        about: 'the species the TRACK is in, only if the request says one. Not '
+                            + 'the species being looked for: that is what kind=orthologs does'
+                    },
+                    top: {
+                        type: 'number', default: 25,
+                        about: 'how many to list, closest first'
+                    }
+                },
+                opens: true,
+                run: async (a) => {
+                    const sym = paralogGene(a);
+                    if (!sym) { result('Which gene? Name it, or select a track.'); return; }
+                    const species = ('' + ((a && a.species) || 'human')).trim() || 'human';
+                    const kind = ('' + ((a && a.kind) || 'paralogs')).trim().toLowerCase();
+                    const word = (kind.indexOf('ortholog') === 0) ? 'orthologs'
+                        : (kind === 'both' ? 'homologs' : 'paralogs');
+                    // ORTHOLOGS TAKE A MOMENT. Ensembl aligns each pair when it is asked, so
+                    // the wait is real; saying what is being waited for beats a still canvas.
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Homologs of ' + sym,
+                            'Asking Ensembl for the ' + word + '.'
+                            + (kind.indexOf('ortholog') === 0
+                                ? ' Each species is aligned when it is asked for, so this takes '
+                                  + 'a few seconds.' : ''));
+                    } catch (e) { w = null; }
+                    let r = null;
+                    try {
+                        r = await exec('py/bio/homologs.py', sym, species, (a && a.top) || 25, kind);
+                    } catch (e) { r = { status: 'ERROR', error: ('' + (e && e.message ? e.message : e)) }; }
+                    if (!r || r.status !== 'OK') {
+                        const why = (r && r.error) || ('the ' + word + ' could not be looked up');
+                        try { if (w) w.fail(why); } catch (e) { }
+                        result(why);
+                        return r;
+                    }
+                    const got = (r.homologs || r.paralogs || []);
+                    try { if (w) w.done(); } catch (e) { }
+                    await exec('baja/bio/homologs-screen.js', graph, genegraph_panel_layout, r);
+                    const openable = got.filter((x) => x && x.loadable !== false).length;
+                    result(got.length
+                        ? (got.length + ' ' + (got.length === 1 ? word.replace(/s$/, '') : word)
+                            + ' of ' + sym + ', closest first. '
+                            + (openable === got.length
+                                ? 'Load any of them as a track from the list.'
+                                : (openable + ' of them can be opened here; load those from the list.')))
+                        : ('Ensembl lists no ' + word + ' for ' + sym + ' in ' + species + '.'));
+                    return r;
+                },
+                preview: (a) => {
+                    const sym = paralogGene(a);
+                    const kind = ('' + ((a && a.kind) || 'paralogs')).trim().toLowerCase();
+                    const word = (kind.indexOf('ortholog') === 0)
+                        ? 'orthologs (the same gene in mouse, rat, dog and the rest)'
+                        : (kind === 'both' ? 'paralogs and orthologs' : 'paralogs');
+                    return sym
+                        ? ('ask Ensembl for the ' + word + ' of ' + sym + ', closest first, and '
+                            + 'list them to load as tracks')
+                        : 'list the homologs \u2014 say which track or gene';
+                },
+                argBlocker: (a) => {
+                    if (paralogGene(a)) return '';
+                    if (a && a.track) {
+                        return 'no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    return 'say which track or gene: open tracks are '
+                        + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                }
+            },
+
             // ---------------------------------------------------------------- models -------
             {
                 name: 'rbp_competition',
@@ -499,24 +1055,221 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/rbp/rbp-competition.js', graph, genegraph_panel_layout, t, rangeOf(t)); }
             },
             {
+                // A SELECTION IS A SCOPE, NOT A PRECONDITION. "add rna binding proteins to the
+                // spag9_mrna" names the track it wants and selects nothing, and this refused
+                // it for want of a selection -- while the module behind it has run on a whole
+                // track all along. The same shape as load_protein_motifs: a selection narrows
+                // it, and without one it does the whole track.
                 name: 'rbp_profile',
-                summary: 'Run BajaCLIP over the selected sequence and draw the binding profile for '
-                    + 'every RNA binding protein, rather than picking a winner.',
-                needs: 'selection', params: {},
-                run: () => { const t = oneSelTrack(); return exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), null); }
+                summary: 'ADD THE RNA BINDING PROTEIN PROFILE TO A TRACK: BajaCLIP is run over '
+                    + 'the track\u2019s sequence and the per-position binding score is drawn as '
+                    + 'a layer, for every RNA binding protein rather than picking a winner. '
+                    + 'This is the answer to "add rna binding proteins to X", "show the RBP '
+                    + 'binding on this track", "where do RNA binding proteins bind", "add '
+                    + 'bajaclip", "draw the binding profile". WHEN A STRETCH OF SEQUENCE IS '
+                    + 'SELECTED it runs on the selection, because that is what someone who '
+                    + 'made a selection first is asking about; with nothing selected it does '
+                    + 'the whole track. For which single protein wins a site, use '
+                    + 'rbp_competition instead.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    }
+                },
+                run: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    // The selection if there is one on THAT track, else the whole of it: the
+                    // module takes null for the whole track.
+                    const r = hasSel(t) ? rangeOf(t) : null;
+                    return exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t, r, null);
+                },
+                preview: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    const where = t ? (t.name || 'the track') : 'the track';
+                    return 'run BajaCLIP over ' + (t && hasSel(t) ? ('the selected stretch of ' + where)
+                        : ('the whole of ' + where)) + ' and draw the RNA binding protein profile on it';
+                },
+                argBlocker: (a) => {
+                    const t = (a && a.track) ? matchTrack(a.track) : (oneSelTrack() || oneTrack());
+                    if (!t) {
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to run it on: there is more than one open';
+                    }
+                    return '';
+                }
             },
             {
+                // SAME FAULT AS rbp_profile HAD, and the same fix. These asked for a
+                // selection and refused without one -- "run bajasplice on dnm3" came back
+                // "cannot run: no sequence is selected: drag across a track first" -- while
+                // splicing-profile.js has run on a whole track all along. Worse for PSI,
+                // which ignores the range outright: it needs the track's exon structure,
+                // not a stretch of sequence, so demanding a drag asked for something the
+                // model never used. A selection narrows the sites mode; without one, both
+                // do the whole track.
                 name: 'splice_site_strength',
-                summary: 'Run SpliceNet over the selected sequence and draw donor and acceptor '
-                    + 'site strength.',
-                needs: 'selection', params: {},
-                run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'sites'); }
+                summary: 'RUN SPLICENET (BajaSplice) ON A TRACK: donor and acceptor site '
+                    + 'strength is predicted along the sequence and drawn as a sashimi layer. '
+                    + 'This is the answer to "run bajasplice on X", "splice site strength", '
+                    + '"how strong are the splice sites", "score the donors and acceptors", '
+                    + '"run splicenet". WHEN A STRETCH IS SELECTED it runs on the selection; '
+                    + 'with nothing selected it does the whole track. For predicted exon '
+                    + 'inclusion rather than site strength, use exon_inclusion_psi.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    }
+                },
+                run: (a) => {
+                    const t = pickModelTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const r = hasSel(t) ? rangeOf(t) : null;
+                    return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, r, 'sites');
+                },
+                preview: (a) => {
+                    const t = pickModelTrack(a);
+                    const where = t ? (t.name || 'the track') : 'the track';
+                    return 'run SpliceNet over ' + (t && hasSel(t) ? ('the selected stretch of ' + where)
+                        : ('the whole of ' + where)) + ' and draw donor and acceptor site strength';
+                },
+                // A MODEL WITH SEVERAL TRACKS OPEN IS A CHOICE, NOT A REFUSAL. "run bajasplice"
+                // with two transcripts open stopped at "say which track to run it on", which
+                // is a dead end with a Cancel button under it. Every open track gets its own
+                // Go instead, which is what the operation already does for going somewhere.
+                choices: (a) => choicesOver(a, (x) => ({
+                    detail: (hasSel(x) ? 'the selected stretch' : 'the whole track')
+                        + ' \u00b7 ' + (x.sequence ? x.sequence.length.toLocaleString() + ' nt' : 'no sequence')
+                })),
+                choiceTitle: () => 'Run SpliceNet on which track?',
+                whenStuck: MODEL_SHELF,
+                argBlocker: (a) => {
+                    const t = pickModelTrack(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, () => ({})).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to run it on: there is more than one open';
+                    }
+                    return '';
+                }
+            },
+            {
+                // THE REPORT ACROSS THE WHOLE CANVAS. exon_inclusion_psi answers "which
+                // exon on THIS transcript"; the question in front of someone choosing an
+                // ASO target is "which exon anywhere on the canvas", and until now that
+                // meant running PSI on each track and reading five panels side by side.
+                //
+                // It runs PSI where it is missing, unlike the ranking panel, which
+                // deliberately refuses to: ranking is a second look at a run you asked
+                // for, while a report over the canvas IS the request, and an empty table
+                // noting that nothing was scored would answer a different one.
+                name: 'exon_stability_report',
+                summary: 'THE EXON STABILITY REPORT: every exon on every track, ranked by '
+                    + 'how unreliably it splices, in one table. Folds in conservation and '
+                    + 'annotated functional sites, exons whose PSI cannot be trusted '
+                    + 'because they sit in duplicated sequence, published measurements '
+                    + 'where they exist, and what each variant on the track does to '
+                    + 'inclusion. This is the answer to "exon stability report", "which '
+                    + 'exons are unstable across the canvas", "rank every exon", "report '
+                    + 'on exon stability". Runs PSINet on any track that has not been '
+                    + 'scored yet, so it works on a canvas where nothing has been run.',
+                needs: 'track',
+                params: {},
+                // frameRange is this module's, tuned on the real canvas, so it is handed
+                // over rather than reimplemented: a second copy of that arithmetic would
+                // drift and the report would frame exons differently from everything else.
+                run: () => exec('baja/bio/splicing/exon-stability-report.js',
+                                graph, genegraph_panel_layout, null,
+                                (t, lo, hi) => frameRange(t, lo, hi)),
+                preview: () => {
+                    const ts = tracks().filter((t) => {
+                        try {
+                            return (t.annotations || []).some(
+                                (a) => a && ('' + a.type).toLowerCase() === 'exon');
+                        } catch (e) { return false; }
+                    });
+                    const done = ts.filter((t) => {
+                        try {
+                            return (t.track_layers || []).some((x) => x && x.magnitudeMode === 'psi'
+                                && Array.isArray(x.exonStability) && x.exonStability.length);
+                        } catch (e) { return false; }
+                    }).length;
+                    const todo = ts.length - done;
+                    return 'rank every exon on ' + ts.length + ' track'
+                        + (ts.length === 1 ? '' : 's') + ' by how unreliably it splices'
+                        + (todo > 0 ? (', running PSINet first on ' + todo + ' not yet scored') : '');
+                },
+                argBlocker: () => {
+                    const ts = tracks().filter((t) => {
+                        try {
+                            return (t.annotations || []).some(
+                                (a) => a && ('' + a.type).toLowerCase() === 'exon');
+                        } catch (e) { return false; }
+                    });
+                    return ts.length ? ''
+                        : 'no track on the canvas has annotated exons: the report is per exon, '
+                          + 'so a track without them has nothing to report';
+                },
+                whenStuck: MODEL_SHELF
             },
             {
                 name: 'exon_inclusion_psi',
-                summary: 'Run PSINet over the selected sequence and draw predicted exon inclusion (PSI).',
-                needs: 'selection', params: {},
-                run: () => { const t = oneSelTrack(); return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, rangeOf(t), 'psi'); }
+                summary: 'RUN PSINET (BajaSplice) ON A TRACK: predicted exon inclusion (PSI) '
+                    + 'is drawn as a sashimi layer, with each exon tagged by how reliably it '
+                    + 'is spliced in. This is the answer to "run psinet on X", "exon '
+                    + 'inclusion", "what is the PSI", "which exons are skipped", "how '
+                    + 'reliably does this exon splice". It uses the track\u2019s ANNOTATED '
+                    + 'EXON STRUCTURE, not a stretch of sequence, so it always does the whole '
+                    + 'track and a selection does not narrow it.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    }
+                },
+                run: (a) => {
+                    const t = pickModelTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    // null, not rangeOf(t): PSI mode ignores the range, and passing one
+                    // would only suggest in the preview that it had narrowed the run.
+                    return exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, null, 'psi');
+                },
+                preview: (a) => {
+                    const t = pickModelTrack(a);
+                    return 'run PSINet over the whole of ' + (t ? (t.name || 'the track') : 'the track')
+                        + ' and draw predicted exon inclusion, each exon tagged by how reliably it splices';
+                },
+                // One Go per open track, as above. PSI reads the ANNOTATED EXONS, so the
+                // count of them is what tells the two tracks apart here.
+                choices: (a) => choicesOver(a, (x) => {
+                    const n = (x.annotations || []).filter((an) => ('' + (an && an.type)).toLowerCase() === 'exon').length;
+                    return { detail: n ? (n + ' annotated exon' + (n === 1 ? '' : 's')) : 'no annotated exons' };
+                }),
+                choiceTitle: () => 'Run PSINet on which track?',
+                whenStuck: MODEL_SHELF,
+                argBlocker: (a) => {
+                    const t = pickModelTrack(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, () => ({})).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to run it on: there is more than one open';
+                    }
+                    return '';
+                }
             },
             {
                 // UNLOADING HAD NO OPERATION WHILE LOADING HAD ONE. "remove the rna seq
@@ -535,10 +1288,17 @@ function (graph, genegraph_panel_layout) {
                 params: {
                     match: {
                         type: 'string',
-                        about: 'what to remove, in the request\u2019s own words: "rna seq", '
-                            + '"motifs", "domains", "similarity", "splicing", or part of a '
-                            + 'layer\u2019s name. Use "all" ONLY when the request asks for '
-                            + 'every layer to go'
+                        about: 'what to remove. PREFER THE LAYER\u2019S OWN NAME as canvas_now '
+                            + 'lists it under the track\u2019s layers, or its kind (RNASeq, '
+                            + 'SLIM, CDD, SEQSIM): the layer a user calls "the rna seq layer" '
+                            + 'is often named something else entirely, and canvas_now is where '
+                            + 'to find out what. A kind matches every layer of that kind. '
+                            + 'Failing both, the request\u2019s own words. A request for RNA-seq, '
+                            + 'coverage, expression or peaks ALSO takes unlabelled layers that are '
+                            + 'drawn as a filled trace with peaks, which is what a bigwig loads as, '
+                            + 'and the user is asked before those go. Use "all" ONLY when the '
+                            + 'request asks for every layer to go; "layers" or "tracklayers" on '
+                            + 'their own mean the same thing'
                     },
                     track: {
                         type: 'string',
@@ -547,55 +1307,91 @@ function (graph, genegraph_panel_layout) {
                     }
                 },
                 run: async (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
-                    if (!t) { result('Which track? Name it, or click one first.'); return; }
-                    const r = await exec('baja/bio/remove-layers.js', graph, [t], { match: a.match || '' });
+                    // ACROSS EVERY TRACK THAT HAS ONE when none is named. "remove rnaseq
+                    // layers" with three tracks open used to refuse, saying to name a track,
+                    // which is work the editor can do: it can see which tracks carry a layer
+                    // that matches and take it off those. A named track still wins.
+                    const ts = removalTracks(a);
+                    if (!ts.length) { result('Which track? Name it, or click one first.'); return; }
+                    const t = ts[0];
+                    const r = await exec('baja/bio/remove-layers.js', graph, ts, { match: a.match || '' });
                     if (r && r.error) result(r.error);
+                    else if (r && r.pending) {
+                        // The question is on the canvas; the removal happens when it is
+                        // answered. Saying "removed" here would be a report of something
+                        // that has not happened yet.
+                        result('Asked before removing ' + r.asked + ' layer' + (r.asked === 1 ? '' : 's')
+                            + ' from ' + ts.map((x) => x.name || 'a track').join(' and ') + ': '
+                            + r.candidates.map((x) => x.name).join(', ')
+                            + (r.guessed ? ('. ' + r.guessed + ' of them matched by being drawn as a '
+                                + 'trace with peaks rather than by name.') : '.'));
+                    }
                     else if (r && r.removed) {
                         result('Removed ' + r.count + ' layer' + (r.count === 1 ? '' : 's')
-                            + ' from ' + (t.name || 'the track') + ': '
+                            + ' from ' + ts.map((x) => x.name || 'a track').join(' and ') + ': '
                             + r.removed.map((x) => x.name).join(', ') + '.');
                     }
                     return r;
                 },
                 preview: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
-                    const where = ' from ' + (t ? (t.name || 'the track') : 'the track');
+                    const ts = removalTracks(a);
+                    const where = ' from ' + (ts.length
+                        ? ts.map((x) => x.name || 'a track').join(' and ') : 'the track');
                     const m = ('' + (a.match || '')).trim();
                     // WHICH LAYERS, BY NAME, BEFORE THE BUTTON. A card that says "remove the
                     // rna seq layers" and takes four of them is a card that was not read.
                     let names = [];
+                    let guessed = 0;
+                    // Said rather than shown as "nothing matches", which is the symptom this
+                    // matcher exists to remove and would hide its own absence.
+                    if (!LM) return 'cannot work out which layers you mean: '
+                        + 'baja/bio/layer-match.js did not load';
                     try {
-                        if (t && Array.isArray(t.track_layers)) {
-                            const flat = (x) => ('' + x).toLowerCase().replace(/[^a-z0-9]+/g, '');
-                            const everything = !m || /^(all|every|everything)$/i.test(m);
-                            names = t.track_layers.filter((l) => {
-                                if (everything) return true;
-                                const dt = ('' + ((l && l.data_type) || '')).toUpperCase();
-                                if (/rna.?seq|expression|coverage/i.test(m) && dt === 'RNASEQ') return true;
-                                if (/motif|slim|elm/i.test(m) && dt === 'SLIM') return true;
-                                if (/domain|cdd|site/i.test(m) && dt === 'CDD') return true;
-                                if (/similar|homolog|map/i.test(m) && dt === 'SEQSIM') return true;
-                                const nm = ('' + ((l && l.name) || '')).toLowerCase();
-                                return nm.indexOf(m.toLowerCase()) >= 0 || flat(nm).indexOf(flat(m)) >= 0;
-                            }).map((l) => ('' + ((l && l.name) || '(unnamed)')));
+                        for (const t of ts) {
+                            if (!Array.isArray(t.track_layers)) continue;
+                            const hits = LM.match(t.track_layers, m);
+                            guessed += hits.filter((h) => h.why === 'shape' || h.why === 'polygon').length;
+                            for (const h of hits) {
+                                names.push(LM.nameOf(h.layer)
+                                    // The three strongest reasons: the full list belongs on
+                                    // the chooser, where there is room to read it.
+                                    + ((h.why === 'shape' || h.why === 'polygon')
+                                        ? (' (' + LM.evidence(h.layer).slice(0, 3).join(', ') + ')') : '')
+                                    + (ts.length > 1 ? (' on ' + (t.name || 'a track')) : ''));
+                            }
                         }
                     } catch (e) { names = []; }
                     if (!names.length) return 'remove ' + (m ? ('the ' + m + ' layers') : 'the layers') + where
                         + ': nothing there matches';
                     return 'remove ' + names.length + ' layer' + (names.length === 1 ? '' : 's')
-                        + where + ': ' + names.join(', ');
+                        + where + ': ' + names.join(', ')
+                        // SAID ON THE CARD, not only in the confirmation: a layer matched by
+                        // how it is drawn is a guess, and the user should see that before
+                        // pressing GO, not only after.
+                        + (guessed ? ('. ' + guessed + ' matched by being drawn as a trace with '
+                            + 'peaks rather than by name, so you will be asked which of them to '
+                            + 'take, one at a time') : '');
                 },
                 argBlocker: (a) => {
-                    const t = a.track ? matchTrack(a.track) : oneTrack();
-                    if (!t) {
-                        return a.track
-                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
-                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
-                            : 'say which track to take layers off: there is more than one open';
+                    const ts = removalTracks(a);
+                    if (!ts.length) {
+                        if (a.track) {
+                            return 'no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                        }
+                        // Not "which track?": with nothing matching anywhere, naming one
+                        // would not help, and saying what IS there is what a retry needs.
+                        const any = tracks().filter((x) => Array.isArray(x.track_layers) && x.track_layers.length);
+                        if (!any.length) return 'none of the open tracks has any layers on it';
+                        return 'nothing matching \u201c' + (a.match || 'that') + '\u201d is on any open track. '
+                            + any.map((x) => (x.name || 'a track') + ': '
+                                + x.track_layers.map((l) => (LM ? LM.describe(l) : (l && l.name) || '?')).join(', ')).join(' \u00b7 ');
                     }
-                    if (!Array.isArray(t.track_layers) || !t.track_layers.length) {
-                        return (t.name || 'that track') + ' has no layers on it';
+                    // Resolved to a track that carries nothing at all: said before the button
+                    // rather than after it.
+                    if (!ts.some((x) => Array.isArray(x.track_layers) && x.track_layers.length)) {
+                        return ts.map((x) => x.name || 'that track').join(' and ')
+                            + ' has no layers on it';
                     }
                     return '';
                 }
@@ -607,11 +1403,13 @@ function (graph, genegraph_panel_layout) {
                 // a layer on each track, one bar per block, matching colours, so the pairs
                 // line up by eye when the tracks are laid one above the other.
                 name: 'draw_similarity_map',
-                summary: 'DRAW A MAP OF WHERE TWO TRACKS ARE SIMILAR: the blocks of sequence '
-                    + 'similarity between them are found and DRAWN as a layer on each track, '
-                    + 'one coloured bar per block, the same colour and number on both so the '
-                    + 'pairs can be read off. This is the answer to "draw a map comparing the '
-                    + 'regions of similarity between X and Y", "map the conserved regions", '
+                summary: 'DRAW A MAP OF WHERE TWO TRACKS ON THE CANVAS ARE SIMILAR: the blocks '
+                    + 'of sequence similarity between them are found and DRAWN as a layer on '
+                    + 'each track, one coloured bar per block, the same colour and number on '
+                    + 'both so the pairs can be read off. It needs TWO tracks that are both '
+                    + 'open; for conservation ACROSS SPECIES from one track, which names no '
+                    + 'second track, use conservation_map instead. This is the answer to "draw '
+                    + 'a map comparing the regions of similarity between X and Y", '
                     + '"show me where these two are the same", "dot plot these", "where do '
                     + 'these two line up". Unlike compare_sequences, which reports one '
                     + 'identity in a panel, this puts the regions on the canvas. Blocks that '
@@ -656,6 +1454,143 @@ function (graph, genegraph_panel_layout) {
                             ? 'two tracks are needed to map: only ' + (ts[0].name || 'one') + ' could be identified'
                             : 'name the two tracks to map';
                     }
+                    return '';
+                }
+            },
+
+            {
+                // ITERATING IS AN OPERATION, NOT A REASON TO REFUSE. "iterate over all exons
+                // in A and find the closest sequence block that matches it on B" was answered
+                // with "the editor cannot loop through exons automatically; you would need to
+                // search each exon individually" -- which is to say, do the editor's work by
+                // hand thirty times. The loop is the easy part.
+                name: 'match_regions_across_tracks',
+                summary: 'EVERY REGION OF ONE KIND ON ONE TRACK, MATCHED TO ITS CLOSEST BLOCK '
+                    + 'ON ANOTHER, AND DRAWN. Each exon -- or intron, or either UTR, or the '
+                    + 'CDS -- of the first track is searched against the whole of the second, '
+                    + 'on both strands, and the best hit for each is kept, reported with its '
+                    + 'identity, position, score and how much of the region it covers, and '
+                    + 'drawn as a picture of the two tracks side by side with every pair '
+                    + 'joined, as well as on the tracks themselves. This is the answer to '
+                    + '"iterate over all exons in A and find the closest sequence block that '
+                    + 'matches it on B", "compare the introns of A and B", "match the exons of '
+                    + 'A against B", "does the 3\u2032 UTR of A match anything on B", "where '
+                    + 'does each exon of A land on B". Use it, NOT search_region_in_track, '
+                    + 'when the request is about ALL the regions of a kind rather than one '
+                    + 'named one; and NOT compare_sequences, which aligns the two transcripts '
+                    + 'as wholes and so cannot say where an individual exon or intron went.',
+                needs: 'track',
+                params: {
+                    features: {
+                        type: 'enum',
+                        values: ['exons', 'introns', 'five_prime_utr', 'three_prime_utr', 'cds', 'transcript'],
+                        default: 'exons',
+                        about: 'which regions of the first track to iterate over. Take it from '
+                            + 'the request\u2019s own word: "exons", "introns", "3\u2032 UTR", '
+                            + '"5\u2032 UTR", "coding sequence". The UTRs, the CDS and the '
+                            + 'whole transcript are single regions, so the run is one search'
+                    },
+                    query_track: {
+                        type: 'string',
+                        about: 'the track whose EXONS are iterated over: the one named first, '
+                            + 'as in "all exons in spag9_mrna"'
+                    },
+                    target_track: {
+                        type: 'string',
+                        about: 'the track each exon is searched against: the one named second, '
+                            + 'as in "matches it on mapk8ip3_mrna"'
+                    },
+                    max_regions: {
+                        type: 'number', default: 60,
+                        about: 'how many regions to do, from the first. Raise it only if the '
+                            + 'request asks for more than 60'
+                    },
+                    strands: {
+                        type: 'enum', values: ['both', 'plus'], default: 'both',
+                        about: 'both strands unless the request says otherwise: two transcripts '
+                            + 'can carry the same element reversed'
+                    }
+                },
+                run: async (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : null;
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    if (!qt) { result('Which track\u2019s regions? Name it.'); return; }
+                    if (!tt) { result('Which track should each one be searched against? Name it.'); return; }
+                    const out = await exec('baja/bio/match-regions.js', graph, qt, tt,
+                        { features: a.features || 'exons', max_regions: a.max_regions || 60,
+                          strands: a.strands || 'both',
+                          // RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT. The
+                          // stability row was left empty with a note saying to go and run
+                          // PSI, which is the editor asking the user to do something it can
+                          // do itself, on tracks it is already holding.
+                          layout: genegraph_panel_layout, runPsi: true });
+                    if (out && out.error) result(out.error);
+                    else if (out && out.count != null) {
+                        result(out.count + ' of ' + out.of + ' ' + (out.plural || 'regions') + ' of '
+                            + (qt.name || 'the first track') + ' matched a block on '
+                            + (tt.name || 'the other track') + ', drawn and linked.');
+                    }
+                    return out;
+                },
+                preview: (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : null;
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    const q = qt ? (qt.name || 'a track') : 'a track';
+                    const t = tt ? (tt.name || 'the other track') : 'the other track';
+                    const WORD = { exons: ['exon', 'exons'], introns: ['intron', 'introns'],
+                        five_prime_utr: ['5\u2032 UTR', '5\u2032 UTR'],
+                        three_prime_utr: ['3\u2032 UTR', '3\u2032 UTR'],
+                        cds: ['coding sequence', 'coding sequence'],
+                        transcript: ['transcript', 'transcript'] };
+                    const kind = WORD[a.features || 'exons'] ? (a.features || 'exons') : 'exons';
+                    let n = null;
+                    try {
+                        const R = regionsNow(qt);
+                        if (R) {
+                            if (kind === 'exons') n = R.exons().length;
+                            else if (kind === 'introns') n = R.introns().length;
+                            else n = 1;
+                        }
+                    } catch (e) { n = null; }
+                    // HOW MANY SEARCHES, BEFORE THE BUTTON. This is one backend search per
+                    // region, so a thirty-exon transcript is thirty of them: worth knowing
+                    // before pressing GO rather than while waiting.
+                    const what = (n != null && n !== 1)
+                        ? (n + ' ' + WORD[kind][1])
+                        : (n === 1 ? ('the ' + WORD[kind][0]) : ('every ' + WORD[kind][0]));
+                    return 'match ' + what + ' of ' + q + ' against ' + t
+                        + ', keep the closest block for each, and draw them joined'
+                        + (n != null ? (' \u00b7 ' + n + ' search' + (n === 1 ? '' : 'es')) : '');
+                },
+                argBlocker: (a) => {
+                    const qt = a.query_track ? matchTrack(a.query_track) : null;
+                    const tt = a.target_track ? matchTrack(a.target_track) : null;
+                    if (!qt) {
+                        return 'say which track\u2019s regions to iterate over: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    if (!tt) {
+                        return 'say which track to search each one against: open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ');
+                    }
+                    if (qt === tt) return 'those are the same track';
+                    // The track not having the region asked for is known here, and is worth
+                    // saying before the button: a non-coding transcript has no UTRs, and a
+                    // single-exon one has no introns.
+                    try {
+                        const R = regionsNow(qt);
+                        const kind = a.features || 'exons';
+                        const nm = qt.name || 'that track';
+                        if (R) {
+                            if (kind === 'exons' && !R.exons().length) return nm + ' has no annotated exons';
+                            if (kind === 'introns' && !R.introns().length) {
+                                return nm + ' has no introns: it is a single-exon transcript';
+                            }
+                            if (kind === 'five_prime_utr' && !R.utr5()) return nm + ' has no 5\u2032 UTR';
+                            if (kind === 'three_prime_utr' && !R.utr3()) return nm + ' has no 3\u2032 UTR';
+                            if (kind === 'cds' && !R.cds()) return nm + ' has no annotated coding region';
+                        }
+                    } catch (e) { }
                     return '';
                 }
             },
@@ -847,11 +1782,13 @@ function (graph, genegraph_panel_layout) {
                             + 'selected tracks, or when exactly two are open'
                     },
                     which: {
-                        type: 'enum', values: ['mrna'],
+                        type: 'enum', values: ['mrna', 'all'],
                         about: 'set to mrna for a request about THE mRNA TRACKS as a group '
                             + '("compare the proteins between the mRNA tracks", "the mRNA '
                             + 'tracks"), instead of naming them one by one. A track counts as '
-                            + 'mRNA when its name says so or when it has no introns'
+                            + 'mRNA when its name says so or when it has no introns. Set to '
+                            + 'all for "on all tracks", "across all the tracks", "on every '
+                            + 'track", which compares every track that is open'
                     }
                 },
                 run: async (a) => {
@@ -860,6 +1797,24 @@ function (graph, genegraph_panel_layout) {
                         result('Two tracks are needed to compare. Name them, or open two.');
                         return;
                     }
+                    // SAYS THAT IT IS RUNNING. Comparing three tracks is three alignments on
+                    // the server, each of a whole protein, and this said nothing at all until
+                    // the report opened: a long silence is indistinguishable from a dead
+                    // click, and the honest answer to "is it working" was only available once
+                    // it had finished working. Every other long operation in the catalogue
+                    // puts the panel up; this one did not.
+                    let W = null;
+                    try {
+                        W = await exec('baja/lib/working.js',
+                            'Comparing ' + ts.map((x) => x.name || 'a track').join(', '),
+                            a.region
+                                ? ('Over ' + ('' + a.region).replace(/_/g, ' ')
+                                    + ((a.index != null) ? (' ' + a.index) : '') + ' of each.')
+                                : 'One alignment per pair.');
+                    } catch (e) { W = null; }
+                    const step = (m) => { try { if (W) W.step(m); } catch (e) { } };
+                    const stop = () => { try { if (W) W.done(); } catch (e) { } };
+                    const giveUp = (m) => { try { if (W) W.fail(m); } catch (e) { } };
                     // One region per track, resolved on each track's own coordinates: exon 16
                     // of one transcript is not at the same place as exon 16 of another, and
                     // comparing one track's exon against the other's whole sequence would
@@ -868,12 +1823,16 @@ function (graph, genegraph_panel_layout) {
                     const missing = [];
                     if (a.region) {
                         for (const t of ts) {
+                            step('Reading ' + ('' + a.region).replace(/_/g, ' ')
+                                + ((a.index != null) ? (' ' + a.index) : '')
+                                + ' on ' + (t.name || 'a track'));
                             const R = await regionsOf(t);
                             const r = R ? R.resolve(a) : { error: 'no regions' };
                             if (r.error) { missing.push((t.name || 'a track') + ': ' + r.error); ranges.push(null); }
                             else ranges.push({ start: r.start, end: r.end, label: r.label });
                         }
                         if (missing.length) {
+                            giveUp('Cannot compare that region: ' + missing.join('; '));
                             result('Cannot compare that region: ' + missing.join('; '));
                             return;
                         }
@@ -885,14 +1844,30 @@ function (graph, genegraph_panel_layout) {
                     // of DNA and has no peptide of its own.
                     const wantsProtein = ((a.mode || 'protein') === 'protein') && !a.region;
                     if (wantsProtein) {
-                        const r = await exec('baja/bio/protein/compare-proteins.js', graph, ts, {});
+                        const r = await exec('baja/bio/protein/compare-proteins.js', graph, ts,
+                            { onStep: step });
                         // A backend that cannot be reached is a reason to fall back, not to
                         // fail: the browser can still answer the question, and the panel says
                         // which aligner ran.
-                        if (r && !r.unavailable) { if (r.error) result(r.error); return r; }
+                        if (r && !r.unavailable) {
+                            stop();
+                            if (r.error) result(r.error);
+                            return r;
+                        }
+                        // The fallback is a different wait, and a panel that still reads
+                        // "aligning on the server" while the browser does it is lying.
+                        step('The server did not answer \u00b7 aligning here instead');
                     }
-                    return exec('baja/manchester/menu/compare-track-sequences.js', graph, ts,
-                        { mode: (a.mode || 'protein'), ranges: ranges });
+                    step('Aligning ' + ts.length + ' track' + (ts.length === 1 ? '' : 's') + ' here');
+                    try {
+                        const out = await exec('baja/manchester/menu/compare-track-sequences.js', graph, ts,
+                            { mode: (a.mode || 'protein'), ranges: ranges });
+                        stop();
+                        return out;
+                    } catch (e) {
+                        giveUp('The comparison failed: ' + (e && e.message ? e.message : e));
+                        throw e;
+                    }
                 },
                 preview: (a) => {
                     const ts = comparands(a);
@@ -900,15 +1875,26 @@ function (graph, genegraph_panel_layout) {
                     const what = a.region
                         ? (('' + a.region).replace(/_/g, ' ') + ((a.index != null) ? (' ' + a.index) : ''))
                         : ({ protein: 'the translated ORFs', coding: 'the coding sequences' }[a.mode] || 'the sequences');
-                    return 'compare ' + what + ' of ' + (names.length ? names.join(' and ') : 'the tracks')
+                    // "DNM1, DNM3 and DNM3-208", not "DNM1 and DNM3 and DNM3-208": this card
+                    // is the only place the user sees which tracks are about to be compared,
+                    // so it has to read like a list of them.
+                    const listed = names.length < 2 ? (names[0] || 'the tracks')
+                        : (names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
+                    return 'compare ' + what + ' of ' + (names.length ? listed : 'the tracks')
                         + ' and report the identity between them';
                 },
                 argBlocker: (a) => {
                     const ts = comparands(a);
                     if (ts.length < 2) {
+                        // Say what IS open: "none could be identified" with three tracks on
+                        // screen reads as the editor having lost them.
+                        const open = tracks();
                         return ts.length
                             ? 'two tracks are needed to compare: only ' + (ts[0].name || 'one') + ' is here'
-                            : 'two tracks are needed to compare, and none could be identified';
+                            : (open.length
+                                ? ('two tracks are needed to compare, and none of these matched: '
+                                    + open.map((x) => x.name || '(unnamed)').join(', '))
+                                : 'two tracks are needed to compare, and none are open');
                     }
                     return '';
                 }
@@ -1486,6 +2472,63 @@ function (graph, genegraph_panel_layout) {
                     : ''
             },
             {
+                // PLACE A NAMED VARIANT ON THE TRACK. "add this mutation R237W to the DNM1
+                // track" had nowhere to go: the facility exists -- it is "Describe a variant"
+                // in the data library -- and the ask box could not reach it, so the planner
+                // reported that the editor does not do this at all.
+                //
+                // It is annotation, not editing. The resolver normalises the description, the
+                // CHECK is done against the track's own coding sequence base by base
+                // (py/bio/variant-from-prompt.py), and what lands is a marker on the view. No
+                // sequence record is altered by it.
+                name: 'add_variant_from_description',
+                summary: 'PUT A VARIANT NAMED IN WORDS ONTO A TRACK, as a marker: a protein '
+                    + 'change ("R237W", "p.Arg175His", "K27M"), a cDNA change ("c.83A>T"), an '
+                    + 'rsID, or a codon-level edit. "add this mutation R237W to the DNM1 track", '
+                    + '"put p.Arg175His on TP53", "mark c.83A>T", "annotate R237W here". The '
+                    + 'description is checked against the track\'s own coding sequence before '
+                    + 'anything is placed, and the user confirms it. For KNOWN variants from a '
+                    + 'database use load_variants instead; this one is for a change named '
+                    + 'directly in the request.',
+                needs: 'track', opens: true,
+                params: {
+                    description: {
+                        type: 'string', required: true,
+                        about: 'the change exactly as the request names it: "R237W", '
+                            + '"p.Arg175His", "c.83A>T", "rs113994095". Pass the variant alone, '
+                            + 'without the track name or the surrounding sentence'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                run: (a) => {
+                    const t = pickTrack(a);
+                    const list = t ? [t] : (selTracks().length ? selTracks() : tracks());
+                    if (!list.length) { result('No track to put it on.'); return; }
+                    return exec('baja/data/variant-from-prompt.js', server(), graph,
+                        genegraph_panel_layout, list, ('' + (a.description || '')).trim());
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    return 'place ' + (a.description ? ('\u201c' + a.description + '\u201d') : 'the variant')
+                        + ' on ' + (t ? (t.name || 'the track') : 'the track')
+                        + ', checked against its coding sequence first';
+                },
+                choices: (a) => choicesOver(a, (x) => (x && x.sequence) ? { detail: x.name || 'track' } : null),
+                choiceTitle: () => 'Put it on which track?',
+                argBlocker: (a) => {
+                    if (!('' + (a.description || '')).trim()) return 'say which change to add, e.g. R237W';
+                    const t = pickTrack(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, (x) => (x && x.sequence) ? {} : null).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to put it on: there is more than one open';
+                    }
+                    return '';
+                }
+            },
+            {
                 // The Variant designer: every variant ranked by how far its window has diverged
                 // from the reference, with the compounds tiled on each and a GO to it.
                 name: 'open_variant_designer',
@@ -1691,6 +2734,208 @@ function (graph, genegraph_panel_layout) {
                 preview: () => 'open the bookmarks panel (' + BM.list().length + ' saved)'
             },
             {
+                // WHAT EACH EXON IS WORTH TO THE PROTEIN. The coupling readout on a track is
+                // one number for the whole gene -- how far the protein follows its mRNA,
+                // measured or predicted -- and it has no exon in it, so it cannot say what
+                // losing exon 15 does. This asks the same question per exon, from the skip
+                // isoform: drop the exon, translate what is left, and see what comes out.
+                name: 'exon_protein_consequence',
+                summary: 'FOR EVERY EXON, WHAT SKIPPING IT WOULD DO TO THE PROTEIN: '
+                    + 'in-frame loss, a frameshift to a premature stop and whether that is '
+                    + 'degraded by NMD or leaves a truncated protein. "what does skipping '
+                    + 'each exon do to the protein", "which exons matter", "per-exon protein '
+                    + 'consequence", "which exon must not be lost", "map the exon '
+                    + 'consequences". Opens a sorted screen, worst first, and each row goes '
+                    + 'to its exon. For ONE exon, the exon menu already answers it.',
+                needs: 'track',
+                params: {
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
+                },
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    let w = null;
+                    try {
+                        w = await exec('baja/lib/working.js', 'Exon consequences for ' + (t.name || 'the track'),
+                            'Each exon is dropped in turn and what is left is translated.');
+                    } catch (e) { w = null; }
+                    let rows = [];
+                    try {
+                        rows = await exec('baja/bio/orfs/exon-consequence-map.js', t, {
+                            onStep: (i, n) => { try { if (w) w.step('exon ' + i + ' of ' + n); } catch (e) { } }
+                        });
+                    } catch (e) {
+                        try { if (w) w.fail('Could not read the exons: ' + (e && e.message ? e.message : e)); } catch (e2) { }
+                        result('Could not work out the exon consequences for ' + (t.name || 'that track') + '.');
+                        return;
+                    }
+                    try { if (w) w.done(); } catch (e) { }
+                    if (!rows.length) {
+                        result((t.name || 'That track') + ' has no annotated exons to assess.');
+                        return;
+                    }
+                    const bad = rows.filter((r) => r.ok && r.severity <= 1).length;
+                    await exec('baja/bio/orfs/exon-consequence-screen.js', graph, genegraph_panel_layout, {
+                        track: t, gene: (t.name || 'this track'), rows: rows,
+                        // Closing the screen on a row and landing on that exon is the same
+                        // move going to an exon makes, so it is the same code.
+                        onGo: async (r) => {
+                            try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                            t.markstart = r.start; t.markend = r.end; t.showResizeBar = true;
+                            try { graph.startX = t.tgraph.X(r.start); graph.endX = t.tgraph.X(r.end); } catch (e) { }
+                            try { graph.selectedTrack = t; } catch (e) { }
+                            try { await frameRange(t, r.start, r.end); } catch (e) { }
+                            try { if (graph.wake) graph.wake(); } catch (e) { }
+                            result('exon ' + r.index + ' \u00b7 ' + (r.ok ? r.verdict : 'not assessed'));
+                        }
+                    });
+                    result(rows.length + ' exons assessed on ' + (t.name || 'the track') + ': '
+                        + bad + ' whose loss destroys the message.');
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const R = t ? regionsNow(t) : null;
+                    const n = R ? R.exons().length : 0;
+                    return 'work out, for ' + (n ? ('each of the ' + n + ' exons of ') : 'each exon of ')
+                        + (t ? (t.name || 'the track') : 'the track')
+                        + ', what skipping it would do to the protein \u00b7 in-frame loss, '
+                        + 'frameshift to a premature stop, NMD or a truncated protein';
+                },
+                choices: (a) => choicesOver(a, (x) => {
+                    const Rx = regionsNow(x);
+                    const l = Rx && Rx.exons();
+                    return (l && l.length) ? { detail: l.length + ' exon' + (l.length === 1 ? '' : 's') } : null;
+                }),
+                choiceTitle: () => 'Assess the exons of which track?',
+                argBlocker: (a) => {
+                    const t = pickTrack(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, (x) => {
+                            const Rx = regionsNow(x);
+                            const l = Rx && Rx.exons();
+                            return (l && l.length) ? {} : null;
+                        }).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to assess: there is more than one open';
+                    }
+                    const R = regionsNow(t);
+                    if (R && !R.exons().length) return (t.name || 'That track') + ' has no annotated exons';
+                    return '';
+                }
+            },
+            {
+                // SHOW ME EACH EXON. Going to one region is an operation; going to all of
+                // them in turn was not, so "show me each exon and spend 3 seconds on each"
+                // came back as "nothing in the editor does that" -- while the editor could
+                // already frame any one of them and had nothing to do but repeat itself.
+                name: 'tour_regions',
+                summary: 'WALK THROUGH EVERY EXON (or every intron) ON A TRACK IN TURN, '
+                    + 'framing each one and holding it before moving to the next: "show me '
+                    + 'each exon and spend 3 seconds on each", "step through the exons", '
+                    + '"tour the introns", "play through every exon one at a time". It runs '
+                    + 'on screen and can be paused, stepped back and forward, and stopped. '
+                    + 'For ONE region, use go_to_position instead.',
+                needs: 'track',
+                params: {
+                    region: {
+                        type: 'string',
+                        about: 'what to step through: "exons" or "introns"',
+                        default: 'exons'
+                    },
+                    seconds: {
+                        type: 'string',
+                        about: 'how long to hold each one, in seconds, exactly as the request '
+                            + 'says it ("3", "1.5"). Omit unless the request gives a time',
+                        default: '3'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
+                },
+                run: async (a) => {
+                    const t = pickTrack(a);
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const R = await regionsOf(t);
+                    if (!R) { result('Could not read the exons of ' + (t.name || 'that track') + '.'); return; }
+                    const kind = tourKind(a);
+                    const list = (kind === 'intron') ? R.introns() : R.exons();
+                    if (!list || !list.length) {
+                        result((t.name || 'That track') + ' has no annotated ' + kind + 's to step through.');
+                        return;
+                    }
+                    const items = [];
+                    for (let i = 1; i <= list.length; i++) {
+                        const got = R.resolve({ region: kind, index: i });
+                        if (got && !got.error) {
+                            items.push({ label: (t.name || 'Track') + ' \u00b7 ' + got.label,
+                                start: got.start, end: got.end });
+                        }
+                    }
+                    if (!items.length) { result('Could not place the ' + kind + 's of ' + (t.name || 'that track') + '.'); return; }
+                    const secs = tourSeconds(a);
+                    // Selecting and framing are the editor's own, handed to the tour rather
+                    // than written again inside it: a stop on exon 7 leaves the editor in
+                    // exactly the state that going to exon 7 leaves it in.
+                    const r = await exec('baja/bio/region-tour.js', graph, t, items, {
+                        seconds: secs,
+                        select: (it) => {
+                            try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                            t.markstart = it.start;
+                            t.markend = it.end;
+                            t.showResizeBar = true;
+                            try { graph.startX = t.tgraph.X(it.start); graph.endX = t.tgraph.X(it.end); } catch (e) { }
+                            try { graph.selectedTrack = t; } catch (e) { }
+                            try { if (graph.wake) graph.wake(); } catch (e) { }
+                        },
+                        frame: (it) => frameRange(t, it.start, it.end)
+                    });
+                    const n = (r && r.shown) || 0;
+                    result((r && r.stopped)
+                        ? ('Stopped after ' + n + ' of ' + items.length + ' ' + kind + 's.')
+                        : ('Showed all ' + items.length + ' ' + kind + 's of ' + (t.name || 'the track') + '.'));
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    const kind = tourKind(a);
+                    const secs = tourSeconds(a);
+                    const R = t ? regionsNow(t) : null;
+                    const list = R ? ((kind === 'intron') ? R.introns() : R.exons()) : null;
+                    const n = list ? list.length : 0;
+                    return 'step through ' + (n ? ('all ' + n + ' ' + kind + 's of ') : ('every ' + kind + ' of '))
+                        + (t ? (t.name || 'the track') : 'the track')
+                        + ', framing each and holding it ' + secs + ' second' + (secs === 1 ? '' : 's')
+                        + (n ? (' \u00b7 about ' + Math.round(n * (secs + 0.6)) + ' s, stoppable') : ' \u00b7 stoppable');
+                },
+                // One Go per track, as everywhere else: each transcript has its own exons.
+                choices: (a) => choicesOver(a, (x) => {
+                    const Rx = regionsNow(x);
+                    if (!Rx) return null;
+                    const kind = tourKind(a);
+                    const l = (kind === 'intron') ? Rx.introns() : Rx.exons();
+                    return l && l.length ? { detail: l.length + ' ' + kind + (l.length === 1 ? '' : 's') } : null;
+                }),
+                choiceTitle: (a) => 'Step through the ' + tourKind(a) + 's of which track?',
+                argBlocker: (a) => {
+                    const t = pickTrack(a);
+                    const kind = tourKind(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, (x) => {
+                            const Rx = regionsNow(x);
+                            const l = Rx && ((kind === 'intron') ? Rx.introns() : Rx.exons());
+                            return (l && l.length) ? {} : null;
+                        }).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to step through: there is more than one open';
+                    }
+                    const R = regionsNow(t);
+                    const l = R && ((kind === 'intron') ? R.introns() : R.exons());
+                    if (R && (!l || !l.length)) return (t.name || 'That track') + ' has no annotated ' + kind + 's';
+                    return '';
+                }
+            },
+            {
                 // GOTO ONE POSITION, zoomed in far enough to read the bases. "goto c.778" was
                 // read as select_sequence_region with start=end=778, which counted from the start
                 // of the TRACK rather than the A of the ATG, refused outright whenever more than
@@ -1699,18 +2944,22 @@ function (graph, genegraph_panel_layout) {
                 // Go per track the position exists on: c.778 is a different place on each
                 // transcript, and which one was meant is the user's call.
                 name: 'go_to_position',
-                summary: 'GO TO ONE POSITION on a track and zoom in until the bases can be read: '
-                    + '"goto c.778", "go to c.-12", "jump to c.*30", "show me c.1234+5", "take me to '
-                    + 'position 1520". Marks that base as the selection. Use this, not '
-                    + 'select_sequence_region, whenever the request names a single position to go '
-                    + 'to or look at.',
+                summary: 'GO TO A POSITION OR A NAMED REGION on a track and zoom in until it '
+                    + 'can be read: "goto c.778", "go to c.-12", "jump to c.*30", "show me '
+                    + 'c.1234+5", "take me to position 1520", AND "go to exon 15", "jump to '
+                    + 'intron 3", "show me the 3\u2032 UTR". A single position is marked as the '
+                    + 'selection; a named region is framed and selected whole, since an exon '
+                    + 'is a stretch and showing one base of it would be showing the wrong '
+                    + 'thing. Use this, not select_sequence_region, whenever the request is '
+                    + 'about GOING somewhere or LOOKING at it.',
                 needs: 'track',
                 params: {
                     position: {
                         type: 'string', required: true,
-                        about: 'the position exactly as written: HGVS coding notation (c.778, c.-12 in '
-                            + "the 5' UTR, c.*30 after the stop, c.778+5 in an intron) or a plain number, "
-                            + 'which is a coordinate counted from the start of the track'
+                        about: 'the place exactly as written: HGVS coding notation (c.778, c.-12 in '
+                            + "the 5' UTR, c.*30 after the stop, c.778+5 in an intron), a plain number, "
+                            + 'which is a coordinate counted from the start of the track, or a named '
+                            + 'region ("exon 15", "intron 3", "the 3\u2032 UTR", "the CDS")'
                     },
                     track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
                 },
@@ -1720,6 +2969,25 @@ function (graph, genegraph_panel_layout) {
                     const R = await regionsOf(t);
                     if (!R) { result('Could not read the exons of ' + (t.name || 'that track') + '.'); return; }
                     const r = R.position(a.position);
+                    // A NAMED REGION IS A STRETCH, SO IT IS FRAMED, NOT POINTED AT. Going to
+                    // exon 15 and marking one base of it would be showing the wrong thing:
+                    // the same framing the selection operations use is what was wanted.
+                    if (r.error && r.named) {
+                        const got = R.resolve(r.named);
+                        if (got.error) { result(got.error); return; }
+                        try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                        t.markstart = got.start;
+                        t.markend = got.end;
+                        t.showResizeBar = true;
+                        try { graph.startX = t.tgraph.X(got.start); graph.endX = t.tgraph.X(got.end); } catch (e) { }
+                        try { graph.selectedTrack = t; } catch (e) { }
+                        try { await frameRange(t, got.start, got.end); } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                        result((t.name || 'Track') + ' \u00b7 ' + (got.label || a.position)
+                            + ' \u00b7 ' + (got.end - got.start).toLocaleString() + ' bases ('
+                            + got.start.toLocaleString() + '\u2013' + got.end.toLocaleString() + ').');
+                        return;
+                    }
                     if (r.error) { result(r.error); return; }
                     try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
                     t.markstart = r.pos;
@@ -1734,25 +3002,73 @@ function (graph, genegraph_panel_layout) {
                 },
                 preview: (a) => {
                     const t = pickTrack(a);
-                    const R = regionsNow(t);
+                    // With no track settled yet the card still says what KIND of place this is:
+                    // reading the region off the first track that has one beats describing
+                    // "exon 12" as a base to zoom in to.
+                    const t2 = t || tracks().find((x) => {
+                        const Rx = regionsNow(x); if (!Rx) return false;
+                        const rr = Rx.position(a.position);
+                        return rr.error ? !!(rr.named && !Rx.resolve(rr.named).error) : true;
+                    }) || null;
+                    const R = regionsNow(t2);
                     const r = R ? R.position(a.position) : null;
+                    if (r && r.error && r.named && R) {
+                        const got = R.resolve(r.named);
+                        if (!got.error) {
+                            // The size belongs to the track it was measured on: with no track
+                            // settled it is a different number on each, so it is left to the
+                            // per-track choices rather than quoted here as if it were one.
+                            return 'go to ' + (got.label || a.position)
+                                + (t ? (' on ' + (t.name || 'the track') + ' and frame it \u00b7 '
+                                    + (got.end - got.start).toLocaleString() + ' bases')
+                                    : ' and frame it, whole');
+                        }
+                    }
                     return 'go to ' + a.position + (t ? (' on ' + (t.name || 'the track')) : '')
                         + ((r && !r.error) ? (' (track position ' + r.pos.toLocaleString() + ')') : '')
                         + ', zoomed in to the bases';
                 },
+                // A NAMED REGION GETS ONE GO PER TRACK, LIKE EVERY OTHER PLACE. This asked
+                // position() and handed back whatever it returned, so a named region -- which
+                // position() reports as an error because it is a stretch -- produced no choices
+                // at all: "goto exon 12" with four transcripts open went straight to a single
+                // GO and landed on whichever track happened to be selected. Exon 12 is a
+                // different stretch on every transcript, and which one was meant is the user's
+                // call, so each track that has one is offered with its own size and place.
                 choices: (a) => choicesOver(a, (x) => {
                     const R = regionsNow(x); if (!R) return null;
-                    const r = R.position(a.position); if (r.error) return r;
+                    const r = R.position(a.position);
+                    if (r.error && r.named) {
+                        const got = R.resolve(r.named);
+                        if (got.error) return got;
+                        return { detail: (got.label || a.position) + ' \u00b7 '
+                            + (got.end - got.start).toLocaleString() + ' bases \u00b7 '
+                            + got.start.toLocaleString() + '\u2013' + got.end.toLocaleString() };
+                    }
+                    if (r.error) return r;
                     return { detail: r.label + ' is track position ' + r.pos.toLocaleString() };
                 }),
+                choiceTitle: () => 'Go there on which track?',
                 argBlocker: (a) => {
                     const t = pickTrack(a);
                     if (!t || (!a.track && !a.__track)) {
                         // No track named: fine when the position exists on at least one track.
-                        const n = choicesOver(a, (x) => regionsNow(x) && regionsNow(x).position(a.position)).length;
+                        const placeOn = (x) => {
+                            const Rx = regionsNow(x);
+                            if (!Rx) return null;
+                            const rr = Rx.position(a.position);
+                            if (rr.error && rr.named) { const g = Rx.resolve(rr.named); return g.error ? null : g; }
+                            return rr.error ? null : rr;
+                        };
+                        const n = choicesOver(a, placeOn).length;
                         if (n) return '';
                         if (!a.track && tracks().length > 1) {
-                            const why = tracks().map((x) => { const R = regionsNow(x); const r = R && R.position(a.position); return r && r.error; }).find(Boolean);
+                            const why = tracks().map((x) => {
+                                const R = regionsNow(x);
+                                const r = R && R.position(a.position);
+                                if (r && r.error && r.named) return R.resolve(r.named).error;
+                                return r && r.error;
+                            }).find(Boolean);
                             return why || ('no open track has ' + a.position);
                         }
                     }
@@ -1764,7 +3080,14 @@ function (graph, genegraph_panel_layout) {
                     }
                     const R = regionsNow(t);
                     if (!R) return '';
-                    return R.position(a.position).error || '';
+                    // A NAMED REGION IS NOT A FAILED POSITION. position() reports one as an
+                    // error because it cannot return a point for a stretch, and passing that
+                    // error straight through here refused the whole card: the operation
+                    // frames the stretch instead, so the only thing that blocks is a region
+                    // the track does not have.
+                    const r = R.position(a.position);
+                    if (r.error && r.named) return R.resolve(r.named).error || '';
+                    return r.error || '';
                 }
             },
             {
@@ -2219,9 +3542,73 @@ function (graph, genegraph_panel_layout) {
             },
             {
                 name: 'fit',
-                summary: 'Zoom out until every track is in view.',
+                summary: 'Zoom out until EVERY track is in view. Use this for "fit", "show '
+                    + 'everything", "see all the tracks". For a step of zoom from where the '
+                    + 'view is now, use zoom.',
                 params: {},
                 run: async () => { try { await graph.viewAllTracks(); } catch (e) { } result('Zoomed out to every track.'); }
+            },
+
+            {
+                // "ZOOM OUT" IS NOT "FIT". The editor had fit, zoom to a track, zoom to the
+                // selection and zoom to the variants, and no way to simply pull back a bit
+                // from where you are -- so "zoom out" was answered with "the editor has fit
+                // to show all tracks, but no general zoom out control", which is an accurate
+                // description of a gap rather than an answer. Fit jumps to everything; a
+                // step keeps your place and changes how much of it you see, and those are
+                // different things to want.
+                name: 'zoom',
+                summary: 'ZOOM IN OR OUT A STEP FROM WHERE THE VIEW IS NOW, keeping the middle '
+                    + 'of the screen where it is. This is the answer to "zoom out", "zoom in", '
+                    + '"zoom out a bit", "pull back", "zoom in more", "closer". For showing '
+                    + 'every track at once use fit; for a particular track, selection or '
+                    + 'position use zoom_to_track, zoom_selection or go_to_position.',
+                params: {
+                    direction: {
+                        type: 'enum', values: ['out', 'in'], default: 'out',
+                        about: 'out to see more, in to see less and larger'
+                    },
+                    amount: {
+                        type: 'number', default: 2,
+                        about: 'how many times more or less to show. 2 is a normal step; use 4 '
+                            + 'or 8 only when the request says "a lot" or "way out"'
+                    }
+                },
+                run: async (a) => {
+                    const g = graph.grid;
+                    if (!g || typeof g.getxmin !== 'function' || !graph.zoomRect) {
+                        result('This view cannot be zoomed.');
+                        return;
+                    }
+                    const out = (('' + ((a && a.direction) || 'out')).toLowerCase() !== 'in');
+                    let k = Number((a && a.amount) || 2);
+                    if (!isFinite(k) || k <= 0) k = 2;
+                    k = Math.min(Math.max(k, 1.1), 50);
+                    const f = out ? k : (1 / k);
+                    const x0 = g.getxmin(), x1 = g.getxmax();
+                    const y0 = g.getymin(), y1 = g.getymax();
+                    if (![x0, x1, y0, y1].every((v) => isFinite(v))) {
+                        result('This view cannot be zoomed.');
+                        return;
+                    }
+                    // ABOUT THE MIDDLE OF THE SCREEN. Zooming from a corner walks the view
+                    // sideways with every step, which is how a few zoom-outs end up looking
+                    // at nothing.
+                    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+                    const hw = Math.abs(x1 - x0) / 2 * f, hh = Math.abs(y1 - y0) / 2 * f;
+                    try {
+                        await graph.zoomRect(cx - hw, cx + hw, cy - hh, cy + hh, 20);
+                    } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result('Zoomed ' + (out ? 'out' : 'in') + ' \u00d7' + k + '.');
+                },
+                preview: (a) => {
+                    const out = (('' + ((a && a.direction) || 'out')).toLowerCase() !== 'in');
+                    let k = Number((a && a.amount) || 2);
+                    if (!isFinite(k) || k <= 0) k = 2;
+                    return 'zoom ' + (out ? 'out' : 'in') + ' \u00d7' + k
+                        + ', keeping the middle of the view where it is';
+                }
             },
 
             // SPLICE A TRACK INTO AN mRNA. The track menu has offered this for a while
@@ -2385,7 +3772,22 @@ function (graph, genegraph_panel_layout) {
             }
             for (const k of Object.keys(specs)) {
                 if (specs[k].required && args[k] == null) {
-                    return { ok: false, capability: c, problem: 'needs ' + k + ' and none was given' };
+                    // A MISSING ARGUMENT IS A QUESTION, NOT A DEAD END. Refusing is right --
+                    // nothing above may substitute a value the user did not give -- but the
+                    // refusal knows precisely what it needs and, for an enum, every answer
+                    // that would be accepted. "add pathologic mutations to selected sequence"
+                    // is load_variants without a db: one word short of runnable, and the four
+                    // words that would complete it are right here. They travel with the
+                    // refusal so the card can offer them; offering is not substituting, and
+                    // the value is still the user's to pick.
+                    return {
+                        ok: false, capability: c,
+                        problem: 'needs ' + k + ' and none was given',
+                        missing: k,
+                        missingValues: (specs[k].type === 'enum' && Array.isArray(specs[k].values))
+                            ? specs[k].values.slice() : null,
+                        missingAbout: specs[k].about || ''
+                    };
                 }
                 if (args[k] == null && specs[k].default != null) args[k] = specs[k].default;
             }
@@ -2413,7 +3815,13 @@ function (graph, genegraph_panel_layout) {
 
         const preview = (step) => {
             const v = validate(step);
-            if (!v.ok) return { ok: false, text: v.problem };
+            if (!v.ok) {
+                return {
+                    ok: false, text: v.problem, capability: v.capability || null,
+                    missing: v.missing || null, missingValues: v.missingValues || null,
+                    missingAbout: v.missingAbout || ''
+                };
+            }
             const c = v.capability;
             // Which tracks this step could run on, when it names none. One: it simply runs
             // there. Several: the card offers a Go for each rather than guessing.
@@ -2435,7 +3843,11 @@ function (graph, genegraph_panel_layout) {
                 blocker: b, destructive: !!c.destructive,
                 opens: !!c.opens, answers: !!c.answers,
                 choices: choices.length > 1 ? choices : null,
-                choiceTitle: (choices.length > 1 && c.choiceTitle) ? c.choiceTitle(v.args, choices) : null
+                choiceTitle: (choices.length > 1 && c.choiceTitle) ? c.choiceTitle(v.args, choices) : null,
+                // WHAT TO OFFER WHEN IT CANNOT RUN. A capability that has somewhere for the
+                // user to go when it is stuck says so here, and the card puts it beside
+                // Cancel rather than leaving a refusal as the whole answer.
+                whenStuck: c.whenStuck || null
             };
         };
 
@@ -2469,10 +3881,160 @@ function (graph, genegraph_panel_layout) {
             try { return R.available(); } catch (e) { return null; }
         };
 
+        // WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT, without asking anything.
+        //
+        // The planner is a server call and it can fail: the service can be down, the request
+        // can time out, or the model can decline it -- "add pathological mutations in the
+        // selected sequence" was read as a request to create something harmful, when in this
+        // editor it is load_variants over a selection, which is what a genome browser does.
+        // A failure there left the ask box with nothing but the error.
+        //
+        // This is deliberately dumb: words shared with an operation's own name and summary,
+        // with the handful of synonyms that differ between how people say a thing and how
+        // the catalogue spells it. It does not run anything and it does not guess arguments.
+        // It offers the operation, and the user picks -- which is the honest thing to do
+        // with a guess, and leaves them somewhere rather than nowhere.
+        // SINGULAR AND PLURAL ARE THE SAME WORD. "snps" means variant, the operation is
+        // called load_variants, and matching the two strings as written scored the word
+        // against clear_variant_selection -- whose name happens to use the singular -- three
+        // times higher than against the operation that loads them. Both sides are stemmed,
+        // so the catalogue's spelling and the user's cannot disagree about a plural.
+        const stem = (w) => (w.length > 3 && w.charAt(w.length - 1) === 's'
+            && w.charAt(w.length - 2) !== 's') ? w.slice(0, -1) : w;
+        const SUGGEST_ALSO = {
+            mutation: 'variant', snp: 'variant', polymorphism: 'variant',
+            pathology: 'pathogenic', pathological: 'pathogenic', pathogenic: 'clinvar',
+            deleterious: 'pathogenic', damaging: 'pathogenic', disease: 'clinvar',
+            clinical: 'clinvar', exon: 'exons', protein: 'translation',
+            domain: 'domains', skipping: 'skip', conserved: 'conservation'
+        };
+        // THE ONE REQUEST THE EDITOR ADVERTISES, PLANNED WITHOUT ASKING ANYTHING.
+        //
+        // The bar above the ask box offers "load clinvar pathogenic snps" in those words. An
+        // editor that cannot carry out its own advertised phrase when the planner is down --
+        // or declines it, which is what happened to "add pathology snps to selected
+        // sequence" -- is advertising something it will not do.
+        //
+        // Deliberately narrow, and built out of the catalogue's own declared values rather
+        // than a second table that could drift from them: a database named in the request,
+        // the clinical words beside it, the variant classes. It fires only when the request
+        // names a variant DATABASE or a clinical SIGNIFICANCE, so an unrelated sentence that
+        // happens to share a word gets the suggestion list instead of a plan. Everything
+        // else stays the planner's job, where a model reading a whole sentence belongs.
+        const localPlan = (text) => {
+            const raw = ('' + (text || '')).toLowerCase();
+            if (!raw) return null;
+            const spec = (LIST.find((c) => c.name === 'load_variants') || {}).params || {};
+            const has = (w) => new RegExp('(^|[^a-z])' + w + '[a-z]*([^a-z]|$)').test(raw);
+            const db = (spec.db && spec.db.values || []).find((v) => has(v));
+            // The words people use for the ClinVar classes, mapped onto the enum the
+            // operation declares. Only the ones the operation will accept are kept.
+            const SIG = { pathogenic: 'pathogenic', pathology: 'pathogenic', pathological: 'pathogenic',
+                deleterious: 'pathogenic', damaging: 'pathogenic', benign: 'benign',
+                uncertain: 'uncertain', vus: 'uncertain', conflicting: 'conflicting' };
+            const allowed = (spec.clinsig_any && spec.clinsig_any.values) || [];
+            const sig = [];
+            for (const w of Object.keys(SIG)) {
+                if (has(w) && allowed.indexOf(SIG[w]) >= 0 && sig.indexOf(SIG[w]) < 0) sig.push(SIG[w]);
+            }
+            if (!db && !sig.length) return null;
+            // Asking to PUT them on the track, not to clear, remove or count them. Without a
+            // verb of that kind this is a sentence about variants, not a request to load any.
+            if (!/\b(add|load|put|show|draw|fetch|get|bring|import|annotate|mark)\b/.test(raw)) return null;
+            if (/\b(remove|clear|delete|drop|hide|unload)\b/.test(raw)) return null;
+            const args = { db: db || 'clinvar' };
+            if (sig.length) {
+                args.clinsig_any = sig;
+                // ClinVar's conflicting-interpretation string contains the word "pathogenic",
+                // so asking for pathogenic without this gets the conflicting ones too. The
+                // operation's own params say exactly this; it is applied here rather than
+                // left for the user to discover from the card.
+                if (sig.indexOf('pathogenic') >= 0 && sig.indexOf('conflicting') < 0) args.clinsig_not = ['conflicting'];
+            }
+            const types = [];
+            if (/\bsnp|\bsnv|substitution/.test(raw)) types.push('snp');
+            if (/\bindel|insertion/.test(raw)) types.push('ins');
+            if (/\bindel|deletion/.test(raw)) types.push('del');
+            if (types.length && !/\ball\b/.test(raw)) args.types = types;
+            return { capability: 'load_variants', args: args };
+        };
+
+        const suggest = (text, limit) => {
+            const words = ('' + (text || '')).toLowerCase().match(/[a-z0-9']+/g) || [];
+            if (!words.length) return [];
+            // THE LEADING VERB STEERS, IT DOES NOT IDENTIFY. It is used below to rank
+            // loaders above removers and questions above both; counting it as a word as well
+            // put add_variant_from_description, whose name begins with the verb, above
+            // load_variants for "add pathology snps to selected sequence" -- a request that
+            // names no change to add. Which operation it is comes from the nouns.
+            const VERB = /^(add|load|put|get|fetch|show|draw|bring|import|remove|clear|delete|hide|find|make|create|open|run)$/;
+            const want = new Set();
+            for (const raw of words) {
+                if (raw.length < 3) continue;
+                if (raw === words[0] && VERB.test(raw)) continue;
+                const w = stem(raw);
+                want.add(w);
+                // The synonym table is keyed on the stem, and what it gives back is stemmed
+                // too: one more place a plural could divide a word from itself.
+                const also = SUGGEST_ALSO[w] || SUGGEST_ALSO[raw];
+                if (also) want.add(stem(also));
+            }
+            // A RARE WORD IS WORTH MORE THAN A COMMON ONE. Counting shared words alone put
+            // clear_sequence_selection level with load_variants for "add pathological
+            // mutations in selected sequence", because "sequence" and "selected" are in half
+            // the catalogue while "pathogenic" is in one operation. Each word is worth how
+            // few operations use it, which is what makes it a clue at all.
+            const bag = [];
+            for (const c of LIST) {
+                bag.push({
+                    c: c,
+                    name: new Set((('' + (c.name || '')).toLowerCase().match(/[a-z0-9']+/g) || []).map(stem)),
+                    all: new Set(((((c.name || '') + ' ' + (c.summary || '')).toLowerCase().match(/[a-z0-9']+/g) || []).map(stem)))
+                });
+            }
+            const weight = (w) => {
+                let k = 0;
+                for (const b of bag) if (b.all.has(w)) k++;
+                return k ? Math.log(1 + (bag.length / k)) : 0;
+            };
+            const scored = [];
+            for (const b of bag) {
+                let n = 0;
+                for (const w of want) {
+                    if (!b.all.has(w)) continue;
+                    // A name hit counts twice: a word in the operation's own name is what it
+                    // is called, not something its description happens to mention.
+                    n += weight(w) * (b.name.has(w) ? 3 : 1);
+                }
+                // THE VERB SAYS WHAT KIND OF OPERATION IT IS. "add pathological mutations"
+                // and "are any of these pathogenic" share almost every noun and want
+                // different operations: one puts something on the track, the other reads
+                // what is already there. Asking for a thing to appear favours the loaders;
+                // asking a question favours the ones that answer one.
+                if (/^(add|load|put|get|fetch|show|draw|bring|import)$/.test(words[0] || '')) {
+                    if (/^(load|add|create|draw)_/.test('' + b.c.name)) n *= 1.25;
+                    // AND THE OPPOSITE OPERATION IS NOT THE ANSWER. "add pathology snps to
+                    // selected sequence" scored clear_variant_selection above load_variants
+                    // on shared nouns alone: both are about variants and selections, and only
+                    // the verb says which way round. Asking for something to appear is a
+                    // reason to rank taking it away BELOW, not merely not above.
+                    if (/^(clear|remove|delete|hide|unload|drop)_/.test('' + b.c.name)) n *= 0.4;
+                }
+                if (/^(are|is|which|what|how|do|does|why)$/.test(words[0] || '')
+                    && /^(ask|find|check|list)/.test('' + b.c.name)) n *= 1.25;
+                if (n > 0) scored.push({ name: b.c.name, summary: b.c.summary, score: Math.round(n * 100) / 100 });
+            }
+            scored.sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name));
+            // A single shared word is a coincidence, not a suggestion, once anything scores
+            // better: keep what is within reach of the best and drop the long tail.
+            const best = scored.length ? scored[0].score : 0;
+            return scored.filter((x) => x.score >= Math.max(1.2, best * 0.45)).slice(0, Math.max(1, limit || 3));
+        };
+
         return {
             list: LIST, byName: byName, validate: validate, preview: preview,
             regionInfo: regionInfo, regionsOf: regionsOf, selCountOf: selCountOf,
-            blocker: blocker, catalogue: catalogue,
+            blocker: blocker, catalogue: catalogue, suggest: suggest, localPlan: localPlan,
             vhits: vhits, vrows: vrows, crows: crows, selectVariants: selectVariants,
             selTracks: selTracks, oneSelTrack: oneSelTrack, tracks: tracks, rangeOf: rangeOf,
             VS: VS, F: F

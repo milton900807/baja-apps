@@ -20,7 +20,12 @@ function () {
     // read against the paper.
     const __ink = (graph) => {
         const t = __theme(graph);
-        return (t && t.ink) || __ink(graph);
+        // FALLS BACK TO A COLOR, NOT TO ITSELF. This read `|| __ink(graph)`, which on a graph
+        // carrying no theme recursed until the stack gave out and took the whole frame with
+        // it. track.js publishes __trackTheme on every real draw, so it never fired there --
+        // it fired for anything else holding a graph, and a blank canvas is a hard failure to
+        // read back to a missing default.
+        return (t && t.ink) || '#0a2540';
     };
     // One annotation color by name, from the theme-derived palette track.js publishes.
     const __ann = (graph, key, fallback) => {
@@ -993,9 +998,12 @@ function () {
                     const small = (annotation.index >= 0 && screencell < 0.52);
                     const radius = small ? 10 : 20;
                     const fontSize = small ? 8 : 15;
-                    // Center the badge x on the exon (midpoint of its span). When
-                    // zoomed out (small), lift it above the exon so the exon block
-                    // doesn't obscure the number; centered on the lane when zoomed in.
+                    // ON THE EXON, WHICH IS WHERE IT IS READ. Lifting the badge clear of the
+                    // capsule was tried, to stop it covering what the exon says underneath:
+                    // zoomed in it then stood in the sequence and the amino-acid rows, which
+                    // is busier ground than the capsule ever was. The number stays on the
+                    // exon; anything the exon has to say is drawn clear of the badge instead
+                    // (see the stability label in baja/bio/track-layer.js).
                     const x = (graph.X(xs) + graph.X(xf)) / 2;
                     const y = small ? (graph.Y(yv) + (radius + 28)) : graph.Y(yv);
 

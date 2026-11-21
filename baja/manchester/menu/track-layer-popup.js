@@ -161,14 +161,66 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
             },
             // Asks first: a layer can hold a computed curve or a whole paste's worth of notes.
             // confirm.js snapshots for Undo before it runs the action.
+            //
+            // DELETE BY WHAT THE LAYER IS, NOT BY THE OBJECT WE OPENED ON. Pressing Delete used to
+            // splice the array at indexOf(layer) and do nothing at all when that came back -1 --
+            // no removal, no complaint, the bars still on the track. It comes back -1 whenever the
+            // track's layers are REBUILT between opening this menu and confirming, which a save or
+            // reload does routinely: gene.js rehydrates each layer as Object.assign(new TrackLayer(),
+            // ...), so the array holds an equal layer that is a different object. Matching on name
+            // and data_type as well finds that rebuilt twin. The splice stays in place because other
+            // code holds this array; and if nothing matches, it SAYS so rather than looking done.
+            //
+            // Its companion goes with it. The CDD loader adds a protein track's domains and its
+            // functional sites as a pair (baja/bio/protein/cdd-domain-layer.js) and drops them as a
+            // pair; deleting "_domains" on its own left an orphan "_sites" layer drawn underneath,
+            // which reads as the delete having half worked.
             delete: async () => {
+                const nm = nameOf(layer), dt = '' + (layer.data_type || '');
+                const CDD_PAIR = { '_domains': '_sites' };
+                const mate = (() => {
+                    for (const suffix of Object.keys(CDD_PAIR)) {
+                        if (dt === 'CDD' && nm.indexOf(suffix) >= 0) {
+                            const want = nm.replace(suffix, CDD_PAIR[suffix]);
+                            return list().find((l) => l && l !== layer && ('' + l.name) === want && ('' + l.data_type) === 'CDD') || null;
+                        }
+                    }
+                    return null;
+                })();
+                const same = (l, target, tname, tkind) => !!l && (l === target
+                    || (('' + l.name) === tname && ('' + (l.data_type || '')) === tkind && tname !== 'layer'));
+                const take = (target, tname, tkind) => {
+                    const a = list();
+                    let n = 0;
+                    for (let i = a.length - 1; i >= 0; i--) {
+                        if (!same(a[i], target, tname, tkind)) continue;
+                        // A CHILD TRACK MIRRORS ITS PARENT'S LAYERS EVERY REDRAW. Splicing the
+                        // array is not enough on one: the next tick pushes the layer back and
+                        // the delete looks like it did nothing (baja/bio/track.js).
+                        try { if (track.noteLayerRemoved) track.noteLayerRemoved(a[i]); } catch (e) { }
+                        a.splice(i, 1);
+                        n++;
+                    }
+                    return n;
+                };
+                const what = mate ? ('the layers "' + nm + '" and "' + nameOf(mate) + '"') : ('the layer "' + nm + '"');
                 try {
-                    await exec('baja/lib/confirm.js', 'Delete the layer "' + nameOf(layer) + '" from ' + (track.name || 'this track') + '?', () => {
-                        const a = list();
-                        const i = a.indexOf(layer);
-                        if (i >= 0) a.splice(i, 1);
+                    const fallback = await exec('baja/lib/confirm.js', 'Delete ' + what + ' from ' + (track.name || 'this track') + '?', () => {
+                        const before = list().length;
+                        let gone = take(layer, nm, dt);
+                        if (mate) gone += take(mate, nameOf(mate), '' + (mate.data_type || ''));
+                        const info = { name: nm, data_type: dt, before: before, after: list().length, removed: gone, at: Date.now() };
+                        window.__bajaLayerDelete = info;
+                        if (!gone) {
+                            try { graph.setMessage(' "' + nm + '" is no longer on ' + (track.name || 'this track') + ' - nothing to delete '); } catch (e) { }
+                            return;
+                        }
                         wake();
                     }, 'Delete');
+                    // No graph is stashed on this page, so confirm.js returned its modal instead of
+                    // drawing the panel on the canvas. Unshown, the question is never asked and the
+                    // menu item does nothing; showModal(null) is a no-op, so this is safe either way.
+                    try { showModal(fallback); } catch (e) { }
                 } catch (e) { try { graph.setMessage(' Could not delete the layer: ' + e); } catch (e2) { } }
             }
         };

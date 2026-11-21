@@ -203,6 +203,11 @@ return new Promise(async (resolve, reject) => {
         defaultFont = "10px Arial";
         uid = uuid();
         drawStyle = 'default'
+        // ARROWS FROM THIS LAYER'S BARS TO MATCHING ONES ON ANOTHER TRACK.
+        // [{ x1, x2, y, track, ox1, ox2, oy, color }] -- this end in this track's
+        // coordinates, the far end in the PARTNER track's. Empty for every layer that has
+        // no partner, which is nearly all of them. See the third pass in draw().
+        links = []
 
         // ZOOM GATE AND MINIMUM TICK, both off by default so every existing layer is unchanged.
         //
@@ -1009,6 +1014,234 @@ return new Promise(async (resolve, reject) => {
                     ctx.restore();
                 }
             }
+            // HOW STABLY EACH EXON SPLICES, said on the exon itself.
+            //
+            // The arcs already carry the numbers, but reading an exon's stability off them
+            // means finding its skip arc, noticing the dashes, and subtracting from 100 --
+            // and an exon with no skip arc at all, which is the commonest and best case,
+            // carries no number anywhere. So each annotated exon gets the answer written on
+            // it: PSI, the share of transcripts that keep the exon, as a percentage.
+            //
+            // It is 1 minus the exon's largest skip share, on the model's own 0..1 scale
+            // (mag / magMax, not the drawing weight). No skip arc means nothing was predicted
+            // to skip it: 100%, which is what "constitutive" means and is said in that word.
+            //
+            // BELOW THE EXON, which is the only side of it that stays quiet. Above the
+            // capsule are the codon-number row and the amino-acid letters, published by
+            // track.js as offsets ABOVE the baseline (__pepIndexTopUpPx / __pepMidUpPx in
+            // flexigraph/gene-draw.js) and dense in exactly the band this tag needs once
+            // zoomed in; a plate wide enough to cover them is a plate that hides the
+            // sequence. Underneath, gene-draw.js deliberately keeps the lower part of the
+            // track clear, so the tag has the room to itself.
+            //
+            // Measured from the exon INDEX DISC, not from the capsule: that disc is 40px
+            // and opaque, centred on the capsule and horizontally centred on the exon --
+            // the very spot this tag occupies -- so 10px below a 14px capsule would put
+            // the text underneath it and bring back the "99%   utive" it replaced.
+            // Skipped where the exon is too narrow to hold it, and where it would land on
+            // a label already drawn this frame: a number half written over another is
+            // worse than the gap it fills.
+            if (this.magnitudeMode === 'psi' && this.showExonStability !== false
+                && track && Array.isArray(track.annotations) && this.junctions.length) {
+                const skipOf = new Map();
+                for (const j of this.junctions) {
+                    if (!j || j.kind !== 'skip' || j.exon == null) continue;
+                    const f = Math.max(0, Math.min(1, (typeof j.mag === 'number' ? j.mag : 0) / magMax));
+                    const k = +j.exon;
+                    if (!(f <= (skipOf.get(k) || 0))) skipOf.set(k, f);
+                }
+                // layer.untrustedSpans comes back from the PSI run as genomic [xi, xf]
+                // intervals, so the match is by overlap and needs no exon numbering: an
+                // index mapping that went wrong here would mark the wrong exon untrusted
+                // and leave the bad one wearing a confident number.
+                // THE WORST A VARIANT DOES TO THIS EXON. Containment first, then nearness:
+                // a canonical GT/AG mutation sits just OUTSIDE the exon it destroys, in the
+                // intron, so an inside-only test would miss the class with the largest
+                // effect of all.
+                const __vfx = Array.isArray(this.variantEffects) ? this.variantEffects : [];
+                const variantAt = (an) => {
+                    if (!__vfx.length) return null;
+                    const lo2 = Math.min(+an.xi, +an.xf), hi2 = Math.max(+an.xi, +an.xf);
+                    let best = null;
+                    for (const v of __vfx) {
+                        if (v.skipped || !isFinite(+v.dpsi)) continue;
+                        const inside = (+v.pos >= lo2 && +v.pos <= hi2);
+                        if (!inside && !(+v.pos >= lo2 - 30 && +v.pos <= hi2 + 30)) continue;
+                        if (!best || (inside && !best.inside)
+                            || (inside === best.inside && Math.abs(+v.dpsi) > Math.abs(+best.v.dpsi))) {
+                            best = { v: v, inside: inside };
+                        }
+                    }
+                    // Only when it moved something. A variant the model says does nothing to
+                    // splicing is a real answer and belongs in the table, not written across
+                    // the exon: most pathogenic variants are pathogenic in the PROTEIN and
+                    // leave inclusion alone, and tagging those would cry wolf on every one.
+                    if (!best) return null;
+                    const d = Math.abs(+best.v.dpsi);
+                    return (d >= 0.05 || +best.v.canonicalSite > 0) ? best.v : null;
+                };
+                const __mrows = Array.isArray(this.measuredPsi) ? this.measuredPsi : [];
+                const measuredAt = (an) => {
+                    if (!__mrows.length) return null;
+                    const lo2 = Math.min(+an.xi, +an.xf), hi2 = Math.max(+an.xi, +an.xf);
+                    for (const m of __mrows) {
+                        const a2 = Math.min(+m.xi, +m.xf), b2 = Math.max(+m.xi, +m.xf);
+                        if (isFinite(a2) && isFinite(b2) && a2 <= hi2 && b2 >= lo2) return m;
+                    }
+                    return null;
+                };
+                const __uspans = Array.isArray(this.untrustedSpans) ? this.untrustedSpans : [];
+                const untrustedWhy = (an) => {
+                    if (!__uspans.length) return null;
+                    const lo2 = Math.min(+an.xi, +an.xf), hi2 = Math.max(+an.xi, +an.xf);
+                    for (const u of __uspans) {
+                        const a2 = Math.min(+u.xi, +u.xf), b2 = Math.max(+u.xi, +u.xf);
+                        if (isFinite(a2) && isFinite(b2) && a2 <= hi2 && b2 >= lo2) return (u.why || '');
+                    }
+                    return null;
+                };
+                const BADGE_R = 20;                 // the exon number's disc, at this zoom
+                // 10px below the exon as drawn, disc included. One straight row for every
+                // exon on the track: deriving the offset per exon from whether that one
+                // shows its number would stagger the tags into two rows and make the
+                // track harder to read than the gap it would save.
+                //
+                // MEASURED FROM THE LINE THE EXON IS ON, not from track y=0. They are the
+                // same for an ordinary exon -- track-flexi.js getAnnotation says an exon's
+                // annotation.y is 0, the baseline -- but they are NOT the same when the
+                // layer's tgraph is a parent track and the exons belong to a child, which
+                // is how a transcript under a gene is drawn. Reading the line off the
+                // annotations themselves is right in both cases and identical in the first.
+                let __annY = null;
+                for (const an of track.annotations) {
+                    if (!an || ('' + an.type).toLowerCase() !== 'exon' || an.index == null) continue;
+                    __annY = graph.Y(tgraph.Y(+an.y || 0));
+                    break;
+                }
+                const exonRowY = (__annY != null && isFinite(__annY)) ? __annY : baselineY;
+                // AND INSIDE THE CANVAS. A row computed below the exon can land past the
+                // bottom edge, where it is not drawn and not reported: the tag simply is
+                // not there, which is indistinguishable from the model having said nothing.
+                // Clamped rather than dropped, because a tag slightly out of place is a
+                // complaint and a missing one is a silent failure.
+                const __h = (ctx.canvas && ctx.canvas.height) || 0;
+                let ly = exonRowY + BADGE_R + 10;
+                if (__h > 40) ly = Math.max(12, Math.min(__h - 12, ly));
+                // Published for diagnosis: when the tag is not where it is expected, this
+                // says where it actually went without needing a screenshot to guess from.
+                this.exonStabilityRowY = ly;
+                const placed = [];
+                ctx.save();
+                ctx.font = 'bold 13px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.lineJoin = 'round';
+                ctx.miterLimit = 2;
+                for (const an of track.annotations) {
+                    if (!an || ('' + an.type).toLowerCase() !== 'exon' || an.index == null) continue;
+                    const ex0 = graph.X(tgraph.X(Math.min(+an.xi, +an.xf)));
+                    const ex1 = graph.X(tgraph.X(Math.max(+an.xi, +an.xf) + 1));
+                    if (!isFinite(ex0) || !isFinite(ex1)) continue;
+                    const lo = Math.min(ex0, ex1), hi = Math.max(ex0, ex1);
+                    if (hi < 0 || lo > w) continue;
+                    // NO NUMBER WHERE THE NUMBER IS NOT ABOUT THIS EXON. An exon in
+                    // duplicated sequence was quantified from reads its twin could equally
+                    // have produced, so its training label is a blend and the prediction is
+                    // a faithful reproduction of the wrong gene: SMN2 exon 7 is labelled
+                    // 84% and is really about 10%, and the model said 96%. Printing that as
+                    // "96% constitutive" on an ASO target is the worst of the options here,
+                    // because it is legible, confident and wrong. The tag says so instead,
+                    // in grey, and names what the sequence is shared with when it is known.
+                    // A MEASUREMENT OUTRANKS BOTH. Where someone has measured this exon's
+                    // inclusion, that is the number to show: the prediction is the part that
+                    // could not be trusted, and having no trustworthy prediction is a reason
+                    // to show a measurement rather than to show nothing. Said as "measured"
+                    // and drawn in violet so it is never read as model output, and given as
+                    // approximate because the published figure varies by assay and cell type
+                    // -- a bare "10%" would trade one false precision for another.
+                    const meas = measuredAt(an);
+                    const vfx = meas ? null : variantAt(an);
+                    const untrusted = meas ? null : untrustedWhy(an);
+                    const psi = (meas && isFinite(+meas.psi))
+                        ? +meas.psi : 1 - (skipOf.get(+an.index) || 0);
+                    const pct = (psi >= 0.995) ? 100 : Math.round(psi * 100);
+                    // WITH THE VARIANT, said as a move and not as a single number: the
+                    // reader needs what it was as well as what it becomes, or a low number
+                    // reads as an exon that was always weak. Declared here, with pct,
+                    // because every form of the label below is free to use it.
+                    const vpct = vfx ? Math.round(100 * (+vfx.psiAlt)) : null;
+                    // The long form says what the number means; the short one is the number,
+                    // for an exon with room for one and not the other.
+                    const full = meas
+                        ? ('e' + an.index + ' \u00b7 ~' + pct + '% measured'
+                           + (meas.gene ? (' \u00b7 ' + meas.gene
+                              + (meas.exon ? (' e' + meas.exon) : '')) : ''))
+                        : vfx
+                        ? ('e' + an.index + ' \u00b7 ' + pct + '% \u2192 ' + vpct + '% with '
+                           + (vfx.ref || '?') + '>' + (vfx.alt || '?')
+                           + (+vfx.canonicalSite > 0 ? ' \u00b7 splice site' : ''))
+                        : (untrusted != null)
+                        ? ('e' + an.index + ' \u00b7 PSI not trusted'
+                           + (untrusted ? (' \u00b7 ' + untrusted) : ''))
+                        : ('e' + an.index + ' \u00b7 ' + pct + '% '
+                           + (pct >= 100 ? 'constitutive' : 'stable'));
+                    // A MIDDLE FORM, so the exon number survives the squeeze. Naming the
+                    // twin locus makes the long form half again as wide as the trusted one,
+                    // which at ordinary zoom drops a flagged exon straight to the bare word
+                    // and loses WHICH exon is flagged -- on a track where some exons are
+                    // trusted and some are not, that is the one thing worth keeping.
+                    const mid = meas ? ('e' + an.index + ' \u00b7 ~' + pct + '% measured')
+                        // The base change rides in the middle form too: it is three
+                        // characters and it is what tells the reader WHICH lollipop under
+                        // the exon did this, on a track carrying eleven of them.
+                        : vfx ? ('e' + an.index + ' \u00b7 ' + pct + '% \u2192 ' + vpct + '% '
+                                 + (vfx.ref || '?') + '>' + (vfx.alt || '?'))
+                        : (untrusted != null) ? ('e' + an.index + ' \u00b7 not trusted') : null;
+                    const short = meas ? ('~' + pct + '%')
+                        : vfx ? (pct + '\u2192' + vpct + '%')
+                        : (untrusted != null) ? 'untrusted' : (pct + '%');
+                    const span = hi - lo;
+                    const wFull = ctx.measureText(full).width;
+                    const wMid = mid ? ctx.measureText(mid).width : 0;
+                    const wShort = ctx.measureText(short).width;
+                    let text = null, tw = 0;
+                    if (span >= wFull + 8) { text = full; tw = wFull; }
+                    else if (mid && span >= wMid + 7) { text = mid; tw = wMid; }
+                    else if (span >= wShort + 6) { text = short; tw = wShort; }
+                    if (!text) continue;
+                    const cx = (lo + hi) / 2;
+                    const x0 = cx - tw / 2 - 2, x1 = cx + tw / 2 + 2;
+                    if (placed.some((r) => x0 < r.x1 && x1 > r.x0)) continue;
+                    placed.push({ x0: x0, x1: x1 });
+                    // Green while the exon is kept, amber once a meaningful share skips it,
+                    // red when most transcripts do: the colour is the reading, the number is
+                    // the measurement.
+                    // Coloured by what the exon becomes WITH the variant, not by what it was:
+                    // the point of the tag is the consequence.
+                    const cpct = vfx ? vpct : pct;
+                    const col = meas ? '#6d28d9'
+                        : vfx ? ((+vfx.dpsi <= -0.05 || +vfx.canonicalSite > 0) ? '#b91c1c'
+                                 : (cpct >= 90 ? '#15803d' : cpct >= 50 ? '#b45309' : '#b91c1c'))
+                        : (untrusted != null) ? '#475569'
+                        : (cpct >= 90) ? '#15803d' : (cpct >= 50 ? '#b45309' : '#b91c1c');
+                    // AN OPAQUE CHIP, NOT A HALO. A white outline on the glyphs lets
+                    // whatever is behind show through between the strokes, and behind this
+                    // is the amino-acid row: dense, same size, and the reason the tag read
+                    // as blocked. A filled plate behind the text covers it outright.
+                    const ch = 16;
+                    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                    if (ctx.roundRect) {
+                        ctx.beginPath();
+                        ctx.roundRect(x0 - 2, ly - ch / 2, (x1 - x0) + 4, ch, 4);
+                        ctx.fill();
+                    } else {
+                        ctx.fillRect(x0 - 2, ly - ch / 2, (x1 - x0) + 4, ch);
+                    }
+                    ctx.fillStyle = col;
+                    ctx.fillText(text, cx, ly);
+                }
+                ctx.restore();
+            }
             // BRANCH POINTS. Each annotated acceptor's predicted branch-site A, drawn just under
             // the baseline as a violet diamond joined by a dotted line to its AG, so the
             // branch point, the polypyrimidine tract and the acceptor read as one unit. Filled
@@ -1077,6 +1310,14 @@ return new Promise(async (resolve, reject) => {
                 ctx.fillText(__msg, __tx, __ty);
                 ctx.restore();
             }
+
+            // The per-exon reliability tag is drawn ONCE, in the exon-stability pass
+            // above, off track.annotations. An earlier pass here drew a second tag from
+            // layer.exonStability, below the baseline, so every exon carried two labels
+            // saying the same thing in different words and the pair collided with the
+            // exon badge between them. The scoring on layer.exonStability is still used:
+            // it is what the reliability RANKING reads, and it is weighted by conservation
+            // and by functional sites, which the drawn tag deliberately is not.
             ctx.lineWidth = 1;
             ctx.textAlign = 'left';
         }
@@ -1640,6 +1881,86 @@ return new Promise(async (resolve, reject) => {
                 }
                 // Second pass: the labels, over the finished bars.
                 for (const __j of __labelJobs) { try { __j(); } catch (e) { } }
+
+                // THIRD PASS: ARROWS TO THE MATCHING BLOCK ON ANOTHER TRACK.
+                //
+                // A pair of blocks drawn in the same colour and given the same number says
+                // "these two correspond", and the reader still has to hold the number in
+                // their head and go looking for its partner. An arrow says it without being
+                // read.
+                //
+                // Drawn here rather than by the track, because this is the only place that
+                // knows which bar pairs with which. The partner's position comes from the
+                // PARTNER'S OWN grid: a layer draws through its own tgraph and two tracks
+                // have different ones, so working out the far end with THIS layer's grid
+                // puts the arrow somewhere neither block is. That is the same mistake the
+                // motif hit-test made, and it is just as invisible in code.
+                //
+                // Only one side of a pair carries the links, or every arrow is drawn twice,
+                // the second over the first.
+                if (Array.isArray(this.links) && this.links.length) {
+                    for (const lk of this.links) {
+                        try {
+                            if (!lk || !lk.track) continue;
+                            const og = lk.track.grid || lk.track.tgraph;
+                            if (!og) continue;
+                            // Each end at the middle of its own bar, in CANVAS PIXELS, which
+                            // is what a grid's X and Y already return: the bars a few lines
+                            // up are placed with this.tgraph.X(int.x1) and nothing else.
+                            //
+                            // Putting graph.X() around that transformed an answer that was
+                            // already in pixels a second time, as though it were a world
+                            // coordinate, and sent every arrow far off the canvas. Nothing
+                            // threw and nothing was logged: the arrows were simply not where
+                            // anyone was looking, which is the same mistake as the motif hit
+                            // test and just as quiet.
+                            const lx0 = this.tgraph.X((lk.x1 + lk.x2) / 2);
+                            const ly0 = this.tgraph.Y(lk.y == null ? 0.5 : lk.y);
+                            const lx1 = og.X((lk.ox1 + lk.ox2) / 2);
+                            const ly1 = og.Y(lk.oy == null ? 0.5 : lk.oy);
+                            if (!isFinite(lx0) || !isFinite(ly0) || !isFinite(lx1) || !isFinite(ly1)) continue;
+
+                            ctx.save();
+                            ctx.strokeStyle = lk.color || 'rgba(120,130,150,0.55)';
+                            ctx.fillStyle = ctx.strokeStyle;
+                            ctx.lineWidth = (+lk.width || 1.5);
+                            if (lk.dashed) { try { ctx.setLineDash([5, 4]); } catch (e) { } }
+
+                            // A curve rather than a straight line: several of these between
+                            // two tracks cross each other, and curves that bow out are
+                            // followable where a bundle of straight lines is not.
+                            const ldy = (ly1 - ly0);
+                            ctx.beginPath();
+                            ctx.moveTo(lx0, ly0);
+                            ctx.bezierCurveTo(lx0, ly0 + ldy * 0.45, lx1, ly1 - ldy * 0.45, lx1, ly1);
+                            ctx.stroke();
+
+                            // A HEAD AT BOTH ENDS. A single head reads as "this came from
+                            // here and went there", which is a claim about direction that a
+                            // sequence match does not make: the two blocks correspond, and
+                            // neither is the source of the other. Two heads say that.
+                            //
+                            // Each points the way the curve runs at its own end, which is
+                            // toward the other track whichever way round the two of them are
+                            // on screen. lk.oneWay is there for an arrow that does mean a
+                            // direction; nothing drawing matches uses it.
+                            const lhead = (+lk.head || 6);
+                            const ldir = (ldy >= 0) ? 1 : -1;
+                            try { ctx.setLineDash([]); } catch (e) { }
+                            const headAt = (hx, hy, dir) => {
+                                ctx.beginPath();
+                                ctx.moveTo(hx, hy);
+                                ctx.lineTo(hx - lhead * 0.6, hy - dir * lhead);
+                                ctx.lineTo(hx + lhead * 0.6, hy - dir * lhead);
+                                ctx.closePath();
+                                ctx.fill();
+                            };
+                            headAt(lx1, ly1, ldir);
+                            if (!lk.oneWay) headAt(lx0, ly0, -ldir);
+                            ctx.restore();
+                        } catch (e) { }
+                    }
+                }
 
                 if (this.highlight_text.length > 0) {
                     for (let ht of this.highlight_text) {

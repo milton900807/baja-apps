@@ -132,12 +132,23 @@ function () {
             // sentence was covered; filling in the one in front of you was not, and that is
             // the commoner job.
             name: 'fill_table',
-            summary: 'put content into a table that already has its columns, worked out from '
-                + 'a description. THIS IS THE ANSWER whenever the request asks to add, fill '
-                + 'in, populate or generate ENTRIES, EXAMPLES or DATA for a table that is '
-                + 'already there ("add a bunch of employees and salaries to this", "fill in '
-                + 'some example parts"). The rows go into the empty rows at the bottom and '
-                + 'nothing already written is overwritten',
+            summary: 'put content into a table, worked out from a description. THIS IS THE '
+                + 'ANSWER whenever the request asks to add, fill in, populate or generate '
+                + 'ENTRIES, EXAMPLES or DATA for a table ("add a bunch of employees and '
+                + 'salaries to this", "fill in some example parts"), AND when it asks to '
+                + 'CREATE a table of something ("create a table of assumptions of costs '
+                + 'associated with single sea plane operations", "make me a table of the '
+                + 'reagents we use"): a table that is not on the canvas yet is made, put in '
+                + 'front of the user, and then filled, so ONE step answers the whole '
+                + 'sentence. Pass `columns` when creating, and new_table only when the '
+                + 'request asks for an EMPTY table of a given size. The rows go into the '
+                + 'empty rows at the bottom and nothing already written is overwritten. '
+                // WORKED OUT FROM ANOTHER TABLE MEANS READING IT. Typed-in numbers go stale
+                // the moment the table they came from changes.
+                + 'ALSO THE ANSWER when the new content is WORKED OUT FROM A TABLE already '
+                + 'on the canvas ("use assumptions to create a monthly cost table", "a '
+                + 'budget based on employees"): pass that table as `from`, and the figures '
+                + 'are written as FORMULAS that read it, not as typed-in numbers',
             module: 'baja/plate/ops/fill-table.js',
             params: {
                 what: { type: 'string', required: true,
@@ -148,7 +159,22 @@ function () {
                 table: { type: 'string', default: 'the table the request was made from',
                     about: 'the NAME of the table, if the request says it' },
                 rows: { type: 'number', default: '0, meaning as many as the request implies',
-                    about: 'how many rows, when the request says a number' }
+                    about: 'how many rows, when the request says a number' },
+                from: { type: 'string', default: 'not set: the content is not worked out from '
+                        + 'another table',
+                    about: 'the NAME of a table already on the canvas that the content is '
+                        + 'worked out from, when the request says to use one or base it on '
+                        + 'one ("use assumptions to ..." gives assumptions). Several are '
+                        + 'separated by commas. The cells worked out from it are then '
+                        + 'formulas that read it' },
+                columns: { type: 'string', default: 'not set: a table that has to be made gets '
+                        + 'a label column and a value column',
+                    about: 'the column headings, separated by commas, used ONLY when the table '
+                        + 'named does not exist yet and has to be made. Work them out from what '
+                        + 'the request says the table is of: "assumptions of costs associated '
+                        + 'with single sea plane operations" gives "Assumption, Cost, Notes". '
+                        + 'Put the labels first and the numbers second. Leave it out when the '
+                        + 'table is already on the canvas: its own columns are the shape' }
             }
         },
         {
@@ -248,6 +274,63 @@ function () {
             }
         }
         ,
+        {
+            // THE COMMONEST THING ANYBODY DOES TO A COLUMN OF NUMBERS. "make this cell sum
+            // the total above", typed into the cell under a column of costs, came back as
+            // "Nothing here does that". set_formula needs the formula already written, and
+            // cell_from_table totals a whole OTHER table; neither answers the cell you are
+            // standing in.
+            name: 'sum_above',
+            summary: 'TOTAL THE CELLS ABOVE THE SELECTED CELL and put the formula in it. '
+                + 'The range is read off the column -- up from the selected cell to the '
+                + 'first heading, empty cell or non-number -- so the total covers the run '
+                + 'of numbers it sits under and does not reach into the block above it. '
+                + 'THIS IS THE ANSWER to "make this cell sum the total above", "total this '
+                + 'column", "add up the cells above", "put a total here", "average the ones '
+                + 'above this". '
+                // A TOTAL ROW IS ASKED FOR AS A ROW: the word and the formula together, and
+                // as often as not before the column above it has anything in it.
+                + 'ALSO THE ANSWER to "the first cell has Total and the second is the sum '
+                + 'of all the cells above": pass the word as label and it is written beside '
+                + 'the formula. The cells above may still be empty; the formula is written '
+                + 'anyway and reads 0 until they are filled. '
+                + 'For a cell that reads a DIFFERENT table use cell_from_table; '
+                + 'for a formula the user has written out use set_formula',
+            module: 'baja/plate/ops/sum-above.js',
+            params: {
+                how: { type: 'enum', values: ['sum', 'average', 'min', 'max', 'count'],
+                    default: 'sum',
+                    about: 'what to take: sum unless the request says average, smallest, '
+                        + 'largest or how many' },
+                label: { type: 'string', default: 'no label',
+                    about: 'the word to write beside the total, e.g. Total, ONLY if the '
+                        + 'request asks for one. With a row of cells selected it goes in '
+                        + 'the first and the formula in the rest; with one cell selected '
+                        + 'it goes in the empty cell to its left' },
+                table: { type: 'string', default: 'the table the selected cell is in',
+                    about: 'the NAME of the table, if the request says it' }
+            }
+        },
+        {
+            // A FORMULA DESCRIBED RATHER THAN WRITTEN. sum_above answers the commonest
+            // description of one; this answers the rest, and repairs one that went red.
+            name: 'write_formula',
+            summary: 'work out ONE FORMULA from a description and write it in the selected '
+                + 'cell. THIS IS THE ANSWER to "make this cell fuel plus crew salaries", '
+                + '"this should be insurance divided by twelve", "put a formula here for '
+                + 'the average of the Amount column", and to "fix this formula" on a cell '
+                + 'that is red. The formula is checked against the tables on the canvas '
+                + 'and tried before it is written. For a total of the cells directly '
+                + 'above use sum_above; for a whole table of content use fill_table',
+            module: 'baja/plate/ops/formula-from-words.js',
+            params: {
+                what: { type: 'string', required: true,
+                    about: 'what the formula should work out, in the user\u2019s own words; '
+                        + 'pass the request through rather than summarising it' },
+                table: { type: 'string', default: 'the table the selected cell is in',
+                    about: 'the NAME of the table, if the request says it' }
+            }
+        },
         {
             name: 'set_column_values',
             summary: 'write a list of values down one column of a table, from the top',
@@ -660,6 +743,10 @@ function () {
             if (args.add) bits.push((args.add > 0 ? 'plus ' : 'minus ') + Math.abs(args.add));
             if (args.round && args.round !== 'none') bits.push('rounded to the nearest ' + args.round);
             return 'change the selected cells: ' + (bits.join(', ') || 'no change');
+        }
+        if (name === 'write_formula') {
+            return 'work out a formula for the selected cell'
+                + (args.table ? (' in "' + args.table + '"') : '') + ': ' + args.what;
         }
         if (name === 'fill_table') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';

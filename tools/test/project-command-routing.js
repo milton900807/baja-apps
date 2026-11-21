@@ -33,6 +33,10 @@ console.log('formulas must NOT be treated as sentences:');
     ['Inputs[Phase_II_Success_Rate,Value]', 'a reference with tags'],
     ['sum(a); sum(b)', 'a semicolon'],
     ['qpcr', 'a short token'],
+    ['=sum(two blocks[1:1][4:5])', 'a leading = and a table whose name has a space'],
+    ['=8500 + 3200', 'a leading = and arithmetic'],
+    ['=fuel + crew salaries total', 'a leading = with an operator among the words'],
+    ['=two blocks', 'a leading = and two words, which may be a name'],
     ['', 'nothing typed'],
     ['  ', 'only spaces'],
 ].forEach(([t, why]) => ok(isSentence(t) === false, '  "' + t + '" stays a formula: ' + why));
@@ -51,6 +55,11 @@ console.log('sentences must be recognised:');
     'seaarchbuoy add content to the first column that is the price, cog and pn',
     'hellowrold insert from top to bottom: cogs, employees, product',
     'first col: price, cog, pn',
+    // AN "=" IN FRONT OF A SENTENCE. This went to the formula engine on its first character
+    // and was written into the cell as typed, which turned the cell red.
+    '=sum the cells above',
+    '= average of the cells above',
+    '=total this column',
 ].forEach((t) => ok(isSentence(t) === true, '  "' + t + '"'));
 
 

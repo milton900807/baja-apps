@@ -14,8 +14,12 @@ const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
 let askedModel = 0;
+let askedFormula = [], formulaAnswer = { status: 'OK', formula: '', note: 'not enough to go on' };
 const load = async (p, ...a) => {
     if (p === 'py/bio/project/menu-pick.py') { askedModel++; return { status: 'OK' }; }
+    if (p === 'py/bio/project/formula-write.py') { askedFormula.push(a); return formulaAnswer; }
+    if (p === 'baja/plate/ops/frun-object.js') { return { results: [1] }; }
+    if (p === 'baja/plate/ops/diagnose-formula.js') { return { ok: true, why: '', suggest: '' }; }
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
     const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(path, 'utf8') + ')')(load, {});
     return f(...a);
@@ -125,6 +129,62 @@ const mkTable = (name, cols, rows) => {
     await sleep(40);
     ok(/That did not happen/.test(document.body.textContent || ''),
        'the failure is shown: ' + (document.body.textContent || '').slice(0, 80));
+
+    // ---- words after an "=" are a request for a formula ---------------------------------
+    // "=sum the cells above", typed with the cell under a column of costs selected, was
+    // written into the cell as it stood and the cell went red.
+    {
+        const fc = mkTable('flight_cost', 3, 11);
+        fc.getWellRange = (l) => { const i = fc.getWellIndicies(l[0]);
+            return '[' + i.colIdx + ':' + i.colIdx + '][' + i.rowIdx + ':' + i.rowIdx + ']'; };
+        ['Cost Item', 'Amount', 'Notes'].forEach((h, c) => { fc.wells[c][0].value = h; fc.wells[c][0].skin_type = 'ColumnHeader'; });
+        [8500, 3200, 1800, 1200, 450, 15150, 2400, 1500, 800].forEach((v, i) => { fc.wells[1][i + 1].value = '' + v; });
+        const pf = { root: [fc], selectedPlate: fc, formulas: {}, said: [],
+            setMessage(m) { this.said.push('' + m); }, wake: () => { }, updateCalculations() { },
+            addFormula(k, f) { this.formulas[k] = f; },
+            getTableByName: (n) => (n === fc.name ? fc : null) };
+        const type = async (text, cell) => {
+            document.body.innerHTML = '';
+            askedModel = 0; fc.__sel = [cell]; cell.value = ''; cell.__e = false;
+            await load('baja/plate/menu/project-command.js', {
+                menus: [{ label: 'Draw', items: [{ label: 'Table', click: () => { } }] }],
+                pm: pf, text: text, context: {}, setError: () => { } });
+            await sleep(40);
+            return cell.value;
+        };
+        const foot = fc.wells[1][10];
+        ok(await type('=sum the cells above', foot) === '=sum(flight_cost[1:1][1:9])',
+           'the sentence becomes the formula it describes: ' + foot.value);
+        ok(askedModel === 0 && !foot.hasError(), 'with no model asked and nothing red');
+        ok(pf.formulas['flight_cost[1:1][10:10]'] === '=sum(flight_cost[1:1][1:9])', 'registered as a formula');
+        ok(await type('= average of the cells above', foot) === '=average(flight_cost[1:1][1:9])', 'average: ' + foot.value);
+        ok(await type('=the largest one above', foot) === '=max(flight_cost[1:1][1:9])', 'largest: ' + foot.value);
+        ok(await type('=total this column', foot) === '=sum(flight_cost[1:1][1:9])', 'total this column: ' + foot.value);
+
+        // words that are not a total are worked out into a formula, checked and written
+        askedFormula = [];
+        formulaAnswer = { status: 'OK', formula: '=flight_cost[1:1][1:1]+flight_cost[1:1][2:2]', note: '' };
+        let v = await type('=fuel plus crew salaries', foot);
+        ok(v === '=flight_cost[1:1][1:1]+flight_cost[1:1][2:2]' && askedFormula.length === 1 && askedModel === 0,
+           'other words become the formula they describe, with no menu search: ' + v);
+        ok(askedFormula[0][0] === '=fuel plus crew salaries' && /"row": 10|"row":10/.test(askedFormula[0][1]),
+           'the generator is told the words and which cell: ' + askedFormula[0][0]);
+        // and when nothing usable comes back the words are never written as a formula
+        formulaAnswer = { status: 'OK', formula: '', note: 'it does not say which rows' };
+        v = await type('=the usual thing please', foot);
+        ok(v === '' && /That did not happen/.test(document.body.textContent || '') && /does not say which rows/.test(document.body.textContent || ''),
+           'and words that cannot be worked out are said, not written: "' + v + '"');
+
+        // and a total with nothing to total says why
+        await type('=sum the cells above', fc.wells[1][0]);
+        ok(/That did not happen/.test(document.body.textContent || '') && /top row/.test(document.body.textContent || ''),
+           'a sentence that cannot be done says why: ' + (document.body.textContent || '').slice(-70));
+
+        // real formulas are still just formulas, table names with a space included
+        ok(await type('=sum(two blocks[1:1][4:5])', foot) === '=sum(two blocks[1:1][4:5])' && askedModel === 0,
+           'a formula naming a table with a space in it is still a formula');
+        ok(await type('=8500 + 3200', foot) === '=8500 + 3200', 'and so is plain arithmetic with spaces');
+    }
 
     console.log(fails ? '\n' + fails + ' assertion(s) failed' : '\nall assertions passed');
     process.exit(fails ? 1 : 0);

@@ -57,8 +57,25 @@ function () {
             + 'box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid ' + C.line + ';'
             + 'font-family:' + C.font + ';box-sizing:border-box;';
 
+        // MAXIMIZED: the whole viewport, not the canvas rect. Fitting to the canvas is
+        // right for a window read beside the picture it is about, and wrong for a dense
+        // one -- a report of forty rows gets a third of the screen and a scrollbar while
+        // the canvas it is covering is not being looked at anyway. The toggle is here
+        // rather than in one caller because every panel that holds a table has this
+        // problem, and because fitToCanvas runs again on every resize: a caller styling
+        // the panel itself would have its work undone the first time the window moved.
+        let maxed = !!o.maximized;
         const fitToCanvas = () => {
             try {
+                if (maxed) {
+                    const M = 10;
+                    panel.style.left = M + 'px';
+                    panel.style.top = M + 'px';
+                    panel.style.width = 'calc(100vw - ' + (2 * M) + 'px)';
+                    panel.style.height = 'calc(100vh - ' + (2 * M) + 'px)';
+                    panel.style.transform = '';
+                    return;
+                }
                 const cv = biggestCanvas();
                 const r = cv ? cv.getBoundingClientRect() : null;
                 if (r && r.width > 1 && r.height > 1) {
@@ -89,7 +106,21 @@ function () {
         btn.style.cssText = 'cursor:pointer;flex:0 0 auto;border-radius:8px;padding:9px 18px;'
             + 'font:700 13px ' + C.font + ';border:1px solid ' + C.ok + ';background:' + C.ok + ';color:' + C.okInk + ';';
         btn.textContent = 'Close';
+        // The toggle, beside Close. Labelled with what it will DO, not with what the
+        // panel currently is: a button reading "Maximized" leaves the reader working out
+        // whether that is a state or an instruction.
+        const zoomBtn = document.createElement('button');
+        zoomBtn.style.cssText = 'cursor:pointer;flex:0 0 auto;border-radius:8px;padding:9px 14px;'
+            + 'margin-right:8px;font:600 13px ' + C.font + ';border:1px solid ' + C.outline
+            + ';background:transparent;color:' + C.accent + ';';
+        const paintZoom = () => {
+            zoomBtn.textContent = maxed ? 'Restore' : 'Maximize';
+            zoomBtn.title = maxed ? 'Fit the window back to the canvas' : 'Fill the screen';
+        };
+        paintZoom();
+        zoomBtn.onclick = () => { maxed = !maxed; paintZoom(); fitToCanvas(); };
         head.appendChild(h1);
+        head.appendChild(zoomBtn);
         // A caller's own header controls sit between the title and Close.
         for (const el of (Array.isArray(o.headerExtras) ? o.headerExtras : [])) {
             try { if (el) head.appendChild(el); } catch (e) { }
@@ -126,7 +157,12 @@ function () {
         } catch (e) { }
         btn.onclick = () => close();
 
-        return { panel: panel, head: head, body: bodyEl, close: close, fit: fitToCanvas, colors: C };
+        return {
+            panel: panel, head: head, body: bodyEl, close: close, fit: fitToCanvas, colors: C,
+            // So a caller can switch it without reaching into the DOM for the button.
+            setMaximized: (v) => { maxed = !!v; paintZoom(); fitToCanvas(); },
+            isMaximized: () => maxed
+        };
     };
 
     return { open: open, colors: C, biggestCanvas: biggestCanvas };

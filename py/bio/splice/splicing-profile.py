@@ -32,9 +32,36 @@ Params (after the EngineMonitor at param(0)):
                              reversed); transcript = plain reverse.
                Default 'plus'. Ignored for plus-strand tracks.
     param(4) : mode ('sites' | 'psi'), default 'sites'
+    param(9) : variants to score, PSI mode only. JSON [{pos, ref, alt, name}], pos a
+               track x and ref/alt on the plus strand. Each is applied to the sequence
+               and the cassette events it reaches are re-scored, so the answer is what
+               the model says about the MUTATED transcript rather than about the
+               reference with a marker drawn on it. See `variantEffects` below.
+    param(8) : chromosome of the track ('chr5' or '5'), optional. PSI mode only.
+               Used for ONE thing: looking the track's annotated exons up in the
+               low-mappability intervals, so an exon whose PSI label was built
+               from reads that could have come from a paralog is reported as
+               untrusted instead of being given a number. See
+               bajasplice/untrusted.py for why this is a lookup and not a model.
 
 Resolves { acceptor, donor, junctions, lostSites, mode, xi, strand, n, context,
-error }. Each junction is { d, a, dp, ap, mag, kind, annotated } (d/a in
+untrusted, untrustedSource, measured, variantEffects, error }.
+`variantEffects` is one entry per variant that reached a scored event:
+{ pos, ref, alt, name, exon, psiRef, psiAlt, dpsi, dpsiLogit, lostSites, inExon }.
+dpsiLogit is the change in log-odds and is the number to read at an extreme: an exon
+at 0.98 has almost no room left on a linear scale, so a collapse that matters can look
+like a small dPSI. lostSites counts annotated splice sites the mutated sequence no
+longer supports, which is what a canonical GT/AG mutation does and what a plain dPSI
+can miss when a cryptic site takes the exon over instead. `untrusted` lists the annotated exons whose
+PSI must not be believed, as [{xi, xf, why}] in track coordinates; `why` names
+the locus the sequence is shared with. `untrustedSource` is the interval file
+that was consulted, or null when NONE WAS CONFIGURED -- the caller needs those
+two cases apart, because an empty list means "clean" in one and "not checked"
+in the other. `measured` lists annotated exons for which a PUBLISHED inclusion
+measurement exists, as [{xi, xf, gene, exon, psi, lo, hi, assay, source}] -- a
+different quantity from the prediction, not a correction to it, and shown as
+such. It is the only honest number at a duplicated locus, where the model's
+training label was a blend of two genes. Each junction is { d, a, dp, ap, mag, kind, annotated } (d/a in
 track-local coords). lostSites lists annotated splice sites the sequence no
 longer supports, as { x, kind, p }.
 
@@ -112,8 +139,62 @@ if mode not in ("sites", "psi"):
 # are preferred over reconstructing exons from predicted sites.
 exons_arg = str(works.param(5) or "").strip()
 orientation = str(works.param(6) or "plus").strip().lower()
+# WHICH TISSUES THE PSI IS FOR. PSINet has a per-tissue head: it predicts one PSI
+# for each GTEx tissue it was trained on, and this script then averaged all of
+# them into a single number. That average is the right default and the wrong
+# answer for a neural target, because an exon that is in a minority of tissues and
+# out everywhere else lands mid-range when averaged and reads as unreliable, when
+# in brain it may be a clean decision either way.
+#
+# A name, a comma-separated list, or a group keyword. Empty keeps the old
+# all-tissue mean, so nothing changes for a caller that does not ask.
+tissue_arg = str(works.param(7) or "").strip()
+# WHICH CHROMOSOME, FOR THE MAPPABILITY LOOKUP ONLY. Track x is a genomic
+# coordinate in the pre-mRNA frame, so an exon's [xi, xf] is already a genomic
+# interval; the chromosome is the one thing the sequence does not carry.
+chrom_arg = str(works.param(8) or "").strip()
+# VARIANTS TO SCORE, PSI mode only: JSON [{pos, ref, alt, name}] with pos a track x
+# (genomic) and ref/alt written on the PLUS strand, as a VCF and ClinVar write them.
+# Empty means none, and none is the old behaviour exactly.
+variants_arg = str(works.param(9) or "").strip()
 if orientation not in ("plus", "coding"):
     orientation = "plus"
+
+# EXONS WHOSE PSI MUST NOT BE BELIEVED. Done here, on the genomic intervals as
+# the caller sent them, deliberately independent of the transcript-index
+# conversion below: a lookup that silently went wrong on a minus-strand track
+# would reinstate exactly the confident wrong number this is here to prevent.
+# No configured interval file means an empty list AND a null source, which the
+# caller reports differently -- see untrusted.py.
+untrusted_spans = []
+untrusted_source = None
+if mode == "psi" and exons_arg and chrom_arg:
+    try:
+        from bajasplice import untrusted as _untrusted
+        _iv = _untrusted.load()
+        untrusted_source = _iv.path
+        untrusted_spans = _untrusted.spans(
+            _iv, chrom_arg,
+            [[int(min(e[0], e[1])), int(max(e[0], e[1]))]
+             for e in json.loads(exons_arg) if e and len(e) >= 2])
+    except Exception:
+        untrusted_spans = []
+
+# PUBLISHED MEASUREMENTS for the same exons. Looked up on the same genomic
+# intervals and for the same reason: at a duplicated locus the model's label was
+# a blend, so withholding its number is the most inference can do and a measured
+# value is the only thing that can replace it. Kept SEPARATE from the prediction
+# all the way to the screen -- it is not a corrected prediction.
+measured_rows = []
+if mode == "psi" and exons_arg and chrom_arg:
+    try:
+        from bajasplice import measured as _measured
+        measured_rows = _measured.for_exons(
+            chrom_arg,
+            [[int(min(e[0], e[1])), int(max(e[0], e[1]))]
+             for e in json.loads(exons_arg) if e and len(e) >= 2])
+    except Exception:
+        measured_rows = []
 
 # Positions below this probability are dropped — the profile is sparse peaks.
 THRESHOLD = 0.02
@@ -642,9 +723,214 @@ else:
 
                 wt = torch.from_numpy(np.stack(wins_all)).to(device)
                 gt = torch.from_numpy(np.stack(geom_all)).to(device)
+                # Resolve the tissue selection against the names the model was trained
+                # on. Read from the checkpoint when it carries them, else from
+                # tissues.tsv; a selection that matches nothing falls back to the
+                # all-tissue mean AND says so, because a silent fallback here would
+                # report a whole-body average as a brain answer.
+                tis_names = []
+                try:
+                    tis_names = [str(x) for x in (ck.get("tissues") or [])]
+                except Exception:
+                    tis_names = []
+                if not tis_names:
+                    try:
+                        import pandas as _pd
+                        from bajasplice.config import paths as _paths
+                        tis_names = _pd.read_csv(
+                            os.path.join(str(_paths().interim), "tissues.tsv"),
+                            sep="\t").tissue.astype(str).tolist()
+                    except Exception:
+                        tis_names = []
+
+                GROUPS = {
+                    # GTEx brain regions. This is BULK brain: neurons, glia, vessels
+                    # and all. It is not sorted neurons, and nothing here can make it
+                    # so, which is why the group is named for what it is.
+                    "brain": ["brain"],
+                    "neural": ["brain", "nerve", "pituitary"],
+                    "cns": ["brain"],
+                    "cortex": ["cortex"],
+                    "cerebellum": ["cerebell"],
+                }
+                tis_idx, tis_used = [], []
+                if tissue_arg and tis_names:
+                    wants = [w.strip().lower() for w in tissue_arg.split(",") if w.strip()]
+                    pats = []
+                    for w in wants:
+                        pats.extend(GROUPS.get(w, [w]))
+                    for i, nm in enumerate(tis_names):
+                        low = nm.lower()
+                        if any(p in low for p in pats):
+                            tis_idx.append(i); tis_used.append(nm)
+
                 with torch.no_grad():
                     ot, _om = pnet(wt, gt)
-                    psi = torch.sigmoid(ot).mean(dim=1).cpu().numpy()   # mean over tissues
+                    prob = torch.sigmoid(ot)
+                    if tis_idx:
+                        sel = torch.tensor(tis_idx, dtype=torch.long, device=prob.device)
+                        psi = prob.index_select(1, sel).mean(dim=1).cpu().numpy()
+                    else:
+                        psi = prob.mean(dim=1).cpu().numpy()        # all tissues
+                # WHAT EACH VARIANT DOES TO INCLUSION, scored by the same model on the
+                # same events. A variant loaded onto the track is an ANNOTATION: it does
+                # not change the sequence, so the reference PSI above is the answer for
+                # the reference and says nothing about the variant. Here the base is
+                # actually written into the sequence and every cassette event whose
+                # windows reach it is scored again.
+                #
+                # Reported on the LOGIT scale as well as the linear one. An exon at 0.98
+                # has almost no room left: a collapse worth acting on can read as a
+                # dPSI of -0.2 while the odds move by a factor of twenty.
+                #
+                # And the splice sites are re-checked. A canonical GT or AG mutation can
+                # leave PSI almost untouched when a cryptic site nearby takes the exon
+                # over, with the boundary moved and the reading frame broken -- a real
+                # event that dPSI alone would report as nothing happening. lostSites
+                # counts annotated sites the mutated sequence no longer supports, so
+                # that case is visible rather than silently benign.
+                # AND IT CANNOT TAKE THE RUN DOWN WITH IT. Variant effects are an
+                # addition to the PSI answer, not a precondition for it: an exception
+                # here used to abort the whole run through the enclosing try, so a bug in
+                # scoring the variants cost the inclusion numbers as well. The failure is
+                # reported in variantError instead and the run carries on.
+                variant_effects = []
+                variant_error = None
+                try:
+                    _vlist = json.loads(variants_arg) if variants_arg else []
+                except Exception:
+                    _vlist = []
+                try:
+                    _do_variants = bool(_vlist and events)
+                except Exception:
+                    _do_variants = False
+                if _do_variants:
+                    try:
+                        def _win_of(center, cc):
+                            w = np.zeros(total, np.int64)
+                            lo, hi = center - half, center + half
+                            a0, b0 = max(0, lo), min(n, hi)
+                            if b0 > a0:
+                                w[a0 - lo:b0 - lo] = cc[a0:b0]
+                            return one_hot(w)
+
+                        def _psi_of(evs, cc):
+                            ww, gg = [], []
+                            for ev in evs:
+                                c1d, a_acc, a_don, c2a = ev["sites"]
+                                exon_len, up, dn = ev["exon_len"], ev["up"], ev["dn"]
+                                ww.append(np.stack([_win_of(c1d, cc), _win_of(a_acc, cc),
+                                                    _win_of(a_don, cc), _win_of(c2a, cc)]))
+                                gg.append(np.array([
+                                    np.log10(max(exon_len, 1)), np.log10(max(up, 1)),
+                                    np.log10(max(dn, 1)), 1.0 if exon_len % 3 == 0 else 0.0,
+                                    gcf(cc[a_acc + 1:a_don]), gcf(cc[c1d:c1d + 200])],
+                                    dtype=np.float32))
+                            wv = torch.from_numpy(np.stack(ww)).to(device)
+                            gv = torch.from_numpy(np.stack(gg)).to(device)
+                            with torch.no_grad():
+                                o, _ = pnet(wv, gv)
+                                pr = torch.sigmoid(o)
+                                if tis_idx:
+                                    sel2 = torch.tensor(tis_idx, dtype=torch.long, device=pr.device)
+                                    return pr.index_select(1, sel2).mean(dim=1).cpu().numpy()
+                                return pr.mean(dim=1).cpu().numpy()
+
+                        def _logit(v):
+                            v = float(min(max(v, 1e-6), 1 - 1e-6))
+                            return float(np.log(v / (1 - v)))
+
+                        # How far from a site a base can be and still be in its window. Outside
+                        # every window the model cannot see the base at all, so there is nothing
+                        # to score and an entry would be a row of zeros claiming an answer.
+                        for _v in _vlist[:64]:
+                            try:
+                                vpos = int(_v.get("pos"))
+                                vref = str(_v.get("ref") or "").strip().upper()
+                                valt = str(_v.get("alt") or "").strip().upper()
+                            except Exception:
+                                continue
+                            # Substitutions only. An indel shifts every coordinate downstream,
+                            # so the windows, the exon length and the junction geometry all move;
+                            # scoring one as if it were a substitution would quietly answer a
+                            # different question. Skipped, and said so rather than guessed.
+                            if len(vref) != 1 or len(valt) != 1 or valt not in "ACGT":
+                                variant_effects.append({
+                                    "pos": vpos, "ref": vref, "alt": valt,
+                                    "name": str(_v.get("name") or ""),
+                                    "skipped": "only single-base substitutions are scored"})
+                                continue
+                            j = x2tx(vpos)
+                            if not (0 <= j < n):
+                                continue
+                            # The transcript is the reverse complement on a minus-strand track,
+                            # while ref/alt are written on the plus strand: complement the base
+                            # before writing it in, or the variant scored is not the one asked for.
+                            # _BASE IS A LOOKUP TABLE, NOT A DICT: 256 entries indexed by the
+                            # byte of the base (genome.py builds it that way, so one_hot can
+                            # index it with a whole sequence at once). Calling .get on it
+                            # raised AttributeError, and because this block sits inside the
+                            # run's own try, the failure took the WHOLE PSI result down -- a
+                            # track with variants on it returned nothing at all.
+                            acode = int(_BASE[ord(valt)]) if len(valt) == 1 else 0
+                            if minus:
+                                acode = int(_COMP[acode])
+                            if acode <= 0:
+                                continue
+                            mcodes = codes.copy()
+                            mcodes[j] = acode
+                            hit = [(i2, ev) for i2, ev in enumerate(events)
+                                   if any(abs(j - c) <= half for c in ev["sites"])]
+                            if not hit:
+                                continue
+                            alt_psi = _psi_of([e for _, e in hit], mcodes)
+                            # The event whose inclusion moves most is the one to report: a
+                            # variant in a shared junction reaches two exons, and the bigger
+                            # move is the one worth the row.
+                            best = None
+                            for (i2, ev), pa2 in zip(hit, alt_psi):
+                                d = float(pa2) - float(psi[i2])
+                                if best is None or abs(d) > abs(best[2]):
+                                    best = (ev, float(pa2), d, float(psi[i2]))
+                            ev, pa2, d, pr2 = best
+                            # The annotated sites this mutation can no longer support. Recomputed
+                            # rather than inferred from dPSI, because the two answer different
+                            # questions and a cryptic rescue separates them.
+                            lost = 0
+                            try:
+                                for cidx, arr2 in ((ev["sites"][0], don), (ev["sites"][1], acc),
+                                                   (ev["sites"][2], don), (ev["sites"][3], acc)):
+                                    if abs(j - cidx) <= 2 and prob_at(arr2, cidx) >= SITE_THRESHOLD:
+                                        lost += 1
+                            except Exception:
+                                lost = 0
+                            a_acc, a_don = ev["sites"][1], ev["sites"][2]
+                            variant_effects.append({
+                                "pos": vpos, "ref": vref, "alt": valt,
+                                "name": str(_v.get("name") or ""),
+                                "exon": ev.get("exon"),
+                                "psiRef": round(pr2, 4), "psiAlt": round(pa2, 4),
+                                "dpsi": round(d, 4),
+                                "dpsiLogit": round(_logit(pa2) - _logit(pr2), 3),
+                                "canonicalSite": lost,
+                                "inExon": bool(a_acc < j < a_don),
+                            })
+                    except Exception as _ve:
+                        # Reported, not raised: see the note above the block.
+                        variant_error = "%s: %s" % (type(_ve).__name__, _ve)
+                        variant_effects = []
+
+                psi_tissues = tis_used
+                psi_tissue_note = (
+                    "" if not tissue_arg else
+                    ("averaged over " + str(len(tis_used)) + " tissue"
+                     + ("" if len(tis_used) == 1 else "s") + ": "
+                     + ", ".join(tis_used[:8]) + ("\u2026" if len(tis_used) > 8 else ""))
+                    if tis_used else
+                    ("no tissue matched \u201c" + tissue_arg + "\u201d"
+                     + (" (known: " + ", ".join(tis_names[:6]) + "\u2026)" if tis_names
+                        else " (the checkpoint carries no tissue names)")
+                     + "; showing the all-tissue mean instead"))
 
                 # ONE ARC PER JUNCTION. PSI is a property of an EXON; an arc is a JUNCTION,
                 # and consecutive cassette events SHARE the junction between them: the event
@@ -773,6 +1059,13 @@ works.resolve({
     "competition": json.dumps(competition),
     "branchPoints": json.dumps(branch_points),
     "mode": mode,
+    "psiTissues": json.dumps(globals().get("psi_tissues", [])),
+    "psiTissueNote": globals().get("psi_tissue_note", ""),
+    "untrusted": json.dumps(untrusted_spans),
+    "untrustedSource": untrusted_source,
+    "measured": json.dumps(measured_rows),
+    "variantEffects": json.dumps(globals().get("variant_effects", [])),
+    "variantError": globals().get("variant_error", None),
     "xi": xi,
     "strand": strand,
     "orientation": orientation,

@@ -127,9 +127,41 @@ function (graph, tracks, opts) {
             } catch (e) { return ''; }
         };
 
+        // WHERE A UNIT OF THE COMPARED SEQUENCE SITS ON THE TRACK. A block can only be drawn
+        // if residue or base k can be put back on the bases that carry it, and only the code
+        // that CHOSE the sequence knows which of the four it took: a selected region, the
+        // whole track, the CDS, or the peptide. So the map is built here, beside the choice,
+        // rather than guessed afterwards.
+        //
+        // codonPos runs 3'->5' on a minus-strand track, which is why the span helper in
+        // baja/bio/align-blocks.js orders its ends instead of assuming them.
+        const codonPos = (t) => {
+            const orf = orfOf(t);
+            if (!orf) return [];
+            const pos = [], seen = {};
+            for (const c of orf.cdsi) {
+                if (!c || c.ci !== 0 || seen[c.codon_index] || !c.codon) continue;
+                seen[c.codon_index] = 1;
+                const a = '' + (c.aa || '');
+                if (!a || /^stop$/i.test(a)) break;
+                pos.push(+c.index);
+            }
+            return pos;
+        };
+        const linearMap = (from) => ({ at: (k) => from + k, unit: 1 });
+        const codonMap = (t, perCodon) => {
+            const pos = codonPos(t);
+            if (!pos.length || !isFinite(pos[0])) return null;
+            return perCodon
+                // a peptide: residue k is codon k, three bases wide
+                ? { at: (k) => pos[k], unit: 3 }
+                // a CDS: base k is the (k mod 3)th base of codon floor(k/3)
+                : { at: (k) => { const c = pos[Math.floor(k / 3)]; return isFinite(c) ? (c + (k % 3)) : NaN; }, unit: 1 };
+        };
+
         const items = tks.map((t, i) => {
             const name = ('' + (t.name || ('track ' + (i + 1)))).trim();
-            const it = { name, seqs: {}, what: [] };
+            const it = { name, seqs: {}, what: [], track: t, maps: {} };
             const rg = rangeOfTrack(i);
             if (rg) {
                 // The region wins outright: nothing below should quietly substitute the
@@ -137,6 +169,7 @@ function (graph, tracks, opts) {
                 const b = basesIn(t, rg);
                 if (b) {
                     it.seqs = { nt: b };
+                    it.maps.nt = linearMap(rg.start);
                     it.what = b.length.toLocaleString() + ' nt'
                         + (rg.label ? (', ' + rg.label) : ', the selected region');
                 } else {
@@ -152,14 +185,18 @@ function (graph, tracks, opts) {
             }
             if (KINDS.indexOf('aa') >= 0) {
                 const s = proteinOf(t);
-                if (s) { it.seqs.aa = s; it.what.push(s.length.toLocaleString() + ' aa'); }
+                if (s) { it.seqs.aa = s; it.maps.aa = codonMap(t, true); it.what.push(s.length.toLocaleString() + ' aa'); }
             }
             if (KINDS.indexOf('nt') >= 0) {
                 const cds = codingOf(t);
-                if (cds) { it.seqs.nt = cds; it.what.push(cds.length.toLocaleString() + ' nt coding sequence'); }
+                if (cds) { it.seqs.nt = cds; it.maps.nt = codonMap(t, false); it.what.push(cds.length.toLocaleString() + ' nt coding sequence'); }
                 else if (mode === 'nucleotide') {
                     const b = basesOf(t);
-                    if (b) { it.seqs.nt = b; it.what.push(b.length.toLocaleString() + ' nt, whole track (no ORF)'); }
+                    if (b) {
+                        it.seqs.nt = b;
+                        it.maps.nt = linearMap(Math.min(+t.xi, +t.xf));
+                        it.what.push(b.length.toLocaleString() + ' nt, whole track (no ORF)');
+                    }
                 }
             }
             it.what = it.what.join(' · ') + (mode === 'protein' && it.seqs.aa ? ', translated ORF' : '');
@@ -487,6 +524,70 @@ function (graph, tracks, opts) {
                 pairs: pairs.map((p) => ({ a: usable[p.x].name, b: usable[p.y].name, res: p.res }))
             };
         } catch (e) { }
+        // ---- DRAW IT, AND LINK THE MATCHED BLOCKS -------------------------------------
+        // A comparison between two tracks answers "how alike" in the panel and "where" on
+        // the canvas. The blocks go on both tracks in the shared numbering and colours
+        // (baja/bio/match-layer.js), with a two-headed arrow between each pair: neither
+        // block is the source of the other, so an arrowhead at one end only would claim a
+        // direction the alignment does not have.
+        //
+        // The best pair only. Each track carries one layer of this kind, so drawing three
+        // pairs across two tracks would leave the last one standing and the panel
+        // describing a picture that is no longer there.
+        let drawn = null;
+        try {
+            const scored = pairs.map((q) => {
+                const k = KINDS.filter((kk) => okK(q.res[kk], kk))[0];
+                return k ? { q: q, k: k, r: q.res[k], id: idOf(q.res[k]) || 0 } : null;
+            }).filter(Boolean).sort((u, v) => (v.r.id || 0) - (u.r.id || 0));
+            const top = scored[0];
+            if (top && top.r && top.r.ra && top.r.rb) {
+                const A = usable[top.q.x], B = usable[top.q.y];
+                const ma = A.maps[top.k], mb = B.maps[top.k];
+                if (ma && mb && A.track && B.track && A.track !== B.track) {
+                    const AB = await exec('baja/bio/align-blocks.js');
+                    const ML = await exec('baja/bio/match-layer.js');
+                    // a0/b0 come back 1-based from the aligner; the walk wants 0-based.
+                    const bl = AB.blocks(top.r.ra, top.r.rb, (top.r.a0 || 1) - 1, (top.r.b0 || 1) - 1,
+                        { minBlock: (top.k === 'aa' ? 8 : 24) });
+                    const pairsXY = [];
+                    for (const b of bl) {
+                        const sa = AB.span(ma.at, b.a0, b.a1, ma.unit);
+                        const sb = AB.span(mb.at, b.b0, b.b1, mb.unit);
+                        if (sa && sb) pairsXY.push({ n: b.n, identity: b.identity, a: sa, b: sb,
+                            aa: [b.a0 + 1, b.a1 + 1], bb: [b.b0 + 1, b.b1 + 1] });
+                    }
+                    if (pairsXY.length) {
+                        const opt = { suffix: '_similarity', dataType: 'SEQSIM' };
+                        const layA = ML.draw(A.track, pairsXY.map((q) => ({ n: q.n, x1: q.a.x1, x2: q.a.x2, identity: q.identity })), opt);
+                        ML.draw(B.track, pairsXY.map((q) => ({ n: q.n, x1: q.b.x1, x2: q.b.x2, identity: q.identity })), opt);
+                        let links = 0;
+                        if (layA) {
+                            links = ML.link(layA, A.track, B.track,
+                                pairsXY.map((q) => ({ n: q.n, x1: q.a.x1, x2: q.a.x2, ox1: q.b.x1, ox2: q.b.x2 })));
+                        }
+                        drawn = { blocks: pairsXY.length, links: links, a: A.name, b: B.name,
+                            unit: (top.k === 'aa' ? 'residues' : 'bases'),
+                            where: pairsXY.map((q) => ({ n: q.n, identity: q.identity, a: q.aa, b: q.bb })) };
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                    }
+                }
+            }
+        } catch (e) { drawn = { error: ('' + (e && e.message ? e.message : e)) }; }
+        if (drawn && drawn.blocks) {
+            try {
+                help.rows = (help.rows || []).concat([['drawn on the tracks',
+                    drawn.blocks + ' matching block' + (drawn.blocks === 1 ? '' : 's') + ' of '
+                    + drawn.a + ' and ' + drawn.b + ' are on both tracks, numbered and coloured '
+                    + 'the same on each, with a two-headed arrow between each pair. '
+                    + drawn.unit + ': '
+                    + drawn.where.slice(0, 8).map((w) => w.n + ') ' + w.a[0] + '-' + w.a[1]
+                        + ' vs ' + w.b[0] + '-' + w.b[1] + ' at ' + pct(w.identity)).join('; ')
+                    + (drawn.where.length > 8 ? ('; +' + (drawn.where.length - 8) + ' more') : '') + '.']]);
+            } catch (e) { }
+        }
+        try { window.__bajaSeqCompareDrawn = drawn; } catch (e) { }
+
         try { graph.setMessage(' '); } catch (e) { }
         try { await exec('baja/bio/decor-help.js', { decor: { help: help } }, graph); }
         catch (e) {

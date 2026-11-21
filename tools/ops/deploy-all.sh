@@ -643,7 +643,7 @@ if [[ $DO_API -eq 1 ]]; then
   # All of them or none: editor.js calling a module that is not there breaks the exon menu,
   # and a menu entry whose script is missing is worse than no entry.
   install_group "BajaSplice on an exon" \
-    "baja/bio/splicing/exon-ai-models.js:The old LJSplice v2" \
+    "baja/bio/splicing/exon-ai-models.js:FRAME, STATED BEFORE THE MODELS ARE RUN" \
     "baja/manchester/menu/menu-factory.js:exec('baja/bio/splicing/exon-ai-models.js'" \
     "manchester/editor.js:exec('baja/bio/splicing/exon-ai-models.js'" \
     "baja/bio/splicing/splicing-profile.js:Splicing profile — pick a magnitude mode" \
@@ -673,14 +673,60 @@ if [[ $DO_API -eq 1 ]]; then
   # exact failure this group's all-or-none rule exists to prevent. Listing it here as well
   # means the card and the script it opens travel together; whichever group runs first
   # installs the same file and the others are inert.
+  # Predict effect of removing, in the exon menu, and everything it opens. The menu
+  # item shipped; NONE of the modules behind it ever did, so on the server the exec
+  # threw and the item reported its fallback, "Could not assess this exon.", for every
+  # exon. codons.js and retranslate-after-exon-change.js go with it: the first is what
+  # exon-removal-impact.js translates with, the second is what Remove exon re-translates
+  # with, and both were equally unlisted. Shipping the item without them would only move
+  # the failure.
+  #
+  # All of them or none: the menu item calling a module that is not there is exactly the
+  # state this group exists to end.
+  # Per-exon splicing reliability: the tag drawn on each exon in a PSI run, the score
+  # behind it, and the ranking that reads it. The score lives in splicing-profile.js,
+  # the tag is drawn in track-layer.js and the ranking is a BajaSplice submenu entry,
+  # so all three move together or the tag appears with no ranking behind it, or the
+  # ranking finds a layer that carries no score.
+  #
+  # track.js rides along because the marked-region rectangle was calling the theme's
+  # gene-BODY draw class, which stroked the exon edge around whatever was selected: a
+  # black box around the selection that read as a feature boundary. It now calls mark(),
+  # which keeps the theme's colour and drops the outline.
+  # "run bajasplice on dnm3" from the Ask bar. Both splicing operations declared
+  # needs: 'selection' and refused without a drag, while splicing-profile.js has run on
+  # a whole track all along -- the same fault rbp_profile already carries a comment
+  # about. Worse for PSI, which ignores the range outright because it needs the track's
+  # exon structure rather than a stretch of sequence, so the drag it demanded was for
+  # something the model never read.
+  install_group "Ask: run BajaSplice on a named track, with no selection" \
+    "baja/manchester/menu/editor-capabilities.js:SAME FAULT AS rbp_profile HAD"
+  # PSI read for brain rather than averaged over all 54 GTEx tissues. PSINet always
+  # had a per-tissue head; splicing-profile.py called .mean(dim=1) on it and threw the
+  # per-tissue predictions away, so a neural target was always reported as a whole-body
+  # average. No model changes, only which columns are read.
+  install_group "PSI for a chosen tissue" \
+    "py/bio/splice/splicing-profile.py:WHICH TISSUES THE PSI IS FOR" \
+    "baja/bio/splicing/splicing-profile.js:TISSUE, FOR PSI ONLY" \
+    "baja/bio/splicing/exon-ai-models.js:THE SAME MODEL, READ FOR BRAIN"
+  install_group "exon reliability: tag, score and ranking" \
+    "baja/bio/splicing/splicing-profile.js:HOW RELIABLY EACH EXON IS SPLICED IN" \
+    "baja/bio/track-layer.js:AN OPAQUE CHIP, NOT A HALO" \
+    "baja/bio/splicing/exon-ai-models.js:Rank exons by how unreliably they splice" \
+    "baja/bio/track.js:A MARKED REGION IS NOT A GENE BODY"
+  install_group "exon menu: Predict effect of removing, and the modules it opens" \
+    "baja/manchester/menu/menu-factory.js:THE PANEL OPENS BEFORE THE WORK, not after it" \
+    "baja/bio/orfs/exon-removal-impact.js:What removing (skipping) one exon would do to the transcript" \
+    "baja/bio/aa/codons.js:aminoDict" \
+    "baja/bio/orfs/retranslate-after-exon-change.js:Re-derive a track"
   install_group "BajaNMD on an exon" \
-    "baja/bio/splicing/exon-ai-models.js:BajaNMD (py/bajanmd-lib): the consequence of a cassette exon" \
-    "baja/bio/splicing/bajanmd.js:BajaNMD: what including or skipping a cassette exon" \
+    "baja/bio/splicing/exon-ai-models.js:FRAME, STATED BEFORE THE MODELS ARE RUN" \
+    "baja/bio/splicing/bajanmd.js:GIVEN AN EXON, IT ANSWERS ABOUT THAT EXON" \
     "baja/ml/models-catalogue.js:title: 'NMD consequence of a cassette exon', badge: 'BajaNMD'" \
     "baja/ml/institute-of-models-library.js:headline: 'What including or skipping a cassette exon does" \
     "baja/lib/library-of-libraries.js:BajaCLIP, BajaSplice, BajaIR, BajaNMD and " \
-    "py/bio/nmd/bajanmd-exons.py:BajaNMD: every cassette exon of a gene" \
-    "py/bio/nmd/bajanmd-aso.py:BajaNMD: steric-block ASOs designed to skip one exon" \
+    "py/bio/nmd/bajanmd-exons.py:ONE EXON, WHEN THE CALLER CLICKED ONE" \
+    "py/bio/nmd/bajanmd-aso.py:Resolve the libraries from this file's own location first" \
     "py/bajanmd-lib/bajanmd/__init__.py:BajaNMD: what happens to a transcript when a cassette exon" \
     "py/bajanmd-lib/bajanmd/consequence.py:NMD consequence of every cassette-eligible exon of a gene" \
     "py/bajanmd-lib/bajanmd/design.py:Steric-block ASOs that push a cassette exon toward being skipped" \
@@ -953,6 +999,266 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:COMPARING IS NOT SELECTING" \
     "baja/manchester/menu/compare-track-sequences.js:A STRETCH OF EACH TRACK RATHER THAN ALL OF IT" \
     "py/bio/editor/plan.py:COMPARING IS NOT SELECTING"
+  # Arrows between the matched blocks on two tracks: the renderer's third pass, the one
+  # description of a matched region that hangs them, and the two tools that ask for them.
+  # Comparing two proteins now draws where they are alike as well as reporting how much:
+  # the aligner returns the blocks, the client puts them on the codons that encode them,
+  # and match-layer draws and links them. The backend and the client go together -- an old
+  # backend returns no blocks and the client draws nothing, silently.
+  # "remove rnaseq layers from X" now also finds the unlabelled bigwig traces, by their
+  # shape, and asks before taking anything it inferred or anything sweeping. The matcher,
+  # the removal, the card and the confirmation all go together: an old confirm.js reports
+  # no cancel, and an old capabilities file previews a different set than the one removed.
+  # A layer deleted on a child track was mirrored straight back by syncFromParent on the
+  # next redraw tick, so both the layer menu and the remove operation looked like they did
+  # nothing. track.js remembers the delete; both removers have to tell it, so all three
+  # files go together.
+  # Two heads on every match arrow, the browser comparison drawing what it found, and
+  # iterating over a track's exons as one operation. The renderer, the shared block finder
+  # and the callers go together: an old renderer draws one head, and an old planner has no
+  # rule pointing at the new operation.
+  # The exon match is shown as a picture of the two tracks rather than a table, and the
+  # fields it reads from the searcher are the ones the searcher actually sends: t0/t1 and
+  # coverage do not exist, which put NaN-NaN and 0.0% on every row.
+  # Two things that lost a request outright: a planner reply with anything after its JSON
+  # took the whole plan down, and "add rna binding proteins to the spag9_mrna" was refused
+  # for want of a selection it does not need.
+  # A table asked for in one sentence is made, put in front of the user, and then filled.
+  install_group "Create the table, centre it, then fill it in" \
+    "baja/plate/ops/fill-table.js:A TABLE THAT IS NOT THERE YET IS MADE, CENTRED, AND THEN FILLED" \
+    "baja/plate/menu/project-capabilities.js:CREATE a table of something"
+  # Totalling the column you are standing under.
+  install_group "Total the cells above this one" \
+    "baja/plate/ops/sum-above.js:TOTAL THE CELLS ABOVE THIS ONE" \
+    "baja/plate/menu/project-capabilities.js:THE COMMONEST THING ANYBODY DOES TO A COLUMN OF NUMBERS"
+  # A total row asked for before its column is filled: the word, the formula, and an engine
+  # that adds an unwritten cell as nothing. An old engine turns that total red.
+  install_group "Total row written before the figures" \
+    "baja/plate/ops/sum-above.js:A TOTAL ROW IS WRITTEN BEFORE THE FIGURES AS OFTEN AS AFTER THEM" \
+    "baja/plate/menu/project-capabilities.js:A TOTAL ROW IS ASKED FOR AS A ROW" \
+    "baja/plate/ops/frun-object.js:AN EMPTY CELL ADDS NOTHING, WHATEVER EMPTY LOOKS LIKE"
+  # A table worked out from another table reads it with formulas. The operation sends the
+  # source table's numbers, the python is what asks for formulas back, and the catalogue is
+  # what tells the planner to say which table: any one of them old and the cells are values.
+  install_group "A table worked out from another table reads it, with formulas" \
+    "baja/plate/ops/fill-table.js:A TABLE WORKED OUT FROM ANOTHER TABLE READS IT, WITH FORMULAS" \
+    "py/bio/project/table-fill.py:A TABLE WORKED OUT FROM ANOTHER TABLE IS THE ONE EXCEPTION" \
+    "baja/plate/menu/project-capabilities.js:WORKED OUT FROM ANOTHER TABLE MEANS READING IT"
+  # "=sum the cells above" is a request for a formula, not a formula. The field's router is
+  # what lets it reach the command handler at all, and the handler calls the totalling
+  # operation as it now stands, so the three go together.
+  install_group "Words after an = become the formula they describe" \
+    "baja/plate/menu/project-command.js:WORDS AFTER AN \"=\" ARE A REQUEST FOR A FORMULA, NOT A FORMULA" \
+    "baja/plate/menu/is-sentence.js:AN \"=\" IN FRONT OF A SENTENCE DOES NOT MAKE IT A FORMULA" \
+    "baja/plate/ops/sum-above.js:A TOTAL ROW IS WRITTEN BEFORE THE FIGURES AS OFTEN AS AFTER THEM"
+  # The project card raises the same timed spinner the editor card does.
+  install_group "The project card says an operation is running" \
+    "baja/plate/menu/project-command.js:EVERY OPERATION THAT TAKES TIME SAYS SO, HERE AS IN THE EDITOR" \
+    "baja/lib/working.js:ABOVE THE CARD THAT ASKED FOR THE WORK"
+  # Enter on a red cell works its text out into a formula. The field decides to ask, the
+  # card routes it, the operation checks and writes it, the python proposes it, and the
+  # catalogue lets a plain sentence reach the same operation: an old copy of any one of
+  # them and Enter writes the broken text back again.
+  install_group "Enter on a red cell works out the formula it was meant to be" \
+    "manchester/controls/navigation-panel-plates2.js:ENTER ON A RED CELL IS A REQUEST TO FIX IT, NOT TO WRITE IT AGAIN" \
+    "baja/plate/menu/project-command.js:EVERYTHING ELSE IS WORKED OUT, AND SO IS A FORMULA THAT IS ALREADY RED" \
+    "baja/plate/ops/formula-from-words.js:A FORMULA WORKED OUT FROM WORDS, OR FROM A FORMULA THAT DID NOT WORK" \
+    "py/bio/project/formula-write.py:A CELL HOLDING WORDS AFTER AN \"=\" IS A DESCRIPTION OF A FORMULA" \
+    "baja/plate/menu/project-capabilities.js:A FORMULA DESCRIBED RATHER THAN WRITTEN" \
+    "baja/plate/ops/sum-above.js:A cell that was red for what it used to hold is not red for this"
+  # The same repair when Enter is pressed on the cell itself, which is where it is usually
+  # pressed. The track installs the listener; the card and both operations take the cell
+  # by name, because the table moves the selection on before the repair runs.
+  install_group "Enter pressed on a red cell itself repairs it" \
+    "baja/plate/ops/repair-on-enter.js:ENTER ON A RED CELL, PRESSED ON THE CELL ITSELF" \
+    "baja/plate/plate-track.js:ENTER ON A RED CELL ASKS FOR IT TO BE REPAIRED" \
+    "baja/plate/menu/project-command.js:cell: o.cell || null, table: o.table || ''" \
+    "baja/plate/ops/sum-above.js:A cell named by the caller is the cell, whatever is selected by now" \
+    "baja/plate/ops/formula-from-words.js:A cell named by the caller is the cell, whatever is selected by now"
+  # Paralogs: the lookup, the screen every row loads from, and the operation that joins
+  # them. All three go together -- an old capabilities file has no way to reach either.
+  # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
+  # needs the homologs module's species restriction and its sequence= switch, so those
+  # two go together, and the screen needs the button that reaches the map.
+  # Asked for in a sentence, shown as a protein map with the source transcript's exons
+  # and the track's missense variants on it, and with a panel while it runs.
+  # The same answer on the track, for a selected region, measured against the rest of the
+  # protein, from one lookup shared with the map.
+  install_group "Conservation drawn on the track, for the region you selected" \
+    "baja/bio/conservation-layer.js:CONSERVATION, ON THE TRACK, IN THE TRACK" \
+    "baja/manchester/menu/editor-capabilities.js:THE ANSWER FOR THIS REGION, WHERE THE REGION IS" \
+    "baja/manchester/menu/editor-capabilities.js:LOOKED UP ONCE PER GENE"
+  install_group "Conservation map: its own operation, labelled, with exons and variants" \
+    "baja/manchester/menu/editor-capabilities.js:ONE TRACK, MANY SPECIES" \
+    "baja/manchester/menu/editor-capabilities.js:THE VARIANTS ON THE TRACK, CARRIED ONTO THE PROTEIN" \
+    "baja/bio/conservation-map.js:IT IS A PROTEIN MAP, AND IT SAYS SO" \
+    "py/bio/editor/plan.py:CONSERVATION ACROSS SPECIES IS conservation_map"
+  # Going somewhere by name, and pulling back from where you are. Both are refusals the
+  # catalogue produced for requests the editor could already answer, so the words and the
+  # operations go together: an old capabilities file cannot read a named region, and an old
+  # track-regions cannot tell it one was asked for.
+  install_group "Go to a named region; zoom in and out from where you are" \
+    "baja/bio/track-regions.js:A NAMED REGION IS A PLACE TOO" \
+    "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS A STRETCH, SO IT IS FRAMED, NOT POINTED AT" \
+    "baja/manchester/menu/editor-capabilities.js:A NAMED REGION IS NOT A FAILED POSITION" \
+    "baja/manchester/menu/editor-capabilities.js:\"ZOOM OUT\" IS NOT \"FIT\""
+  # A model asked for with several tracks open is a choice, and a model that cannot be
+  # placed at all is still a request for that model.
+  install_group "BajaSplice offers a track, or the shelf it lives on" \
+    "baja/manchester/menu/editor-capabilities.js:A MODEL WITH SEVERAL TRACKS OPEN IS A CHOICE, NOT A REFUSAL" \
+    "baja/manchester/menu/editor-capabilities.js:THE SHELF OF MODELS, as the answer when one of them cannot be placed" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT TO OFFER WHEN IT CANNOT RUN" \
+    "baja/manchester/menu/editor-command.js:A REFUSAL WITH A WAY FORWARD"
+  # The design reading rooms are called what they are.
+  install_group "Design tools, not the Institute for GeneTx Design" \
+    "baja/lib/institute-rna-design.js:serif;\">Design tools</div>" \
+    "baja/lib/library-of-libraries.js:serif;\">Design tools</div>"
+  # The exon number stays on the exon; what the exon has to say is drawn clear of it, and
+  # PSI now says how stably each exon splices. The two go together -- the label is placed
+  # against the disc's reach, so shipping one without the other puts them back on top of
+  # each other.
+  install_group "Exon stability on the exon, clear of its number" \
+    "baja/bio/track-layer.js:HOW STABLY EACH EXON SPLICES, said on the exon itself" \
+    "flexigraph/gene-draw.js:ON THE EXON, WHICH IS WHERE IT IS READ" \
+    "flexigraph/gene-draw.js:FALLS BACK TO A COLOR, NOT TO ITSELF"
+  # A plan the server could not make used to be the end of the ask box. The planner's own
+  # context and the client's fallback are one change: either alone leaves the dead end.
+  install_group "A failed plan offers what the editor has" \
+    "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
+    "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # The scored rows can fail to number the arcs against the exons, and the report then had
+  # nothing to show while the arcs sat over those exons on screen.
+  install_group "Exon stability off the arcs when the scored rows are missing" \
+    "baja/bio/splicing/exon-stability.js:HOW STABLY EACH EXON SPLICES, FROM WHATEVER THE PSI LAYER ACTUALLY HAS" \
+    "baja/bio/match-regions.js:Which reading this is -- the scored rows, or the weaker one" \
+    "baja/bio/compare-view.js:WHICH READING IT IS. Taken off the arcs by position"
+  # Pressing GO on anything slow gave a closed card and a silent canvas, and the stability
+  # row told the user to go and run PSI instead of running it.
+  install_group "The spinner is not opt-in, and PSI runs itself" \
+    "baja/manchester/menu/editor-command.js:EVERY OPERATION THAT TAKES TIME SAYS SO, WITHOUT BEING ASKED TO" \
+    "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
+    "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
+    "baja/bio/compare-view.js:It was run, here, a moment ago"
+  # A long comparison said nothing until it finished, and the exon labels were dark type
+  # on a dark lane wherever the bar was narrower than the label.
+  install_group "The comparison says it is running, and its labels can be read" \
+    "baja/manchester/menu/editor-capabilities.js:SAYS THAT IT IS RUNNING. Comparing three tracks" \
+    "baja/bio/protein/compare-proteins.js:SAYS WHERE IT HAS GOT TO" \
+    "baja/bio/compare-view.js:LIGHT TYPE WITH A DARK OUTLINE, not dark type on the bar"
+  # The comparison says which exons correspond; stability says whether they are reliably
+  # in the message at all. Carried and drawn: the model and the view ship together.
+  install_group "Exon stability in the comparison picture" \
+    "baja/bio/match-regions.js:HOW STABLY EACH EXON SPLICES, CARRIED INTO THE PICTURE" \
+    "baja/bio/compare-view.js:HOW STABLY EACH EXON SPLICES, beside the exon it belongs to"
+  # A 571 kb gene track was refused by the searcher and the refusal was reported as "no
+  # match". The limit goes and the caller stops turning errors into negative results: both
+  # halves, or one of them still lies about the other.
+  install_group "Search a long track instead of refusing it" \
+    "py/bio/search-region-in-track.py:NO LIMIT ON HOW MUCH TARGET THERE IS" \
+    "py/bio/search-region-in-track.py:SEEDS FIRST, THE WHOLE THING IF THEY FIND NOTHING" \
+    "py/bio/search-region-in-track.py:A FAST PATH THAT IS NOT CONVINCING IS WORSE THAN NO FAST PATH" \
+    "baja/bio/match-regions.js:A FAILURE IS NOT A NEGATIVE RESULT"
+  # Two open tracks were handled and three were not.
+  install_group "Compare across every open track" \
+    "baja/manchester/menu/editor-capabilities.js:THREE OPEN TRACKS ARE NOT FEWER THAN TWO"
+  # A selection over an exon meant dragging it by hand.
+  install_group "Select exon sequence, from the exon menu" \
+    "baja/manchester/menu/menu-factory.js:SEQUENCE, which is what half the other"
+  # The facility existed and the ask box could not reach it, so the planner said the editor
+  # does not do this at all. The operation and the planner's context go together.
+  install_group "Place a variant named in the request" \
+    "baja/manchester/menu/editor-capabilities.js:PLACE A NAMED VARIANT ON THE TRACK" \
+    "py/bio/editor/plan.py:SAY WHAT IT CAN DO, NOT ONLY WHAT IT CANNOT"
+  # The editor carries out its own advertised phrase when the planner cannot. The matcher
+  # and the card that uses it ship together.
+  install_group "Load the pathogenic variants without asking anything" \
+    "baja/manchester/menu/editor-capabilities.js:THE ONE REQUEST THE EDITOR ADVERTISES, PLANNED WITHOUT ASKING ANYTHING" \
+    "baja/manchester/menu/editor-capabilities.js:SINGULAR AND PLURAL ARE THE SAME WORD" \
+    "baja/manchester/menu/editor-capabilities.js:AND THE OPPOSITE OPERATION IS NOT THE ANSWER" \
+    "baja/manchester/menu/editor-command.js:THE EDITOR PLANS ITS OWN ADVERTISED REQUEST"
+  # The gene-level coupling number has no exon in it. This asks the same question per exon,
+  # from the skip isoform. Two new modules and the operation that drives them: all or none,
+  # or the operation calls something that is not there.
+  install_group "What skipping each exon does to the protein" \
+    "baja/bio/orfs/exon-consequence-map.js:WHAT SKIPPING EACH EXON WOULD DO TO THE PROTEIN" \
+    "baja/bio/orfs/exon-consequence-screen.js:WHAT EACH EXON IS WORTH TO THE PROTEIN, AS A SCREEN" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT EACH EXON IS WORTH TO THE PROTEIN. The coupling readout"
+  # Going to one region was an operation; going to all of them in turn was not. The module
+  # is new, so it ships with the capability that drives it or the operation calls nothing.
+  install_group "Step through every exon in turn" \
+    "baja/bio/region-tour.js:frame each one in turn, hold it long enough to read" \
+    "baja/manchester/menu/editor-capabilities.js:SHOW ME EACH EXON. Going to one region is an operation"
+  # Which track exon 12 is on is the user's call, so each one that has it gets a Go.
+  install_group "A named region is offered on every track that has one" \
+    "baja/manchester/menu/editor-capabilities.js:A NAMED REGION GETS ONE GO PER TRACK, LIKE EVERY OTHER PLACE"
+  # The panel that reports slow work was drawn under the card that asked for it.
+  install_group "The working panel is drawn above the card that asked for the work" \
+    "baja/lib/working.js:ABOVE THE CARD THAT ASKED FOR THE WORK"
+  install_group "A panel while something slow is running" \
+    "baja/lib/working.js:SOMETHING IS HAPPENING, AND HERE IS WHAT" \
+    "baja/manchester/menu/editor-capabilities.js:A FORTY-SECOND WAIT NEEDS A PANEL" \
+    "baja/bio/match-regions.js:COUNTED OUT LOUD"
+  install_group "A conservation map across every species at once" \
+    "py/bio/homolog-conservation.py:NOTHING IS ALIGNED HERE" \
+    "py/bio/homologs.py:sequence=protein brings back both rows" \
+    "baja/bio/conservation-map.js:WHERE A GENE IS CONSERVED, ACROSS EVERY SPECIES AT ONCE" \
+    "baja/bio/homologs-screen.js:WHERE, NOT JUST HOW MUCH"
+  install_group "The homologs of a track, as a screen you load from" \
+    "py/bio/homologs.py:PARALOGS AND ORTHOLOGS ARE ONE LOOKUP" \
+    "py/bio/homologs.py:ASKED FOR THE SPECIES THIS EDITOR CAN OPEN" \
+    "baja/bio/homologs-screen.js:THE HOMOLOGS OF A TRACK, AS A SCREEN YOU LOAD FROM" \
+    "baja/manchester/menu/editor-capabilities.js:PARALOGS AND ORTHOLOGS ARE ONE OPERATION" \
+    "py/bio/editor/plan.py:A HOMOLOG IS A LOOKUP, NOT A GAP IN THE CATALOGUE"
+  install_group "A planner answer is read however it arrives; RBPs on a named track" \
+    "py/bio/editor/plan.py:The first JSON object in a reply, whatever follows it" \
+    "baja/manchester/menu/editor-capabilities.js:A SELECTION IS A SCOPE, NOT A PRECONDITION"
+  install_group "Track comparisons are shown as a picture" \
+    "baja/bio/compare-view.js:A FULL WINDOW, NOT A POPUP" \
+    "baja/bio/compare-view.js:IT LEAVES AS A FILE" \
+    "baja/bio/match-regions.js:THE FIELDS THE SEARCHER ACTUALLY RETURNS"
+  install_group "Two-headed arrows, and every exon matched in one step" \
+    "baja/bio/track-layer.js:in CANVAS PIXELS, which" \
+    "baja/bio/align-blocks.js:THE BLOCKS AN ALIGNMENT IS MADE OF" \
+    "baja/bio/match-regions.js:EXONS ARE ONE KIND OF REGION, NOT THE ONLY ONE" \
+    "baja/manchester/menu/compare-track-sequences.js:WHERE A UNIT OF THE COMPARED SEQUENCE SITS ON THE TRACK" \
+    "baja/manchester/menu/editor-capabilities.js:ITERATING IS AN OPERATION, NOT A REASON TO REFUSE" \
+    "py/bio/editor/plan.py:EVERY ONE OF THEM IS ONE STEP, NOT A REFUSAL"
+  install_group "A layer deleted on a child track stays deleted" \
+    "baja/bio/track.js:A LAYER DELETED ON A CHILD TRACK STAYS DELETED" \
+    "baja/bio/remove-layers.js:A CHILD TRACK MIRRORS ITS PARENT" \
+    "baja/manchester/menu/track-layer-popup.js:A CHILD TRACK MIRRORS ITS PARENT"
+  # Filled polygons are asked about first and the rest of what is known about a layer is
+  # reported beside it, and a removal with no track named now acts on every track that has
+  # one instead of refusing. The matcher and the capability go together: the capability
+  # calls evidence() and resolves the tracks through the matcher.
+  install_group "Remove rnaseq: filled polygons first, across every track" \
+    "baja/bio/layer-match.js:FILLED POLYGONS FIRST" \
+    "baja/bio/remove-layers.js:WHY THIS ONE LOOKS LIKE RNA-SEQ, on the row itself" \
+    "baja/manchester/menu/editor-capabilities.js:WHICH TRACKS A REMOVAL ACTS ON"
+  install_group "Remove rnaseq layers: found by shape, asked about first" \
+    "baja/bio/layer-match.js:the last resort is WHAT THE LAYER IS DRAWN AS" \
+    "baja/bio/remove-layers.js:ASKED FIRST WHEN THE MATCH IS A GUESS" \
+    "baja/lib/confirm.js:A CANCEL THAT CAN BE HEARD" \
+    "baja/manchester/menu/editor-capabilities.js:ONE DESCRIPTION OF WHICH LAYERS A REQUEST MEANS"
+  install_group "Ask: compare the proteins, and draw where they are alike" \
+    "py/bio/protein/align-proteins.py:THE BLOCKS THE ALIGNMENT IS MADE OF" \
+    "baja/bio/protein/compare-proteins.js:THE ANSWER IS ALSO DRAWN" \
+    "baja/bio/match-layer.js:LINK TWO DRAWN SETS TOGETHER, block n to block n"
+  install_group "Matched blocks are linked by arrows" \
+    "baja/bio/track-layer.js:THIRD PASS: ARROWS TO THE MATCHING BLOCK ON ANOTHER TRACK" \
+    "baja/bio/match-layer.js:LINK TWO DRAWN SETS TOGETHER, block n to block n" \
+    "baja/bio/similarity-map.js:The arrows, hung on one of the two layers so each pair is drawn once" \
+    "baja/bio/search-region.js:An arrow from the region searched with to each place it was found"
+  # What is on each track reaches the planner, so a layer can be named the way the user sees
+  # it, and what was removed is named with its kind.
+  install_group "The planner is told which layers each track carries" \
+    "baja/manchester/menu/editor-command.js:name is what the user points at and the kind is what they mean" \
+    "baja/bio/remove-layers.js:WITH THEIR KINDS. A list of names is not enough to retry with"
+  # Deleting a layer from its popup menu: it did nothing at all when the track's layers had
+  # been rebuilt underneath the confirmation, and nothing at all when no graph was stashed.
+  install_group "Delete layer on the popup menu actually deletes it" \
+    "baja/manchester/menu/track-layer-popup.js:DELETE BY WHAT THE LAYER IS, NOT BY THE OBJECT WE OPENED ON"
   install_group "Layer bars are hit where they were painted" \
     "baja/bio/track-layer.js:WHERE THIS BAR ACTUALLY LANDED" \
     "baja/manchester/menu/mouse-over-highlight.js:THE TEST IS AGAINST THE RECTANGLE THAT WAS PAINTED" \
@@ -961,6 +1267,121 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask: load protein motifs, within the selection" \
     "baja/manchester/menu/editor-capabilities.js:PROTEIN MOTIFS ARE A LAYER THE EDITOR ALREADY DRAWS" \
     "baja/bio/protein/slim-motif-layer.js:WITHIN THE SELECTION, WHEN ONE WAS ASKED FOR"
+  # PSI THAT MUST NOT BE BELIEVED. SMN2 exon 7 was being drawn as "96% constitutive"
+  # on an ASO target. The model was not wrong: cassette.tsv labels that exon 0.84 and
+  # the truth is about 0.10, because SMN1 is 99.9% identical and short reads do not
+  # separate the two, so the label is a blend and PSINet reproduced it. No retraining
+  # changes that, so the editor now LOOKS THE EXON UP and declines to state a PSI for
+  # one that sits in duplicated sequence.
+  #
+  # The intervals are a BED the server points at (bajasplice config --untrusted-bed);
+  # with none configured nothing is flagged, and the ranking says so in as many words
+  # rather than letting "nothing flagged" read as "clean".
+  #
+  # All of them or none, and the reason is specific here: track-layer.js suppresses the
+  # percentage on the strength of layer.untrustedSpans, which only the launcher sets and
+  # only the backend fills. Install the drawing without the backend and every exon keeps
+  # its old number; install the backend without the drawing and the flag is computed and
+  # never shown. Either half alone is the silent-wrong-number bug it is meant to fix.
+  # The stability tag moved BELOW the exon. Above the capsule are the codon-number row
+  # and the amino-acid letters, and the tag was being read through them; underneath,
+  # gene-draw.js keeps the lower part of the track clear. Measured from the exon index
+  # disc (40px, opaque, centred on the exon) rather than from the 14px capsule, or 10px
+  # down would land the text under the disc.
+  #
+  # Its own group with its own marker, not folded into the group below: that group's
+  # marker is from the previous change and track-layer.js already carries it, so a box
+  # still serving the older copy would pass the served-check with the tag in the wrong
+  # place. The marker has to be text that only this version has.
+  # A PUBLISHED MEASUREMENT, where the model cannot be right. The group above
+  # withholds PSI at duplicated loci; withholding is the most inference can do, and
+  # for the exons that matter most someone has already measured the answer. SMN2
+  # exon 7 is about a tenth, against the 96% the model learned from a label blended
+  # with SMN1's reads. Shown as a measurement, in violet, with its range and its
+  # citation, and never as corrected model output.
+  #
+  # measured_psi.tsv rides with the code: it is the data the three other files read,
+  # and a box with the lookup but not the table shows nothing while reporting
+  # success. The library files are listed one by one as the BajaNMD group does it,
+  # so the entry script's sys.path fallback finds them on a box where the package
+  # has not been pip-installed into the venv.
+  install_group "Published exon-inclusion measurements, shown as measurements" \
+    "py/bajasplice-lib/bajasplice/measured.py:A SEPARATE QUANTITY, not a correction" \
+    "py/bajasplice-lib/bajasplice/data/measured_psi.tsv:KEYED ON THE EXON START" \
+    "py/bio/splice/splicing-profile.py:PUBLISHED MEASUREMENTS for the same exons" \
+    "baja/bio/splicing/splicing-profile.js:A PUBLISHED MEASUREMENT, where one exists" \
+    "baja/bio/track-layer.js:A MEASUREMENT OUTRANKS BOTH" \
+    "baja/bio/splicing/exon-ai-models.js:WHERE A MEASURED NUMBER CAME FROM"
+  # ONE ARGUMENT SHORT IS NOT "NOTHING IN THE EDITOR DOES THAT". "add pathologic
+  # mutations to selected sequence" is load_variants over the selection with no db:
+  # the planner dropped the step and reported only the refusal, so the card had no
+  # step to talk about. The step now travels incomplete and the card offers the four
+  # databases as buttons. Nothing is filled in on the way -- the value is the user's
+  # to pick, which is the rule the plan fallback above already states.
+  #
+  # All three together: plan.py sending the step with no card able to offer the
+  # choice is the same dead end with an extra step in it, and the card offering a
+  # choice it never receives is dead code.
+  # THE VARIANT GOES INTO THE SEQUENCE THE MODEL SCORES. A ClinVar variant loaded
+  # onto a track is an annotation: it marks a position and changes nothing, so a PSI
+  # run scored the reference and the exon kept "98% stable" with a pathogenic
+  # lollipop under it. Read as "this mutation does not affect splicing" that is the
+  # wrong conclusion and an easy one. Each variant is now written into the sequence
+  # and its cassette event scored again, and the tag says the move.
+  #
+  # The three travel together: the launcher gathering variants that the backend does
+  # not score sends them nowhere, the backend scoring variants the launcher never
+  # sends is dead code, and the tag is where the answer is read.
+  # THE EXON STABILITY REPORT: every exon on the canvas in one ranked table, folding in
+  # everything the PSI run already works out -- reliability weighted by conservation and
+  # functional sites, exons in duplicated sequence that carry no trustworthy number,
+  # published measurements, and what each variant does to inclusion. The per-track
+  # ranking answers "which exon on this transcript"; choosing a target asks "which exon
+  # anywhere", which meant reading five panels side by side.
+  #
+  # Both files or neither: the capability is how the report is reached from the ask box,
+  # and without the module behind it the entry opens onto a missing script -- the failure
+  # the all-or-none rule exists for.
+  # DRAW BEFORE YOU AWAIT. A floating menu ends its session ~80 ms after an item's click
+  # returns, and an async click returns the moment it first awaits, so an item that awaits
+  # its work and only then draws is drawing into a closed session and does nothing at all.
+  # Redirect acceptor (AG scan) had this outright; AI Models has it intermittently, saved
+  # only by its module usually being cached. Both now draw a placeholder first.
+  #
+  # Its own group: menu-factory.js already carries markers from the earlier fix to
+  # Predict effect of removing, and a box serving that copy would pass their served-check
+  # with these two items still broken.
+  install_group "Exon menu items draw before they await" \
+    "baja/manchester/menu/menu-factory.js:DRAWS BEFORE IT AWAITS, like its neighbours below"
+  install_group "The exon stability report, across every track" \
+    "baja/bio/splicing/exon-stability-report.js:TYPESET FOR PAPER, not a screenshot of the panel" \
+    "baja/bio/splicing/splicing-profile.js:WHY A RUN DID NOT PRODUCE A LAYER, left on the track" \
+    "baja/manchester/menu/editor-capabilities.js:frameRange is this module"
+  # Every panel that holds a table has the same problem: fitted to the canvas rect, the
+  # exon stability report showed about ten rows of forty and clipped its chart. The
+  # toggle lives in the shared shell rather than in one caller because fitToCanvas runs
+  # again on every resize -- a caller styling the panel itself would lose its sizing the
+  # first time the window moved.
+  install_group "Overlay panels can be maximized" \
+    "baja/lib/canvas-overlay-panel.js:MAXIMIZED: the whole viewport, not the canvas rect"
+  install_group "A variant on the track is scored, not just drawn" \
+    "py/bio/splice/splicing-profile.py:_BASE IS A LOOKUP TABLE, NOT A DICT" \
+    "baja/bio/splicing/splicing-profile.js:Variant scoring failing is not the run failing" \
+    "baja/bio/track-layer.js:THE WORST A VARIANT DOES TO THIS EXON"
+  install_group "A missing argument is asked for, not refused" \
+    "py/bio/editor/plan.py:A STEP ONE ARGUMENT SHORT IS STILL THE RIGHT STEP" \
+    "baja/manchester/menu/editor-capabilities.js:A MISSING ARGUMENT IS A QUESTION, NOT A DEAD END" \
+    "baja/manchester/menu/editor-command.js:ONE WORD SHORT IS NOT"
+  install_group "The exon stability tag reads below the exon" \
+    "baja/bio/track-layer.js:MEASURED FROM THE LINE THE EXON IS ON"
+  install_group "PSI is withheld where the reads were not uniquely assignable" \
+    "py/bajasplice-lib/bajasplice/untrusted.py:WHY A LOOKUP AND NOT A BETTER MODEL" \
+    "py/bajasplice-lib/bajasplice/config.py:Exons whose PSI is not trustworthy because the reads behind it were not" \
+    "py/bajasplice-lib/bajasplice/cli.py:export / check the low-mappability exon intervals" \
+    "py/bio/splice/splicing-profile.py:WHICH CHROMOSOME, FOR THE MAPPABILITY LOOKUP ONLY" \
+    "baja/bio/splicing/splicing-profile.js:THE CHROMOSOME, FOR THE MAPPABILITY LOOKUP" \
+    "baja/bio/track-layer.js:NO NUMBER WHERE THE NUMBER IS NOT ABOUT THIS EXON" \
+    "baja/bio/splicing/exon-ai-models.js:WHETHER MAPPABILITY WAS CHECKED AT ALL"
   install_group "A track can hold more than one selected region" \
     "baja/bio/track-flexi.js:MORE THAN ONE SELECTED REGION, WITHOUT MOVING THE ONE EVERYTHING READS" \
     "flexigraph/gene.js:THE EXTRA REGIONS GO TOO" \

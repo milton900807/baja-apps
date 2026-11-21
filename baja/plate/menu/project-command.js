@@ -139,9 +139,52 @@ function (o) {
         return null;
     };
 
+    // EVERY OPERATION THAT TAKES TIME SAYS SO, HERE AS IN THE EDITOR.
+    //
+    // Pressing GO on "create a monthly cost table" turned the button's word to "Working" and
+    // nothing else: no movement, no clock, on a card that otherwise looked exactly as it had
+    // before the press, for as long as the generator took. The editor's card already had
+    // the answer to this (editor-command.js) and this card, which runs the same kind of
+    // operation, did not.
+    //
+    // The clock decides, at the one place every operation here runs through. A step still
+    // going after a third of a second gets the spinner, titled with the card's own
+    // description of what is running and counting the seconds. One that finishes sooner
+    // shows nothing, because a flash of a panel on an instant operation is noise. An
+    // operation that raises its own panel keeps it: working.js is a singleton, and a second
+    // would replace the first and lose what it was reporting.
+    //
+    // It comes down before the outcome is shown. These operations answer with {error}
+    // rather than throwing, and the refusal is written on the card: a panel left over the
+    // card would cover the very sentence that says what went wrong.
+    const SPIN_AFTER = 350;
+    const withSpinner = async (title, detail, run) => {
+        let w = null, timer = null, settled = false;
+        const t = ('' + (title || 'Working'));
+        timer = setTimeout(async () => {
+            timer = null;
+            try { if (window.__bajaWorking) return; } catch (e) { }
+            try {
+                const made = await exec('baja/lib/working.js',
+                    t.length > 90 ? (t.slice(0, 88) + '\u2026') : t, '' + (detail || ''));
+                // It finished while the panel was being built: take it straight back down
+                // rather than leaving it over a canvas that is done.
+                if (settled) { try { made.done(); } catch (e) { } } else { w = made; }
+            } catch (e) { w = null; }
+        }, SPIN_AFTER);
+        try {
+            return await run();
+        } finally {
+            settled = true;
+            if (timer) { clearTimeout(timer); timer = null; }
+            try { if (w) w.done(); } catch (e) { }
+            w = null;
+        }
+    };
+
     const runRow = async (row) => {
         close();
-        const err = await fire(row.__m);
+        const err = await withSpinner(row.path, '', () => fire(row.__m));
         if (err) {
             try { if (o && o.setError) o.setError('Could not run ' + row.path + ': ' + err); } catch (e) { }
         }
@@ -158,9 +201,68 @@ function (o) {
         // Before the menubar check as well: whether a formula can be typed has nothing to do
         // with what is on the menu, and "there is no menu on screen" is a strange answer to
         // somebody who typed a sum.
+        //
+        // WORDS AFTER AN "=" ARE A REQUEST FOR A FORMULA, NOT A FORMULA. "=sum the cells
+        // above" was put in the cell exactly as typed, and the cell went red: the "=" said
+        // "I want a formula here" and the rest said which one, in English. Nothing with two
+        // words side by side and no bracket anywhere is a formula the engine can read, so it
+        // is never written as one. The commonest of these, a total (or average, smallest,
+        // largest, count) of what is above, is answered here with the formula itself and no
+        // model.
+        //
+        // EVERYTHING ELSE IS WORKED OUT, AND SO IS A FORMULA THAT IS ALREADY RED. Other
+        // words ("=fuel plus crew salaries") go to the operation that writes one formula
+        // from a description. So does Enter pressed on a cell that is red (o.repair): the
+        // field holds the very text that failed, and writing it back a second time is the
+        // one thing certain not to help. That operation checks what it is given and tries
+        // it before writing, and leaves the cell alone when it cannot do better.
+        const formulaBody = text.charAt(0) === '=' ? text.slice(1).trim() : '';
+        const words = !!formulaBody && !/[()\[\]{}]/.test(formulaBody)
+            && /[A-Za-z]\w*\s+[A-Za-z]/.test(formulaBody.replace(/\b(and|or|not)\b/gi, '+'));
+        if (words) {
+            const low = formulaBody.toLowerCase();
+            const how = /\b(average|mean|avg)\b/.test(low) ? 'average'
+                : /\b(min|minimum|smallest|lowest|least)\b/.test(low) ? 'min'
+                : /\b(max|maximum|largest|highest|biggest|most)\b/.test(low) ? 'max'
+                : (/\b(count|number of)\b/.test(low) || /\bhow many\b/.test(low)) ? 'count'
+                : /\b(sum|total|add|adds|added)\b/.test(low) ? 'sum' : '';
+            if (how && /\b(above|column)\b/.test(low)) {
+                let put = null;
+                try { put = await withSpinner(formulaBody, 'sum_above', () => exec('baja/plate/ops/sum-above.js', o.pm, { how: how, cell: o.cell || null, table: o.table || '' })); }
+                catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+                if (put && put.error) {
+                    say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                        + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                        + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                        + '">Close</button></div>');
+                    try { q('#pc-cancel').onclick = close; } catch (e) { }
+                    return;
+                }
+                close();
+                return;
+            }
+        }
+        if (words || (o && o.repair && text.charAt(0) === '=')) {
+            let put = null;
+            try {
+                put = await withSpinner('Working out a formula for ' + text, 'write_formula',
+                    () => exec('baja/plate/ops/formula-from-words.js', o.pm,
+                        { what: text, cell: o.cell || null, table: o.table || '' }));
+            } catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+            if (put && put.error) {
+                say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                    + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                    + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                    + '">Close</button></div>');
+                try { q('#pc-cancel').onclick = close; } catch (e) { }
+                return;
+            }
+            close();
+            return;
+        }
         if (text.charAt(0) === '=') {
             let put = null;
-            try { put = await exec('baja/plate/ops/set-formula.js', o.pm, { formula: text }); }
+            try { put = await withSpinner(text, 'set_formula', () => exec('baja/plate/ops/set-formula.js', o.pm, { formula: text })); }
             catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
             if (put && put.error) {
                 say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
@@ -292,7 +394,12 @@ function (o) {
             const runOp = async () => {
                 try { const b = q('#pc-op'); if (b) { b.disabled = true; b.textContent = 'Working\u2026'; } } catch (e) { }
                 let out = null;
-                try { out = await exec(op.capability.module, o.pm || null, op.args); }
+                let naming = '';
+                try { naming = CAP.preview(op.capability.name, op.args); } catch (e) { naming = ''; }
+                try {
+                    out = await withSpinner(naming || op.capability.name, op.capability.name,
+                        () => exec(op.capability.module, o.pm || null, op.args));
+                }
                 catch (e) { out = { error: ('' + (e && e.message ? e.message : e)) }; }
                 if (out && out.error) {
                     try { if (o && o.setError) o.setError(out.error); } catch (e) { }

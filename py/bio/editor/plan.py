@@ -38,12 +38,42 @@ Resolves {"status":"OK", "steps":[{capability, args}], "explain", "unsupported",
 """
 from __future__ import annotations
 import json
+import re
 from typing import Any, Dict, List, Tuple
 
 from ion import works
 from claude_chat import Claude as OpenAI
 
+# WHAT THE EDITOR IS, said plainly, because a planner that does not know is a planner
+# guessing. "add pathological mutations in selected sequence on smn1" was declined as a
+# request to create something harmful; in this application it is a request to DRAW the
+# known pathogenic variants of SMN1 from ClinVar on the part of the transcript the user has
+# selected, which is what every genome browser does and what load_variants here does. The
+# editor cannot change an organism, a cell or a stored sequence record: it fetches from
+# public databases and draws on a picture. Saying so is context the planner needs to read
+# ordinary annotation requests correctly, and it is simply true of the catalogue it is
+# given -- every operation in it is one of these.
+#
+# SAY WHAT IT CAN DO, NOT ONLY WHAT IT CANNOT. The first version of this said the editor
+# loads known variants from databases and stopped there, and the planner took the hint
+# literally: "add this mutation R237W to the DNM1 track" came back as "the editor cannot
+# add new mutations that are not already in those databases". Marking R237W on a transcript
+# is annotating a picture with the variant someone is studying, which is the ordinary work
+# of a clinical geneticist, and add_variant_from_description does exactly that -- against
+# the track's own coding sequence, with the user confirming what was resolved. Context that
+# only lists prohibitions turns into a refusal of the catalogue's own operations.
 SYS = ("You map a request about a genome editor onto operations from a catalogue supplied to you. "
+       "The editor is a read-only viewer of one transcript at a time: its operations fetch records "
+       "from public databases (ClinVar, dbSNP, gnomAD, COSMIC, Ensembl), run published prediction "
+       "models, and draw the results on screen. Nothing it does alters an organism, a cell, or any "
+       "sequence outside this picture. In this setting, requests to 'add', 'put' or 'show' mutations, "
+       "variants or pathogenic SNPs mean: look the known ones up in a clinical database and display "
+       "them on the view. That is the routine annotation task clinicians and genome browsers do, and "
+       "it is what the catalogue's loading operations perform. "
+       "It can also place a change named in the request itself on a track as a marker, checked "
+       "base by base against that track's own coding sequence first: that is annotating a "
+       "picture with a variant somebody is studying, which is what a clinical geneticist does "
+       "all day, and it alters no stored sequence. "
        "You never name anything that is not in the catalogue. Only output valid JSON.")
 
 MAX_STEPS = 4
@@ -116,30 +146,90 @@ Rules, in order of importance:
    for a yes or no about them, rather than for a single number. It answers the question
    and draws what it found.
 
-8. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
+8. EVERY ONE OF THEM IS ONE STEP, NOT A REFUSAL. "iterate over all exons in A and find
+   the closest sequence block that matches it on B" asks for a loop, and a loop over a
+   track's own features is an operation, not something the user has to unroll by hand:
+   match_regions_across_tracks does exactly that. Reach for it whenever the request says
+   all, every, each or iterate ABOUT A TRACK'S REGIONS, in place of planning one
+   search_region_in_track per region or saying it cannot be done, and set `features`
+   from the request's own word: exons, introns, 3' UTR, 5' UTR, coding sequence.
+   "compare the introns of A and B" and "does the 3' UTR of A match anything on B" are
+   this operation too. search_region_in_track stays the answer for ONE named region
+   ("exon 16 of A").
+
+9. A HOMOLOG IS A LOOKUP, NOT A GAP IN THE CATALOGUE. "list the closest paralog to this
+   track", "find the mouse ortholog", "is this conserved in rat", "what is the fly
+   version of this" are all list_homologs: set `kind` to paralogs for a duplicate in the
+   SAME species, orthologs when another species is named or implied, both for a bare
+   "homolog". Never answer one of these by saying the editor cannot query homology.
+
+   CONSERVATION ACROSS SPECIES IS conservation_map, from ONE track: "show the
+   conservation map", "plot the conserved regions", "where is this conserved". It finds
+   the species itself, so do not plan list_homologs first and do not reach for
+   draw_similarity_map, which compares two tracks that are BOTH already on the canvas
+   and will refuse a request that names only one. When the request is about THIS
+   REGION -- "the conservation of this region", "how conserved is this bit", "draw
+   conservation on the track" -- use draw_conservation, which puts the trace on the
+   track and measures the selected stretch against the rest of the same protein.
+
+10. A QUESTION IS NOT AN ACTION. If the request asks to be TOLD something ("are any of
    these pathogenic", "which of these hit a splice site", "what are these"), use the
    operation marked answers_a_question and nothing else. A request to CHANGE what is
    selected or present is an action. A request that asks for both ("find the pathogenic
    ones and select them") is the question: its answer offers the selection afterwards.
 
-9. TAKING SOMETHING AWAY IS NOT BROWSING FOR IT. "remove the rna seq layers from X",
+11. TAKING SOMETHING AWAY IS NOT BROWSING FOR IT. "remove the rna seq layers from X",
    "take the motifs off this track", "clear the layers" are remove_layers. Opening the
    library of data that can be LOADED is the opposite of what was asked, and so is
    returning no steps: there is an operation for this.
 
-10. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
+12. DESTRUCTIVE OPERATIONS ARE A LAST RESORT. An operation marked destructive deletes
    work. Only choose one when the request plainly asks for deletion ("remove", "delete",
    "get rid of"). Anything short of that, choose the selecting operation instead.
 
-11. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
+13. `needs` says what must already be on the canvas. Do not add a step to try to satisfy
    it; the editor checks and reports it. Choose the operation the request asked for.
 
-12. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
+14. Do not pad the plan. No "and then fit the view", no zooming the user did not ask for,
    nothing tidy-looking that was not requested.
 
 Catalogue:
 %s
 """ % (MAX_STEPS, "%s")
+
+
+def _first_json_object(text: str) -> Dict[str, Any]:
+    """The first JSON object in a reply, whatever follows it.
+
+    json.loads refuses a document with anything after the value, so one stray line --
+    a second object, a note, a repeated answer -- took the whole request down with
+    "Extra data: line 13 column 1 (char 366)", which tells the user nothing they can
+    act on and loses a plan that had already been made.
+
+    response_format={"type": "json_object"} is supposed to prevent this and mostly
+    does. Mostly is not a thing to build on: the reply comes from a model through a
+    proxy, and the one that arrives is the one that has to be read.
+    """
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("the planner returned nothing")
+    # A fenced block, which some models add despite being asked for raw JSON.
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
+        t = re.sub(r"\s*```\s*$", "", t).strip()
+    dec = json.JSONDecoder()
+    # From the first brace: anything before it is prose, and raw_decode stops at the
+    # end of the first complete value instead of insisting it is the end of the text.
+    start = t.find("{")
+    if start < 0:
+        raise ValueError("the planner did not return JSON")
+    try:
+        obj, _end = dec.raw_decode(t[start:])
+    except json.JSONDecodeError as exc:
+        raise ValueError("the planner's answer could not be read as JSON (%s)" % exc.msg)
+    if not isinstance(obj, dict):
+        raise ValueError("the planner returned %s, not an object" % type(obj).__name__)
+    return obj
 
 
 def ask(model: str, request: str, catalogue: List[Dict[str, Any]],
@@ -157,7 +247,7 @@ def ask(model: str, request: str, catalogue: List[Dict[str, Any]],
         messages=[{"role": "system", "content": SYS},
                   {"role": "user", "content": prompt}],
     )
-    return json.loads(r.choices[0].message.content)
+    return _first_json_object(r.choices[0].message.content)
 
 
 # --------------------------------------------------------------------------- validation ---
@@ -269,7 +359,24 @@ def _clean(out: Dict[str, Any], catalogue: List[Dict[str, Any]]) -> Dict[str, An
         missing = [k for k, s in specs.items()
                    if isinstance(s, dict) and s.get("required") and args.get(k) is None]
         if missing:
-            problems.append("%s needs %s and none was given" % (name, ", ".join(missing)))
+            # A STEP ONE ARGUMENT SHORT IS STILL THE RIGHT STEP, so it is sent rather
+            # than dropped. Dropping it left the card with no step to talk about and
+            # nothing but the refusal text, which is how "add pathologic mutations to
+            # selected sequence" -- load_variants over the selection, missing only a db
+            # -- came back as "Nothing in the editor does that".
+            #
+            # The client validates every step against the same declarations, so this
+            # one is refused again there; the difference is that there the declaration
+            # is in hand, and a refusal that knows the argument it wants can offer the
+            # values that would be accepted. Nothing is filled in on the way: the step
+            # travels incomplete, and stays incomplete until the user picks.
+            #
+            # No entry in `problems`: the client's refusal says the same thing with the
+            # choice attached, and the same sentence twice reads as two faults.
+            step = {"capability": name, "args": args, "needs": missing[:4]}
+            if dropped:
+                step["dropped"] = dropped[:8]
+            steps.append(step)
             continue
         step: Dict[str, Any] = {"capability": name, "args": args}
         if dropped:

@@ -20900,6 +20900,17 @@ function (progress) {
             }
 
             init() {
+                // ENTER ON A RED CELL ASKS FOR IT TO BE REPAIRED. One listener per track, kept
+                // in its own module because the cell's Enter is handled in eight places and
+                // this watches from outside all of them.
+                try {
+                    if (!this.__repairOnEnter) {
+                        this.__repairOnEnter = true;
+                        Promise.resolve(exec('baja/plate/ops/repair-on-enter.js', this))
+                            .then((h) => { this.__repairOnEnter = h || true; })
+                            .catch(() => { this.__repairOnEnter = null; });
+                    }
+                } catch (e) { }
                 // Whether Control is held, for the mouse handlers (they get coordinates, not
                 // the event). One set of listeners per page, whichever track calls init().
                 try {

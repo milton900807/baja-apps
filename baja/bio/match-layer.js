@@ -59,6 +59,38 @@ function () {
             } catch (e) { }
         };
 
+        // LINK TWO DRAWN SETS TOGETHER, block n to block n.
+        //
+        // Both layers already carry the same colours and the same numbers; this adds the
+        // arrow that saves the reader holding a number in their head while they look for
+        // its partner. Hung on ONE of the two layers, because a pair linked from both ends
+        // draws every arrow twice, the second exactly over the first.
+        //
+        // The far end is kept in the OTHER track's coordinates and resolved against that
+        // track's own grid when it is drawn. Converting it here, into this track's
+        // coordinates, is the bug that looks like it works: the two tracks have different
+        // grids and the arrow lands where neither block is.
+        const link = (fromLayer, fromTrack, toTrack, blocks, o) => {
+            const opt = o || {};
+            if (!fromLayer || !toTrack) return 0;
+            const list = (blocks || []).filter((b) => b && isFinite(b.x1) && isFinite(b.x2)
+                && isFinite(b.ox1) && isFinite(b.ox2));
+            fromLayer.links = list.map((b, i) => {
+                const n = (b.n != null) ? (b.n - 1) : i;
+                return {
+                    x1: b.x1, x2: b.x2, y: (opt.y == null ? 0.5 : opt.y),
+                    track: toTrack, ox1: b.ox1, ox2: b.ox2, oy: (opt.oy == null ? 0.5 : opt.oy),
+                    color: b.color || color(n, !!b.inverted),
+                    // An inverted pair is dashed as well as marked on the bars: the arrow is
+                    // the thing being read at a glance, and a glance does not take in a small
+                    // symbol on a label.
+                    dashed: !!b.inverted,
+                    width: 1.6, head: 6
+                };
+            });
+            return fromLayer.links.length;
+        };
+
         // blocks: [{ x1, x2, inverted, identity }] in the TRACK's own coordinates.
         const draw = (track, blocks, o) => {
             const opt = o || {};
@@ -79,6 +111,6 @@ function () {
             return layer;
         };
 
-        return { draw: draw, clear: clear, color: color, label: label, pct: pct };
+        return { draw: draw, link: link, clear: clear, color: color, label: label, pct: pct };
     })();
 }

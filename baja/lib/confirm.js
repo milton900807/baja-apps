@@ -1,4 +1,7 @@
-function (message, execFunction, yesLabel) {
+function (message, execFunction, yesLabel, cancelFunction) {
+    // A CANCEL THAT CAN BE HEARD. The caller used to learn nothing when the user said no,
+    // so anything waiting on the answer waited forever. cancelFunction is optional and the
+    // older three-argument callers are unchanged.
     // Show the confirmation as a center menu rendered ON THE GRAPH canvas (navy panel,
     // centered) instead of a pop-out modal window. Returns null; showModal(null) is a
     // guarded no-op (see lib/core.js), so existing `showModal(await exec(...))` callers
@@ -28,6 +31,9 @@ function (message, execFunction, yesLabel) {
         try { if (graph && graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
         try { execFunction(); } catch (e) { }
     };
+    // Dismissing the panel another way (a click elsewhere, Escape) is not reported by the
+    // menu, so a caller that must not hang has to act on what it is told here and not wait.
+    const doCancel = () => { try { if (cancelFunction) cancelFunction(); } catch (e) { } };
 
     try {
         if (graph && typeof graph.showMenu === 'function') {
@@ -65,7 +71,7 @@ function (message, execFunction, yesLabel) {
             });
             // Cancel is added here so every graph shows one (gene.js appends its own only
             // when the list has none; gene2plates appends nothing).
-            items.push({ label: 'Cancel', move: () => { }, click: () => { } });
+            items.push({ label: 'Cancel', move: () => { }, click: () => { doCancel(); } });
             // Wide enough for the longest line of wording, within reason.
             const longest = lines.reduce((m, l) => Math.max(m, ('' + l).length), 0);
             const width = Math.max(380, Math.min(760, longest * 7 + 60));
@@ -103,6 +109,7 @@ function (message, execFunction, yesLabel) {
                                     },
                                     {
                                         label: 'Cancel', ionFunction: createIonFunction(() => {
+                                            doCancel();
                                             hideAllModal();
                                         })
                                     }

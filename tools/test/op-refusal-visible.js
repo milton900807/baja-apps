@@ -16,9 +16,11 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 const src = fs.readFileSync('baja/plate/menu/project-command.js', 'utf8');
 const k = src.indexOf('const runOp = async () => {');
 ok(k > 0, 'the card runs the operation');
+// The operation is awaited through the spinner wrapper now, so that is the call to find.
+ok(src.indexOf('await withSpinner', k) > k, 'through the wrapper that says it is running');
 const run = src.slice(k, src.indexOf('};', src.indexOf('close();', k)) + 2);
 
-ok(!/^\s*close\(\);/m.test(run.slice(0, run.indexOf('await exec'))),
+ok(!/^\s*close\(\);/m.test(run.slice(0, run.indexOf('await withSpinner'))),
    'and does NOT close before it knows what happened');
 ok(/if \(out && out\.error\)/.test(run), 'it reads the refusal');
 ok(/That did not happen/.test(run), 'and says so on the card itself');

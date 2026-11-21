@@ -78,12 +78,20 @@ function (graph, query, target, opts) {
                 })), { suffix: '_matches', dataType: DATA_TYPE });
                 // The query region, marked as block 0 so its colour is its own and cannot be
                 // mistaken for one of the hits.
-                ML.draw(qt, [{
-                    n: 0, x1: Math.min(query.start, query.end), x2: Math.max(query.start, query.end),
+                const qs = Math.min(query.start, query.end), qe = Math.max(query.start, query.end);
+                const qLayer = ML.draw(qt, [{
+                    n: 0, x1: qs, x2: qe,
                     label: (query.label || 'query') + ' \u2192 ' + hits.length
                         + ' hit' + (hits.length === 1 ? '' : 's'),
                     color: 'hsla(0, 0%, 45%, 0.35)'
                 }], { suffix: '_searched', dataType: DATA_TYPE });
+                // An arrow from the region searched with to each place it was found. One
+                // source and several destinations, so they all start from the same bar: that
+                // fan is the shape of the answer to "does this match anything over there".
+                ML.link(qLayer, qt, target, hits.map((h, i) => ({
+                    n: i + 1, x1: qs, x2: qe,
+                    inverted: (h.strand === '-'), ox1: h.start, ox2: h.end
+                })), {});
             } else {
                 ML.clear(target, DATA_TYPE);
                 ML.clear(qt, DATA_TYPE);

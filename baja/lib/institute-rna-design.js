@@ -182,7 +182,7 @@ function (graph, genegraph_panel_layout) {
             head.style.cssText = 'flex:0 0 auto;display:flex;align-items:flex-end;gap:16px;padding:20px 26px 16px;'
                 + 'background:#14705c;color:#fff;';
             head.innerHTML = '<div style="min-width:0;">'
-                + '<div style="font:700 26px Georgia,\'Times New Roman\',serif;">Institute for GeneTx Design</div>'
+                + '<div style="font:700 26px Georgia,\'Times New Roman\',serif;">Design tools</div>'
                 + '<div style="font:12.5px Arial;opacity:0.92;margin-top:4px;">Three centers · '
                 + (TARGETING.length + MEDICINE.length + STRATEGIES.length) + ' entries · every one in preparation · '
                 + (TARGETING.filter((r) => r[3]).length + MEDICINE.filter((r) => r[3]).length + STRATEGIES.filter((r) => r[1]).length)

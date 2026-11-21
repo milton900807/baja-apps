@@ -63,12 +63,9 @@ def _reexec_under_venv():
 
 _reexec_under_venv()
 
-# WHERE THE LIBRARIES ARE. Resolve them from THIS file's own location first:
-# deploy-all.sh installs to $APPS_DIR, which is /opt/baja-apps on the server,
-# while ~/baja-apps is a git checkout that the deploy never writes to. Looking
-# only under ~ meant the deployed script imported a library the deploy had not
-# put there, and failed at import with nothing useful on screen. This file sits
-# at <apps>/py/bio/nmd/, so the libraries are two levels up whatever <apps> is.
+# Resolve the libraries from this file's own location first: deploy-all.sh
+# installs to $APPS_DIR (/opt/baja-apps), not to the ~ checkout, so looking only
+# under ~ imports a library the deploy never put there. See bajanmd-exons.py.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _APPS_PY = os.path.abspath(os.path.join(_HERE, "..", ".."))
 for _lib in (os.path.join(_APPS_PY, "bajasplice-lib"),

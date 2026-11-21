@@ -124,6 +124,19 @@ function (graph, genegraph_panel_layout, options) {
                     // So "select exon 5" can be checked against a transcript that has four,
                     // and a non-coding track is not asked for a UTR it has not got.
                     regions: CAP.regionInfo(t) || undefined,
+                    // WHAT IS ON THE TRACK, BY NAME. Without this a request to remove or
+                    // show a layer is planned blind: the layer a user calls "the rna seq
+                    // layer" is called GRCh38illuminabrain1, and nothing in the request or
+                    // the catalogue could tell anyone that. Name and kind both, because the
+                    // name is what the user points at and the kind is what they mean.
+                    layers: (() => {
+                        try {
+                            return (t.track_layers || []).slice(0, 20).map((l) => ({
+                                name: ('' + ((l && l.name) || '(unnamed)')),
+                                kind: ('' + ((l && l.data_type) || '')) || undefined
+                            }));
+                        } catch (e) { return undefined; }
+                    })(),
                     selection: (t.markend > t.markstart)
                         ? { start: Math.floor(t.markstart), end: Math.ceil(t.markend),
                             length: Math.ceil(t.markend) - Math.floor(t.markstart) } : null
@@ -547,10 +560,44 @@ function (graph, genegraph_panel_layout, options) {
                         }
                     }
 
+                    // ONE WORD SHORT IS NOT "NOTHING IN THE EDITOR DOES THAT".
+                    //
+                    // "add pathologic mutations to selected sequence" is load_variants over
+                    // the selection with db unset: the editor does exactly that, and the
+                    // refusal already knows which argument is missing and every value that
+                    // would be accepted. Saying nothing does it, under a note naming an
+                    // argument the user never saw a list for, is both wrong and a dead end.
+                    //
+                    // So the values are offered as buttons. Picking one puts it in the step
+                    // and re-renders the plan, which lands on the ordinary card with its own
+                    // run button -- the argument is supplied by the user's click, and nothing
+                    // runs until they press run. That keeps the rule the planner side states:
+                    // the guess is offered, never taken.
+                    const askable = bad.filter((x) => x.p && x.p.missing
+                        && Array.isArray(x.p.missingValues) && x.p.missingValues.length);
+                    const askRows = askable.map((x, i) => {
+                        const c = x.p.capability;
+                        return '<div style="margin-top:9px;">'
+                            + '<div style="font:12.5px Arial;color:#9fb3c8;">'
+                            + H((c && c.name) || 'this operation') + ' needs <b>' + H(x.p.missing)
+                            + '</b>' + (x.p.missingAbout ? (' \u2014 ' + H(x.p.missingAbout)) : '')
+                            + '</div><div style="margin-top:6px;">'
+                            + x.p.missingValues.map((v, j) =>
+                                '<a href="#" id="ec-pick-' + i + '-' + j + '" '
+                                + 'style="display:inline-block;margin:3px 6px 0 0;padding:4px 10px;'
+                                + 'border-radius:6px;border:1px solid rgba(255,255,255,0.18);'
+                                + 'font:12.5px Arial;color:#7fb0e8;text-decoration:none;">'
+                                + H(v) + '</a>').join('')
+                            + '</div></div>';
+                    }).join('');
+
                     out.innerHTML = card(
-                        '<div style="font:700 13.5px Arial;color:#e8f0fb;">Nothing in the editor does that.</div>'
+                        '<div style="font:700 13.5px Arial;color:#e8f0fb;">'
+                        + (askable.length ? 'Which one?' : 'Nothing in the editor does that.')
+                        + '</div>'
                         + bad.map((x) => '<div style="font:12.5px Arial;color:#fca5a5;margin-top:7px;">'
                             + '&#9888; refused: ' + H(x.p.text) + '</div>').join('')
+                        + askRows
                         + warn
                         + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;line-height:1.7;">'
                         + '<a id="ec-all" href="#" style="color:#7fb0e8;">See everything it can do</a>'
@@ -558,6 +605,22 @@ function (graph, genegraph_panel_layout, options) {
                         + 'and pick from there.</div>'
                         + dismissRow('ec-x1'));
                     wireDismiss('ec-x1');
+                    askable.forEach((x, i) => {
+                        x.p.missingValues.forEach((v, j) => {
+                            const el = q('#ec-pick-' + i + '-' + j);
+                            if (!el) return;
+                            el.onclick = (e) => {
+                                try { e.preventDefault(); } catch (e2) { }
+                                // Rebuilt rather than mutated: render() re-parses r.steps, so
+                                // the filled argument has to go back the way it came.
+                                const filled = steps.map((st) => (st === x.step)
+                                    ? Object.assign({}, st, { args: Object.assign({}, st.args || {},
+                                        { [x.p.missing]: v }) })
+                                    : st);
+                                render(Object.assign({}, r, { steps: JSON.stringify(filled) }), ask);
+                            };
+                        });
+                    });
                     const all = q('#ec-all');
                     if (all) all.onclick = (e) => { try { e.preventDefault(); } catch (e2) { } showAll(); };
                     return;
@@ -671,6 +734,18 @@ function (graph, genegraph_panel_layout, options) {
                 const labelFor = (k) => (k === 0 ? 'Nothing selected'
                     : (k === 1 ? 'GO' : ('GO · ' + k + ' steps')));
                 const nShown = good.length;
+                // A REFUSAL WITH A WAY FORWARD. "run bajasplice psi" with two transcripts
+                // open used to end at "cannot run: say which track to run it on" over a
+                // Cancel button, which answers a request for a model by closing. A capability
+                // that knows where its own user interface lives says so (whenStuck), and when
+                // nothing can run, that goes beside Cancel: the shelf lists the model with the
+                // tracks to run it on, which is the thing the request was after.
+                const __stuck = (!runnable.length && good.length === 1) ? good[0].p.whenStuck : null;
+                const stuckBtn = __stuck
+                    ? ('<button id="ec-stuck" style="cursor:pointer;border-radius:8px;padding:9px 18px;'
+                        + 'font:700 12.5px Arial;border:1px solid #7fb0e8;background:transparent;color:#7fb0e8;">'
+                        + H(__stuck.label || 'Open it') + '</button>')
+                    : '';
                 out.innerHTML = card(
                     '<div style="font:700 13px Arial;color:' + (danger ? '#fca5a5' : '#7fb0e8') + ';">'
                     + (nShown > 1 ? ('A plan, ' + nShown + ' steps') : 'One operation') + '</div>'
@@ -688,12 +763,22 @@ function (graph, genegraph_panel_layout, options) {
                             + (danger ? 'border:1px solid #ef4444;background:#ef4444;color:#2a0505;'
                                 : 'border:1px solid #22c55e;background:#22c55e;color:#04210f;') + '">' + H(verb) + '</button>')
                         : '')
+                    + stuckBtn
                     + '<button id="ec-no" style="' + btn + '">Cancel</button></div>',
                     danger ? 'rgba(248,113,113,0.5)' : null);
 
                 q('#ec-no').onclick = () => {
                     if (HOST) { done(0); return; }
                     out.innerHTML = ''; try { q('#ec-q').focus(); } catch (e) { }
+                };
+                const stuckEl = q('#ec-stuck');
+                if (stuckEl && __stuck) stuckEl.onclick = async () => {
+                    stuckEl.disabled = true;
+                    // Closed first, as GO does: a shelf opening behind this panel is the
+                    // same bug twice.
+                    close();
+                    try { await __stuck.run(); } catch (e) { result('Could not open it: ' + (e && e.message ? e.message : e)); }
+                    done(0);
                 };
                 const go = q('#ec-go');
 
@@ -724,6 +809,59 @@ function (graph, genegraph_panel_layout, options) {
                     syncGo();
                 }
 
+                // EVERY OPERATION THAT TAKES TIME SAYS SO, WITHOUT BEING ASKED TO.
+                //
+                // The panel was opt-in: an operation had to raise it itself, so most of them
+                // did not, and pressing GO on anything slow gave a closed card and a silent
+                // canvas. Which operations are slow is not knowable in advance either -- the
+                // same comparison is instant on two short tracks and a minute on two
+                // genomic ones -- so it cannot be decided per operation at all.
+                //
+                // It is decided by the clock instead, at the one place every operation runs
+                // through. Anything still going after a moment gets the spinner, with the
+                // card's own description of the step as its title, so what is running is
+                // named rather than being "Working". Anything that finishes before that
+                // shows nothing, because a flash of a panel on an instant operation is its
+                // own kind of noise.
+                //
+                // An operation that raises its own panel keeps it: working.js is a
+                // singleton, and a second one would replace the first and lose the detail
+                // it was reporting. So this only opens one where there is none.
+                const SPIN_AFTER = 350;
+                const withSpinner = async (p0, run) => {
+                    let w = null, timer = null, mine = false, settled = false;
+                    const title = (p0 && p0.text) ? ('' + p0.text) : 'Working';
+                    timer = setTimeout(async () => {
+                        timer = null;
+                        try { if (window.__bajaWorking) return; } catch (e) { }
+                        try {
+                            w = await exec('baja/lib/working.js',
+                                title.length > 90 ? (title.slice(0, 88) + '\u2026') : title,
+                                (p0 && p0.capability && p0.capability.name) ? p0.capability.name : '');
+                            mine = true;
+                            // It finished while the panel was being built: take it straight
+                            // back down rather than leaving it over a canvas that is done.
+                            if (settled) { try { w.done(); } catch (e) { } w = null; }
+                        } catch (e) { w = null; }
+                    }, SPIN_AFTER);
+                    try {
+                        const out = await run();
+                        settled = true;
+                        return out;
+                    } catch (e) {
+                        settled = true;
+                        // The reason goes on the panel before it closes: a spinner that
+                        // vanishes leaves the same silence it was put up to fill.
+                        try { if (w && mine) w.fail('' + (e && e.message ? e.message : e)); } catch (e2) { }
+                        w = null;
+                        throw e;
+                    } finally {
+                        settled = true;
+                        if (timer) { clearTimeout(timer); timer = null; }
+                        try { if (w && mine) w.done(); } catch (e) { }
+                    }
+                };
+
                 if (go) go.onclick = async () => {
                     // Read BEFORE the panel closes: the boxes go with it.
                     const picked = chosen();
@@ -753,7 +891,8 @@ function (graph, genegraph_panel_layout, options) {
                             failed = now.capability.name + ': more than one track fits (' + now.choices.map((o) => o.label).join(', ') + '): name the one you mean';
                             break;
                         }
-                        try { await (now && now.ok ? now.capability.run(now.args) : x.p.capability.run(x.p.args)); ran++; }
+                        try { await withSpinner(now && now.ok ? now : x.p,
+                            () => (now && now.ok ? now.capability.run(now.args) : x.p.capability.run(x.p.args))); ran++; }
                         catch (e) { failed = (x.p.capability.name + ': ' + (e && e.message ? e.message : e)); break; }
                     }
                     // Operations report their own outcome; only a multi-step plan or a
@@ -763,6 +902,56 @@ function (graph, genegraph_panel_layout, options) {
                     else if (picked.length < good.length) result('Ran the one step you picked.');
                     done(ran);
                 };
+            };
+
+            // A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX.
+            //
+            // The planner is a server call: the service can be down, the request can time
+            // out, or the model can decline it. "add pathological mutations in selected
+            // sequence on smn1" was declined outright, though in this editor that is
+            // load_variants with ClinVar over the selection -- the annotation job a genome
+            // browser does. The card said "Could not read that" and stopped, which leaves
+            // someone with a correct request and nowhere to go.
+            //
+            // So the editor says what it thinks the request is about, from its own catalogue,
+            // and offers those operations as cards to open. It does not run them and it does
+            // not fill in arguments: a guess is offered, never taken.
+            const planFailed = (why) => {
+                // THE EDITOR PLANS ITS OWN ADVERTISED REQUEST. The bar above this box offers
+                // "load clinvar pathogenic snps" in those words; when the planner cannot
+                // answer, the catalogue can still place that one itself. It is a real plan
+                // card with a GO, not a button that opens an empty form, because the request
+                // was complete -- the database and the filter were in the sentence.
+                let own = null;
+                try { own = CAP.localPlan(q('#ec-q').value); } catch (e) { own = null; }
+                if (own) {
+                    const p0 = CAP.preview(own);
+                    if (p0 && p0.ok) {
+                        render({ status: 'OK', steps: [own],
+                            explain: 'planned here: the service could not be reached' },
+                            ('' + q('#ec-q').value).trim());
+                        return;
+                    }
+                }
+                let near = [];
+                try { near = CAP.suggest(q('#ec-q').value, 3) || []; } catch (e) { near = []; }
+                const btn = 'cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'
+                    + 'border:1px solid #2d6b9a;background:transparent;color:#9fd0f5;margin:6px 6px 0 0;';
+                q('#ec-out').innerHTML =
+                    '<div style="font:12.5px Arial;color:#fca5a5;">Could not plan that here'
+                    + (why ? (': ' + H(why)) : '.') + '</div>'
+                    + (near.length
+                        ? ('<div style="font:12.5px Arial;color:#9fb3c8;margin-top:9px;">'
+                            + 'The editor has these, which may be what you meant:</div>'
+                            + '<div>' + near.map((c) => '<button data-cap="' + H(c.name) + '" style="' + btn + '">'
+                                + H(c.name.replace(/_/g, ' ')) + '</button>').join('') + '</div>')
+                        : '')
+                    + dismissRow('ec-x2');
+                wireDismiss('ec-x2');
+                for (const b of q('#ec-out').querySelectorAll('button[data-cap]')) {
+                    b.onclick = () => render({ status: 'OK', steps: [{ capability: b.getAttribute('data-cap'), args: {} }] },
+                        ('' + q('#ec-q').value).trim());
+                }
             };
 
             const run = async () => {
@@ -789,16 +978,12 @@ function (graph, genegraph_panel_layout, options) {
                         em, ask, JSON.stringify(CAP.catalogue()), JSON.stringify(context()), '');
                 } catch (e) {
                     busy = false; try { graph.__ecInFlight = false; } catch (e2) { } setBusy(false);
-                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that: '
-                        + H(e && e.message ? e.message : e) + '</div>' + dismissRow('ec-x2');
-                    wireDismiss('ec-x2');
+                    planFailed(e && e.message ? e.message : e);
                     return;
                 }
                 busy = false; try { graph.__ecInFlight = false; } catch (e) { } setBusy(false);
                 if (!r || r.status !== 'OK') {
-                    q('#ec-out').innerHTML = '<div style="font:12.5px Arial;color:#fca5a5;">Could not read that'
-                        + (r && r.error ? (': ' + H(r.error)) : '.') + '</div>' + dismissRow('ec-x3');
-                    wireDismiss('ec-x3');
+                    planFailed(r && r.error ? r.error : '');
                     return;
                 }
                 render(r, ask);

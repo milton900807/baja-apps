@@ -130,12 +130,44 @@ def site_positions(row):
     return (row.c2_start - 1, row.a_end + 1, row.a_start - 1, row.c1_end + 1)
 
 
-def load_events(min_tissues=5, min_reads=50):
+def load_events(min_tissues=5, min_reads=50, drop_untrusted=False, verbose=False):
+    """Cassette events and their per-tissue PSI.
+
+    drop_untrusted removes exons with a near-identical twin in another gene
+    (mappability.cached_flags). It is OFF by default because it changes what the
+    model is trained on, and because across the genome these labels carry no
+    systematic bias: flagged exons average PSI 0.9088 against 0.9236 for the
+    rest, which is why the validation suite has always dropped them from
+    BENCHMARKS and left them in training.
+
+    That average is the wrong summary for a tool whose job is one exon at a
+    time. A blended label is not noise around the truth, it is another gene's
+    answer: SMN2 exon 7 is labelled 0.84 when it is really about 0.10, so the
+    model is taught the wrong value for the exon and learns nothing from the one
+    base (c.840C>T) that separates it from SMN1. Keeping it in costs 0.9% of the
+    events and buys a confidently wrong prediction at every duplicated locus,
+    which is where the clinically interesting exons tend to live.
+
+    Turning it on does NOT make the model predict 0.10 for SMN2 exon 7. It makes
+    that exon unseen, so whatever the model then says is a prediction from
+    sequence rather than a memory of a blend -- and whether the prediction is
+    any good is a question for validate/suite.py's smn_discrimination test, not
+    something to assume here.
+    """
     ev = pd.read_csv(os.path.join(paths().interim, "cassette.tsv"), sep="\t")
     psi = np.load(os.path.join(paths().interim, "cassette_psi.npy"))
     keep = (ev.n_tissues_quant >= min_tissues) & (ev.reads_total >= min_reads)
     ev = ev[keep].reset_index(drop=True)
     psi = psi[keep.to_numpy()]
+    if drop_untrusted:
+        from .mappability import cached_flags
+        fl = cached_flags(ev, verbose=verbose)
+        n = int(fl.sum())
+        ev = ev[~fl].reset_index(drop=True)
+        psi = psi[~fl]
+        if verbose:
+            print("dropped %d events (%.2f%%) whose PSI is a blend of two genes"
+                  % (n, 100.0 * n / max(n + len(ev), 1)), flush=True)
     ev["split"] = ev.chrom.map(split_of)
     return ev, psi
 

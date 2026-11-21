@@ -53,6 +53,21 @@ def load_psinet(ckpt=None, device=None):
     return m.to(dev).eval(), args, dev
 
 
+def psi_of(model, args, device, chrom, strand, c1_end, a_start, a_end, c2_start,
+           genome=None):
+    """Predicted mean PSI for an event as the reference genome has it.
+
+    A thin wrapper over psi_delta rather than a second copy of the window and
+    geometry code, which would be free to drift away from it. pos=-1 is a
+    position no window and no exon can contain, so the "alt" pass applies
+    nothing and both passes score the untouched sequence; ref and alt come back
+    equal, and ref is returned.
+    """
+    d = psi_delta(model, args, device, chrom, strand, c1_end, a_start, a_end,
+                  c2_start, -1, "A", "A", genome=genome)
+    return d["ref"], d["ref_tissue"]
+
+
 def _site_positions(strand, c1_end, a_start, a_end, c2_start):
     """The four sites in TRANSCRIPT order, as datasets.site_positions does it."""
     if strand == "+":

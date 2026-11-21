@@ -97,6 +97,20 @@ return new Promise(async (resolve, reject) => {
       ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
       ctx.restore();
     }
+    // A MARKED REGION IS NOT A GENE BODY. The marked-region rectangle used to call
+    // body(), which meant the selection was painted as though it were an exon: the
+    // exon fill, and then the exon's EDGE stroked around it. That edge is a hard black
+    // rule around whatever is selected, and it reads as a feature boundary that is not
+    // there -- over an exon it looked like a second box drawn around the exon itself.
+    // The mark keeps the theme's colour, so a theme still owns how a selection looks,
+    // and loses the outline, because nothing about a selection is an edge.
+    mark(ctx, x, y, w, h) {
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = this.fill();
+      ctx.fillRect(x, y, w, h);
+      ctx.restore();
+    }
   }
 
   // Outline only: the body is a frame, the track shows through it. Reads as a drawing rather
@@ -5378,6 +5392,30 @@ return new Promise(async (resolve, reject) => {
       return '';
     }
 
+    // A LAYER DELETED ON A CHILD TRACK STAYS DELETED.
+    //
+    // A mirrored layer is re-pushed by syncFromParent on the very next redraw tick, so a
+    // delete that only spliced track_layers looked like it did nothing whatever: the
+    // function ran, the layer came straight back, and nothing anywhere said so. The hash
+    // is remembered here and skipped by the push below.
+    //
+    // UNTIL THE PARENT'S OWN LAYER CHANGES. The hash covers the layer's name, kind and how
+    // many intervals and points it holds, so reloading or editing it on the parent makes a
+    // new hash: that is new data and it does come back, which is what a user who loads it
+    // again expects. The mirror carries the PARENT's hash in __syncHash and its own points
+    // are remapped to child coordinates, so recomputing one here would not match -- the
+    // stored hash is the one to keep.
+    noteLayerRemoved(l) {
+      try {
+        if (!l) return;
+        const h = l.__syncHash || this._syncHash(l, 'layer');
+        if (!h) return;
+        this.__syncRemoved = this.__syncRemoved || [];
+        if (this.__syncRemoved.indexOf(h) < 0) this.__syncRemoved.push(h);
+        if (this.__syncRemoved.length > 200) this.__syncRemoved = this.__syncRemoved.slice(-200);
+      } catch (e) { }
+    }
+
     // Per-draw diff sync: hash every syncable parent object, remove child mirrors whose
     // source hash is gone, and push a fresh read-only copy for any parent hash not yet
     // present on the child. Driven each redraw tick by the engine's syncChildTracks().
@@ -5580,6 +5618,9 @@ return new Promise(async (resolve, reject) => {
         try {
           const __h = this._syncHash(tl, 'layer');
           if (present.has(__h)) continue;
+          // Deleted here by the user: not mirrored again until the parent's own layer
+          // changes. Without this the next redraw undoes every layer delete on a child.
+          if (this.__syncRemoved && this.__syncRemoved.indexOf(__h) >= 0) continue;
           let ttl = Object.assign(new TrackLayer(), JSON.parse(JSON.stringify(tl)));
           let ivs = [];
           for (let iv of (tl.intervals || [])) {
@@ -8221,7 +8262,7 @@ return new Promise(async (resolve, reject) => {
             if (rw > 1 && rh > 1) {
               // Through the theme's gene-draw class. Classic reproduces the cyan wash and
               // outline this drew before; the others change the mark itself.
-              try { (this.__geneDraw || geneDrawFor(this.theme, GX_T)).body(ctx, rx, ry, rw, rh); } catch (e) { }
+              try { (this.__geneDraw || geneDrawFor(this.theme, GX_T)).mark(ctx, rx, ry, rw, rh); } catch (e) { }
               ctx.save();
               ctx.fillStyle = 'rgba(18,194,224,0.00)';    // the wash is the draw class's job now
               ctx.fillRect(rx, ry, rw, rh);

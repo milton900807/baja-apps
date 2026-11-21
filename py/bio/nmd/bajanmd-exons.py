@@ -62,12 +62,12 @@ def _reexec_under_venv():
 
 _reexec_under_venv()
 
-# WHERE THE LIBRARIES ARE. Resolve them from THIS file's own location first:
+# WHERE THE LIBRARIES ARE. Resolve them from THIS file's own location first.
 # deploy-all.sh installs to $APPS_DIR, which is /opt/baja-apps on the server,
-# while ~/baja-apps is a git checkout that the deploy never writes to. Looking
-# only under ~ meant the deployed script imported a library the deploy had not
-# put there, and failed at import with nothing useful on screen. This file sits
-# at <apps>/py/bio/nmd/, so the libraries are two levels up whatever <apps> is.
+# while ~/baja-apps is a checkout the deploy never writes to. Looking only under
+# ~ meant the deployed script imported a library the deploy had not put there
+# and died at import, which reaches the browser as a bare server-side error.
+# This file sits at <apps>/py/bio/nmd/, so the libraries are two levels up.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _APPS_PY = os.path.abspath(os.path.join(_HERE, "..", ".."))
 for _lib in (os.path.join(_APPS_PY, "bajasplice-lib"),
@@ -85,6 +85,22 @@ try:
 except Exception:
     dj = 50
 
+
+def _coord(v):
+    try:
+        return int(round(float(v)))
+    except Exception:
+        return 0
+
+
+# ONE EXON, WHEN THE CALLER CLICKED ONE. The menu this runs from is exon-scoped:
+# it is titled with the exon's id, so answering about the whole gene makes the
+# user hunt for the row they already pointed at. Given coordinates, the answer
+# is about that exon and carries the per-transcript detail the list view drops.
+exon_lo, exon_hi = _coord(works.param(4)), _coord(works.param(5))
+if exon_lo and exon_hi and exon_lo > exon_hi:
+    exon_lo, exon_hi = exon_hi, exon_lo
+
 if not gene:
     works.resolve({"error": "no gene given", "exons": json.dumps([]),
                    "n": "0", "gene": ""})
@@ -93,19 +109,41 @@ else:
         from bajanmd.consequence import gene_exons
 
         rows = gene_exons(gene, dj=dj)
-        keep = {"NMD_in": {"NMD_in"}, "NMD_ex": {"NMD_ex"},
-                "switch": {"NMD_in", "NMD_ex"}}.get(want)
-        if keep:
-            rows = [r for r in rows if r["nmd_class"] in keep]
-        # per-transcript detail is large and the list view does not use it
+        picked = None
+        if exon_lo and exon_hi:
+            # The annotation's bounds and the GTF's can differ by a base or two,
+            # so match the overlapping exon whose ends are closest rather than
+            # demanding equality, and report what was matched so a snap is
+            # visible instead of silent.
+            over = [r for r in rows
+                    if r["a_start"] <= exon_hi and r["a_end"] >= exon_lo]
+            if over:
+                picked = min(over, key=lambda r: abs(r["a_start"] - exon_lo)
+                             + abs(r["a_end"] - exon_hi))
+                picked["asked_start"] = exon_lo
+                picked["asked_end"] = exon_hi
+                picked["exact"] = (picked["a_start"] == exon_lo
+                                   and picked["a_end"] == exon_hi)
+            rows = [picked] if picked else []
+        else:
+            keep = {"NMD_in": {"NMD_in"}, "NMD_ex": {"NMD_ex"},
+                    "switch": {"NMD_in", "NMD_ex"}}.get(want)
+            if keep:
+                rows = [r for r in rows if r["nmd_class"] in keep]
         for r in rows:
-            r["n_mane_tx"] = sum(1 for t in r.pop("transcripts") if t["mane"])
+            tx = r.get("transcripts") or []
+            r["n_mane_tx"] = sum(1 for t in tx if t["mane"])
+            # the list view does not use the per-transcript detail; the
+            # single-exon answer does, so keep it only there
+            if picked is None:
+                r.pop("transcripts", None)
         works.resolve({
             "exons": json.dumps(rows),
             "n": str(len(rows)),
             "gene": gene,
             "dj_threshold": str(dj),
-            "filter": want,
+            "filter": ("exon" if (exon_lo and exon_hi) else want),
+            "asked": json.dumps({"start": exon_lo, "end": exon_hi}),
             "error": None,
         })
     except Exception as e:
