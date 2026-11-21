@@ -60,6 +60,11 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
            '"' + said + '" reaches ' + want + ': ' + g.map((c) => c.name).join(', '));
     }
 
+    // The leading verb steers but does not identify: "add" must not pick the operation
+    // whose NAME begins with it over the one the nouns point at.
+    ok(C.suggest('add pathology snps to selected sequence', 3)[0].name === 'load_variants',
+       'a generic verb does not name the operation');
+
     // The verb steers it: the same nouns asked as a question want a different operation.
     const asked = C.suggest('are any of these pathogenic', 3);
     ok(asked.length && /^ask_/.test(asked[0].name),

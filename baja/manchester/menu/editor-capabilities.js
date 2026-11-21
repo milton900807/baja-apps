@@ -2403,6 +2403,63 @@ function (graph, genegraph_panel_layout) {
                     : ''
             },
             {
+                // PLACE A NAMED VARIANT ON THE TRACK. "add this mutation R237W to the DNM1
+                // track" had nowhere to go: the facility exists -- it is "Describe a variant"
+                // in the data library -- and the ask box could not reach it, so the planner
+                // reported that the editor does not do this at all.
+                //
+                // It is annotation, not editing. The resolver normalises the description, the
+                // CHECK is done against the track's own coding sequence base by base
+                // (py/bio/variant-from-prompt.py), and what lands is a marker on the view. No
+                // sequence record is altered by it.
+                name: 'add_variant_from_description',
+                summary: 'PUT A VARIANT NAMED IN WORDS ONTO A TRACK, as a marker: a protein '
+                    + 'change ("R237W", "p.Arg175His", "K27M"), a cDNA change ("c.83A>T"), an '
+                    + 'rsID, or a codon-level edit. "add this mutation R237W to the DNM1 track", '
+                    + '"put p.Arg175His on TP53", "mark c.83A>T", "annotate R237W here". The '
+                    + 'description is checked against the track\'s own coding sequence before '
+                    + 'anything is placed, and the user confirms it. For KNOWN variants from a '
+                    + 'database use load_variants instead; this one is for a change named '
+                    + 'directly in the request.',
+                needs: 'track', opens: true,
+                params: {
+                    description: {
+                        type: 'string', required: true,
+                        about: 'the change exactly as the request names it: "R237W", '
+                            + '"p.Arg175His", "c.83A>T", "rs113994095". Pass the variant alone, '
+                            + 'without the track name or the surrounding sentence'
+                    },
+                    track: { type: 'string', about: 'which track, by name. Omit unless the request names one' }
+                },
+                run: (a) => {
+                    const t = pickTrack(a);
+                    const list = t ? [t] : (selTracks().length ? selTracks() : tracks());
+                    if (!list.length) { result('No track to put it on.'); return; }
+                    return exec('baja/data/variant-from-prompt.js', server(), graph,
+                        genegraph_panel_layout, list, ('' + (a.description || '')).trim());
+                },
+                preview: (a) => {
+                    const t = pickTrack(a);
+                    return 'place ' + (a.description ? ('\u201c' + a.description + '\u201d') : 'the variant')
+                        + ' on ' + (t ? (t.name || 'the track') : 'the track')
+                        + ', checked against its coding sequence first';
+                },
+                choices: (a) => choicesOver(a, (x) => (x && x.sequence) ? { detail: x.name || 'track' } : null),
+                choiceTitle: () => 'Put it on which track?',
+                argBlocker: (a) => {
+                    if (!('' + (a.description || '')).trim()) return 'say which change to add, e.g. R237W';
+                    const t = pickTrack(a);
+                    if (!t) {
+                        if (!a.track && choicesOver(a, (x) => (x && x.sequence) ? {} : null).length) return '';
+                        return (a && a.track)
+                            ? ('no single track matches \u201c' + a.track + '\u201d: open tracks are '
+                                + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to put it on: there is more than one open';
+                    }
+                    return '';
+                }
+            },
+            {
                 // The Variant designer: every variant ranked by how far its window has diverged
                 // from the reference, with the compounds tiled on each and a GO to it.
                 name: 'open_variant_designer',
@@ -3836,9 +3893,16 @@ function (graph, genegraph_panel_layout) {
         const suggest = (text, limit) => {
             const words = ('' + (text || '')).toLowerCase().match(/[a-z0-9']+/g) || [];
             if (!words.length) return [];
+            // THE LEADING VERB STEERS, IT DOES NOT IDENTIFY. It is used below to rank
+            // loaders above removers and questions above both; counting it as a word as well
+            // put add_variant_from_description, whose name begins with the verb, above
+            // load_variants for "add pathology snps to selected sequence" -- a request that
+            // names no change to add. Which operation it is comes from the nouns.
+            const VERB = /^(add|load|put|get|fetch|show|draw|bring|import|remove|clear|delete|hide|find|make|create|open|run)$/;
             const want = new Set();
             for (const raw of words) {
                 if (raw.length < 3) continue;
+                if (raw === words[0] && VERB.test(raw)) continue;
                 const w = stem(raw);
                 want.add(w);
                 // The synonym table is keyed on the stem, and what it gives back is stemmed

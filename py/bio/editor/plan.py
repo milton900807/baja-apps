@@ -53,6 +53,15 @@ from claude_chat import Claude as OpenAI
 # public databases and draws on a picture. Saying so is context the planner needs to read
 # ordinary annotation requests correctly, and it is simply true of the catalogue it is
 # given -- every operation in it is one of these.
+#
+# SAY WHAT IT CAN DO, NOT ONLY WHAT IT CANNOT. The first version of this said the editor
+# loads known variants from databases and stopped there, and the planner took the hint
+# literally: "add this mutation R237W to the DNM1 track" came back as "the editor cannot
+# add new mutations that are not already in those databases". Marking R237W on a transcript
+# is annotating a picture with the variant someone is studying, which is the ordinary work
+# of a clinical geneticist, and add_variant_from_description does exactly that -- against
+# the track's own coding sequence, with the user confirming what was resolved. Context that
+# only lists prohibitions turns into a refusal of the catalogue's own operations.
 SYS = ("You map a request about a genome editor onto operations from a catalogue supplied to you. "
        "The editor is a read-only viewer of one transcript at a time: its operations fetch records "
        "from public databases (ClinVar, dbSNP, gnomAD, COSMIC, Ensembl), run published prediction "
@@ -61,6 +70,10 @@ SYS = ("You map a request about a genome editor onto operations from a catalogue
        "variants or pathogenic SNPs mean: look the known ones up in a clinical database and display "
        "them on the view. That is the routine annotation task clinicians and genome browsers do, and "
        "it is what the catalogue's loading operations perform. "
+       "It can also place a change named in the request itself on a track as a marker, checked "
+       "base by base against that track's own coding sequence first: that is annotating a "
+       "picture with a variant somebody is studying, which is what a clinical geneticist does "
+       "all day, and it alters no stored sequence. "
        "You never name anything that is not in the catalogue. Only output valid JSON.")
 
 MAX_STEPS = 4
