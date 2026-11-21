@@ -9,9 +9,11 @@ from __future__ import annotations
 import numpy as np
 from pyfaidx import Fasta
 
-from bajasplice.config import paths, split_of, TEST_CHROMS, VAL_CHROMS, MAIN_CHROMS
+from bajasplice.config import (paths, split_of, species, SPECIES,
+                              TEST_CHROMS, VAL_CHROMS, MAIN_CHROMS)
 
 __all__ = ["GenomeReader", "one_hot", "codes_to_str", "str_to_codes", "split_of",
+           "check_assembly",
            "TEST_CHROMS", "VAL_CHROMS", "MAIN_CHROMS"]
 
 _BASE = np.zeros(256, dtype=np.int8)
@@ -45,6 +47,33 @@ def str_to_codes(seq, strand="+"):
     return out
 
 
+def check_assembly(contigs, path="the genome FASTA"):
+    """Refuse a FASTA that belongs to the other species.
+
+    THE WRONG GENOME DOES NOT FAIL, IT ANSWERS. Mouse coordinates exist in a
+    human FASTA, the bases come back, and the model scores them. The karyotype
+    is the cheap tell: mouse has no chr20-22, and a human assembly that carries
+    chr19 always carries them. A reduced FASTA (one chromosome, a test fixture)
+    passes, because it is not evidence either way.
+    """
+    contigs = set(contigs)
+    sp = species()
+    if sp.absent_chroms and any(c in contigs for c in sp.absent_chroms):
+        raise ValueError(
+            f"{path} has {', '.join(c for c in sp.absent_chroms if c in contigs)}, which "
+            f"{sp.label} ({sp.assembly}) does not. This looks like another species' genome. "
+            f"Point `{sp.command} config --genome-fasta` at a {sp.assembly} FASTA.")
+    for other in SPECIES.values():
+        if other.key == sp.key or not other.absent_chroms:
+            continue
+        if "chr19" in contigs and not any(c in contigs for c in other.absent_chroms):
+            raise ValueError(
+                f"{path} has chr19 but none of {', '.join(other.absent_chroms)}, which is the "
+                f"{other.label} karyotype, and this process is running as {sp.label}. "
+                f"Use `{other.command}` for {other.assembly}, or point "
+                f"`{sp.command} config --genome-fasta` at a {sp.assembly} FASTA.")
+
+
 class GenomeReader:
     """Thread/process-local FASTA handle.
 
@@ -62,6 +91,7 @@ class GenomeReader:
         if self._fa is None:
             p = self.path or str(paths().require("genome_fasta"))
             self._fa = Fasta(p, as_raw=True, sequence_always_upper=True)
+            check_assembly(self._fa.keys(), p)
         return self._fa
 
     def codes(self, chrom, start, end, strand="+"):

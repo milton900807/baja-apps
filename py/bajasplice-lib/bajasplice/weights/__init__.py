@@ -29,10 +29,19 @@ BUNDLED = {
 }
 
 
-def bundled(name: str = "ss_ctx2000") -> Path | None:
-    """Path to a bundled checkpoint, or None if that name is not shipped."""
+def bundled(name: str = "ss_ctx2000", species: str | None = None) -> Path | None:
+    """Path to a bundled checkpoint, or None if that name is not shipped.
+
+    A BUNDLED WEIGHT BELONGS TO ONE SPECIES. Mouse checkpoints carry the
+    species' file prefix (mm_ss_ctx2000.pt), so a mouse run that has no mouse
+    model gets None and an error that says to train one, rather than the human
+    file under the same name. Pass species="human" to ask for the human weight
+    on purpose, which is what the zero-shot control does.
+    """
+    from bajasplice.config import SPECIES, species as _active
+    sp = SPECIES[species] if species else _active()
     fn = BUNDLED.get(name)
     if fn is None:
         return None
-    p = Path(__file__).parent / fn
+    p = Path(__file__).parent / (sp.weight_prefix + fn)
     return p if p.exists() else None

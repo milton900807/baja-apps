@@ -264,6 +264,86 @@ payload = build_payload("STMN2", sites=[79616821], which="acceptor", window=80)
 render_png(payload, "stmn2.png")
 ```
 
+## Mouse: BajaSpliceMM
+
+The same package run as *Mus musculus* (GRCm39), under the `bajasplicemm`
+command or `import bajasplicemm`. It is a species setting, not a fork: models,
+scanning and the pinned coordinate conventions are shared, so a fix to one is a
+fix to both.
+
+```bash
+bash scripts/bajasplicemm-setup.sh     # reference, datasets, controls, training
+```
+
+or step by step:
+
+```bash
+bajasplicemm config --root ~/ml/splicing-mm \
+  --genome-fasta /path/GRCm39.primary_assembly.genome.fa \
+  --gencode-gtf /path/gencode.vM<N>.annotation.gtf.gz --save
+bajasplicemm prepare gencode           # GTF -> flat exon table
+bajasplicemm prepare geneindex         # and `--slim` for the bundled one
+bajasplicemm prepare splicesite        # canonical transcripts -> training windows
+bajasplicemm evaluate baseline-splicesite
+bajasplicemm evaluate zero-shot        # the human model on mouse test windows
+bajasplicemm train splicesite --context 2000 --epochs 8
+bajasplicemm evaluate splicesite-report
+bajasplicemm scan --gene Tardbp --top 10
+```
+
+What differs from human, all of it in `config.py`:
+
+| | human | mouse |
+|---|---|---|
+| assembly | GRCh38 | GRCm39 |
+| main chromosomes | chr1-22, X, Y | chr1-19, X, Y |
+| test / val | chr1,3,5,7,9 / chr2,4 | same names, mouse chromosomes |
+| canonical transcript | `MANE_Select` | `Ensembl_canonical` (MANE is human-only) |
+| root, config, env | `config.json`, `BAJASPLICE_*` | `config.mouse.json`, `BAJASPLICEMM_*` |
+| bundled weight | `ss_ctx2000.pt` | `mm_ss_ctx2000.pt` |
+| bundled gene index | `genes.slim.sqlite` | `genes.slim.mouse.sqlite` |
+
+**No mouse results are quoted here yet because none exist.** The mouse model has
+to be trained first; the table above the fold is human.
+
+Things this build refuses, on purpose:
+
+- **The human root, config or environment.** A mouse run never falls back to
+  `BAJASPLICE_ROOT` or `config.json`. Mouse coordinates read from a human FASTA
+  return real bases and plausible scores, so there is no fallback to get wrong.
+- **The human weight under the mouse name.** With no mouse checkpoint,
+  `bajasplicemm scan` says to train one. It does not quietly load
+  `ss_ctx2000.pt`. Passing a human checkpoint with `--ckpt` works and warns.
+- **The other species' genome.** A FASTA with chr20-22 is refused as mouse; one
+  with chr19 and no chr20-22 is refused as human.
+- **Human-only steps.** PSI, competing sites, RBP response, cryptic exons,
+  VastDB, `cis`, `validate` and `--retention` depend on GTEx, ENCODE or BajaIR
+  and are not available as mouse until there is mouse data behind them.
+
+### The control a mouse model has to beat
+
+Splice-site grammar is conserved enough that the human SpliceNet already works
+on mouse without seeing a mouse base. `evaluate zero-shot` measures that on the
+mouse test windows, and `splicesite-report` prints it above the mouse model:
+
+```
+PWM baseline (motif only)
+human model, zero-shot              orthologs seen in training
+SpliceNet ss_ctx2000                from scratch
+```
+
+The zero-shot row is biased **upward**. The human model trained on human
+chromosomes that carry the orthologs of mouse test genes (mouse chr1 is
+syntenic to parts of human chr1, 2, 6 and 8), so those windows are not held out
+from it the way they are from a mouse model. The same applies to
+`train splicesite --init-from <human ckpt>`: fine-tuning imports that exposure,
+and the checkpoint and report record it. A from-scratch mouse model that beats
+the zero-shot row has beaten an opponent with an advantage; one that only
+matches it has not shown that training on mouse bought anything.
+
+Gene symbols follow the annotation (`Tardbp`), and a symbol typed in another
+case is accepted when it matches exactly one gene.
+
 ## Coordinate conventions
 
 Getting these wrong is silent, so they are pinned in `tests/test_coordinates.py`.
