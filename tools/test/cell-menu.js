@@ -36,6 +36,34 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         ok(/exec\('baja\/plate\/menu\/cell-menu\.js', pt, this, well, this\.cellActions\)/.test(after), '  which opens the menu');
     }
 
+    // ---- the button glows orange ------------------------------------------------------------
+    // Painted for real, on a recording context: the halo goes down before the disc, in
+    // orange, and only for this button.
+    for (const p of ['baja/plate/plate.js', 'baja/plate/plate-transparent.js']) {
+        const src = fs.readFileSync(p, 'utf8');
+        const a = src.indexOf('_paintTableButton(ctx, button, cx, cy, r, hover, variant) {');
+        let depth = 0, b = src.indexOf('{', a);
+        for (let k = b; k < src.length; k++) { if (src[k] === '{') depth++; if (src[k] === '}') { depth--; if (!depth) { b = k; break; } } }
+        const paint = new Function('ctx', 'button', 'cx', 'cy', 'r', 'hover', 'variant', src.slice(src.indexOf('{', a) + 1, b));
+        const rec = () => {
+            const calls = [];
+            const ctx = { calls, measureText: () => ({ width: 5 }) };
+            for (const f of ['save', 'restore', 'beginPath', 'fill', 'stroke', 'moveTo', 'lineTo', 'fillText'])
+                ctx[f] = (...x) => calls.push({ f, shadow: ctx.shadowColor, blur: ctx.shadowBlur, fill: ctx.fillStyle });
+            ctx.arc = (x, y, rad) => calls.push({ f: 'arc', rad, shadow: ctx.shadowColor, blur: ctx.shadowBlur, fill: ctx.fillStyle });
+            return ctx;
+        };
+        let c = rec();
+        paint(c, { name: 'cell menu', letter: '\u25BE' }, 100, 100, 10, false, 'cell');
+        const arcs = c.calls.filter((x) => x.f === 'arc');
+        ok(/255,140,0/.test(arcs[0].shadow) && arcs[0].blur >= 12 && arcs[0].rad > 10 && /255,150,40/.test(arcs[0].fill),
+           p + ': the menu button is painted over an orange glow wider than itself');
+        ok(arcs.some((x) => x.rad === 10 && !/255,1[45]0/.test(String(x.fill))), '  with the button itself drawn on top, in its own colour');
+        c = rec();
+        paint(c, { name: 'close', letter: 'X' }, 100, 100, 10, false, 'cell');
+        ok(!c.calls.some((x) => /255,140,0/.test(String(x.shadow))), '  and no other button glows');
+    }
+
     // ---- the menu ---------------------------------------------------------------------------
     const ran = [];
     const mk = (letter, name) => ({ name: name || 'x', letter: letter, action: async (well, pt) => { ran.push(letter + ':' + (well && well.id)); } });

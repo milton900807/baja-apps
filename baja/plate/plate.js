@@ -3306,6 +3306,20 @@ function () {
                     : (isRow ? (hover ? (isCell ? CYAN : NAVY) : rowFill) : (hover ? (isClose ? ORANGE : CYAN) : '#ffffff'));
                 const ink = isAsk ? '#92400e' : ((hover || isRow) ? '#ffffff' : NAVY);
                 ctx.save();
+                // AN ORANGE GLOW BEHIND THE CELL'S MENU BUTTON. It is one small disc where
+                // there used to be five, beside a cell that is itself highlighted, and it is
+                // the only way to the cell's actions: a soft orange halo under it is what
+                // says "press here". Drawn first, so the disc sits on top of its own light.
+                if (name === 'cell menu') {
+                    ctx.save();
+                    ctx.shadowColor = 'rgba(255,140,0,0.95)';
+                    ctx.shadowBlur = hover ? 22 : 16; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+                    ctx.fillStyle = 'rgba(255,150,40,0.55)';
+                    ctx.beginPath(); ctx.arc(cx, cy, r + 3, 0, Math.PI * 2); ctx.fill();
+                    // A second pass deepens it: one blurred disc alone reads as a smudge.
+                    ctx.beginPath(); ctx.arc(cx, cy, r + 1, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                }
                 ctx.shadowColor = isRow ? 'rgba(10,37,64,0.35)' : 'rgba(0,0,0,0.18)';
                 ctx.shadowBlur = isRow ? 8 : 4; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = isRow ? 3 : 1;
                 ctx.fillStyle = fill;

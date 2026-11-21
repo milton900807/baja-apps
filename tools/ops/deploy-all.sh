@@ -1087,6 +1087,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/cell-menu.js:THE CELL'S ACTIONS, AS ONE DROP-DOWN INSTEAD OF A ROW OF DISCS" \
     "baja/plate/plate.js:ONE BUTTON AND A DROP-DOWN, NOT A ROW OF DISCS" \
     "baja/plate/plate-transparent.js:ONE BUTTON AND A DROP-DOWN, NOT A ROW OF DISCS"
+  install_group "The cell's menu button has an orange glow" \
+    "baja/plate/plate.js:AN ORANGE GLOW BEHIND THE CELL'S MENU BUTTON" \
+    "baja/plate/plate-transparent.js:AN ORANGE GLOW BEHIND THE CELL'S MENU BUTTON"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
