@@ -809,6 +809,20 @@ function () {
 
                 ];
 
+                // ONE BUTTON AND A DROP-DOWN, NOT A ROW OF DISCS. The five above are kept
+                // whole as cellActions, with the functions they always called; what is drawn
+                // beside the cell is a single button that opens them as a named menu
+                // (baja/plate/menu/cell-menu.js). Everything that draws or hit-tests the
+                // cell buttons walks txbuttons, so it follows without being told.
+                this.cellActions = this.txbuttons;
+                this.txbuttons = [
+                    {
+                        name: 'cell menu', x: 0, y: 10, width: 30, height: 20,
+                        action: async (well, pt) => { return exec('baja/plate/menu/cell-menu.js', pt, this, well, this.cellActions) },
+                        highlight: async () => { }, color: 'lightcyan', letter: '\u25BE', isHighlighted: false
+                    }
+                ];
+
                 this.navigation_buttons = [
                     {
                         name: `\u0394 \u25BD`, x: 0, y: 10, width: 30, height: 20, action: async (well, pt) => {

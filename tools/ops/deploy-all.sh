@@ -1080,6 +1080,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/project-command.js:cell: o.cell || null, table: o.table || ''" \
     "baja/plate/ops/sum-above.js:A cell named by the caller is the cell, whatever is selected by now" \
     "baja/plate/ops/formula-from-words.js:A cell named by the caller is the cell, whatever is selected by now"
+  # The row of round buttons beside a selected cell is one button and a named drop-down.
+  # Both table classes hand their old buttons to the menu module, so all three go together:
+  # a table class without the module has a button that opens nothing.
+  install_group "The cell's buttons are one drop-down" \
+    "baja/plate/menu/cell-menu.js:THE CELL'S ACTIONS, AS ONE DROP-DOWN INSTEAD OF A ROW OF DISCS" \
+    "baja/plate/plate.js:ONE BUTTON AND A DROP-DOWN, NOT A ROW OF DISCS" \
+    "baja/plate/plate-transparent.js:ONE BUTTON AND A DROP-DOWN, NOT A ROW OF DISCS"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
