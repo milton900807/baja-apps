@@ -73,8 +73,16 @@ function (track) {
         // AN EXON NO ARC GOES NEAR IS NOT A CONSTITUTIVE EXON, it is an exon nothing was
         // said about. Reporting it as 100% would be inventing the best possible answer out
         // of an absence of evidence, on the exons least likely to have been scored.
-        if (!touched) continue;
+        //
+        // IT STILL GETS A ROW. Every exon is listed, in order, so a reader can see that the
+        // run covered the whole transcript and which exons it had nothing to say about.
+        // Dropping them silently makes the gaps look like exons that do not exist.
         const mm = measuredAt(e.lo, e.hi);
+        if (!touched && !mm) {
+            rows.push({ exon: i + 1, lo: e.lo, hi: e.hi, psi: null, score: null,
+                word: 'no arcs over it', measured: null, unknown: true, from: 'arcs' });
+            continue;
+        }
         const psi = (mm && isFinite(+mm.psi)) ? +mm.psi : (1 - skip);
         const score = 1 - Math.abs(2 * psi - 1);
         rows.push({

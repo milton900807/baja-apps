@@ -437,6 +437,11 @@ if [[ $DO_API -eq 1 ]]; then
 
   install_group "a core dialog keeps its own clicks" \
     "lib/core.js:A PANEL OVER THE CANVAS KEEPS ITS OWN MOUSE EVENTS"
+  # The spinner was being added one caller at a time, and the ones nobody had got to yet
+  # still ran in silence. Every server call goes through core's exec, so it is answered
+  # there: one place, every tool, including the ones not written yet.
+  install_group "Every server call that takes time says so" \
+    "lib/core.js:EVERY SERVER CALL THAT TAKES TIME SAYS SO, WHEREVER IT WAS STARTED FROM"
 
   install_group "a panel over the canvas keeps its clicks to itself" \
     "baja/lib/modal-shield.js:MOVING THE MOUSE IS A MOUSE EVENT TOO" \
