@@ -1107,6 +1107,12 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # The scored rows can fail to number the arcs against the exons, and the report then had
+  # nothing to show while the arcs sat over those exons on screen.
+  install_group "Exon stability off the arcs when the scored rows are missing" \
+    "baja/bio/splicing/exon-stability.js:HOW STABLY EACH EXON SPLICES, FROM WHATEVER THE PSI LAYER ACTUALLY HAS" \
+    "baja/bio/match-regions.js:Which reading this is -- the scored rows, or the weaker one" \
+    "baja/bio/compare-view.js:WHICH READING IT IS. Taken off the arcs by position"
   # Pressing GO on anything slow gave a closed card and a silent canvas, and the stability
   # row told the user to go and run PSI instead of running it.
   install_group "The spinner is not opt-in, and PSI runs itself" \

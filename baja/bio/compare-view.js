@@ -293,6 +293,15 @@ function (model) {
                     + 'The second row of figures is each exon\u2019s stability: how much of the '
                     + 'message keeps it. Green is kept, amber is often skipped, red is mostly '
                     + 'skipped, violet is measured rather than predicted.'
+                    // WHICH READING IT IS. Taken off the arcs by position, the number has
+                    // no conservation weighting and no variant effects in it, and saying so
+                    // costs a clause where not saying so passes the weaker figure off as
+                    // the scored one.
+                    + (st.from === 'arcs'
+                        ? ' Read off the splice arcs by position: the scored ranking could not '
+                            + 'number the arcs against these exons, so there is no weighting or '
+                            + 'variant effect in these figures.'
+                        : '')
                     + (missing ? (why + esc(missing) + '.') : '')
                     + '</div>';
             })()

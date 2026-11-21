@@ -316,18 +316,19 @@ function (graph, qtrack, ttrack, opts) {
             // picture would end up disagreeing with the one on the track behind it. Without
             // a PSI run there is nothing to carry, and the view says so rather than
             // printing a blank where a number belongs.
-            const stabilityOf = (t) => {
-                let rowsPsi = null;
-                try {
-                    rowsPsi = (t.track_layers || []).filter((x) => x && x.magnitudeMode === 'psi'
-                        && Array.isArray(x.exonStability) && x.exonStability.length).pop();
-                } catch (e) { rowsPsi = null; }
-                if (!rowsPsi) return null;
-                const list2 = rowsPsi.exonStability;
+            const stabilityOf = async (t) => {
+                let list2 = null;
+                try { list2 = await exec('baja/bio/splicing/exon-stability.js', t); }
+                catch (e) { list2 = null; }
+                if (!list2 || !list2.length) return null;
+                // Which reading this is -- the scored rows, or the weaker one taken off the
+                // arcs by position -- travels WITH the lookup rather than being guessed at
+                // afterwards by probing it.
+                const from = list2[0].from || 'scored';
                 // Matched by overlap, not by exon number: the hit on the OTHER track is a
                 // stretch of sequence and carries no exon number of its own, and the two
                 // tracks number their exons independently anyway.
-                return (x1, x2) => {
+                const at = (x1, x2) => {
                     const a2 = Math.min(+x1, +x2), b2 = Math.max(+x1, +x2);
                     let best = null, bestOv = 0;
                     for (const r of list2) {
@@ -343,9 +344,13 @@ function (graph, qtrack, ttrack, opts) {
                         pct: (psi >= 0.995) ? 100 : Math.round(psi * 100),
                         word: best.word || '',
                         measured: !!best.measured,
+                        // Where the number came from, so the report can say when it is the
+                        // weaker reading off the arcs rather than the scored one.
+                        from: best.from || 'scored',
                         exon: best.exon
                     };
                 };
+                return { at: at, from: from };
             };
             // AND RUN IT IF IT HAS NOT BEEN RUN. Leaving the row empty under a note saying
             // to go and run PSI is the editor asking for something it can do itself, on
@@ -354,7 +359,7 @@ function (graph, qtrack, ttrack, opts) {
             let psiTried = false;
             if (o.runPsi !== false) {
                 for (const t of [qtrack, ttrack]) {
-                    if (!t || stabilityOf(t)) continue;
+                    if (!t || (await stabilityOf(t))) continue;
                     const nm = t.name || 'the track';
                     try {
                         if (W) W.step('Running PSI on ' + nm + ' for exon stability \u2026');
@@ -371,8 +376,9 @@ function (graph, qtrack, ttrack, opts) {
                     }
                 }
             }
-            const stabA = stabilityOf(qtrack), stabB = stabilityOf(ttrack);
-            const stabAt = (f, x1, x2) => { try { return f ? f(x1, x2) : null; } catch (e) { return null; } };
+            const stabA = await stabilityOf(qtrack), stabB = await stabilityOf(ttrack);
+            const stabFrom = (stabA && stabA.from) || (stabB && stabB.from) || '';
+            const stabAt = (f, x1, x2) => { try { return (f && f.at) ? f.at(x1, x2) : null; } catch (e) { return null; } };
 
             const extentOf = (t) => {
                 const len = (t.sequence && t.sequence.length)
@@ -407,7 +413,7 @@ function (graph, qtrack, ttrack, opts) {
                     // `tried` so the view can tell "nobody has run PSI" from "it was run
                     // and had nothing to say about these exons": telling someone to run what
                     // just ran is worse than saying nothing.
-                    stability: { a: !!stabA, b: !!stabB, tried: psiTried }
+                    stability: { a: !!stabA, b: !!stabB, tried: psiTried, from: stabFrom }
                 });
             } catch (e) { shown = null; }
 
