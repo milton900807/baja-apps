@@ -36,10 +36,21 @@ function (model) {
     // that would quietly drift away from what is on screen.
 
     return (async () => {
-        const m = model || {};
-        const A = m.a || {}, B = m.b || {};
-        const blocks = (m.blocks || []).filter((b) => b && b.a && b.b);
-        if (!blocks.length && !(m.unmatched || []).length) return null;
+        // THE WINDOW OPENS WHEN THE WORK STARTS, NOT WHEN IT ENDS.
+        //
+        // This used to be drawn once, at the end, from a finished model, with a panel over
+        // the canvas in the meantime: a minute of searching behind a modal, then a picture
+        // appearing all at once. Opening it first and filling it in as the answers arrive
+        // is the same information in the order it is found, and the exons that have been
+        // searched are worth looking at while the rest are still going.
+        //
+        // So the model is mutable and the whole thing is repainted from it. { live: true }
+        // opens it with nothing in it yet, which is only legitimate because something is
+        // on its way; an empty model with no live flag is still nothing to show.
+        let m = model || {};
+        let A = m.a || {}, B = m.b || {};
+        let blocks = (m.blocks || []).filter((b) => b && b.a && b.b);
+        if (!blocks.length && !(m.unmatched || []).length && !m.live) return null;
 
         // One of these at a time.
         try { if (window.__bajaCompareView && window.__bajaCompareView.destroy) window.__bajaCompareView.destroy(); } catch (e) { }
@@ -82,6 +93,12 @@ function (model) {
             + 'border:1px solid rgba(159,196,212,0.5);color:#eaf6f9;border-radius:7px;'
             + 'padding:6px 13px;cursor:pointer;font:inherit;white-space:nowrap;">' + label + '</button>';
 
+        if (!document.getElementById('baja-compare-view-kf')) {
+            const kf = document.createElement('style');
+            kf.id = 'baja-compare-view-kf';
+            kf.textContent = '@keyframes cvspin{to{transform:rotate(360deg)}}';
+            document.head.appendChild(kf);
+        }
         const el = document.createElement('div');
         el.id = 'baja-compare-view';
         el.setAttribute('role', 'dialog');
@@ -287,6 +304,7 @@ function (model) {
                 + stabRow(marksB, yB + LANE + 13, false)
                 + '</svg>';
         };
+        const paint = () => {
         const svg = buildSvg();
 
         const rows = (m.rows || []).map((r) =>
@@ -298,6 +316,24 @@ function (model) {
             + '<div style="flex:1;min-width:0;">'
             + '<div style="font-weight:700;font-size:15px;">' + esc(m.title || 'Tracks compared') + '</div>'
             + (m.summary ? ('<div style="font-size:12px;color:#cfe9f3;margin-top:3px;">' + esc(m.summary) + '</div>') : '')
+            // WHAT IT IS DOING, in the window that is showing the result of it. A live
+            // window with no word on it is indistinguishable from a finished one that found
+            // very little.
+            + (m.status
+                ? ('<div style="display:flex;align-items:center;gap:9px;font-size:12px;'
+                    + 'color:#ffd9a0;margin-top:5px;">'
+                    + '<span style="width:12px;height:12px;border-radius:50%;flex:none;'
+                    + 'border:2px solid rgba(255,217,160,0.3);border-top-color:#ffd9a0;'
+                    + 'display:inline-block;animation:cvspin 0.9s linear infinite;"></span>'
+                    + '<span>' + esc(m.status) + '</span></div>')
+                : '')
+            // A FAILURE STAYS IN THE WINDOW. The operation that raised it is over, so there
+            // is no spinner beside it and nothing further is coming: what is in the picture
+            // is everything that was found before it stopped, which is worth keeping rather
+            // than closing over.
+            + (m.problem
+                ? ('<div style="font-size:12px;color:#ff9d92;margin-top:5px;">' + esc(m.problem) + '</div>')
+                : '')
             // WHAT THE SECOND ROW OF NUMBERS IS, and where it is missing. A percentage
             // beside an exon with nothing saying what it measures is a number nobody can
             // use, and a lane with no numbers at all has to say whether that means every
@@ -310,6 +346,10 @@ function (model) {
                 const SM2 = m.stabilityMarks || {};
                 const drawnA = !!(st.a || (SM2.a && SM2.a.length));
                 const drawnB = !!(st.b || (SM2.b && SM2.b.length));
+                // While the window is still filling in there is nothing to explain yet, and
+                // a note about a PSI run under a picture that has not finished drawing is
+                // answering a question nobody has asked.
+                if (m.live) return '';
                 if (!drawnA && !drawnB) {
                     // NOT "IT IS NOT SHOWN", AND NOT A GUESS AT WHY.
                     //
@@ -375,6 +415,8 @@ function (model) {
             + (rows ? ('<div data-id="numbers-panel" style="display:none;margin-top:10px;border-top:1px solid '
                 + 'rgba(159,196,212,0.22);padding-top:9px;max-height:40vh;overflow:auto;">'
                 + '<table style="width:100%;border-collapse:collapse;font-size:12px;">' + rows + '</table></div>') : '');
+        };
+        paint();
 
         document.body.appendChild(el);
 
@@ -473,6 +515,27 @@ function (model) {
                 say('The PDF could not be made here (' + (e && e.message ? e.message : e)
                     + '). SVG gives you the same drawing.');
             }
+        };
+        // FILLED IN AS THE ANSWERS ARRIVE. Re-rendered from the new model rather than
+        // patched: there is one description of how this picture is drawn, and a second one
+        // for updates would be the place the two drift apart. The handlers are delegated on
+        // the container, so replacing its contents does not take them with it.
+        pop.update = (next) => {
+            try {
+                if (!next) return;
+                const wasOpen = !!(el.querySelector('[data-id="numbers-panel"]')
+                    && el.querySelector('[data-id="numbers-panel"]').style.display === 'block');
+                m = next;
+                A = m.a || A; B = m.b || B;
+                blocks = (m.blocks || []).filter((b) => b && b.a && b.b);
+                measure();
+                sa = scale(A); sb = scale(B);
+                paint();
+                if (wasOpen) {
+                    const np = el.querySelector('[data-id="numbers-panel"]');
+                    if (np) np.style.display = 'block';
+                }
+            } catch (e) { }
         };
         pop.destroy = close;
         window.__bajaCompareView = pop;

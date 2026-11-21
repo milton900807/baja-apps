@@ -1157,6 +1157,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # The comparison ran behind a modal panel for a minute and then drew everything at once.
+  install_group "The comparison window opens first and fills in" \
+    "baja/bio/compare-view.js:THE WINDOW OPENS WHEN THE WORK STARTS, NOT WHEN IT ENDS" \
+    "baja/bio/match-regions.js:THE PICTURE OPENS NOW AND FILLS IN"
   # splicing-profile resolved as soon as the run was STARTED, so the exon comparison read
   # the track before the model had finished and reported that PSI had never been run.
   install_group "A preset PSI run is the promise, not the start of one" \

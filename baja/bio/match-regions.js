@@ -126,13 +126,62 @@ function (graph, qtrack, ttrack, opts) {
 
             const list = exons.slice(0, MAX_EXONS);
             const rows = [], found = [], missed = [];
-            let W = null;
+            const CAP = (t) => ('' + t).charAt(0).toUpperCase() + ('' + t).slice(1);
+            const TITLE = CAP(K.plural) + ' of ' + nameQ + ' matched on ' + nameT;
+            const extentOf = (t) => {
+                const len = (t.sequence && t.sequence.length)
+                    ? t.sequence.length : Math.abs((+t.xf) - (+t.xi));
+                return { x1: +t.xi, x2: (+t.xi) + len };
+            };
+
+            // THE PICTURE OPENS NOW AND FILLS IN, rather than a modal panel for a minute
+            // and then everything at once. Twenty-two searches, each a round trip, then a
+            // PSI run per track: behind a panel that is the same blank wait whether it is
+            // working or stuck, and the exons already matched -- which are the answer, and
+            // are worth looking at -- were held back until the last one came in.
+            //
+            // The panel it replaces is still the fallback, for a canvas too small to draw
+            // on or a view that refuses to open: progress has to go somewhere.
+            let view = null, W = null, status = '', problem = '';
+            const liveA = () => ({ name: nameQ, x1: extentOf(qtrack).x1, x2: extentOf(qtrack).x2 });
+            const liveB = () => ({ name: nameT, x1: extentOf(ttrack).x1, x2: extentOf(ttrack).x2 });
+            const liveModel = () => ({
+                live: true, title: TITLE, a: liveA(), b: liveB(),
+                summary: found.length + ' of ' + list.length + ' ' + K.plural + ' matched so far',
+                status: status, problem: problem,
+                blocks: found.map((f) => ({
+                    n: f.exon, label: 'e' + f.exon, identity: f.identity, inverted: f.strand < 0,
+                    a: { x1: f.qx1, x2: f.qx2 }, b: { x1: f.tx1, x2: f.tx2 } })),
+                unmatched: [], rows: []
+            });
+            // Once the finished model is in, the live one is history: W.done() arrives after
+            // the picture is drawn, and a refresh then would paint the progress view back
+            // over the answer, rows, stability and all.
+            let finished = false;
+            const refresh = () => {
+                if (finished) return;
+                try { if (view && view.update) view.update(liveModel()); } catch (e) { }
+            };
             try {
-                W = await exec('baja/lib/working.js',
-                    (K.list ? (CAPW(K.plural) + ' of ' + nameQ) : (CAPW(K.word) + ' of ' + nameQ))
-                        + ' against ' + nameT,
-                    'One search per ' + K.word + ', ' + list.length + ' in all.');
-            } catch (e) { W = null; }
+                status = 'Searching ' + K.word + ' 1 of ' + list.length + ' against ' + nameT + ' \u2026';
+                view = await exec('baja/bio/compare-view.js', liveModel());
+            } catch (e) { view = null; }
+            if (view) {
+                // One shape of progress reporting for this operation, whichever surface it
+                // lands on: everything below still calls W.step and W.fail.
+                W = {
+                    step: (t) => { status = '' + (t || ''); refresh(); },
+                    fail: (t) => { status = ''; problem = '' + (t || ''); refresh(); },
+                    done: () => { status = ''; refresh(); }
+                };
+            } else {
+                try {
+                    W = await exec('baja/lib/working.js',
+                        (K.list ? (CAPW(K.plural) + ' of ' + nameQ) : (CAPW(K.word) + ' of ' + nameQ))
+                            + ' against ' + nameT,
+                        'One search per ' + K.word + ', ' + list.length + ' in all.');
+                } catch (e) { W = null; }
+            }
             let n = 0;
             for (const ex of list) {
                 n++;
@@ -258,8 +307,6 @@ function (graph, qtrack, ttrack, opts) {
 
             // ---- the panel ----------------------------------------------------------------
             const pct = (x) => (Math.round((+x || 0) * 1000) / 10).toFixed(1) + '%';
-            const CAP = (t) => ('' + t).charAt(0).toUpperCase() + ('' + t).slice(1);
-            const TITLE = CAP(K.plural) + ' of ' + nameQ + ' matched on ' + nameT;
             const best = found.slice().sort((x, y) => y.score - x.score)[0];
             const strong = found.filter((f) => f.identity >= 0.8);
             rows.push(['answer', (K.list
@@ -440,11 +487,6 @@ function (graph, qtrack, ttrack, opts) {
                 } catch (e) { return ''; }
             };
 
-            const extentOf = (t) => {
-                const len = (t.sequence && t.sequence.length)
-                    ? t.sequence.length : Math.abs((+t.xf) - (+t.xi));
-                return { x1: +t.xi, x2: (+t.xi) + len };
-            };
             // WHAT CAME BACK, BEFORE THE PICTURE REPLACES IT. The PSI run is the slow part
             // and its own panel went away when it finished, so the last thing the user saw
             // was a run starting and then nothing: no word on whether it produced figures,
@@ -466,9 +508,12 @@ function (graph, qtrack, ttrack, opts) {
                 }
             } catch (e) { }
 
+            // THE SAME WINDOW, FINISHED. It has been open since the first search; opening a
+            // second one here would throw away whatever the user had scrolled to or opened
+            // in it, and for a moment there would be two.
             let shown = null;
             try {
-                shown = await exec('baja/bio/compare-view.js', {
+                const finalModel = {
                     title: TITLE,
                     summary: rows[0][1],
                     a: { name: nameQ, x1: extentOf(qtrack).x1, x2: extentOf(qtrack).x2 },
@@ -499,7 +544,9 @@ function (graph, qtrack, ttrack, opts) {
                     stabilityMarks: { a: allMarks(stabA), b: allMarks(stabB) },
                     stability: { a: !!stabA, b: !!stabB, tried: psiTried, from: stabFrom,
                         whyA: whyOf(qtrack), whyB: whyOf(ttrack) }
-                });
+                };
+                if (view && view.update) { finished = true; view.update(finalModel); shown = view; }
+                else shown = await exec('baja/bio/compare-view.js', finalModel);
             } catch (e) { shown = null; }
 
             const help = {
