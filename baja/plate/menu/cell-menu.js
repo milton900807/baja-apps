@@ -38,8 +38,20 @@ function (pt, table, well, actions) {
     try { if (document.getElementById(ID)) { close(); return null; } } catch (e) { }
     close();
 
+    // WITH SEVERAL CELLS SELECTED THERE IS NO "THIS ROW" OR "THIS COLUMN". Both of those
+    // start from one cell and run across or down from it. Offered over a block of ten
+    // cells they would throw the block away for a row or column of whichever cell the
+    // menu happened to open beside, so they are not offered at all.
+    let many = false;
+    try {
+        const sel = (table && typeof table.getSelectedWellsInOrder === 'function') ? (table.getSelectedWellsInOrder() || []) : [];
+        many = sel.length > 1;
+    } catch (e) { many = false; }
+    const fromOneCell = (b) => b.letter === '\u2192' || b.letter === '\u2193';
+
     const list = (Array.isArray(actions) ? actions : ((table && table.cellActions) || []))
         .filter((b) => b && typeof b.action === 'function')
+        .filter((b) => !(many && fromOneCell(b)))
         .map((b) => {
             const known = NAMES[b.name === 'I' ? 'I' : b.letter] || {};
             return { button: b, label: b.label || known.label || ('' + (b.name || b.letter || 'Action')),

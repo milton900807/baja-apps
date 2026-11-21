@@ -84,6 +84,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await sleep(5);
     ok(ran.join() === '↓:B6' && !box(), 'a pick runs the table’s own function on that cell and closes: ' + ran.join());
 
+    // several cells selected: the two that start from one cell are not offered
+    const block = (n) => ({ getSelectedWellsInOrder: () => new Array(n).fill(well) });
+    m = await load('baja/plate/menu/cell-menu.js', pt, block(8), well, actions);
+    ok(m.items.join('|') === 'Script for the selection|More options|Delete',
+       'with eight cells selected, "this row" and "this column" are gone: ' + m.items.join(' | '));
+    ok(box().querySelectorAll('[role="menuitem"]').length === 3, 'and the menu is three rows, not five with two dead ones');
+    m.close();
+    m = await load('baja/plate/menu/cell-menu.js', pt, block(1), well, actions);
+    ok(m.items.length === 5 && m.items[0] === 'Select this row', 'with one cell selected they are back: ' + m.items.length);
+    m.close();
+
     // the two tables' "i" differ, and are named for what each does
     m = await load('baja/plate/menu/cell-menu.js', pt, {}, well, [mk('i', 'I')]);
     ok(m.items[0] === 'Edit as text', 'the main table’s i opens the text window and says so: ' + m.items[0]);
