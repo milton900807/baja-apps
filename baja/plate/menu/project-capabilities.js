@@ -274,7 +274,14 @@ function () {
                 + 'of numbers it sits under and does not reach into the block above it. '
                 + 'THIS IS THE ANSWER to "make this cell sum the total above", "total this '
                 + 'column", "add up the cells above", "put a total here", "average the ones '
-                + 'above this". For a cell that reads a DIFFERENT table use cell_from_table; '
+                + 'above this". '
+                // A TOTAL ROW IS ASKED FOR AS A ROW: the word and the formula together, and
+                // as often as not before the column above it has anything in it.
+                + 'ALSO THE ANSWER to "the first cell has Total and the second is the sum '
+                + 'of all the cells above": pass the word as label and it is written beside '
+                + 'the formula. The cells above may still be empty; the formula is written '
+                + 'anyway and reads 0 until they are filled. '
+                + 'For a cell that reads a DIFFERENT table use cell_from_table; '
                 + 'for a formula the user has written out use set_formula',
             module: 'baja/plate/ops/sum-above.js',
             params: {
@@ -282,6 +289,11 @@ function () {
                     default: 'sum',
                     about: 'what to take: sum unless the request says average, smallest, '
                         + 'largest or how many' },
+                label: { type: 'string', default: 'no label',
+                    about: 'the word to write beside the total, e.g. Total, ONLY if the '
+                        + 'request asks for one. With a row of cells selected it goes in '
+                        + 'the first and the formula in the rest; with one cell selected '
+                        + 'it goes in the empty cell to its left' },
                 table: { type: 'string', default: 'the table the selected cell is in',
                     about: 'the NAME of the table, if the request says it' }
             }

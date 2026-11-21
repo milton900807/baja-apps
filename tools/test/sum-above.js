@@ -101,11 +101,46 @@ const mkProject = (t) => {
        'a cell that holds its own formula counts as a number: ' + r.formula);
 
     // ---- what it will not do, and says ------------------------------------------------------
+    // ---- a total row written before the figures --------------------------------------------
+    // "the first cell has Total and the second is the total sum of all the cells above",
+    // with both cells of the last row of an empty ten-row table selected. It was refused
+    // with "the cell above is empty, so there is nothing to total".
+    const E = () => ['', '', '', '', '', '', '', '', '', ''];
+    t = mkTable('submarinealgae', [E(), E()]);
+    delete t.wells[0][0].skin_type; delete t.wells[1][0].skin_type;
+    t.getSelectedWellsInOrder = () => [t.wells[0][9], t.wells[1][9]];
+    pm = mkProject(t);
+    r = await load('baja/plate/ops/sum-above.js', pm, { how: 'sum', label: 'Total' });
+    ok(!r.error, 'an empty column is no longer refused: ' + (r.error || '(no error)'));
+    ok(t.wells[0][9].value === 'Total', 'the first cell holds the word: ' + t.wells[0][9].value);
+    ok(t.wells[1][9].value === '=sum(submarinealgae[1:1][0:8])',
+       'the second holds a formula over every cell above it: ' + t.wells[1][9].value);
+    ok(r.written === 1 && r.label === 'Total', 'one formula, one label: ' + JSON.stringify(r));
+    ok(/empty, so it reads 0 until they are filled/.test(pm.plateTrack.messages.join(' ')),
+       'and it says the cells are still empty: ' + pm.plateTrack.messages.join(' | '));
+
+    // Under a heading, the blank cells below the heading are the range.
     t = mkTable('empty above', [['H', 'a', ''], ['H', '', '']]);
     pm = mkProject(t);
     pm.plateTrack.selected_well = t.wells[1][2];
     r = await load('baja/plate/ops/sum-above.js', pm, {});
-    ok(/cell above is empty/.test(r.error || ''), 'nothing above is said: ' + r.error);
+    ok(r.formula === '=sum(empty above[1:1][1:1])', 'blank under a heading is covered: ' + r.formula);
+
+    // A spacer row above the total is stepped over to the figures, and only those.
+    t = mkTable('spacer', [['H', 'a', 'b', '', ''], ['H', '10', '20', '', '']]);
+    pm = mkProject(t);
+    pm.plateTrack.selected_well = t.wells[1][4];
+    r = await load('baja/plate/ops/sum-above.js', pm, { label: 'Total' });
+    ok(r.formula === '=sum(spacer[1:1][1:2])', 'a blank row is stepped over: ' + r.formula);
+    ok(t.wells[0][4].value === 'Total', 'one cell selected: the word goes to its left');
+
+    // The word is never written over something already there.
+    t = mkTable('kept', [['H', 'a', 'Sum of costs'], ['H', '10', '']]);
+    pm = mkProject(t);
+    pm.plateTrack.selected_well = t.wells[1][2];
+    r = await load('baja/plate/ops/sum-above.js', pm, { label: 'Total' });
+    ok(t.wells[0][2].value === 'Sum of costs' && r.label === undefined,
+       'a label already there is kept: ' + t.wells[0][2].value);
 
     t = mkTable('words', [['H', 'a', ''], ['H', 'Jet A, 2026', '']]);
     pm = mkProject(t);
@@ -142,6 +177,8 @@ const mkProject = (t) => {
     ok(/make this cell sum the total above/.test(caps),
        'the catalogue carries the sentence that was refused');
     ok(/name: 'sum_above'/.test(caps), 'under its own operation');
+    ok(/the first cell has Total and the second is the sum/.test(caps)
+       && /label: \{ type: 'string'/.test(caps), 'and the total row, word and formula together');
     ok(/For a cell that reads a DIFFERENT table use cell_from_table/.test(caps),
        'and says how it differs from the two that were already there');
 

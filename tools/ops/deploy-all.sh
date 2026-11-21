@@ -1031,6 +1031,12 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Total the cells above this one" \
     "baja/plate/ops/sum-above.js:TOTAL THE CELLS ABOVE THIS ONE" \
     "baja/plate/menu/project-capabilities.js:THE COMMONEST THING ANYBODY DOES TO A COLUMN OF NUMBERS"
+  # A total row asked for before its column is filled: the word, the formula, and an engine
+  # that adds an unwritten cell as nothing. An old engine turns that total red.
+  install_group "Total row written before the figures" \
+    "baja/plate/ops/sum-above.js:A TOTAL ROW IS WRITTEN BEFORE THE FIGURES AS OFTEN AS AFTER THEM" \
+    "baja/plate/menu/project-capabilities.js:A TOTAL ROW IS ASKED FOR AS A ROW" \
+    "baja/plate/ops/frun-object.js:AN EMPTY CELL ADDS NOTHING, WHATEVER EMPTY LOOKS LIKE"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
