@@ -117,6 +117,45 @@ const render = async (model) => {
            'with nothing recorded it reports the outcome and stops: ' + txt.slice(0, 200));
     }
 
+    // ---- CROWDED IS NOT MISSING -----------------------------------------------------------
+    // Two exons a few hundred bases apart are a few pixels apart in a picture of a 571 kb
+    // track. The label that collided used to be dropped, which in this row means "nothing
+    // was measured here" -- the one thing it exists to distinguish from a low score.
+    {
+        const tight = (base, x0) => [0, 1, 2, 3].map((i) => ({
+            x1: x0 + i * 12, x2: x0 + i * 12 + 8, st: { pct: base + i, word: 'variable', from: 'arcs' } }));
+        const host = await render(mkModel({ a: tight(50, 2400), b: tight(70, 2400) },
+            { a: true, b: true, tried: true, from: 'arcs' }));
+        const txt = host.textContent || '';
+        ok([50, 51, 52, 53, 70, 71, 72, 73].every((n) => txt.indexOf(n + '%') >= 0),
+           'every figure is drawn even where they land on top of each other: ' + txt.slice(0, 60));
+        ok(!/too close together/.test(txt), 'with nothing reported as unplaceable at this width');
+        const svg = host.querySelector('svg');
+        const ys = Array.from(svg.querySelectorAll('text'))
+            .filter((t) => /^5[0-3]%$/.test(t.textContent))
+            .map((t) => +t.getAttribute('y'));
+        ok(new Set(ys).size > 1, 'by moving to a line of their own: ' + ys.join(','));
+        // Away from the lane, never into it: the lane carries the exon's own label.
+        ok(ys.every((v) => v < 92), 'and the upper row stays above its lane: ' + ys.join(','));
+        const ysB = Array.from(svg.querySelectorAll('text'))
+            .filter((t) => /^7[0-3]%$/.test(t.textContent))
+            .map((t) => +t.getAttribute('y'));
+        ok(new Set(ysB).size > 1 && ysB.every((v) => v > 92 + 30),
+           'and the lower row below its own: ' + ysB.join(','));
+    }
+
+    // Past what three or four lines can hold, the ones left out are COUNTED, not dropped
+    // in silence: a gap in this row otherwise reads as an exon nothing was measured for.
+    {
+        const packed = (base, x0) => Array.from({ length: 9 }, (_, i) => ({
+            x1: x0 + i * 6, x2: x0 + i * 6 + 4, st: { pct: base + i, word: 'variable', from: 'arcs' } }));
+        const host = await render(mkModel({ a: packed(10, 2500), b: [] },
+            { a: true, b: false, tried: true, from: 'arcs' }));
+        const txt = host.textContent || '';
+        ok(/sit too close together to label at this width/.test(txt),
+           'the ones that would not fit are reported: ' + txt.slice(0, 160));
+    }
+
     // ---- A RUN THAT FAILED IS NOT A RUN THAT WAS NEVER MADE ------------------------------
     // The failure used to be swallowed, so the line under the picture read "PSI was run on
     // both tracks just now" and then, one sentence later, "PSI has not been run on it".

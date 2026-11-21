@@ -1157,6 +1157,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # A stability figure whose label touched the one before it was dropped in silence, which
+  # in that row reads as an exon nothing was measured for.
+  install_group "Crowded stability figures stagger instead of vanishing" \
+    "baja/bio/compare-view.js:CROWDED IS NOT MISSING"
   # The wait panel said where the work was happening rather than what was running.
   install_group "The wait panel names the model, not the server" \
     "lib/core.js:described where the work was happening, which is"

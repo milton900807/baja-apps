@@ -306,7 +306,7 @@ const mk = (name, exons) => {
     const svgEl = document.getElementById('baja-compare-view').querySelector('svg');
     const texts = Array.from(svgEl.querySelectorAll('text')).map((t) => ({
         s: t.textContent, y: +t.getAttribute('y'), fill: t.getAttribute('fill') }));
-    const laneTop = 62, LANEH = 30;                 // TOP and LANE in compare-view.js
+    const laneTop = 92, LANEH = 30;                 // TOP and LANE in compare-view.js
     const t97 = texts.find((t) => t.s === '97%');
     ok(!!t97, 'the stability shows on the top lane: ' + JSON.stringify(texts.map((t) => t.s)));
     ok(t97 && t97.y < laneTop, 'above the lane, not inside it: y=' + (t97 && t97.y) + ' lane at ' + laneTop);

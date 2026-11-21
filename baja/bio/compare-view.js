@@ -60,14 +60,14 @@ function (model) {
         // Room for the top lane's label AND for the stability row under it: the numbers
         // sit just outside each lane, so the top one needs a line of its own between the
         // track name and the bar.
-        const TOP = 62;
+        const TOP = 92;                       // the track name, then up to four lines of figures
         // The picture fills the window and grows with it: the ribbons are the content, and
         // on a wide screen the extra room goes to them rather than to margins.
         let W = 0, H = 0, GAP = 0, innerW = 0;
         const measure = () => {
             W = Math.max(640, Math.floor(window.innerWidth - 56));
             GAP = Math.max(150, Math.min(640, Math.floor(window.innerHeight - 282)));
-            H = TOP + LANE + GAP + LANE + 72;   // the bottom lane's name, then its stability row
+            H = TOP + LANE + GAP + LANE + 94;   // its figures, then the bottom lane's name
             innerW = W - PAD * 2;
         };
         measure();
@@ -157,16 +157,39 @@ function (model) {
             : ((st.measured ? '~' : '') + st.pct + '%');
         // Collision is settled per lane, left to right: a number half over its neighbour is
         // worse than the gap it fills, and which exon it belongs to stops being readable.
+        // CROWDED IS NOT MISSING. A figure whose label would have touched the one before it
+        // was dropped, silently, and two exons a few hundred bases apart are a few pixels
+        // apart in a picture of a 571 kb track: e19 and e20 sat on top of each other and
+        // e20 read as an exon the run had nothing to say about. Which is the one thing this
+        // row exists to distinguish from a low score.
+        //
+        // So a label that collides moves to a line of its own instead, away from the lane,
+        // the way the identity labels between the lanes already stagger. Three lines is
+        // enough for anything short of a dozen exons in the same pixel; past that the last
+        // one is dropped, because at that point the figures are unreadable either way and
+        // the picture can be opened wider.
+        // How many figures could not be placed at this width, said out loud below rather
+        // than left as a gap that reads like an unmeasured exon.
+        let crowdedN = 0;
         const stabRow = (marks, y, anchorAbove) => {
-            let out = '', lastEnd = -1e9;
+            const TIERS = 4, STEP = 11;
+            const lastEnd = new Array(TIERS).fill(-1e9);
+            let out = '';
             for (const mk of marks.slice().sort((p, q) => p.x - q.x)) {
                 if (!mk.st) continue;
                 const t = stabText(mk.st);
                 if (!t) continue;
                 const w = t.length * 5.4 + 4;
-                if (mk.x - w / 2 < lastEnd) continue;
-                lastEnd = mk.x + w / 2;
-                out += '<text x="' + mk.x.toFixed(1) + '" y="' + y + '" text-anchor="middle" '
+                let tier = -1;
+                for (let k = 0; k < TIERS; k++) {
+                    if (mk.x - w / 2 >= lastEnd[k]) { tier = k; break; }
+                }
+                if (tier < 0) { crowdedN++; continue; }
+                lastEnd[tier] = mk.x + w / 2;
+                // Further from the lane, never into it: the lane is where the exon's own
+                // label lives.
+                const yy = y + (anchorAbove ? -1 : 1) * tier * STEP;
+                out += '<text x="' + mk.x.toFixed(1) + '" y="' + yy + '" text-anchor="middle" '
                     + 'font-size="9.5" font-weight="700" fill="' + stabFill(mk.st) + '" '
                     + 'pointer-events="none">' + esc(t) + '</text>';
             }
@@ -242,15 +265,16 @@ function (model) {
         const lane = (y, name, t, align) =>
             '<rect x="' + PAD + '" y="' + y + '" width="' + innerW + '" height="' + LANE + '" rx="4" '
             + 'fill="rgba(159,196,212,0.13)" stroke="rgba(159,196,212,0.22)"></rect>'
-            + '<text x="' + PAD + '" y="' + (align === 'above' ? (y - 19) : (y + LANE + 29)) + '" '
+            + '<text x="' + PAD + '" y="' + (align === 'above' ? (y - 48) : (y + LANE + 62)) + '" '
             + 'font-size="12" fill="#eaf6f9" font-weight="700">' + esc(name || '') + '</text>'
-            + '<text x="' + (PAD + innerW) + '" y="' + (align === 'above' ? (y - 19) : (y + LANE + 29)) + '" '
+            + '<text x="' + (PAD + innerW) + '" y="' + (align === 'above' ? (y - 48) : (y + LANE + 62)) + '" '
             + 'text-anchor="end" font-size="10" fill="#9fc4d4">'
             + num(Math.min(+t.x1, +t.x2)) + ' – ' + num(Math.max(+t.x1, +t.x2)) + '</text>';
 
         // Rebuilt rather than scaled, so text stays the same size whatever the window is.
         const buildSvg = () => {
             measure();
+            crowdedN = 0;
             sa = scale(A); sb = scale(B);
             yA = TOP; yB = TOP + LANE + GAP;
             labelDy = computeLabelDy();
@@ -386,6 +410,10 @@ function (model) {
                 const oneWhy = (!drawnA ? st.whyA : st.whyB) || '';
                 const why = oneWhy ? ' No figures on ' : (st.tried ? ' PSI found nothing to score on ' : ' Not run on ');
                 return '<div style="font-size:11.5px;color:#9fc4d4;margin-top:4px;">'
+                    + (crowdedN
+                        ? (crowdedN + ' of them sit too close together to label at this width; '
+                            + 'widen the window and they appear. ')
+                        : '')
                     + 'The second row of figures is each exon\u2019s stability: how much of the '
                     + 'message keeps it. Green is kept, amber is often skipped, red is mostly '
                     + 'skipped, violet is measured rather than predicted.'
