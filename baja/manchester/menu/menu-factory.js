@@ -720,6 +720,50 @@ function () {
                             },
 
                             {
+                                // SELECT THE EXON'S SEQUENCE, which is what half the other
+                                // operations want next: a selection is how the editor says
+                                // "over this stretch" to loading variants, running a model,
+                                // designing against a region or copying bases out.
+                                //
+                                // Nothing is awaited here on purpose. A floating menu ends
+                                // its session ~80 ms after an item's click returns unless the
+                                // item opened another menu, and an async click returns at its
+                                // first await (see tools/test/menu-draws-before-await.js).
+                                // Selecting is a handful of assignments, so it is done
+                                // outright and the menu closes behind it.
+                                label: 'Select exon sequence',
+                                click: () => {
+                                    if (!selectedTrack) { graph.setMessage(' No track selected '); return; }
+                                    const lo = Math.min(+annotation.xi, +annotation.xf);
+                                    const hi = Math.max(+annotation.xi, +annotation.xf);
+                                    if (!isFinite(lo) || !isFinite(hi) || hi <= lo) {
+                                        graph.setMessage(' This exon has no span to select '); return;
+                                    }
+                                    // Replace, do not add: a second selection that left the
+                                    // first behind would widen every later "over the
+                                    // selection" step without saying so. Same order as
+                                    // select_sequence_region in editor-capabilities.js.
+                                    try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                                    try { if (typeof selectedTrack.keepOneMark === 'function') selectedTrack.keepOneMark(); } catch (e) { }
+                                    selectedTrack.markstart = lo;
+                                    selectedTrack.markend = hi;
+                                    selectedTrack.showResizeBar = true;
+                                    // World coordinates, which is what zoom-to-selection reads:
+                                    // a selection made here behaves like one made by dragging.
+                                    try {
+                                        graph.startX = selectedTrack.tgraph.X(lo);
+                                        graph.endX = selectedTrack.tgraph.X(hi);
+                                    } catch (e) { }
+                                    try { graph.selectedTrack = selectedTrack; } catch (e) { }
+                                    try { graph.showSideMenu(null); } catch (e) { }
+                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                    graph.setMessage(' Selected ' + (hi - lo).toLocaleString() + ' nt \u00b7 '
+                                        + ((annotation && annotation.name) || 'exon') + ' ');
+                                },
+                                move: () => { log('') }
+                            },
+
+                            {
                                 // Opens its list at once, not on a timer: a floating menu (the one a click on
                                 // the exon opens) ends its session ~80 ms after an item's click returns unless
                                 // that item opened another menu, so a list opened 100 ms later landed in the

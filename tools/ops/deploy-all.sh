@@ -1083,6 +1083,9 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # A selection over an exon meant dragging it by hand.
+  install_group "Select exon sequence, from the exon menu" \
+    "baja/manchester/menu/menu-factory.js:SEQUENCE, which is what half the other"
   # The facility existed and the ask box could not reach it, so the planner said the editor
   # does not do this at all. The operation and the planner's context go together.
   install_group "Place a variant named in the request" \
