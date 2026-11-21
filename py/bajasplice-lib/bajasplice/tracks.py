@@ -33,6 +33,8 @@ import numpy as np
 from bajasplice.config import paths
 from bajasplice.genome import GenomeReader
 
+from bajasplice.config import species as _species
+
 __all__ = ["gene_track", "score_layers", "attribution_layers", "retention_layer",
            "build_payload", "render_png"]
 
@@ -220,6 +222,9 @@ def build_payload(gene, sites=(), which="acceptor", window=100, method="ism",
         layers = layers + al
         track = track or track2
     if retention:
+        if _species().key != "human":
+            raise SystemExit("--retention uses BajaIR, which is trained and calibrated on "
+                             f"human introns only. It is not available for {_species().label}.")
         rl, track3, n_hits = retention_layer(gene, tier=tier, transcript=transcript,
                                              clean_only=clean_only, ckpt=ckpt,
                                              device=device)
@@ -239,6 +244,8 @@ def build_payload(gene, sites=(), which="acceptor", window=100, method="ism",
         "layers": layers,
         "meta": {"model": str(__import__("bajasplice.scan", fromlist=["x"]).resolve_checkpoint(ckpt)),
                  "n_layers": len(layers),
+                 # coordinates mean nothing without the assembly they are in
+                 "species": _species().key, "assembly": _species().assembly,
                  **({"bajair": bajair_meta} if bajair_meta else {})},
     }
 

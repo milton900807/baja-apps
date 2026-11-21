@@ -1392,6 +1392,47 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/gene.js:THE EXTRA REGIONS GO TOO" \
     "baja/manchester/menu/editor-capabilities.js:IS TWO STEPS, the second one adding" \
     "py/bio/editor/plan.py:SEVERAL REGIONS IS SEVERAL STEPS"
+  # BajaSpliceMM. Species became a setting of bajasplice rather than a fork of it, so these
+  # go together or not at all: config.py alone would be harmless (it still answers as
+  # human), but scan.py or weights/__init__.py without it would not import. No mouse
+  # weights ride along -- *.pt is not in git -- so on the server this changes nothing until
+  # a mouse model is trained and copied in; the human path is the same code as before.
+  # The bajasplicemm command itself needs `pip install -e py/bajasplice-lib` once, to
+  # register the entry point; `python -m bajasplicemm` works without it.
+  install_group "BajaSpliceMM: bajasplice runs as mouse" \
+    "py/bajasplice-lib/bajasplice/config.py:A SPECIES OWNS ITS OWN ROOT, CONFIG FILE AND" \
+    "py/bajasplice-lib/bajasplice/__init__.py:Mouse (BajaSpliceMM) is the same package run as another species" \
+    "py/bajasplice-lib/bajasplice/cli.py:A HUMAN-ONLY STEP MUST NOT RUN AS MOUSE" \
+    "py/bajasplice-lib/bajasplice/genome.py:THE WRONG GENOME DOES NOT FAIL, IT ANSWERS" \
+    "py/bajasplice-lib/bajasplice/index.py:SYMBOL CASE IS A SPECIES CONVENTION, NOT A DIFFERENCE BETWEEN GENES" \
+    "py/bajasplice-lib/bajasplice/scan.py:checkpoints written before species existed are human by construction" \
+    "py/bajasplice-lib/bajasplice/tracks.py:coordinates mean nothing without the assembly they are in" \
+    "py/bajasplice-lib/bajasplice/weights/__init__.py:A BUNDLED WEIGHT BELONGS TO ONE SPECIES" \
+    "py/bajasplice-lib/bajasplice/prepare/gencode.py:WHATEVER THE SPECIES" \
+    "py/bajasplice-lib/bajasplice/prepare/splicesite.py:Build the splice-site training index from the flattened exon table" \
+    "py/bajasplice-lib/bajasplice/train/splicesite.py:ORTHOLOGS CROSS THE SPLIT WHEN THE STARTING WEIGHTS DO" \
+    "py/bajasplice-lib/bajasplice/evaluate/zero_shot.py:THIS CONTROL IS GENEROUS TO THE OTHER SPECIES" \
+    "py/bajasplice-lib/bajasplice/evaluate/splicesite_report.py:One table for the splice-site task" \
+    "py/bajasplice-lib/bajasplicemm/__init__.py:IMPORTING THIS MODULE SWITCHES THE WHOLE PROCESS TO MOUSE" \
+    "py/bajasplice-lib/bajasplicemm/cli.py:the bajasplice CLI, as mouse" \
+    "py/bajasplice-lib/bajasplicemm/__main__.py:from bajasplicemm.cli import main" \
+    "py/bajasplice-lib/pyproject.toml:bajasplicemm.cli"
+  # BajaSpliceDM: the same species setting, for fly. A separate group from the mouse one so
+  # a ref that has mouse but predates fly still installs mouse. Fly reads an Ensembl GTF
+  # and labels neighbouring genes' sites in training windows; neither touches the human
+  # or mouse path. No fly weights ride along, for the same reason as mouse.
+  install_group "BajaSpliceDM: bajasplice runs as fly" \
+    "py/bajasplice-lib/bajasplice/config.py:WHICH NAMES" \
+    "py/bajasplice-lib/bajasplice/genome.py:NOT ONE CHROMOSOME OF THIS SPECIES IS IN THE FILE" \
+    "py/bajasplice-lib/bajasplice/datasets.py:A WINDOW IS LABELLED FROM ONE TRANSCRIPT BUT COVERS WHATEVER IS THERE" \
+    "py/bajasplice-lib/bajasplice/prepare/gencode.py:ENSEMBL SPELLS THE BIOTYPE ATTRIBUTES DIFFERENTLY FROM GENCODE" \
+    "py/bajasplice-lib/bajasplice/prepare/splicesite.py:neighbouring same-strand sites are labelled too" \
+    "py/bajasplice-lib/bajasplice/evaluate/zero_shot.py:between a mammal and an insect" \
+    "py/bajasplice-lib/bajasplice/cli.py:chromosomes named 2L, 3R, X" \
+    "py/bajasplice-lib/bajasplicedm/__init__.py:IMPORTING THIS MODULE SWITCHES THE WHOLE PROCESS TO FLY" \
+    "py/bajasplice-lib/bajasplicedm/cli.py:the bajasplice CLI, as fly" \
+    "py/bajasplice-lib/bajasplicedm/__main__.py:from bajasplicedm.cli import main" \
+    "py/bajasplice-lib/pyproject.toml:bajasplicedm.cli"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

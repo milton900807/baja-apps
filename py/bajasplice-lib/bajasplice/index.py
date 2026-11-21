@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from bajasplice.config import paths, MAIN_CHROMS
+from bajasplice.config import paths, species, MAIN_CHROMS
 
 __all__ = ["build_index", "build_slim_index", "index_path", "slim_index_path",
            "resolve_index", "GeneIndex"]
@@ -44,8 +44,8 @@ def index_path() -> Path:
 
 
 def slim_index_path() -> Path:
-    """The compact index bundled with the package."""
-    return Path(__file__).parent / "data" / "genes.slim.sqlite"
+    """The compact index bundled with the package, for the active species."""
+    return Path(__file__).parent / "data" / species().slim_index
 
 
 def resolve_index(path=None) -> Path:
@@ -65,7 +65,8 @@ def resolve_index(path=None) -> Path:
         return slim
     raise FileNotFoundError(
         f"no gene index found. Expected {full} (build with "
-        f"`bajasplice prepare geneindex`) or a bundled slim index at {slim}.")
+        f"`{species().command} prepare geneindex`) or a bundled slim index at {slim} "
+        f"(build with `{species().command} prepare geneindex --slim`).")
 
 
 def build_slim_index(exons_tsv=None, out=None):
@@ -172,7 +173,22 @@ class GeneIndex:
         cols = {r[1] for r in self._con.execute("PRAGMA table_info(genes)")}
         self.slim = "exons" in cols        # packed-blob schema, canonical only
 
+    def canonical_name(self, name):
+        """The symbol as the annotation spells it.
+
+        SYMBOL CASE IS A SPECIES CONVENTION, NOT A DIFFERENCE BETWEEN GENES:
+        human is TARDBP, mouse is Tardbp, and people type either. An exact
+        match always wins; otherwise a case-insensitive match is used only when
+        it is unique, so two symbols differing by case are never merged.
+        """
+        if self._con.execute("SELECT 1 FROM genes WHERE name = ?", (name,)).fetchone():
+            return name
+        rows = self._con.execute(
+            "SELECT name FROM genes WHERE name = ? COLLATE NOCASE LIMIT 2", (name,)).fetchall()
+        return rows[0][0] if len(rows) == 1 else name
+
     def gene(self, name):
+        name = self.canonical_name(name)
         if self.slim:
             r = self._con.execute(
                 "SELECT name, chrom, strand, start, end, tx, n_exons "
@@ -187,6 +203,7 @@ class GeneIndex:
         return dict(zip(keys, r))
 
     def exons(self, name, transcript=None):
+        name = self.canonical_name(name)
         if self.slim:
             import numpy as np
             r = self._con.execute(

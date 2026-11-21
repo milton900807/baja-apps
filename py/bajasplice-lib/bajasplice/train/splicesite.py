@@ -12,7 +12,7 @@ import sys
 from bajasplice.datasets import SpliceSiteDataset
 from bajasplice.models import SpliceNet
 
-from bajasplice.config import paths
+from bajasplice.config import paths, species
 def topk_accuracy(y_true_bin, y_score):
     """Fraction of true sites recovered in the top-k scoring positions, k = #true."""
     k = int(y_true_bin.sum())
@@ -66,6 +66,10 @@ def main():
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--eval-batches", type=int, default=400)
     ap.add_argument("--tag", type=str, default=None)
+    ap.add_argument("--init-from", type=str, default=None,
+                    help="start from another SpliceNet checkpoint of the same context and "
+                         "channels, e.g. the human model when training mouse. Give the run "
+                         "its own --tag: a fine-tuned model is not a from-scratch one.")
     args = ap.parse_args()
     tag = args.tag or f"ss_ctx{args.context}"
 
@@ -84,6 +88,20 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SpliceNet(context=args.context, ch=args.channels).to(device)
+    init_species = None
+    if args.init_from:
+        # ORTHOLOGS CROSS THE SPLIT WHEN THE STARTING WEIGHTS DO. A model
+        # initialised from another species has already seen the orthologs of
+        # this species' held-out genes, on whatever chromosomes they sit there,
+        # so its test score is not chromosome-disjoint in the sense the
+        # from-scratch score is. Recorded in the checkpoint and the metrics.
+        ck0 = torch.load(args.init_from, map_location="cpu", weights_only=False)
+        model.load_state_dict(ck0["model"])
+        init_species = ck0.get("species", "human")
+        print(f"initialised from {args.init_from} (trained on {init_species})", flush=True)
+    sp = species()
+    provenance = {"species": sp.key, "assembly": sp.assembly,
+                  "init_from_species": init_species}
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-6)
     steps = args.epochs * max(1, len(loaders["train"]))
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=steps,
@@ -114,7 +132,7 @@ def main():
         score = np.nanmean([vm["acceptor_topk"], vm["donor_topk"]])
         if score > best:
             best = score
-            torch.save({"model": model.state_dict(), "args": vars(args)},
+            torch.save({"model": model.state_dict(), "args": vars(args), **provenance},
                        os.path.join(paths().models, f"{tag}.pt"))
             print(f"  saved (top-k {score:.4f})", flush=True)
 
@@ -124,7 +142,8 @@ def main():
     print("TEST", json.dumps(tm), flush=True)
     os.makedirs(paths().results, exist_ok=True)
     with open(os.path.join(paths().results, f"{tag}_metrics.json"), "w") as f:
-        json.dump({"val_history": hist, "test": tm, "args": vars(args)}, f, indent=2)
+        json.dump({"val_history": hist, "test": tm, "args": vars(args), **provenance},
+                  f, indent=2)
 
 
 if __name__ == "__main__":

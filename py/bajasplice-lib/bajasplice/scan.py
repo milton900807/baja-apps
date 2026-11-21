@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from bajasplice.config import paths
+from bajasplice.config import paths, species
 from bajasplice.genome import GenomeReader, one_hot
 from bajasplice.models import SpliceNet
 
@@ -39,13 +39,14 @@ def resolve_checkpoint(ckpt=None, name="ss_ctx2000"):
     weights never silently overrides work the user has done.
 
         1. explicit argument
-        2. BAJASPLICE_CKPT
+        2. BAJASPLICE_CKPT  (BAJASPLICEMM_CKPT for mouse)
         3. <root>/models/<name>.pt
-        4. the copy bundled with the package
+        4. the copy bundled with the package, for the active species only
     """
+    sp = species()
     if ckpt:
         return Path(ckpt)
-    env = os.environ.get("BAJASPLICE_CKPT")
+    env = os.environ.get(f"{sp.env_prefix}_CKPT")
     if env:
         return Path(env)
     local = paths().models / f"{name}.pt"
@@ -56,14 +57,22 @@ def resolve_checkpoint(ckpt=None, name="ss_ctx2000"):
     if b is not None:
         return b
     raise FileNotFoundError(
-        f"no checkpoint for '{name}'. Train one with `bajasplice train splicesite`, "
-        f"set BAJASPLICE_CKPT, or pass --ckpt.")
+        f"no {sp.label} checkpoint for '{name}'. Train one with "
+        f"`{sp.command} train splicesite`, set {sp.env_prefix}_CKPT, or pass --ckpt.")
 
 
 def load_splicenet(ckpt=None, device=None):
     ckpt = resolve_checkpoint(ckpt)
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ck = torch.load(str(ckpt), map_location="cpu", weights_only=False)
+    # checkpoints written before species existed are human by construction
+    trained_on = ck.get("species", "human")
+    if trained_on != species().key:
+        import warnings
+        warnings.warn(
+            f"{ckpt} was trained on {trained_on} and is scoring {species().key} sequence. "
+            f"That is a legitimate zero-shot control, not a {species().key} model.",
+            stacklevel=2)
     model = SpliceNet(context=ck["args"]["context"], ch=ck["args"]["channels"]).to(device).eval()
     model.load_state_dict(ck["model"])
     return model, ck["args"]["context"], device
@@ -104,7 +113,8 @@ def gene_span(name, exons=None, transcript=None):
             idx = GeneIndex()
             rec = idx.gene(name)
             if rec is None:
-                raise SystemExit(f"gene {name} not found in the gene index")
+                raise SystemExit(f"gene {name} not found in the {species().label} gene index")
+            name = rec["name"]          # the annotation's spelling: Tardbp, not TARDBP
             _LAST_INDEX["slim"] = idx.slim
             _LAST_INDEX["path"] = str(idx.path)
             ex = idx.exons(name, transcript)

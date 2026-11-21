@@ -6,6 +6,19 @@
     bajasplice evaluate report
     bajasplice scan --gene TARDBP --top 10
     bajasplice plot --gene TARDBP --top-sites 2 --out tardbp.json --png tardbp.png
+
+Mouse is the same CLI under another name, with its own root and config file:
+
+    bajasplicemm config --root ~/ml/splicing-mm --genome-fasta GRCm39.fa --gencode-gtf vM.gtf --save
+    bajasplicemm prepare gencode && bajasplicemm prepare splicesite
+    bajasplicemm evaluate zero-shot          # the human model, as the control to beat
+    bajasplicemm train splicesite --context 2000 --epochs 8
+    bajasplicemm scan --gene Tardbp --top 10
+
+Fly is `bajasplicedm`, on Ensembl's BDGP6 (chromosomes named 2L, 3R, X):
+
+    bajasplicedm config --root ~/ml/splicing-dm --genome-fasta BDGP6.fa --gencode-gtf BDGP6.gtf.gz --save
+    bajasplicedm scan --gene TBPH --top 10
 """
 from __future__ import annotations
 
@@ -14,12 +27,13 @@ import importlib
 import json
 import sys
 
-from bajasplice.config import configure, paths
+from bajasplice.config import configure, paths, species
 
 # subcommand -> module providing main()
 PREPARE = {
     "gencode": "bajasplice.prepare.gencode",
     "geneindex": "bajasplice.index",
+    "splicesite": "bajasplice.prepare.splicesite",
     "gtex": "bajasplice.prepare.gtex",
     "events": "bajasplice.prepare.events",
     "encode-download": "bajasplice.prepare.encode_download",
@@ -36,6 +50,8 @@ TRAIN = {
 }
 EVALUATE = {
     "baseline-splicesite": "bajasplice.evaluate.baselines_splicesite",
+    "zero-shot": "bajasplice.evaluate.zero_shot",
+    "splicesite-report": "bajasplice.evaluate.splicesite_report",
     "baseline-psi": "bajasplice.evaluate.baselines_psi",
     "baseline-altss": "bajasplice.evaluate.baselines_altss",
     "vastdb": "bajasplice.evaluate.vastdb",
@@ -55,13 +71,32 @@ def _dispatch(table, name, rest):
     mod = importlib.import_module(table[name])
     if not hasattr(mod, "main"):
         raise SystemExit(f"{table[name]} has no main()")
-    sys.argv = [f"bajasplice {name}"] + rest
+    sys.argv = [f"{species().command} {name}"] + rest
     return mod.main()
+
+
+def _require_supported(cmd, step=None):
+    """Refuse a step that has no data behind it for the active species.
+
+    A HUMAN-ONLY STEP MUST NOT RUN AS MOUSE. GTEx, ENCODE knockdowns, VastDB
+    hg38 and BajaIR are human resources; run under mouse they would either
+    crash far from the cause or, worse, complete against the wrong organism.
+    """
+    sp = species()
+    if sp.supported is None:
+        return
+    if cmd not in sp.supported:
+        raise SystemExit(f"`{cmd}` is not available for {sp.label} yet. "
+                         f"{sp.command} supports: {', '.join(sorted(sp.supported))}.")
+    steps = sp.supported[cmd]
+    if step is not None and steps is not None and step not in steps:
+        raise SystemExit(f"`{cmd} {step}` is not available for {sp.label} yet. "
+                         f"{sp.command} {cmd} supports: {', '.join(sorted(steps))}.")
 
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    p = argparse.ArgumentParser(prog="bajasplice", description=__doc__,
+    p = argparse.ArgumentParser(prog=species().command, description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -100,9 +135,12 @@ def main(argv=None):
                        untrusted_bed=args.untrusted_bed,
                        measured_psi=args.measured_psi, save=args.save)
         pp.ensure()
-        print(json.dumps(pp.to_dict(), indent=2))
+        sp = species()
+        print(json.dumps({"species": sp.key, "assembly": sp.assembly, **pp.to_dict()},
+                         indent=2))
         return 0
 
+    _require_supported(args.cmd, getattr(args, "step", None))
     paths().ensure()
     if args.cmd == "prepare":
         return _dispatch(PREPARE, args.step, extra)
@@ -112,11 +150,11 @@ def main(argv=None):
         return _dispatch(EVALUATE, args.step, extra)
     if args.cmd == "scan":
         from bajasplice import scan
-        sys.argv = ["bajasplice scan"] + extra
+        sys.argv = [f"{species().command} scan"] + extra
         return scan.main()
     if args.cmd == "plot":
         from bajasplice import tracks
-        sys.argv = ["bajasplice plot"] + extra
+        sys.argv = [f"{species().command} plot"] + extra
         return tracks.main()
     if args.cmd == "validate":
         from bajasplice.validate import suite

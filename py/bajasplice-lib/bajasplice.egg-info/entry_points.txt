@@ -1,2 +1,4 @@
 [console_scripts]
 bajasplice = bajasplice.cli:main
+bajasplicedm = bajasplicedm.cli:main
+bajasplicemm = bajasplicemm.cli:main
