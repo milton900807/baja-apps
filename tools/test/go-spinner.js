@@ -83,6 +83,67 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await sleep(10);
     ok(!document.getElementById('baja-working'), 'and its own done() takes it away');
 
+    // ---- the project card, which runs the same kind of operation and had none ---------
+    // GO on "create a monthly cost table" changed the button's word and nothing else.
+    {
+        const pc = fs.readFileSync('baja/plate/menu/project-command.js', 'utf8');
+        ok(/const withSpinner = async \(title, detail, run\) =>/.test(pc), 'the project card has the wrapper too');
+        ok(!/await exec\(op\.capability\.module/.test(pc) && /\(\) => exec\(op\.capability\.module, o\.pm \|\| null, op\.args\)/.test(pc),
+           'and GO runs through it, with no path around it');
+        ok(/withSpinner\(row\.path, '', \(\) => fire\(row\.__m\)\)/.test(pc), 'as does a menu item run from the card');
+
+        // The real card, with a slow operation behind GO.
+        let release = null, ran = 0;
+        const prev = global.lion_engine.exec;
+        global.lion_engine.exec = (p, ...a) => {
+            if (p === 'py/bio/project/menu-pick.py') {
+                return Promise.resolve({ status: 'OK', operation: 'fill_table',
+                    args: { what: 'monthly cost table based on assumptions', table: 'monthly_cost', rows: 10 } });
+            }
+            if (p === 'baja/plate/ops/fill-table.js') { ran++; return new Promise((r) => { release = r; }); }
+            return load(p, ...a);
+        };
+        const loadCard = async () => {
+            const src = fs.readFileSync('baja/plate/menu/project-command.js', 'utf8');
+            const f = await new AF('exec', 'args', core + '\nreturn (' + src + ')')(global.lion_engine.exec, {});
+            return f({ menus: [{ label: 'Draw', items: [{ label: 'Table', click: () => { } }] }],
+                pm: { root: [], setMessage() { } }, text: 'use assumptions to create a monthly cost table',
+                context: {}, setError: () => { } });
+        };
+        document.body.innerHTML = '';
+        await loadCard();
+        await sleep(60);
+        const go = document.querySelector('#pc-op');
+        ok(!!go, 'the card offers the operation: ' + (document.body.textContent || '').slice(0, 60));
+        if (go) {
+            go.onclick();
+            await sleep(120);
+            ok(ran === 1 && !document.getElementById('baja-working'), 'nothing is shown for the first moment');
+            await sleep(420);
+            const pnl = document.getElementById('baja-working');
+            ok(!!pnl && /fill "monthly_cost" in with 10 rows/.test(pnl.textContent) && /second/.test(pnl.textContent),
+               'then the spinner, saying what is running, with the clock: ' + (pnl ? pnl.textContent.slice(0, 70) : '(none)'));
+            release({ error: 'there is no table called assumptions' });
+            await sleep(30);
+            ok(!document.getElementById('baja-working'), 'it comes down when the operation answers');
+            ok(/That did not happen/.test(document.body.textContent) && /no table called assumptions/.test(document.body.textContent),
+               'and the refusal on the card is not covered by it');
+        }
+        // An instant one never shows it.
+        document.body.innerHTML = '';
+        global.lion_engine.exec = (p, ...a) => {
+            if (p === 'py/bio/project/menu-pick.py') return Promise.resolve({ status: 'OK', operation: 'fill_table', args: { what: 'x' } });
+            if (p === 'baja/plate/ops/fill-table.js') return Promise.resolve({ table: 't', written: 1 });
+            return load(p, ...a);
+        };
+        await loadCard();
+        await sleep(60);
+        const go2 = document.querySelector('#pc-op');
+        if (go2) { go2.onclick(); await sleep(450); }
+        ok(!!go2 && !document.getElementById('baja-working'), 'an operation that is over at once shows no panel at all');
+        global.lion_engine.exec = prev;
+    }
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
