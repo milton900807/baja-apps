@@ -372,6 +372,13 @@ function (graph, qtrack, ttrack, opts) {
             // tracks it is already holding. It is a model run per track and it is slow, so
             // it is said out loud while it happens rather than looking like a stall.
             let psiTried = false;
+            // WHAT THE RUN SAID, KEPT. The failure was being swallowed here, so a run that
+            // threw left the track exactly as it found it and the report fell back to "PSI
+            // has not been run on it" -- printed one line under "PSI was run on both tracks
+            // just now", which is the editor contradicting itself about something it did
+            // thirty seconds ago. Whatever the attempt says is the answer to why there are
+            // no figures, and it is the only thing that tells anyone what to do next.
+            const psiSaid = new Map();
             if (o.runPsi !== false) {
                 for (const t of [qtrack, ttrack]) {
                     if (!t || (await stabilityOf(t))) continue;
@@ -381,14 +388,28 @@ function (graph, qtrack, ttrack, opts) {
                         else graph.setMessage('Running PSI on ' + nm + ' \u2026');
                     } catch (e) { }
                     psiTried = true;
+                    const startedAt = Date.now();
+                    let out2 = null;
                     try {
-                        await exec('baja/bio/splicing/splicing-profile.js', graph,
+                        out2 = await exec('baja/bio/splicing/splicing-profile.js', graph,
                             o.layout || null, t, null, 'psi');
                     } catch (e) {
                         // A PSI run that fails is not a reason to lose the comparison: the
                         // picture is the answer, and the stability row is an addition to it.
-                        try { if (W) W.step('PSI did not run on ' + nm + ' \u00b7 carrying on'); } catch (e2) { }
+                        psiSaid.set(t, 'the PSI run failed: ' + ((e && e.message) ? e.message : ('' + e)));
+                        try { if (W) W.step('PSI did not run on ' + nm + ': ' + psiSaid.get(t) + ' \u00b7 carrying on'); } catch (e2) { }
+                        continue;
                     }
+                    // A refusal returns false and leaves its reason on the track. Its own
+                    // words are better than anything restated here, as long as they are
+                    // from THIS attempt and not from one earlier in the session.
+                    let said = '';
+                    try {
+                        const r0 = t.psiRefusal;
+                        if (r0 && r0.why && +r0.at >= startedAt) said = ('' + r0.why);
+                    } catch (e) { }
+                    if (!said && out2 === false) said = 'the PSI run was refused without a reason';
+                    if (said) psiSaid.set(t, said.replace(/\s+/g, ' ').trim().replace(/^[.\s]+|[.\s]+$/g, ''));
                 }
             }
             const stabA = await stabilityOf(qtrack), stabB = await stabilityOf(ttrack);
@@ -406,11 +427,16 @@ function (graph, qtrack, ttrack, opts) {
                 }
                 return out;
             };
+            // What this attempt said beats what an earlier one left behind, and both beat
+            // the state the lookup inferred: "it has not been run" is only true when it has
+            // not been run.
             const whyOf = (t) => {
                 try {
+                    if (psiSaid.get(t)) return psiSaid.get(t);
                     const r = (t && t.psiRefusal && t.psiRefusal.why) ? ('' + t.psiRefusal.why) : '';
                     const clean = r.replace(/\s+/g, ' ').trim().replace(/^[.\s]+|[.\s]+$/g, '');
-                    return clean || whyNone.get(t) || '';
+                    if (clean) return clean + (psiTried ? '' : ' (from an earlier run)');
+                    return whyNone.get(t) || '';
                 } catch (e) { return ''; }
             };
 

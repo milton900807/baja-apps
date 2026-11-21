@@ -1168,6 +1168,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "A figure on every exon, and the real reason when there is none" \
     "baja/bio/compare-view.js:EACH TRACK SCORES ITS OWN EXONS, NOT THE MATCHED ONES" \
     "baja/bio/match-regions.js:EVERY EXON OF THAT TRACK, at its own coordinates" \
+    "baja/bio/match-regions.js:WHAT THE RUN SAID, KEPT" \
     "baja/bio/splicing/exon-stability.js:AN EMPTY ANSWER SAYS WHY IT IS EMPTY"
   # Reported three times as giving no feedback at all: every earlier version of the
   # spinner had to load, or claim a singleton, or win a race, before it could appear.

@@ -117,6 +117,28 @@ const render = async (model) => {
            'with nothing recorded it reports the outcome and stops: ' + txt.slice(0, 200));
     }
 
+    // ---- A RUN THAT FAILED IS NOT A RUN THAT WAS NEVER MADE ------------------------------
+    // The failure used to be swallowed, so the line under the picture read "PSI was run on
+    // both tracks just now" and then, one sentence later, "PSI has not been run on it".
+    {
+        const host = await render(mkModel({ a: [], b: [] },
+            { a: false, b: false, tried: true, from: '',
+              whyA: 'the PSI run failed: splicing-profile.py returned 413',
+              whyB: 'the PSI run failed: splicing-profile.py returned 413' }));
+        const txt = host.textContent || '';
+        ok(/returned 413/.test(txt) && !/has not been run/.test(txt),
+           'what the attempt said is what is printed, not a guess at the state: ' + txt.slice(0, 200));
+    }
+    {
+        const mr = fs.readFileSync('baja/bio/match-regions.js', 'utf8');
+        ok(/psiSaid\.set\(t, 'the PSI run failed: '/.test(mr),
+           'the comparison keeps what a failed PSI attempt said');
+        ok(/if \(psiSaid\.get\(t\)\) return psiSaid\.get\(t\);/.test(mr),
+           'and prefers it over the state the lookup inferred');
+        ok(/if \(r0 && r0\.why && \+r0\.at >= startedAt\)/.test(mr),
+           'taking a refusal only from THIS attempt, not one left over from earlier');
+    }
+
     // ---- the sentence cannot come back ---------------------------------------------------
     for (const f of ['baja/bio/compare-view.js', 'baja/bio/match-regions.js']) {
         const src = fs.readFileSync(f, 'utf8');
