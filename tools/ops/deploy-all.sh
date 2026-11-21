@@ -1417,6 +1417,22 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bajasplice-lib/bajasplicemm/cli.py:the bajasplice CLI, as mouse" \
     "py/bajasplice-lib/bajasplicemm/__main__.py:from bajasplicemm.cli import main" \
     "py/bajasplice-lib/pyproject.toml:bajasplicemm.cli"
+  # BajaSpliceDM: the same species setting, for fly. A separate group from the mouse one so
+  # a ref that has mouse but predates fly still installs mouse. Fly reads an Ensembl GTF
+  # and labels neighbouring genes' sites in training windows; neither touches the human
+  # or mouse path. No fly weights ride along, for the same reason as mouse.
+  install_group "BajaSpliceDM: bajasplice runs as fly" \
+    "py/bajasplice-lib/bajasplice/config.py:WHICH NAMES" \
+    "py/bajasplice-lib/bajasplice/genome.py:NOT ONE CHROMOSOME OF THIS SPECIES IS IN THE FILE" \
+    "py/bajasplice-lib/bajasplice/datasets.py:A WINDOW IS LABELLED FROM ONE TRANSCRIPT BUT COVERS WHATEVER IS THERE" \
+    "py/bajasplice-lib/bajasplice/prepare/gencode.py:ENSEMBL SPELLS THE BIOTYPE ATTRIBUTES DIFFERENTLY FROM GENCODE" \
+    "py/bajasplice-lib/bajasplice/prepare/splicesite.py:neighbouring same-strand sites are labelled too" \
+    "py/bajasplice-lib/bajasplice/evaluate/zero_shot.py:between a mammal and an insect" \
+    "py/bajasplice-lib/bajasplice/cli.py:chromosomes named 2L, 3R, X" \
+    "py/bajasplice-lib/bajasplicedm/__init__.py:IMPORTING THIS MODULE SWITCHES THE WHOLE PROCESS TO FLY" \
+    "py/bajasplice-lib/bajasplicedm/cli.py:the bajasplice CLI, as fly" \
+    "py/bajasplice-lib/bajasplicedm/__main__.py:from bajasplicedm.cli import main" \
+    "py/bajasplice-lib/pyproject.toml:bajasplicedm.cli"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

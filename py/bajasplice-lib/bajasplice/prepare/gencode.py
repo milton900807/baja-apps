@@ -19,9 +19,20 @@ _ATTR = {
     "gene_name": re.compile(r'gene_name "([^"]+)"'),
     "gene_type": re.compile(r'gene_type "([^"]+)"'),
     "transcript_type": re.compile(r'transcript_type "([^"]+)"'),
-    "exon_number": re.compile(r'exon_number (\d+)'),
+    # GENCODE writes exon_number 3, Ensembl writes exon_number "3"
+    "exon_number": re.compile(r'exon_number "?(\d+)"?'),
+    # ENSEMBL SPELLS THE BIOTYPE ATTRIBUTES DIFFERENTLY FROM GENCODE. Fly has
+    # no GENCODE release, so its GTF comes from Ensembl, where gene_type is
+    # gene_biotype and transcript_type is transcript_biotype. Unread, every
+    # gene has an empty type and the protein_coding filter keeps nothing.
+    "gene_biotype": re.compile(r'gene_biotype "([^"]+)"'),
+    "transcript_biotype": re.compile(r'transcript_biotype "([^"]+)"'),
     "tsl": re.compile(r'transcript_support_level "([^"]+)"'),
 }
+# an attribute GENCODE always writes and Ensembl may spell otherwise or omit;
+# a gene with no symbol is known by its id rather than dropped
+_FALLBACK = {"gene_type": "gene_biotype", "transcript_type": "transcript_biotype",
+             "gene_name": "gene_id"}
 COLUMNS = ["chrom", "start", "end", "strand", "gene_id", "transcript_id", "gene_name",
            "gene_type", "transcript_type", "exon_number", "mane", "basic", "tsl"]
 
@@ -58,6 +69,8 @@ def parse_exons(gtf, out_tsv=None, feature="exon"):
             for key in ("gene_id", "transcript_id", "gene_name", "gene_type",
                         "transcript_type", "exon_number"):
                 m = _ATTR[key].search(a)
+                if not m and key in _FALLBACK:
+                    m = _ATTR[_FALLBACK[key]].search(a)
                 vals.append(m.group(1) if m else "")
             tsl = _ATTR["tsl"].search(a)
             out.write("\t".join([f[0], f[3], f[4], f[6], *vals,

@@ -82,7 +82,9 @@ def main():
         json.dump({a.split: m, "checkpoint": str(ckpt), "trained_on": trained_on,
                    "species": sp.key, "assembly": sp.assembly,
                    "note": "orthologs of these windows were in the source model's "
-                           "training set; treat as an upper-biased control"}, f, indent=2)
+                           "training set; treat as an upper-biased control. The bias "
+                           "shrinks with distance: large between mammals, small "
+                           "between a mammal and an insect"}, f, indent=2)
     print(f"wrote {out}")
     return 0
 

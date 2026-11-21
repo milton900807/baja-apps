@@ -57,6 +57,9 @@ class Species:
     weight_prefix: str           # bundled checkpoints: ss_ctx2000.pt vs mm_ss_ctx2000.pt
     slim_index: str              # bundled gene index file name
     absent_chroms: tuple = ()    # in the other species' assembly, never in this one
+    # Label every same-strand canonical site that falls in a training window,
+    # not only the window's own transcript. See datasets.with_neighbor_sites.
+    label_neighbors: bool = False
     supported: Optional[dict] = None
 
 
@@ -90,10 +93,43 @@ SPECIES = {
             "evaluate": {"baseline-splicesite", "zero-shot", "splicesite-report"},
             "scan": None, "plot": None, "config": None,
         }),
+    # Fly has no GENCODE. The reference is Ensembl's BDGP6 build, WHICH NAMES
+    # CHROMOSOMES WITHOUT A chr PREFIX (2L, 3R, X); the UCSC dm6 FASTA spells
+    # the same arms chr2L and will not match the annotation.
+    #
+    # There are five large arms, so the split is by arm: 2L is held out for
+    # test and X for validation, leaving 2R, 3L, 3R, 4 and Y to train on. Each
+    # of the five carries a comparable share of genes; 4 and Y are too small
+    # to select a model on.
+    "fly": Species(
+        key="fly", label="Drosophila melanogaster", assembly="BDGP6",
+        command="bajasplicedm", env_prefix="BAJASPLICEDM",
+        config_name="config.fly.json",
+        main_chroms=frozenset({"2L", "2R", "3L", "3R", "4", "X", "Y"}),
+        test_chroms=frozenset({"2L"}),
+        val_chroms=frozenset({"X"}),
+        canonical_tag="Ensembl_canonical", weight_prefix="dm_",
+        slim_index="genes.slim.fly.sqlite",
+        absent_chroms=("chr1", "chr2", "chr3"),
+        label_neighbors=True,
+        supported={
+            "prepare": {"gencode", "geneindex", "splicesite"},
+            "train": {"splicesite"},
+            "evaluate": {"baseline-splicesite", "zero-shot", "splicesite-report"},
+            "scan": None, "plot": None, "config": None,
+        }),
 }
 
 _ALIASES = {"hs": "human", "homo_sapiens": "human", "grch38": "human", "hg38": "human",
-            "mm": "mouse", "mus_musculus": "mouse", "grcm39": "mouse", "mm39": "mouse"}
+            "mm": "mouse", "mus_musculus": "mouse", "grcm39": "mouse", "mm39": "mouse",
+            "dm": "fly", "drosophila": "fly", "drosophila_melanogaster": "fly",
+            "bdgp6": "fly", "dm6": "fly"}
+
+# what each path setting is called in the environment, after the species prefix
+_ENV_SUFFIX = {"root": "ROOT", "genome_fasta": "GENOME", "gencode_gtf": "GTF",
+               "gencode_v29_gtf": "GTF_V29", "bajaclip_bundle": "BAJACLIP",
+               "eclip_dataset": "ECLIP", "untrusted_bed": "UNTRUSTED_BED",
+               "measured_psi": "MEASURED_PSI"}
 
 
 def _species_key(name) -> str:
@@ -223,7 +259,8 @@ class Paths:
         v = getattr(self, name)
         if v is None or not Path(v).exists():
             sp = species()
-            env = f"{sp.env_prefix}_" + name.upper().replace("_PATH", "")
+            # the name the code actually reads: BAJASPLICE_GENOME, not _GENOME_FASTA
+            env = f"{sp.env_prefix}_" + _ENV_SUFFIX.get(name, name.upper())
             raise FileNotFoundError(
                 f"{name} is not configured or does not exist ({v}). "
                 f"Set it with `{sp.command} config --{name.replace('_', '-')} PATH`, "

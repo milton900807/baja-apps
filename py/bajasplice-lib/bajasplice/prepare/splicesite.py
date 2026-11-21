@@ -34,9 +34,16 @@ def main():
         pickle.dump({"windows": W, "sites": S, "genes": G,
                      "species": species().key, "assembly": species().assembly}, f)
 
-    n_sites = sum(len(d) for d, _ in S.values())
     print(f"wrote {out}  ({species().label}, {species().assembly})")
-    print(f"  {len(G):,} transcripts, {n_sites:,} introns, {len(W):,} windows x {a.target_len} nt")
+    if species().label_neighbors:
+        own = int((G.n_introns).sum())
+        lab = sum(len(d) for d, _ in S.values())
+        print(f"  {len(G):,} transcripts, {own:,} introns, {len(W):,} windows x {a.target_len} nt")
+        print(f"  neighbouring same-strand sites are labelled too: {lab - own:,} donor labels "
+              f"that a one-transcript-per-window index would have called negative")
+    else:
+        n_sites = sum(len(d) for d, _ in S.values())
+        print(f"  {len(G):,} transcripts, {n_sites:,} introns, {len(W):,} windows x {a.target_len} nt")
     counts = W.split.value_counts()
     for sp in ("train", "val", "test"):
         print(f"  {sp:5s} {int(counts.get(sp, 0)):>8,} windows")

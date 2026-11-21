@@ -14,6 +14,11 @@ Mouse is the same CLI under another name, with its own root and config file:
     bajasplicemm evaluate zero-shot          # the human model, as the control to beat
     bajasplicemm train splicesite --context 2000 --epochs 8
     bajasplicemm scan --gene Tardbp --top 10
+
+Fly is `bajasplicedm`, on Ensembl's BDGP6 (chromosomes named 2L, 3R, X):
+
+    bajasplicedm config --root ~/ml/splicing-dm --genome-fasta BDGP6.fa --gencode-gtf BDGP6.gtf.gz --save
+    bajasplicedm scan --gene TBPH --top 10
 """
 from __future__ import annotations
 

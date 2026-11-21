@@ -263,3 +263,149 @@ def test_a_human_trained_checkpoint_is_flagged_on_mouse(tmp_path):
     config.set_species("mouse")
     with pytest.warns(UserWarning, match="trained on human"):
         load_splicenet(p)
+
+
+# ----------------------------------------------------------------------
+# fly: an Ensembl annotation and a compact genome
+# ----------------------------------------------------------------------
+
+def _synthetic_fly(root, chroms=("2L", "X", "3R"), genes_per_chrom=8, seed=1):
+    """Ensembl-shaped: no chr prefix, gene_biotype, quoted exon_number, and one
+    gene with no gene_name. Genes sit 2.5 kb apart in same-strand pairs, so a
+    5 kb window over the first of a pair also covers the second."""
+    rng = random.Random(seed)
+    fa, gtf, truth = [], [], {}
+    gid = 0
+    for chrom in chroms:
+        seq = [rng.choice("ACGT") for _ in range(genes_per_chrom * 2500 + 8000)]
+        for g in range(genes_per_chrom):
+            gid += 1
+            strand = "+" if (g // 2) % 2 == 0 else "-"
+            start = 1000 + g * 2500
+            exons, pos = [], start
+            for _ in range(4):
+                exons.append((pos, pos + 119))
+                pos += 120 + 600
+            for (_, e1), (s2, _) in zip(exons[:-1], exons[1:]):
+                a, b = e1 + 1, s2 - 1
+                left, right = ("GT", "AG") if strand == "+" else ("CT", "AC")
+                seq[a - 1:a + 1] = left
+                seq[b - 2:b] = right
+            fbgn = f"FBgn{gid:07d}"
+            name = "" if gid == 2 else f'gene_name "CG{gid}"; '
+            truth[fbgn if gid == 2 else f"CG{gid}"] = (chrom, strand, exons)
+            for n, (s, e) in enumerate(exons, 1):
+                gtf.append("\t".join([
+                    chrom, "FlyBase", "exon", str(s), str(e), ".", strand, ".",
+                    f'gene_id "{fbgn}"; transcript_id "FBtr{gid:07d}"; exon_number "{n}"; '
+                    f'{name}gene_source "FlyBase"; gene_biotype "protein_coding"; '
+                    f'transcript_biotype "protein_coding"; tag "Ensembl_canonical";']))
+        s = "".join(seq)
+        fa.append(f">{chrom}\n" + "\n".join(s[i:i + 60] for i in range(0, len(s), 60)))
+    (root / "dm.fa").write_text("\n".join(fa) + "\n")
+    (root / "dm.gtf").write_text("\n".join(gtf) + "\n")
+    return truth
+
+
+def test_fly_splits_by_arm_and_has_its_own_everything():
+    config.set_species("dm")
+    sp = config.species()
+    assert (sp.assembly, sp.command, sp.env_prefix) == ("BDGP6", "bajasplicedm", "BAJASPLICEDM")
+    assert config.split_of("2L") == "test" and config.split_of("X") == "val"
+    assert {config.split_of(c) for c in ("2R", "3L", "3R", "4", "Y")} == {"train"}
+    assert "chr2L" not in config.MAIN_CHROMS
+    assert config.config_file().name == "config.fly.json"
+    from bajasplice.index import slim_index_path
+    assert slim_index_path().name == "genes.slim.fly.sqlite"
+
+
+def test_a_ucsc_named_or_foreign_genome_is_refused_as_fly():
+    from bajasplice.genome import check_assembly
+    config.set_species("fly")
+    check_assembly(["2L", "2R", "3L", "3R", "4", "X", "Y", "mitochondrion_genome"])
+    with pytest.raises(ValueError, match="none of the Drosophila melanogaster chromosomes"):
+        check_assembly(["chr2L", "chr2R", "chr3L", "chr3R", "chrX"])       # UCSC dm6
+    with pytest.raises(ValueError):
+        check_assembly([f"chr{c}" for c in range(1, 23)])
+    config.set_species("human")
+    with pytest.raises(ValueError, match="none of the Homo sapiens chromosomes"):
+        check_assembly(["2L", "2R", "3L", "3R", "4", "X", "Y"])
+
+
+def test_the_error_names_the_variable_the_code_reads():
+    config.set_species("fly")
+    bajasplice.configure(root="/nonexistent")
+    with pytest.raises(FileNotFoundError, match=r"BAJASPLICEDM_GENOME environment"):
+        config.paths().require("genome_fasta")
+
+
+def test_neighbouring_same_strand_sites_are_labelled():
+    from bajasplice.datasets import with_neighbor_sites
+    genes = pd.DataFrame(
+        [("A", "g1", "2R", "+", 1000, 2000), ("B", "g2", "2R", "+", 3500, 4500),
+         ("C", "g3", "2R", "-", 2100, 2900), ("D", "g4", "2R", "+", 9000, 9900)],
+        columns=["transcript_id", "gene_id", "chrom", "strand", "span_start", "span_end"])
+    sites = {"A": (np.array([1200]), np.array([1800])), "B": (np.array([3700]), np.array([4300])),
+             "C": (np.array([2700]), np.array([2300])), "D": (np.array([9200]), np.array([9700]))}
+    out = with_neighbor_sites(sites, genes, target_len=5000)
+    assert list(out["A"][0]) == [1200, 3700] and list(out["A"][1]) == [1800, 4300]
+    assert list(out["B"][0]) == [3700]            # A lies before B's windows; D past them
+    assert list(out["C"][0]) == [2700]            # the other strand is never merged in
+    assert list(out["D"][0]) == [9200]
+
+
+def test_fly_pipeline_end_to_end(tmp_path, capsys):
+    from bajasplicedm.cli import main
+    truth = _synthetic_fly(tmp_path)
+    root = tmp_path / "splicing-dm"
+    assert main(["config", "--root", str(root), "--genome-fasta", str(tmp_path / "dm.fa"),
+                 "--gencode-gtf", str(tmp_path / "dm.gtf"), "--save"]) == 0
+    assert json.loads(capsys.readouterr().out)["assembly"] == "BDGP6"
+
+    assert main(["prepare", "gencode"]) == 0
+    ex = pd.read_csv(root / "data" / "interim" / "exons.tsv", sep="\t")
+    assert set(ex.gene_type) == {"protein_coding"}          # read from gene_biotype
+    assert set(ex.chrom) == {"2L", "X", "3R"}
+    assert "FBgn0000002" in set(ex.gene_name)               # no symbol: known by its id
+    assert ex.exon_number.max() == 4
+
+    assert main(["prepare", "geneindex"]) == 0
+    assert main(["prepare", "splicesite"]) == 0
+    assert "neighbouring same-strand sites are labelled too" in capsys.readouterr().out
+    import pickle
+    idx = pickle.load(open(root / "data" / "processed" / "splicesite_index.pkl", "rb"))
+    assert idx["species"] == "fly"
+    assert set(idx["windows"].split) == {"train", "val", "test"}
+    G = idx["genes"].set_index("transcript_id")
+    assert (G.n_introns == 3).all()
+    # the first gene of a same-strand pair carries its neighbour's sites as well
+    assert sorted({len(d) for d, _ in idx["sites"].values()}) == [3, 6]
+
+    from bajasplice.genome import GenomeReader
+    g = GenomeReader()
+    for tid, (don, acc) in idx["sites"].items():
+        r = G.loc[tid]
+        for d in don:
+            lo, hi = (d, d + 1) if r.strand == "+" else (d - 1, d)
+            assert g.sequence(r.chrom, lo, hi, r.strand) == "GT"
+        for a in acc:
+            lo, hi = (a - 1, a) if r.strand == "+" else (a, a + 1)
+            assert g.sequence(r.chrom, lo, hi, r.strand) == "AG"
+
+    main(["train", "splicesite", "--context", "80", "--channels", "8", "--epochs", "1",
+          "--batch-size", "4", "--workers", "0"])
+    import torch
+    ck = torch.load(root / "models" / "ss_ctx80.pt", weights_only=False)
+    assert ck["species"] == "fly" and ck["assembly"] == "BDGP6"
+    main(["evaluate", "baseline-splicesite"])
+
+    from bajasplice.scan import scan_gene
+    acc, don, (chrom, gs, ge, strand) = scan_gene("CG1", ckpt=root / "models" / "ss_ctx80.pt")
+    c, s, exons = truth["CG1"]
+    assert (chrom, strand, gs, ge) == (c, s, exons[0][0], exons[-1][1])
+
+    capsys.readouterr()
+    assert main(["evaluate", "splicesite-report"]) == 0
+    assert "Drosophila melanogaster (BDGP6)" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="not available for Drosophila melanogaster"):
+        main(["train", "psi"])

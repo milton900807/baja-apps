@@ -18,10 +18,11 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from bajasplice.config import paths, split_of
+from bajasplice.config import paths, split_of, species
 from bajasplice.genome import GenomeReader, one_hot
 
-__all__ = ["canonical_transcripts", "build_splicesite_index", "SpliceSiteDataset",
+__all__ = ["canonical_transcripts", "build_splicesite_index", "with_neighbor_sites",
+           "SpliceSiteDataset",
            "site_positions", "load_events", "PSIDataset",
            "load_groups", "AltSSDataset", "MAX_GROUP",
            "build_rbp_matrix", "aligned_binding", "RBPResponseDataset"]
@@ -46,6 +47,43 @@ def canonical_transcripts(exons, protein_coding_only=True):
     tx = tx.sort_values(["gene_id", "mane", "basic", "exonic_len"],
                         ascending=[True, False, False, False])
     return tx.groupby("gene_id", observed=True).head(1).reset_index(drop=True)
+
+
+def with_neighbor_sites(sites, genes, target_len):
+    """Give each transcript the same-strand sites of its neighbours too.
+
+    A WINDOW IS LABELLED FROM ONE TRANSCRIPT BUT COVERS WHATEVER IS THERE. The
+    windows tile a gene from its start in fixed steps, so the last one runs up
+    to target_len past the gene's end, and a gene nested in an intron sits
+    inside its host's windows. Any real same-strand splice site of another
+    gene in that stretch is then labelled "not a site": the model is trained
+    to suppress it and is charged a false positive for finding it.
+
+    In human and mouse that is rare enough to have been left alone, and their
+    labels are unchanged. In a compact genome it is not rare: fly genes are a
+    few kb apart and often nested, so a 5 kb window routinely holds a
+    neighbour's first intron. For species that set label_neighbors, every
+    transcript's site arrays are widened to all canonical same-strand sites
+    within the stretch its windows cover. Sites on the other strand are left
+    out; read in this transcript's orientation they are not splice sites.
+    """
+    out = {}
+    for (chrom, strand), grp in genes.groupby(["chrom", "strand"], sort=False):
+        tids = [t for t in grp.transcript_id if t in sites]
+        if not tids:
+            continue
+        don = np.unique(np.concatenate([sites[t][0] for t in tids]))
+        acc = np.unique(np.concatenate([sites[t][1] for t in tids]))
+        for r in grp.itertuples(index=False):
+            if r.transcript_id not in sites:
+                continue
+            n = r.span_end - r.span_start + 1
+            lo = r.span_start
+            hi = r.span_start + max(1, int(np.ceil(n / target_len))) * target_len - 1
+            out[r.transcript_id] = (
+                don[np.searchsorted(don, lo):np.searchsorted(don, hi, side="right")],
+                acc[np.searchsorted(acc, lo):np.searchsorted(acc, hi, side="right")])
+    return out
 
 
 def build_splicesite_index(target_len=5000, min_introns=1, protein_coding_only=True):
@@ -77,6 +115,9 @@ def build_splicesite_index(target_len=5000, min_introns=1, protein_coding_only=T
     gdf = pd.DataFrame(genes, columns=["transcript_id", "gene_id", "chrom", "strand",
                                        "span_start", "span_end"])
     gdf["split"] = gdf.chrom.map(split_of)
+    gdf["n_introns"] = [len(sites[t][0]) for t in gdf.transcript_id]
+    if species().label_neighbors:
+        sites = with_neighbor_sites(sites, gdf, target_len)
 
     windows = []
     for r in gdf.itertuples(index=False):

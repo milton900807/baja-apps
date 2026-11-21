@@ -344,6 +344,44 @@ matches it has not shown that training on mouse bought anything.
 Gene symbols follow the annotation (`Tardbp`), and a symbol typed in another
 case is accepted when it matches exactly one gene.
 
+## Fly: BajaSpliceDM
+
+*Drosophila melanogaster* (BDGP6), under `bajasplicedm` or `import bajasplicedm`,
+with the same steps and the same refusals as mouse:
+
+```bash
+bash scripts/bajasplicedm-setup.sh     # reference, datasets, controls, training
+bajasplicedm scan --gene TBPH --top 10
+```
+
+Three things are specific to fly.
+
+**The reference is Ensembl's.** GENCODE has no fly release. Ensembl names the
+arms `2L`, `2R`, `3L`, `3R`, `4`, `X`, `Y` with no `chr` prefix, and writes
+`gene_biotype` where GENCODE writes `gene_type`; the GTF parser reads both. The
+UCSC dm6 FASTA spells the arms `chr2L` and is refused, because it would not
+match the annotation. Regions are given the same way: `--region 2L:1000-9000:+`.
+
+**The split is by arm.** There are only five large arms, so `2L` is held out for
+test and `X` for validation; `2R`, `3L`, `3R`, `4` and `Y` train. One arm of test
+data is a smaller and less varied test set than five human chromosomes.
+
+**Neighbouring genes' sites are labelled.** Training windows tile a gene in 5 kb
+steps, so the last window overruns the gene's end and any gene nested in an
+intron sits inside its host's windows. A same-strand splice site of another
+gene in that stretch used to be labelled "not a site". In human and mouse that
+is rare and their labels are unchanged; in fly, where genes are a few kb apart
+and often nested, it is routine. For fly every window is labelled with all
+canonical same-strand sites that fall in it (`datasets.with_neighbor_sites`),
+and `prepare splicesite` prints how many labels that added. Only canonical
+transcripts are used, so a site belonging solely to an alternative isoform is
+still labelled negative, as it is for human and mouse.
+
+**No fly results are quoted here yet because none exist.** The zero-shot rows
+for fly use the human and mouse models; across that distance the ortholog
+exposure that inflates the mouse control is small, and the more interesting
+question is how far a mammalian model gets on short fly introns at all.
+
 ## Coordinate conventions
 
 Getting these wrong is silent, so they are pinned in `tests/test_coordinates.py`.

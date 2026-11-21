@@ -21,6 +21,7 @@ dev = ["pytest"]
 [project.scripts]
 bajasplice = "bajasplice.cli:main"
 bajasplicemm = "bajasplicemm.cli:main"
+bajasplicedm = "bajasplicedm.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["bajasplice*"]

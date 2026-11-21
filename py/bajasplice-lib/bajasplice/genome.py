@@ -58,6 +58,15 @@ def check_assembly(contigs, path="the genome FASTA"):
     """
     contigs = set(contigs)
     sp = species()
+    if contigs and not (contigs & set(sp.main_chroms)):
+        # NOT ONE CHROMOSOME OF THIS SPECIES IS IN THE FILE. Either it is
+        # another organism or the same one under another naming (UCSC chr2L
+        # against Ensembl 2L), and every lookup would miss or read padding.
+        raise ValueError(
+            f"{path} has none of the {sp.label} chromosomes this build expects "
+            f"({', '.join(sorted(sp.main_chroms)[:4])}, ...); it has "
+            f"{', '.join(sorted(contigs)[:4])}, ... Point `{sp.command} config "
+            f"--genome-fasta` at a {sp.assembly} FASTA named the way the annotation is.")
     if sp.absent_chroms and any(c in contigs for c in sp.absent_chroms):
         raise ValueError(
             f"{path} has {', '.join(c for c in sp.absent_chroms if c in contigs)}, which "
