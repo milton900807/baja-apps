@@ -35,7 +35,7 @@ global.lion_engine = { exec: (p, ...a) => load(p, ...a) };
 let release = null;
 const mkGraph = () => {
     const track = {
-        name: 'DNM3', snpindels: [], oligos: [],
+        name: 'TARGET', snpindels: [], oligos: [],
         markstart: 10, markend: 120,
         tgraph: { X: (i) => i, yi: 0, height: 2 },
         annotations: Array.from({ length: 21 }, (_, k) => ({

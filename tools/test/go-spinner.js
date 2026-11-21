@@ -58,13 +58,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const slow = new Promise((r) => setTimeout(r, 420).unref && setTimeout(r, 420));
     const timer = setTimeout(async () => {
         if (window.__bajaWorking) return;
-        w = await load('baja/lib/working.js', 'compare the sequences of DNM1 and DNM3', 'compare_sequences');
+        w = await load('baja/lib/working.js', 'compare the sequences of QUERY and TARGET', 'compare_sequences');
         if (settled) { w.done(); w = null; }
     }, 350);
     await sleep(500);
     const panel = document.getElementById('baja-working');
     ok(!!panel, 'a step still going after a moment gets the panel');
-    ok(panel && /compare the sequences of DNM1 and DNM3/.test(panel.textContent),
+    ok(panel && /compare the sequences of QUERY and TARGET/.test(panel.textContent),
        'titled with what is running, not just "Working": ' + (panel ? panel.textContent.slice(0, 50) : ''));
     ok(panel && /second/.test(panel.textContent), 'with the clock that says how long you have waited');
     ok(panel && panel.querySelector('animateTransform'), 'and a spinner that is turning');
@@ -74,7 +74,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok(!document.getElementById('baja-working'), 'and it goes when the work does');
 
     // The singleton guard, which is what keeps an operation's own detail on screen.
-    const mine = await load('baja/lib/working.js', 'Exons of DNM1 against DNM3', 'One search per exon.');
+    const mine = await load('baja/lib/working.js', 'Exons of QUERY against TARGET', 'One search per exon.');
     mine.step('Searching exon 3 of 22');
     let second = null;
     if (!window.__bajaWorking) second = await load('baja/lib/working.js', 'Working', '');

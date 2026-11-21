@@ -30,9 +30,9 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 
 // A model of the shape match-regions resolves to: five exons a side, only two matched.
 const mkModel = (marks, stability) => ({
-    title: 'Exons of DNM1 against DNM3',
-    a: { name: 'DNM1', x1: 0, x2: 3000 },
-    b: { name: 'DNM3', x1: 0, x2: 3000 },
+    title: 'Exons of QUERY against TARGET',
+    a: { name: 'QUERY', x1: 0, x2: 3000 },
+    b: { name: 'TARGET', x1: 0, x2: 3000 },
     blocks: [
         { label: 'exon 1', a: { x1: 500, x2: 650, stab: { pct: 98, word: 'constitutive' } },
             b: { x1: 500, x2: 650, stab: { pct: 97, word: 'constitutive' } } },
@@ -81,7 +81,7 @@ const render = async (model) => {
         const txt = host.textContent || '';
         ok([61, 62, 63, 64, 65].every((n) => txt.indexOf(n + '%') >= 0),
            'the track that WAS scored shows all five of its exons');
-        ok(/No figures on DNM1: PSI has not been run on it/.test(txt),
+        ok(/No figures on QUERY: PSI has not been run on it/.test(txt),
            'and the one that was not says so, in the run\'s own words: ' + txt.slice(0, 200));
     }
 
@@ -105,8 +105,8 @@ const render = async (model) => {
               whyA: 'the PSI run on it left no junctions',
               whyB: 'it has no annotated exons to put a figure on' }));
         const txt = host.textContent || '';
-        ok(/DNM1: the PSI run on it left no junctions/.test(txt)
-            && /DNM3: it has no annotated exons/.test(txt),
+        ok(/QUERY: the PSI run on it left no junctions/.test(txt)
+            && /TARGET: it has no annotated exons/.test(txt),
            'each track gets its own reason: ' + txt.slice(0, 240));
     }
     {

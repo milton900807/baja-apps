@@ -34,14 +34,14 @@ const W = (t, d) => load('baja/lib/working.js', t, d);
 
 (async () => {
     // The comparison's panel, reporting progress.
-    const outer = await W('Exons of DNM1 against DNM3', 'One search per exon.');
+    const outer = await W('Exons of QUERY against TARGET', 'One search per exon.');
     outer.step('Searching exon 7 of 22');
     ok(shown().length === 1 && /Searching exon 7 of 22/.test(text()), 'the outer operation reports progress');
 
     // PSI, started from inside it.
-    const inner = await W('Running PSI on DNM1', 'splice model');
+    const inner = await W('Running PSI on QUERY', 'splice model');
     ok(shown().length === 1, 'one panel is on screen at a time, not two stacked');
-    ok(/Running PSI on DNM1/.test(text()), 'and it is the inner one: ' + text().slice(0, 60));
+    ok(/Running PSI on QUERY/.test(text()), 'and it is the inner one: ' + text().slice(0, 60));
     ok(panels().length === 2, 'the outer one is kept, hidden, rather than destroyed');
     ok(window.__bajaWorking === inner, 'the inner one is what another operation would see');
 
@@ -50,7 +50,7 @@ const W = (t, d) => load('baja/lib/working.js', t, d);
 
     inner.done();
     ok(shown().length === 1, 'when PSI finishes its panel goes');
-    ok(/Exons of DNM1 against DNM3/.test(text()),
+    ok(/Exons of QUERY against TARGET/.test(text()),
        'AND THE COMPARISON IS BACK, not a bare canvas: ' + text().slice(0, 60));
     ok(/Searching exon 8 of 22/.test(text()),
        'carrying what it was told while it was underneath: ' + text().slice(0, 90));
@@ -63,7 +63,7 @@ const W = (t, d) => load('baja/lib/working.js', t, d);
     deep.done();
     ok(/Mid/.test(text()), 'unwinding one level shows the middle one');
     mid.done();
-    ok(/Exons of DNM1 against DNM3/.test(text()), 'and the next shows the outermost again');
+    ok(/Exons of QUERY against TARGET/.test(text()), 'and the next shows the outermost again');
 
     // A step after something removed the panel brings it back: an operation still
     // reporting progress is still running.

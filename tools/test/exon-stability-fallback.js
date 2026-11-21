@@ -28,7 +28,7 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 
 // Five exons, 300 apart, 150 long.
 const mkTrack = () => ({
-    name: 'DNM3', xi: 0, xf: 3000, track_layers: [],
+    name: 'TARGET', xi: 0, xf: 3000, track_layers: [],
     annotations: [1, 2, 3, 4, 5].map((i) => ({ type: 'Exon', index: i, xi: i * 500, xf: i * 500 + 150 }))
 });
 
