@@ -142,7 +142,13 @@ function () {
                 + 'front of the user, and then filled, so ONE step answers the whole '
                 + 'sentence. Pass `columns` when creating, and new_table only when the '
                 + 'request asks for an EMPTY table of a given size. The rows go into the '
-                + 'empty rows at the bottom and nothing already written is overwritten',
+                + 'empty rows at the bottom and nothing already written is overwritten. '
+                // WORKED OUT FROM ANOTHER TABLE MEANS READING IT. Typed-in numbers go stale
+                // the moment the table they came from changes.
+                + 'ALSO THE ANSWER when the new content is WORKED OUT FROM A TABLE already '
+                + 'on the canvas ("use assumptions to create a monthly cost table", "a '
+                + 'budget based on employees"): pass that table as `from`, and the figures '
+                + 'are written as FORMULAS that read it, not as typed-in numbers',
             module: 'baja/plate/ops/fill-table.js',
             params: {
                 what: { type: 'string', required: true,
@@ -154,6 +160,13 @@ function () {
                     about: 'the NAME of the table, if the request says it' },
                 rows: { type: 'number', default: '0, meaning as many as the request implies',
                     about: 'how many rows, when the request says a number' },
+                from: { type: 'string', default: 'not set: the content is not worked out from '
+                        + 'another table',
+                    about: 'the NAME of a table already on the canvas that the content is '
+                        + 'worked out from, when the request says to use one or base it on '
+                        + 'one ("use assumptions to ..." gives assumptions). Several are '
+                        + 'separated by commas. The cells worked out from it are then '
+                        + 'formulas that read it' },
                 columns: { type: 'string', default: 'not set: a table that has to be made gets '
                         + 'a label column and a value column',
                     about: 'the column headings, separated by commas, used ONLY when the table '

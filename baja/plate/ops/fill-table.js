@@ -20,6 +20,20 @@ function (pm, o) {
     // string: a generated formula would be evaluated against the live workbook, which is a
     // far larger act than filling in some rows.
     //
+    // A TABLE WORKED OUT FROM ANOTHER TABLE READS IT, WITH FORMULAS. "use assumptions to
+    // create a monthly cost table" made a table of typed-in numbers: the generator was never
+    // shown assumptions at all, so the figures were invented, and even right ones would
+    // have gone stale the moment an assumption changed. That is the one case where values
+    // are the wrong answer. So a table the request draws on (o.from, or a table the request
+    // names) is sent with a reference for every number in it, and a cell worked out from
+    // those numbers comes back as a formula over those references.
+    //
+    // THAT IS THE ONLY FORMULA THAT IS EVER WRITTEN, AND IT IS CHECKED HERE, NOT TRUSTED.
+    // A generated formula is kept only when it is made of nothing but the references that
+    // were sent, plain numbers, + - * / and brackets. No function, no other table, no
+    // range that was not offered. Anything else is not written at all, and is counted and
+    // said: its text without the "=" would be rubbish in a cell that looks like an answer.
+    //
     // A TABLE THAT IS NOT THERE YET IS MADE, CENTRED, AND THEN FILLED. "create a table of
     // assumptions of costs associated with single sea plane operations" came back as "there
     // is no table called assumptions": the plan was a fill, the fill was right, and the only
@@ -125,11 +139,88 @@ function (pm, o) {
             const asked = Math.floor(Number((o && o.rows) || 0));
             const wanted = (isFinite(asked) && asked > 0) ? Math.min(asked, 200) : 0;
 
+            // THE TABLES THIS ONE IS WORKED OUT FROM. Named by the plan (o.from), or named
+            // in the request itself: "monthly cost table based on assumptions" says it as
+            // plainly as a parameter would. Only a name a formula can carry is used, and
+            // never the table being filled.
+            const numberIn = (w) => {
+                if (!w || isHeaderCell(w)) return false;
+                if (typeof w.formula === 'string' && w.formula.trim()) return true;
+                const v = w.value;
+                if (v == null || ('' + v).trim() === '') return false;
+                const x = ('' + v).replace(/[$,£€\s]/g, '').replace(/%$/, '');
+                return x !== '' && isFinite(Number(x));
+            };
+            const sources = [], allowed = {};
+            (() => {
+                const all = (Array.isArray(pt.root) ? pt.root : [])
+                    .filter((p) => p && Array.isArray(p.wells) && p !== t && p.name
+                        && /^[A-Za-z_]\w*$/.test('' + p.name));
+                const named = ('' + ((o && o.from) || '')).split(',')
+                    .map((x) => x.trim().toLowerCase()).filter(Boolean);
+                const said = what.toLowerCase();
+                const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                let budget = 300;
+                for (const src of all) {
+                    const nm = ('' + src.name).toLowerCase();
+                    const mentioned = new RegExp('(^|[^a-z0-9_])' + esc(nm) + '($|[^a-z0-9_])').test(said);
+                    if (named.indexOf(nm) < 0 && !mentioned) continue;
+                    const sc = src.wells.length, sr = (src.wells[0] ? src.wells[0].length : 0);
+                    const cells = [];
+                    for (let r = 0; r < sr && budget > 0; r++) {
+                        // What the row is called: the first thing in it that is not a number.
+                        let label = '';
+                        for (let c = 0; c < sc; c++) {
+                            const w = src.wells[c] && src.wells[c][r];
+                            if (w && !isHeaderCell(w) && filled(w) && !numberIn(w)) { label = text(w).slice(0, 80); break; }
+                        }
+                        for (let c = 0; c < sc && budget > 0; c++) {
+                            const w = src.wells[c] && src.wells[c][r];
+                            if (!numberIn(w)) continue;
+                            let head = '';
+                            for (let h = r - 1; h >= 0; h--) {
+                                const hw = src.wells[c][h];
+                                if (isHeaderCell(hw)) { head = text(hw).slice(0, 60); break; }
+                            }
+                            const ref = src.name + '[' + c + ':' + c + '][' + r + ':' + r + ']';
+                            allowed[ref] = true;
+                            cells.push({ ref: ref, label: label, column: head, value: text(w).slice(0, 40) });
+                            budget--;
+                        }
+                    }
+                    if (cells.length) sources.push({ table: src.name, cells: cells });
+                }
+            })();
+
+            // ONLY WHAT WAS OFFERED, AND ARITHMETIC. Every reference is taken out by exact
+            // match; what is left has to be numbers, + - * / and brackets, and nothing else.
+            const checked = (v) => {
+                let f = ('' + v).trim().replace(/^=+\s*/, '');
+                if (!f) return null;
+                let refs = 0, rest = '', i = 0;
+                const names = Object.keys(allowed).sort((a, b) => b.length - a.length);
+                while (i < f.length) {
+                    let hit = null;
+                    for (const n of names) { if (f.startsWith(n, i)) { hit = n; break; } }
+                    if (hit) { refs++; rest += ' 1 '; i += hit.length; } else { rest += f.charAt(i); i++; }
+                }
+                if (!refs) return null;
+                if (!/^[\d\s.+\-*/()]+$/.test(rest)) return null;
+                let depth = 0;
+                for (const ch of rest) { if (ch === '(') depth++; if (ch === ')') depth--; if (depth < 0) return null; }
+                if (depth !== 0) return null;
+                // Two things side by side with no operator between them is not arithmetic.
+                if (/[\d.)]\s+[\d.(]/.test(rest.replace(/\s+/g, ' ')) || /\)\s*\(/.test(rest)
+                    || /[+\-*/]\s*[*/)]/.test(rest) || /\(\s*[*/)]/.test(rest) || /[+\-*/]\s*$/.test(rest)
+                    || /^\s*[*/]/.test(rest)) return null;
+                return '=' + f.replace(/\s+/g, '');
+            };
+
             let out = null;
             try {
                 out = await exec('py/bio/project/table-fill.py', what,
                     JSON.stringify({ table: t.name, columns: columns, existing: existing,
-                        rows_wanted: wanted }));
+                        rows_wanted: wanted, sources: sources.length ? sources : undefined }));
             } catch (e) {
                 resolve({ error: 'could not work out what to put in: '
                     + ('' + (e && e.message ? e.message : e)) });
@@ -173,7 +264,7 @@ function (pm, o) {
             }
             const nowRows = (t.wells[0] ? t.wells[0].length : nRows);
 
-            let written = 0, skipped = 0;
+            let written = 0, skipped = 0, formulas = 0, unchecked = 0;
             for (let i = 0; i < rows.length; i++) {
                 const r = emptyFrom + i;
                 if (r >= nowRows) { skipped++; continue; }
@@ -182,7 +273,23 @@ function (pm, o) {
                     if (!w) continue;
                     // Counted from what the cell holds afterwards, not from whether the call
                     // returned: setValue notifies, and a notification can throw on its own.
-                    const v = ('' + (rows[i][c] == null ? '' : rows[i][c]));
+                    let v = ('' + (rows[i][c] == null ? '' : rows[i][c]));
+                    if (v.trim().charAt(0) === '=') {
+                        const f = sources.length ? checked(v) : null;
+                        if (f) {
+                            try {
+                                const wr = t.getWellRange([w]);
+                                try { t.formula[wr] = f; } catch (e) { }
+                                try { pt.addFormula(t.name + '' + wr, f); } catch (e) { }
+                            } catch (e) { }
+                            try { if (typeof w.setValue === 'function') w.setValue(f); else w.value = f; } catch (e) { }
+                            formulas++;
+                            continue;
+                        }
+                        // Not one of ours: left empty and said, never written as text.
+                        unchecked++;
+                        v = '';
+                    }
                     try { if (typeof w.setValue === 'function') w.setValue(v); else w.value = v; } catch (e) { }
                 }
                 if (t.wells[0][r] && ('' + t.wells[0][r].value) === ('' + rows[i][0])) written++;
@@ -195,6 +302,12 @@ function (pm, o) {
             try {
                 pt.setMessage('Put ' + written + ' row' + (written === 1 ? '' : 's') + ' into ' + t.name
                     + (grew ? (', making it ' + grew + ' row' + (grew === 1 ? '' : 's') + ' taller') : '')
+                    + (formulas ? ('. ' + formulas + ' cell' + (formulas === 1 ? ' is a formula' : 's are formulas')
+                        + ' reading ' + sources.map((x) => x.table).join(' and ')
+                        + ', so ' + (formulas === 1 ? 'it follows' : 'they follow') + ' when it changes') : '')
+                    + (unchecked ? ('. ' + unchecked + ' cell' + (unchecked === 1 ? '' : 's')
+                        + ' came back as a formula that could not be checked and '
+                        + (unchecked === 1 ? 'was' : 'were') + ' left empty') : '')
                     + (skipped ? ('. ' + skipped + ' did not fit') : ''), 8);
             } catch (e) { }
 
@@ -207,6 +320,9 @@ function (pm, o) {
                     ? ('the request did not say what the columns should be, so it was made with '
                         + made.columns.join(' and ') + '; rename them and fill it again to change that')
                     : undefined,
+                formulas: formulas || undefined,
+                reads: (formulas && sources.length) ? sources.map((x) => x.table).join(', ') : undefined,
+                left_empty: unchecked || undefined,
                 added_rows: grew || undefined,
                 skipped: skipped || undefined,
                 dropped: (out.dropped || 0) + wrongWidth || undefined,

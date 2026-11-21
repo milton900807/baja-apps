@@ -1037,6 +1037,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/sum-above.js:A TOTAL ROW IS WRITTEN BEFORE THE FIGURES AS OFTEN AS AFTER THEM" \
     "baja/plate/menu/project-capabilities.js:A TOTAL ROW IS ASKED FOR AS A ROW" \
     "baja/plate/ops/frun-object.js:AN EMPTY CELL ADDS NOTHING, WHATEVER EMPTY LOOKS LIKE"
+  # A table worked out from another table reads it with formulas. The operation sends the
+  # source table's numbers, the python is what asks for formulas back, and the catalogue is
+  # what tells the planner to say which table: any one of them old and the cells are values.
+  install_group "A table worked out from another table reads it, with formulas" \
+    "baja/plate/ops/fill-table.js:A TABLE WORKED OUT FROM ANOTHER TABLE READS IT, WITH FORMULAS" \
+    "py/bio/project/table-fill.py:A TABLE WORKED OUT FROM ANOTHER TABLE IS THE ONE EXCEPTION" \
+    "baja/plate/menu/project-capabilities.js:WORKED OUT FROM ANOTHER TABLE MEANS READING IT"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
