@@ -54,6 +54,55 @@ function (track) {
         return null;
     };
 
+    // BY THE NUMBER THE ARCS CARRY, WHICH IS WHAT THE CANVAS USES.
+    //
+    // The tag on each exon reads `1 - skipOf.get(annotation.index)`, keyed on the exon
+    // number the arcs were given (baja/bio/track-layer.js). That is why the canvas can
+    // show a figure on every exon while this module, matching arcs to exons by POSITION,
+    // found nothing and the report said so: two answers to one question, from the same
+    // layer, disagreeing about whether there is an answer at all.
+    //
+    // So the number is read the same way here. Position is kept below for a layer whose
+    // arcs carry no exon numbers, which is the only case it was ever needed for.
+    const numbered = js.some((j) => j && j.exon != null);
+    const untrustedWhy = (lo, hi) => {
+        for (const u of (L.untrustedSpans || [])) {
+            const a2 = Math.min(+u.xi, +u.xf), b2 = Math.max(+u.xi, +u.xf);
+            if (isFinite(a2) && isFinite(b2) && a2 <= hi && b2 >= lo) return (u.why || '');
+        }
+        return null;
+    };
+    if (numbered) {
+        const skipOf = new Map();
+        for (const j of js) {
+            if (!j || j.kind !== 'skip' || j.exon == null) continue;
+            const f = Math.max(0, Math.min(1, (typeof j.mag === 'number' ? j.mag : 0) / magMax));
+            const k = +j.exon;
+            if (!(f <= (skipOf.get(k) || 0))) skipOf.set(k, f);
+        }
+        const out = [];
+        for (let i = 0; i < exons.length; i++) {
+            const e = exons[i];
+            const idx = isFinite(+e.a.index) ? +e.a.index : (i + 1);
+            const mm = measuredAt(e.lo, e.hi);
+            const why = mm ? null : untrustedWhy(e.lo, e.hi);
+            if (why != null) {
+                out.push({ exon: idx, lo: e.lo, hi: e.hi, psi: null, score: null,
+                    word: 'PSI not trusted', untrusted: true, untrustedWhy: why, from: 'arcs' });
+                continue;
+            }
+            const psi = (mm && isFinite(+mm.psi)) ? +mm.psi : (1 - (skipOf.get(idx) || 0));
+            const score = 1 - Math.abs(2 * psi - 1);
+            out.push({
+                exon: idx, lo: e.lo, hi: e.hi, psi: psi, score: score,
+                word: (score <= 0.15) ? (psi >= 0.5 ? 'constitutive' : 'rarely in')
+                    : (score <= 0.45) ? 'variable' : 'unstable',
+                measured: mm || null, from: mm ? 'measured' : 'arcs'
+            });
+        }
+        if (out.length) return out;
+    }
+
     const EDGE = 6;           // how near an arc end has to be to count as landing on an edge
     const rows = [];
     for (let i = 0; i < exons.length; i++) {

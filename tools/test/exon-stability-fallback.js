@@ -45,6 +45,39 @@ const mkTrack = () => ({
        'the scored rows are handed straight back: ' + JSON.stringify(rows));
     ok(rows[0].rank === 0.3, 'with everything the run put on them, not a recomputation');
 
+    // ---- the number the CANVAS shows is the number this gives ---------------------------
+    // The tag on each exon reads 1 - skipOf.get(annotation.index), keyed on the exon number
+    // the arcs carry. Matching by position instead found nothing on the same layer, so the
+    // canvas showed a figure on every exon while the report said there were none: two
+    // answers to one question, from one layer, disagreeing about whether there is an answer.
+    const n1 = mkTrack();
+    n1.track_layers.push({ magnitudeMode: 'psi', magMax: 1, junctions: [
+        // Numbered arcs whose coordinates do NOT line up with the annotated exon edges,
+        // which is the case that was producing nothing at all.
+        { d: 9000, a: 9400, mag: 0.25, kind: 'skip', exon: 2 },
+        { d: 9000, a: 9400, mag: 0.60, kind: 'skip', exon: 4 },
+        { d: 9400, a: 9800, mag: 0.9, kind: 'junction', exon: 3 }
+    ] });
+    let nr = await stab(n1);
+    const nAt = (n) => nr.find((r) => r.exon === n);
+    ok(nr.length === 5, 'every annotated exon gets a figure: ' + JSON.stringify(nr.map((r) => r.exon)));
+    ok(nAt(2) && Math.abs(nAt(2).psi - 0.75) < 1e-9,
+       'an exon with a 25% skip arc against its number is 75%: ' + JSON.stringify(nAt(2)));
+    ok(nAt(4) && Math.abs(nAt(4).psi - 0.4) < 1e-9, 'and a 60% one is 40%: ' + JSON.stringify(nAt(4)));
+    ok(nAt(1) && nAt(1).psi === 1 && nAt(1).word === 'constitutive',
+       'an exon no skip arc names is constitutive, exactly as the canvas reads it: '
+       + JSON.stringify(nAt(1)));
+    ok(nr.every((r) => !r.unknown), 'and nothing is left as unknown when the arcs are numbered');
+
+    // An exon the run marked untrusted carries no number, as on the canvas.
+    const n2 = mkTrack();
+    n2.track_layers.push({ magnitudeMode: 'psi', magMax: 1,
+        untrustedSpans: [{ xi: 1000, xf: 1150, why: 'SMN2' }],
+        junctions: [{ d: 9000, a: 9400, mag: 0.25, kind: 'skip', exon: 2 }] });
+    const u2 = (await stab(n2)).find((r) => r.exon === 2);
+    ok(u2 && u2.untrusted === true && u2.psi === null,
+       'an untrusted exon says so instead of showing a figure: ' + JSON.stringify(u2));
+
     // ---- and when they are missing, the arcs still say it -------------------------------
     const b = mkTrack();
     b.track_layers.push({ magnitudeMode: 'psi', magMax: 1, junctions: [
