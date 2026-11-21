@@ -147,6 +147,54 @@ const mkTable = (name, rows) => {
     ok(x.foot.value === '=sum(flight_cost[1:1][1:3])' && asked.length === 0 && !x.foot.hasError(),
        '"=sum the cells above" on a red cell becomes the total, with no model: ' + x.foot.value);
 
+    // ---- Enter pressed on the cell itself, not in the field at the top -----------------------
+    // This is where it was actually being pressed. The table's own handler moves the
+    // selection on, so the cell is named to the repair rather than read off the selection.
+    {
+        const press = (target) => {
+            const e = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+            (target || document.body).dispatchEvent(e);
+        };
+        x = mk(); x.foot.value = '=sum the cells above'; asked = [];
+        x.pt.selected_well = x.foot;
+        const h = await load('baja/plate/ops/repair-on-enter.js', x.pt);
+        press();
+        // what the table's own Enter does: the selection moves on
+        x.pt.selected_well = null; x.fc.__sel = [];
+        await sleep(700);
+        ok(x.foot.value === '=sum(flight_cost[1:1][1:3])' && !x.foot.hasError() && asked.length === 0,
+           'Enter on a red "=sum the cells above" makes it the total, though the selection has moved on: ' + x.foot.value);
+
+        x.foot.value = '=fuel plus crew salaries'; x.foot.setError('Cannot destructure property'); asked = [];
+        x.pt.selected_well = x.foot;
+        answers = [{ status: 'OK', formula: '=flight_cost[1:1][1:1]+flight_cost[1:1][2:2]', note: '' }];
+        press();
+        x.pt.selected_well = null;
+        await sleep(700);
+        ok(x.foot.value === '=flight_cost[1:1][1:1]+flight_cost[1:1][2:2]' && asked.length === 1,
+           'other words in a red cell are worked out for that cell: ' + x.foot.value);
+
+        // a cell that goes red only after the key, once the project has recalculated
+        x.foot.value = '=sum the cells above'; x.foot.clearError(); x.pt.selected_well = x.foot;
+        press();
+        setTimeout(() => { x.foot.setError('late'); }, 650);
+        await sleep(1200);
+        ok(x.foot.value === '=sum(flight_cost[1:1][1:3])', 'a cell that turns red after the recalculation is still caught: ' + x.foot.value);
+
+        // what it leaves alone
+        asked = []; x.fc.wells[1][1].value = '8500'; x.pt.selected_well = x.fc.wells[1][1];
+        press(); await sleep(700);
+        ok(x.fc.wells[1][1].value === '8500' && asked.length === 0, 'a cell that is not red is never touched');
+        x.foot.value = '=fuel plus crew salaries'; x.foot.setError('e'); x.pt.selected_well = x.foot;
+        const box = document.createElement('input'); document.body.appendChild(box); box.focus();
+        press(box); await sleep(700);
+        ok(x.foot.value === '=fuel plus crew salaries' && asked.length === 0, 'and Enter in a text field belongs to the field');
+        box.remove();
+        h.remove();
+        const trackSrc = fs.readFileSync('baja/plate/plate-track.js', 'utf8');
+        ok(/exec\('baja\/plate\/ops\/repair-on-enter\.js', this\)/.test(trackSrc), 'the track installs it when it starts');
+    }
+
     // ---- the field that decides to ask -----------------------------------------------------
     const nav = fs.readFileSync('manchester/controls/navigation-panel-plates2.js', 'utf8');
     const k = nav.indexOf('const red = (() => {');

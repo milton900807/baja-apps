@@ -1066,6 +1066,15 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/project/formula-write.py:A CELL HOLDING WORDS AFTER AN \"=\" IS A DESCRIPTION OF A FORMULA" \
     "baja/plate/menu/project-capabilities.js:A FORMULA DESCRIBED RATHER THAN WRITTEN" \
     "baja/plate/ops/sum-above.js:A cell that was red for what it used to hold is not red for this"
+  # The same repair when Enter is pressed on the cell itself, which is where it is usually
+  # pressed. The track installs the listener; the card and both operations take the cell
+  # by name, because the table moves the selection on before the repair runs.
+  install_group "Enter pressed on a red cell itself repairs it" \
+    "baja/plate/ops/repair-on-enter.js:ENTER ON A RED CELL, PRESSED ON THE CELL ITSELF" \
+    "baja/plate/plate-track.js:ENTER ON A RED CELL ASKS FOR IT TO BE REPAIRED" \
+    "baja/plate/menu/project-command.js:cell: o.cell || null, table: o.table || ''" \
+    "baja/plate/ops/sum-above.js:A cell named by the caller is the cell, whatever is selected by now" \
+    "baja/plate/ops/formula-from-words.js:A cell named by the caller is the cell, whatever is selected by now"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

@@ -228,7 +228,7 @@ function (o) {
                 : /\b(sum|total|add|adds|added)\b/.test(low) ? 'sum' : '';
             if (how && /\b(above|column)\b/.test(low)) {
                 let put = null;
-                try { put = await withSpinner(formulaBody, 'sum_above', () => exec('baja/plate/ops/sum-above.js', o.pm, { how: how })); }
+                try { put = await withSpinner(formulaBody, 'sum_above', () => exec('baja/plate/ops/sum-above.js', o.pm, { how: how, cell: o.cell || null, table: o.table || '' })); }
                 catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
                 if (put && put.error) {
                     say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
@@ -246,7 +246,8 @@ function (o) {
             let put = null;
             try {
                 put = await withSpinner('Working out a formula for ' + text, 'write_formula',
-                    () => exec('baja/plate/ops/formula-from-words.js', o.pm, { what: text }));
+                    () => exec('baja/plate/ops/formula-from-words.js', o.pm,
+                        { what: text, cell: o.cell || null, table: o.table || '' }));
             } catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
             if (put && put.error) {
                 say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'

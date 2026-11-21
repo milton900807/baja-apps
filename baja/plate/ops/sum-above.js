@@ -54,6 +54,9 @@ function (pm, o) {
                 if (typeof t.getSelectedWellsInOrder === 'function') cells = t.getSelectedWellsInOrder() || [];
             } catch (e) { cells = []; }
             if ((!cells || !cells.length) && pt.selected_well) cells = [pt.selected_well];
+            // A cell named by the caller is the cell, whatever is selected by now: Enter on
+            // a cell moves the selection on before a repair can ask what was selected.
+            if (o && o.cell && typeof o.cell === 'object') cells = [o.cell];
             if (!cells || !cells.length) {
                 resolve({ error: 'click the cell the total should go in first' });
                 return;
