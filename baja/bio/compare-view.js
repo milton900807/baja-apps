@@ -46,14 +46,17 @@ function (model) {
 
         const PAD = 30;                       // left and right margin inside the picture
         const LANE = 30;                      // lane height
-        const TOP = 48;                       // room for the top lane's label
+        // Room for the top lane's label AND for the stability row under it: the numbers
+        // sit just outside each lane, so the top one needs a line of its own between the
+        // track name and the bar.
+        const TOP = 62;
         // The picture fills the window and grows with it: the ribbons are the content, and
         // on a wide screen the extra room goes to them rather than to margins.
         let W = 0, H = 0, GAP = 0, innerW = 0;
         const measure = () => {
             W = Math.max(640, Math.floor(window.innerWidth - 56));
             GAP = Math.max(150, Math.min(640, Math.floor(window.innerHeight - 282)));
-            H = TOP + LANE + GAP + LANE + 58;
+            H = TOP + LANE + GAP + LANE + 72;   // the bottom lane's name, then its stability row
             innerW = W - PAD * 2;
         };
         measure();
@@ -108,6 +111,46 @@ function (model) {
             return dy;
         };
         let labelDy = [];
+
+        // HOW STABLY EACH EXON SPLICES, beside the exon it belongs to.
+        //
+        // The ribbons answer "which exon is which, and how alike are they". This answers
+        // "is it reliably in the message at all", which is what decides whether a conserved
+        // block is worth anything: a 90% identical exon skipped in half the transcripts is
+        // not the same find as a 90% identical constitutive one.
+        //
+        // OUTSIDE THE LANE, not in it: the lane already carries the exon number in dark
+        // type on a coloured bar, and a second number inside it would be read as part of
+        // the first. Above the top lane and below the bottom one, so each sits on its own
+        // track's side and nothing has to be traced back across the picture.
+        //
+        // The same thresholds and the same words as the tag on the canvas
+        // (baja/bio/track-layer.js): green while the exon is kept, amber once a meaningful
+        // share skips it, red when most transcripts do. A measurement is violet and marked
+        // with a tilde, because a measured inclusion is not model output and must never be
+        // read as one.
+        const stabFill = (st) => (!st || st.untrusted) ? '#9fc4d4'
+            : st.measured ? '#c4b5fd'
+            : (st.pct >= 90) ? '#86efac' : (st.pct >= 50) ? '#fcd34d' : '#fca5a5';
+        const stabText = (st) => (!st) ? '' : st.untrusted ? 'not trusted'
+            : ((st.measured ? '~' : '') + st.pct + '%');
+        // Collision is settled per lane, left to right: a number half over its neighbour is
+        // worse than the gap it fills, and which exon it belongs to stops being readable.
+        const stabRow = (marks, y, anchorAbove) => {
+            let out = '', lastEnd = -1e9;
+            for (const mk of marks.slice().sort((p, q) => p.x - q.x)) {
+                if (!mk.st) continue;
+                const t = stabText(mk.st);
+                if (!t) continue;
+                const w = t.length * 5.4 + 4;
+                if (mk.x - w / 2 < lastEnd) continue;
+                lastEnd = mk.x + w / 2;
+                out += '<text x="' + mk.x.toFixed(1) + '" y="' + y + '" text-anchor="middle" '
+                    + 'font-size="9.5" font-weight="700" fill="' + stabFill(mk.st) + '" '
+                    + 'pointer-events="none">' + esc(t) + '</text>';
+            }
+            return out;
+        };
 
         const ribbon = (b, i) => {
             const n = (b.n != null) ? (b.n - 1) : i;
@@ -169,9 +212,9 @@ function (model) {
         const lane = (y, name, t, align) =>
             '<rect x="' + PAD + '" y="' + y + '" width="' + innerW + '" height="' + LANE + '" rx="4" '
             + 'fill="rgba(159,196,212,0.13)" stroke="rgba(159,196,212,0.22)"></rect>'
-            + '<text x="' + PAD + '" y="' + (align === 'above' ? (y - 10) : (y + LANE + 18)) + '" '
+            + '<text x="' + PAD + '" y="' + (align === 'above' ? (y - 19) : (y + LANE + 29)) + '" '
             + 'font-size="12" fill="#eaf6f9" font-weight="700">' + esc(name || '') + '</text>'
-            + '<text x="' + (PAD + innerW) + '" y="' + (align === 'above' ? (y - 10) : (y + LANE + 18)) + '" '
+            + '<text x="' + (PAD + innerW) + '" y="' + (align === 'above' ? (y - 19) : (y + LANE + 29)) + '" '
             + 'text-anchor="end" font-size="10" fill="#9fc4d4">'
             + num(Math.min(+t.x1, +t.x2)) + ' – ' + num(Math.max(+t.x1, +t.x2)) + '</text>';
 
@@ -181,6 +224,19 @@ function (model) {
             sa = scale(A); sb = scale(B);
             yA = TOP; yB = TOP + LANE + GAP;
             labelDy = computeLabelDy();
+            // Where each exon's stability number goes: the middle of its bar on that lane,
+            // gathered from the same coordinates the bars are drawn at.
+            const marksA = [], marksB = [];
+            for (const b of blocks) {
+                const ax = (sa(Math.min(b.a.x1, b.a.x2)) + sa(Math.max(b.a.x1, b.a.x2))) / 2;
+                const bx = (sb(Math.min(b.b.x1, b.b.x2)) + sb(Math.max(b.b.x1, b.b.x2))) / 2;
+                if (b.a && b.a.stab) marksA.push({ x: ax, st: b.a.stab });
+                if (b.b && b.b.stab) marksB.push({ x: bx, st: b.b.stab });
+            }
+            for (const u of (m.unmatched || [])) {
+                if (!u || !u.a || !u.a.stab) continue;
+                marksA.push({ x: (sa(Math.min(u.a.x1, u.a.x2)) + sa(Math.max(u.a.x1, u.a.x2))) / 2, st: u.a.stab });
+            }
             return '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" '
                 + 'viewBox="0 0 ' + W + ' ' + H + '" style="display:block;max-width:100%;height:auto;">'
                 + '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#07202f"></rect>'
@@ -188,6 +244,8 @@ function (model) {
                 + lane(yB, B.name, B, 'below')
                 + (m.unmatched || []).map(notch).join('')
                 + blocks.map(ribbon).join('')
+                + stabRow(marksA, yA - 4, true)
+                + stabRow(marksB, yB + LANE + 13, false)
                 + '</svg>';
         };
         const svg = buildSvg();
@@ -201,6 +259,27 @@ function (model) {
             + '<div style="flex:1;min-width:0;">'
             + '<div style="font-weight:700;font-size:15px;">' + esc(m.title || 'Tracks compared') + '</div>'
             + (m.summary ? ('<div style="font-size:12px;color:#cfe9f3;margin-top:3px;">' + esc(m.summary) + '</div>') : '')
+            // WHAT THE SECOND ROW OF NUMBERS IS, and where it is missing. A percentage
+            // beside an exon with nothing saying what it measures is a number nobody can
+            // use, and a lane with no numbers at all has to say whether that means every
+            // exon is unmeasured or that PSI was never run on that track.
+            + (() => {
+                const st = m.stability || {};
+                if (!st.a && !st.b) {
+                    return '<div style="font-size:11.5px;color:#9fc4d4;margin-top:4px;">'
+                        + 'Exon stability is not shown: run PSI on '
+                        + esc(A.name || 'either track') + ' or ' + esc(B.name || 'the other')
+                        + ' to put each exon\u2019s inclusion beside it.</div>';
+                }
+                const missing = !st.a ? (A.name || 'the first track')
+                    : !st.b ? (B.name || 'the second track') : null;
+                return '<div style="font-size:11.5px;color:#9fc4d4;margin-top:4px;">'
+                    + 'The second row of figures is each exon\u2019s stability: how much of the '
+                    + 'message keeps it. Green is kept, amber is often skipped, red is mostly '
+                    + 'skipped, violet is measured rather than predicted.'
+                    + (missing ? (' Not run on ' + esc(missing) + '.') : '')
+                    + '</div>';
+            })()
             + '</div>'
             + BTN('numbers', 'Numbers') + BTN('pdf', 'PDF') + BTN('svg', 'SVG') + BTN('close', 'Close')
             + '</div>'

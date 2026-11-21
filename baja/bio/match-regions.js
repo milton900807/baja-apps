@@ -302,6 +302,54 @@ function (graph, qtrack, ttrack, opts) {
             // information in the wrong shape: where each exon went, whether the order held
             // and which ones flipped are all shapes, and a list cannot show any of them.
             // The rows are still there, under the Numbers button.
+            // HOW STABLY EACH EXON SPLICES, CARRIED INTO THE PICTURE.
+            //
+            // The comparison says which exons correspond and how alike they are. Whether an
+            // exon is reliably in the message is a different question, and the one that
+            // decides whether a conserved block is worth anything: a 90% identical exon
+            // that is skipped in half the transcripts is not the same find as a 90%
+            // identical constitutive one.
+            //
+            // Read off the PSI layer's own exonStability rows, which is where the number on
+            // the canvas comes from (baja/bio/track-layer.js draws the same rows). Not
+            // recomputed here: two numbers for one thing drift apart, and the one on the
+            // picture would end up disagreeing with the one on the track behind it. Without
+            // a PSI run there is nothing to carry, and the view says so rather than
+            // printing a blank where a number belongs.
+            const stabilityOf = (t) => {
+                let rowsPsi = null;
+                try {
+                    rowsPsi = (t.track_layers || []).filter((x) => x && x.magnitudeMode === 'psi'
+                        && Array.isArray(x.exonStability) && x.exonStability.length).pop();
+                } catch (e) { rowsPsi = null; }
+                if (!rowsPsi) return null;
+                const list2 = rowsPsi.exonStability;
+                // Matched by overlap, not by exon number: the hit on the OTHER track is a
+                // stretch of sequence and carries no exon number of its own, and the two
+                // tracks number their exons independently anyway.
+                return (x1, x2) => {
+                    const a2 = Math.min(+x1, +x2), b2 = Math.max(+x1, +x2);
+                    let best = null, bestOv = 0;
+                    for (const r of list2) {
+                        const lo2 = Math.min(+r.lo, +r.hi), hi2 = Math.max(+r.lo, +r.hi);
+                        const ov = Math.min(b2, hi2) - Math.max(a2, lo2);
+                        if (ov > 0 && ov > bestOv) { bestOv = ov; best = r; }
+                    }
+                    if (!best) return null;
+                    if (best.untrusted) return { untrusted: true, why: best.untrustedWhy || '' };
+                    const psi = +best.psi;
+                    if (!isFinite(psi)) return null;
+                    return {
+                        pct: (psi >= 0.995) ? 100 : Math.round(psi * 100),
+                        word: best.word || '',
+                        measured: !!best.measured,
+                        exon: best.exon
+                    };
+                };
+            };
+            const stabA = stabilityOf(qtrack), stabB = stabilityOf(ttrack);
+            const stabAt = (f, x1, x2) => { try { return f ? f(x1, x2) : null; } catch (e) { return null; } };
+
             const extentOf = (t) => {
                 const len = (t.sequence && t.sequence.length)
                     ? t.sequence.length : Math.abs((+t.xf) - (+t.xi));
@@ -316,7 +364,8 @@ function (graph, qtrack, ttrack, opts) {
                     b: { name: nameT, x1: extentOf(ttrack).x1, x2: extentOf(ttrack).x2 },
                     blocks: found.map((f) => ({
                         n: f.exon, label: 'e' + f.exon, identity: f.identity, inverted: f.strand < 0,
-                        a: { x1: f.qx1, x2: f.qx2 }, b: { x1: f.tx1, x2: f.tx2 },
+                        a: { x1: f.qx1, x2: f.qx2, stab: stabAt(stabA, f.exx1, f.exx2) },
+                        b: { x1: f.tx1, x2: f.tx2, stab: stabAt(stabB, f.tx1, f.tx2) },
                         note: Math.round(f.covers * 100) + '% of the exon, score ' + Math.round(f.score)
                     })),
                     // The exons that matched nothing, in their place on the lane: twenty-two
@@ -324,10 +373,14 @@ function (graph, qtrack, ttrack, opts) {
                     unmatched: missed.map((x) => {
                         const ex = list[x.exon - 1];
                         if (!ex) return null;
+                        const ea = Math.min(+ex.xi, +ex.xf), eb = Math.max(+ex.xi, +ex.xf);
                         return { label: NAMED(x.exon), why: x.why,
-                            a: { x1: Math.min(+ex.xi, +ex.xf), x2: Math.max(+ex.xi, +ex.xf) } };
+                            a: { x1: ea, x2: eb, stab: stabAt(stabA, ea, eb) } };
                     }).filter(Boolean),
-                    rows: rows
+                    rows: rows,
+                    // Which tracks have been scored at all, so an empty row reads as "not
+                    // run here" rather than as an exon nobody could measure.
+                    stability: { a: !!stabA, b: !!stabB }
                 });
             } catch (e) { shown = null; }
 

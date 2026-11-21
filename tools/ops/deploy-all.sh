@@ -1089,6 +1089,11 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/editor/plan.py:WHAT THE EDITOR IS, said plainly, because a planner that does not know" \
     "baja/manchester/menu/editor-capabilities.js:WHAT THE EDITOR ITSELF THINKS A REQUEST IS ABOUT" \
     "baja/manchester/menu/editor-command.js:A PLAN THAT COULD NOT BE MADE IS NOT THE END OF THE ASK BOX"
+  # The comparison says which exons correspond; stability says whether they are reliably
+  # in the message at all. Carried and drawn: the model and the view ship together.
+  install_group "Exon stability in the comparison picture" \
+    "baja/bio/match-regions.js:HOW STABLY EACH EXON SPLICES, CARRIED INTO THE PICTURE" \
+    "baja/bio/compare-view.js:HOW STABLY EACH EXON SPLICES, beside the exon it belongs to"
   # A 571 kb gene track was refused by the searcher and the refusal was reported as "no
   # match". The limit goes and the caller stops turning errors into negative results: both
   # halves, or one of them still lies about the other.

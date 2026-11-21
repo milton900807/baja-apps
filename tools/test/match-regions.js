@@ -14,13 +14,14 @@ window.env = { apiUrl: '' };
 const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
-let searches = [], helpShown = null, pyReply = null;
+let searches = [], helpShown = null, pyReply = null, viewModel = null, captureModel = false;
 const load = async (p, ...a) => {
     if (('' + p).indexOf('search-region-in-track.py') >= 0) {
         searches.push({ q: a[0], t: a[1], o: a[2] });
         return (typeof pyReply === 'function') ? pyReply(a[0], a[1], a[2]) : pyReply;
     }
     if (('' + p).indexOf('decor-help') >= 0) { helpShown = a[0] && a[0].decor && a[0].decor.help; return true; }
+    if (('' + p).indexOf('compare-view.js') >= 0 && captureModel) { viewModel = a[0]; return null; }
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
     const src = fs.readFileSync(path, 'utf8');
     let f;
@@ -196,6 +197,104 @@ const mk = (name, exons) => {
     ok(!!r.error && /None of the 2 exons/.test(r.error),
        'nothing matching is said plainly rather than drawn as an empty layer: ' + r.error);
     ok(!(A2.track_layers || []).length, 'and nothing is drawn');
+
+    captureModel = true;
+    // ---- how stably each exon splices, carried into the picture -------------------------
+    // The ribbons say which exons correspond and how alike they are. Whether an exon is
+    // reliably in the message is a different question, and the one that decides whether a
+    // conserved block is worth anything.
+    // The first exon matches; the second finds nothing, so both halves of the picture --
+    // a ribbon and a notch -- are exercised.
+    let callN = 0;
+    pyReply = () => {
+        callN++;
+        return (callN === 1)
+            ? { status: 'OK', hits: [{ start: 900, end: 1100, query_start: 100, query_end: 300,
+                query_coverage: 1, identity: 0.9, score: 200, strand: '+' }] }
+            : { status: 'OK', hits: [] };
+    };
+    const A5 = mk('DNM1', [[100, 300], [500, 700]]);
+    const B5 = mk('DNM3', [[0, 2000]]);
+    // The PSI layer's own rows, which is where the number on the canvas comes from.
+    A5.track_layers.push({ magnitudeMode: 'psi', exonStability: [
+        { exon: 1, lo: 100, hi: 300, psi: 0.995, word: 'constitutive' },
+        { exon: 2, lo: 500, hi: 700, psi: 0.42, word: 'unstable' }] });
+    B5.track_layers.push({ magnitudeMode: 'psi', exonStability: [
+        { exon: 4, lo: 850, hi: 1150, psi: 0.1, word: 'rarely in', measured: { gene: 'SMN2' } }] });
+    viewModel = null; callN = 0;
+    r = await load('baja/bio/match-regions.js', graph, A5, B5, {});
+    ok(!!viewModel, 'the picture is drawn');
+    ok(viewModel && viewModel.stability && viewModel.stability.a && viewModel.stability.b,
+       'and knows both tracks have been scored: ' + JSON.stringify(viewModel && viewModel.stability));
+    const blk = (viewModel.blocks || [])[0];
+    ok(blk && blk.a.stab && blk.a.stab.pct === 100,
+       'the exon carries its own stability: ' + JSON.stringify(blk && blk.a.stab));
+    // The hit on the OTHER track is a stretch of sequence with no exon number of its own,
+    // so its stability is the exon it overlaps there, matched by position.
+    ok(blk && blk.b.stab && blk.b.stab.pct === 10 && blk.b.stab.measured === true,
+       'and the block it landed on carries the target exon\'s: ' + JSON.stringify(blk && blk.b.stab));
+    const un = (viewModel.unmatched || [])[0];
+    ok(un && un.a.stab && un.a.stab.pct === 42,
+       'an exon that matched nothing still says how stable it is: ' + JSON.stringify(un && un.a.stab));
+
+    // Untrusted PSI is not a number: it must never be printed as one.
+    A5.track_layers[0].exonStability[0] = { exon: 1, lo: 100, hi: 300, psi: 0.96,
+        untrusted: true, untrustedWhy: 'SMN2' };
+    viewModel = null; callN = 0;
+    r = await load('baja/bio/match-regions.js', graph, A5, B5, {});
+    const blk2 = (viewModel.blocks || [])[0];
+    ok(blk2 && blk2.a.stab && blk2.a.stab.untrusted === true && blk2.a.stab.pct == null,
+       'an untrusted exon carries no percentage at all: ' + JSON.stringify(blk2 && blk2.a.stab));
+
+    // No PSI run: nothing is carried, and the view is told so rather than left to guess.
+    const A6 = mk('DNM1', [[100, 300]]);
+    const B6 = mk('DNM3', [[0, 2000]]);
+    viewModel = null; callN = 0;
+    r = await load('baja/bio/match-regions.js', graph, A6, B6, {});
+    ok(viewModel && viewModel.stability && !viewModel.stability.a && !viewModel.stability.b,
+       'an unscored track says so: ' + JSON.stringify(viewModel && viewModel.stability));
+    ok(viewModel && !(viewModel.blocks || [{}])[0].a.stab,
+       'and no number is invented for it');
+    captureModel = false;
+
+    // ---- and the view draws them outside the lanes --------------------------------------
+    // Inside the lane the exon number already sits in dark type on a coloured bar, and a
+    // second number there is read as part of the first.
+    const view2 = await load('baja/bio/compare-view.js', {
+        title: 'Exons of DNM1 matched on DNM3', summary: 's',
+        a: { name: 'DNM1', x1: 0, x2: 10000 }, b: { name: 'DNM3', x1: 0, x2: 10000 },
+        blocks: [{ n: 1, label: 'e1', identity: 0.9, a: { x1: 1000, x2: 1200, stab: { pct: 97, word: 'stable' } },
+                   b: { x1: 5000, x2: 5200, stab: { pct: 10, measured: true, word: 'rarely in' } } }],
+        unmatched: [], rows: [['a', 'b']], stability: { a: true, b: true }
+    });
+    const svgEl = document.getElementById('baja-compare-view').querySelector('svg');
+    const texts = Array.from(svgEl.querySelectorAll('text')).map((t) => ({
+        s: t.textContent, y: +t.getAttribute('y'), fill: t.getAttribute('fill') }));
+    const laneTop = 62, LANEH = 30;                 // TOP and LANE in compare-view.js
+    const t97 = texts.find((t) => t.s === '97%');
+    ok(!!t97, 'the stability shows on the top lane: ' + JSON.stringify(texts.map((t) => t.s)));
+    ok(t97 && t97.y < laneTop, 'above the lane, not inside it: y=' + (t97 && t97.y) + ' lane at ' + laneTop);
+    ok(t97 && t97.fill === '#86efac', 'green while the exon is kept: ' + (t97 && t97.fill));
+    const tm = texts.find((t) => t.s === '~10%');
+    ok(!!tm && tm.fill === '#c4b5fd',
+       'a measured inclusion is marked and violet, never read as model output: ' + JSON.stringify(tm));
+    ok(tm && tm.y > laneTop + LANEH, 'and sits below the bottom lane: y=' + (tm && tm.y));
+    // The exon number stays where it was, inside its bar.
+    ok(texts.some((t) => t.s === 'e1' && t.y > laneTop && t.y < laneTop + LANEH),
+       'the exon label is still in the lane');
+    try { document.getElementById('baja-compare-view').querySelector('button[data-id="close"]')
+        .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
+
+    // With nothing scored, the view says why the row is empty instead of leaving a gap.
+    await load('baja/bio/compare-view.js', {
+        title: 'T', summary: 's', a: { name: 'A', x1: 0, x2: 100 }, b: { name: 'B', x1: 0, x2: 100 },
+        blocks: [{ n: 1, label: 'e1', identity: 0.5, a: { x1: 10, x2: 20 }, b: { x1: 30, x2: 40 } }],
+        unmatched: [], rows: [['a', 'b']], stability: { a: false, b: false }
+    });
+    ok(/run PSI on/.test(document.getElementById('baja-compare-view').textContent),
+       'an unscored pair says how to fill the row');
+    try { document.getElementById('baja-compare-view').querySelector('button[data-id="close"]')
+        .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); } catch (e) { }
 
     // ---- a failure is not a negative result ---------------------------------------------
     // DNM3's genomic track is 571 kb, the searcher refused anything over 400 kb, and all 22
