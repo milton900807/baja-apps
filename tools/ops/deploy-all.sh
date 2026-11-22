@@ -1102,6 +1102,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/project-command.js:\"BOOKMARK ASSUMPTIONS\" NEEDS NO SEARCH AND NO CARD" \
     "baja/plate/ops/bookmark-tables.js:A BOOKMARK THAT FRAMES A TABLE, BY NAME" \
     "baja/plate/menu/project-capabilities.js:A VIEW KEPT BY NAME"
+  # Formulas rewritten from cell addresses to tags. The operation, the table menu item that
+  # runs it, and the catalogue entry that lets it be asked for in words.
+  install_group "Formulas can be converted from addresses to tags" \
+    "baja/plate/ops/formulas-to-tags.js:FORMULAS THAT NAME WHAT THEY READ, NOT WHERE IT IS" \
+    "baja/plate/plate.js:FORMULAS BY TAG. Rewrites this table's formulas" \
+    "baja/plate/menu/project-capabilities.js:WHAT A FORMULA READS, BY NAME"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

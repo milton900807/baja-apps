@@ -509,6 +509,23 @@ function () {
             }
         },
         {
+            // WHAT A FORMULA READS, BY NAME. An address is wrong the day a row is inserted
+            // above it; a tag follows the cell.
+            name: 'formulas_to_tags',
+            summary: 'REWRITE FORMULAS to read cells by their TAGS instead of by address: '
+                + '=assumptions[1:1][65:65]+assumptions[1:1][66:66] becomes '
+                + '=assumptions[Fuel,Value]+assumptions[Crew,Value]. THIS IS THE ANSWER to '
+                + '"convert the formulas to tags", "use tags instead of cell addresses", '
+                + '"make these formulas use names". It converts the selected formulas, or '
+                + 'every formula in the table when none is selected, and only where the '
+                + 'tags pick out exactly the same cells',
+            module: 'baja/plate/ops/formulas-to-tags.js',
+            params: {
+                table: { type: 'string', default: 'the selected table',
+                    about: 'the NAME of the table whose formulas are rewritten' }
+            }
+        },
+        {
             name: 'format_cells',
             summary: 'change how the SELECTED cells are shown: as money, or as plain numbers',
             module: 'baja/plate/ops/format-cells.js',
@@ -767,6 +784,10 @@ function () {
         if (name === 'bookmark_tables') {
             return 'bookmark ' + (args.tables ? ('"' + args.tables + '"') : 'the selected table')
                 + (args.name ? (' as "' + args.name + '"') : '');
+        }
+        if (name === 'formulas_to_tags') {
+            return 'rewrite the formulas in ' + (args.table ? ('"' + args.table + '"') : 'the selected table')
+                + ' to read cells by tag instead of by address';
         }
         if (name === 'fill_table') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';

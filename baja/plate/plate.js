@@ -8417,6 +8417,19 @@ function () {
                         // act, so it is a menu item -- last, and marked as destructive, the
                         // way the drawing menu marks its own. It still asks first, and one
                         // undo still brings the table back.
+                        // FORMULAS BY TAG. Rewrites this table's formulas (the selected ones, or
+                        // all of them) from cell addresses to the tags of the cells they read:
+                        // see baja/plate/ops/formulas-to-tags.js. It only writes a formula the
+                        // engine answers the same way, and says what it changed.
+                        list.push({
+                            label: 'Formulas: use tags instead of addresses', move: () => { },
+                            click: async () => {
+                                try {
+                                    const r = await exec('baja/plate/ops/formulas-to-tags.js', pt, { plate: this });
+                                    if (r && r.error) pt.setMessage(r.error, 10);
+                                } catch (e) { try { pt.setMessage('Could not convert the formulas: ' + (e && e.message ? e.message : e), 8); } catch (e2) { } }
+                            }
+                        });
                         list.push({ type: 'separator' });
                         list.push({
                             label: 'Delete table…', emphasis: 'danger', move: () => { },
