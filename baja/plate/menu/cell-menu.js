@@ -59,6 +59,32 @@ function (pt, table, well, actions) {
         });
     if (!list.length) return null;
 
+    // A WHOLE COLUMN SELECTED IS A COLUMN ABOUT TO BE GIVEN A TYPE. Money, a date, a
+    // percentage: the type belongs to the column, and the library that sets it
+    // (well-type-library.js) works on whatever is selected. It was three menus deep. With
+    // every cell of one column selected, under its heading, it is offered here, above
+    // Delete. A few cells of a column, or cells across two columns, are not a column.
+    let wholeColumn = false;
+    try {
+        const sel = (table && typeof table.getSelectedWellsInOrder === 'function') ? (table.getSelectedWellsInOrder() || []) : [];
+        const cols = (table && Array.isArray(table.wells)) ? table.wells : [];
+        if (sel.length > 1 && cols.length) {
+            const isHead = (w) => !!w && (w.skin_type === 'ColumnHeader'
+                || (w.group && typeof w.group === 'object' && w.group['ColumnHeader'] != null) || w.group === 'ColumnHeader');
+            const col = cols.filter((c) => Array.isArray(c) && c.indexOf(sel[0]) >= 0)[0];
+            if (col && sel.every((w) => col.indexOf(w) >= 0)) {
+                const body = col.filter((w) => w && !isHead(w));
+                wholeColumn = body.length > 1 && body.every((w) => sel.indexOf(w) >= 0);
+            }
+        }
+    } catch (e) { wholeColumn = false; }
+    if (wholeColumn) {
+        const entry = { label: 'Set data type', hint: 'money, date, percent and the rest, for this column', danger: false,
+            button: { action: async () => exec('baja/plate/views/well-type-library.js', pt, table) } };
+        const k = list.findIndex((x) => x.danger);
+        list.splice(k < 0 ? list.length : k, 0, entry);
+    }
+
     // Where: just right of the cell, level with it.
     let left = 120, top = 120;
     try {

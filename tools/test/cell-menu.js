@@ -95,6 +95,34 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok(m.items.length === 5 && m.items[0] === 'Select this row', 'with one cell selected they are back: ' + m.items.length);
     m.close();
 
+    // a whole column selected: its data type can be set from here
+    {
+        const cell = (h) => (h ? { skin_type: 'ColumnHeader' } : {});
+        const colA = [cell(true), cell(), cell(), cell()], colB = [cell(true), cell(), cell(), cell()];
+        const tbl = (sel) => ({ wells: [colA, colB], getSelectedWellsInOrder: () => sel });
+        const opened = [];
+        const prev = global.lion_engine.exec;
+        m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice(1)), colB[1], actions);
+        ok(m.items.join('|') === 'Script for the selection|More options|Set data type|Delete',
+           'every cell of a column under its heading: "Set data type" is offered, above Delete: ' + m.items.join(' | '));
+        m.close();
+        m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice()), colB[1], actions);
+        ok(m.items.indexOf('Set data type') >= 0, 'the heading selected along with it is still the column');
+        m.close();
+        m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice(1, 3)), colB[1], actions);
+        ok(m.items.indexOf('Set data type') < 0, 'part of a column is not a column: ' + m.items.join(' | '));
+        m.close();
+        m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colA.slice(1).concat(colB.slice(1))), colB[1], actions);
+        ok(m.items.indexOf('Set data type') < 0, 'nor are two columns');
+        m.close();
+        m = await load('baja/plate/menu/cell-menu.js', pt, tbl([colB[1]]), colB[1], actions);
+        ok(m.items.indexOf('Set data type') < 0 && m.items.length === 5, 'nor one cell');
+        m.close();
+        const src = fs.readFileSync('baja/plate/menu/cell-menu.js', 'utf8');
+        ok(/exec\('baja\/plate\/views\/well-type-library\.js', pt, table\)/.test(src) && fs.existsSync('baja/plate/views/well-type-library.js'),
+           'and it opens the data type library on the selection');
+    }
+
     // the two tables' "i" differ, and are named for what each does
     m = await load('baja/plate/menu/cell-menu.js', pt, {}, well, [mk('i', 'I')]);
     ok(m.items[0] === 'Edit as text', 'the main table’s i opens the text window and says so: ' + m.items[0]);
