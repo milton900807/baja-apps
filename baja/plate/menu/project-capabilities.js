@@ -148,7 +148,12 @@ function () {
                 + 'ALSO THE ANSWER when the new content is WORKED OUT FROM A TABLE already '
                 + 'on the canvas ("use assumptions to create a monthly cost table", "a '
                 + 'budget based on employees"): pass that table as `from`, and the figures '
-                + 'are written as FORMULAS that read it, not as typed-in numbers',
+                + 'are written as FORMULAS that read it, not as typed-in numbers. '
+                // ASKED FROM A TABLE, "THIS TABLE" IS THAT TABLE.
+                + 'When the request was made from a table and says "given this table, '
+                + 'create a NEW table that estimates ...", this is still the answer: give '
+                + 'the new table a NEW name in `table` (never the name of the table asked '
+                + 'from) and pass the table asked from as `from`',
             module: 'baja/plate/ops/fill-table.js',
             params: {
                 what: { type: 'string', required: true,

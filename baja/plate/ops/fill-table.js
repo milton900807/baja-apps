@@ -51,11 +51,38 @@ function (pm, o) {
             const what = ('' + ((o && o.what) || '')).trim();
             if (!what) { resolve({ error: 'what should go in it?' }); return; }
 
+            // The table whose Ask button this request came from, read once and cleared: it
+            // belongs to this request and no later one.
+            let askedFrom = null;
+            try {
+                const af = pt.__askedFrom;
+                if (af && af.table && (Date.now() - (af.at || 0)) < 10 * 60 * 1000) askedFrom = af.table;
+                pt.__askedFrom = null;
+            } catch (e) { askedFrom = null; }
+
             let picked = IO.pickTable(pt, o && o.table);
+            // "CREATE A NEW TABLE", ASKED FROM A TABLE, IS NOT A REQUEST TO FILL THAT TABLE.
+            // With no table named, the default is the one the request was made from, which
+            // is right for "add ten rows" and exactly wrong for "given this table, create a
+            // new table that estimates the production capacity": the estimate would be
+            // poured into the empty rows of the assumptions it was meant to be worked out
+            // from. When the request says a new table and the target has come out as the one
+            // asked from, a new one is made instead, named for what it is to hold.
+            let newName = '';
+            if (!picked.error && askedFrom && picked.table === askedFrom
+                && /\b(new|another|separate|second)\s+table\b|\b(create|make|build|generate)\s+(a|an|the)\s+(\w+\s+){0,3}table\b/i.test(what)) {
+                const m = /(?:estimat\w*|calculat\w*|show\w*|deriv\w*|comput\w*|table\s+(?:of|for))\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z ]{2,40}?)(?=\s+(?:based|from|using|given|for|by|of|per|that|which)\b|[.,;]|$)/i.exec(what);
+                let base = (m ? m[1] : 'derived from ' + askedFrom.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'derived';
+                if (!/^[a-z_]/.test(base)) base = 't_' + base;
+                const taken = (n) => (Array.isArray(pt.root) ? pt.root : []).some((p) => p && ('' + p.name).toLowerCase() === n);
+                newName = base;
+                for (let i = 2; taken(newName) && i < 50; i++) newName = base + '_' + i;
+                picked = { error: 'there is no table called ' + newName };
+            }
             let made = null;
             if (picked.error && /^there is no table called /.test(picked.error)) {
                 made = await (async () => {
-                    const want = ('' + ((o && o.table) || '')).trim();
+                    const want = newName || ('' + ((o && o.table) || '')).trim();
                     // The headings the request implies. The fill python will not invent
                     // columns -- filling a table whose columns are fixed is its one job, and
                     // that is what keeps generated rows in the columns they were made for --
@@ -143,6 +170,21 @@ function (pm, o) {
             // in the request itself: "monthly cost table based on assumptions" says it as
             // plainly as a parameter would. Only a name a formula can carry is used, and
             // never the table being filled.
+            //
+            // AND THE TABLE THE REQUEST WAS MADE FROM. "given this table, create a new one
+            // that estimates production capacity", asked with a table's own Ask button, names
+            // no table at all: "this" is the one whose button was pressed. Its names and
+            // values are what the new table is to be worked out from, so it is a source
+            // whenever the table being filled is a different one (table-ask.js leaves it in
+            // track.__askedFrom for the request it was asked with, and it is used once).
+            //
+            // EVERY NUMBER GOES WITH ITS NAME, AND WITH THE TAGS THAT PICK IT OUT. A table of
+            // two columns is names down the first and values down the second, and that is
+            // how it is sent: each value under the name beside it. Where a cell's tags pick
+            // out that cell and no other, the reference offered for it is the tagged one,
+            // assumptions[Malt_Annual_Cost,value], so the formulas in the new table say what
+            // they read and still read it after a row is inserted above. Where no tag does,
+            // the address is offered instead. Both are accepted back.
             const numberIn = (w) => {
                 if (!w || isHeaderCell(w)) return false;
                 if (typeof w.formula === 'string' && w.formula.trim()) return true;
@@ -152,21 +194,50 @@ function (pm, o) {
                 return x !== '' && isFinite(Number(x));
             };
             const sources = [], allowed = {};
+            // One tag, else two, carried by this cell and by no other in its table: the same
+            // rule formulas-to-tags.js converts by, so what is written here is what that
+            // would have turned an address into.
+            const tagRef = (src, index, w) => {
+                const g = (w && w.group && typeof w.group === 'object') ? Object.keys(w.group) : [];
+                const writable = (k) => /^[A-Za-z_]\w*$/.test(k) && !/^(and|or|not)$/i.test(k);
+                for (const k of g) {
+                    if (writable(k) && (index[k] || []).length === 1) return [k];
+                }
+                const p = g.filter((k) => writable(k) && !/^(row|col)/.test(k));
+                for (let i = 0; i < p.length; i++) {
+                    for (let j = i + 1; j < p.length; j++) {
+                        const a = index[p[i]] || [], b = index[p[j]] || [];
+                        const small = a.length <= b.length ? a : b, other = a.length <= b.length ? p[j] : p[i];
+                        let n = 0;
+                        for (const x of small) { if (Object.prototype.hasOwnProperty.call(x.group, other)) { n++; if (n > 1) break; } }
+                        if (n === 1) return a.length <= b.length ? [p[i], p[j]] : [p[j], p[i]];
+                    }
+                }
+                return null;
+            };
             (() => {
                 const all = (Array.isArray(pt.root) ? pt.root : [])
                     .filter((p) => p && Array.isArray(p.wells) && p !== t && p.name
                         && /^[A-Za-z_]\w*$/.test('' + p.name));
                 const named = ('' + ((o && o.from) || '')).split(',')
                     .map((x) => x.trim().toLowerCase()).filter(Boolean);
+                // The table whose Ask button this came from, if it is not the one being filled.
+                const asked = (askedFrom && askedFrom !== t) ? askedFrom : null;
                 const said = what.toLowerCase();
                 const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 let budget = 300;
                 for (const src of all) {
                     const nm = ('' + src.name).toLowerCase();
                     const mentioned = new RegExp('(^|[^a-z0-9_])' + esc(nm) + '($|[^a-z0-9_])').test(said);
-                    if (named.indexOf(nm) < 0 && !mentioned) continue;
+                    if (named.indexOf(nm) < 0 && !mentioned && src !== asked) continue;
                     const sc = src.wells.length, sr = (src.wells[0] ? src.wells[0].length : 0);
                     const cells = [];
+                    // Which cells carry each tag, once per table.
+                    const index = {};
+                    for (let c = 0; c < sc; c++) for (const w of (src.wells[c] || [])) {
+                        if (!w || w.value == null || !w.group || typeof w.group !== 'object') continue;
+                        for (const k of Object.keys(w.group)) (index[k] = index[k] || []).push(w);
+                    }
                     for (let r = 0; r < sr && budget > 0; r++) {
                         // What the row is called: the first thing in it that is not a number.
                         let label = '';
@@ -182,20 +253,27 @@ function (pm, o) {
                                 const hw = src.wells[c][h];
                                 if (isHeaderCell(hw)) { head = text(hw).slice(0, 60); break; }
                             }
-                            const ref = src.name + '[' + c + ':' + c + '][' + r + ':' + r + ']';
-                            allowed[ref] = true;
-                            cells.push({ ref: ref, label: label, column: head, value: text(w).slice(0, 40) });
+                            const address = src.name + '[' + c + ':' + c + '][' + r + ':' + r + ']';
+                            const tags = tagRef(src, index, w);
+                            const ref = tags ? (src.name + '[' + tags.join(',') + ']') : address;
+                            allowed[ref] = true; allowed[address] = true;
+                            cells.push({ name: label, value: text(w).slice(0, 40), ref: ref, column: head,
+                                tags: tags || undefined, address: tags ? address : undefined, label: label });
                             budget--;
                         }
                     }
-                    if (cells.length) sources.push({ table: src.name, cells: cells });
+                    if (cells.length) sources.push({ table: src.name,
+                        shape: sc === 2 ? 'two columns: a name in the first, its value in the second' : (sc + ' columns'),
+                        asked_from: src === asked || undefined, cells: cells });
                 }
             })();
 
             // ONLY WHAT WAS OFFERED, AND ARITHMETIC. Every reference is taken out by exact
             // match; what is left has to be numbers, + - * / and brackets, and nothing else.
             const checked = (v) => {
-                let f = ('' + v).trim().replace(/^=+\s*/, '');
+                // No spaces: a tag has none, and "assumptions[Malt, value]" is the same
+                // reference as the one that was offered without the space.
+                let f = ('' + v).trim().replace(/^=+\s*/, '').replace(/\s+/g, '');
                 if (!f) return null;
                 let refs = 0, rest = '', i = 0;
                 const names = Object.keys(allowed).sort((a, b) => b.length - a.length);

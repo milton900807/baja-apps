@@ -1155,6 +1155,15 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Ask shows its progress and its outcome" \
     "baja/plate/ops/cell-ask.js:WHAT IS HAPPENING, WHILE IT HAPPENS, AND HOW IT ENDED" \
     "baja/lib/working.js:IT SAYS HOW IT ENDED, TOO"
+  # Asked from a table's Ask button, "this table" is that table: its names, values and tags
+  # go to the generator and the new table reads them by tag. The button leaves the table for
+  # the request, the fill uses and clears it, the python is what is told about names and
+  # tagged references, and the catalogue tells the planner to name a NEW table.
+  install_group "Ask from a table derives a new table from its names, values and tags" \
+    "baja/plate/ops/table-ask.js:And for THIS request only" \
+    "baja/plate/ops/fill-table.js:AND THE TABLE THE REQUEST WAS MADE FROM" \
+    "py/bio/project/table-fill.py:READ THE NAMES TO FIND WHAT THE REQUEST IS ABOUT" \
+    "baja/plate/menu/project-capabilities.js:ASKED FROM A TABLE, \"THIS TABLE\" IS THAT TABLE"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

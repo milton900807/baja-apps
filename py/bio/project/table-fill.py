@@ -79,12 +79,23 @@ The table:
 
 SOURCES = """
 8. THIS TABLE IS WORKED OUT FROM THE TABLES UNDER "sources", AND IT READS THEM. Rule 4 has
-   one exception, and it is this. Every number in "sources" has a "ref". A cell whose
-   figure comes from those numbers MUST be a formula, never the number itself: begin it
-   with "=" and write arithmetic over the refs, copied exactly as given.
-     monthly share of an annual cost      =assumptions[1:1][2:2]/12
-     a rate times a quantity              =assumptions[1:1][4:4]*assumptions[1:1][7:7]
+   one exception, and it is this. Each source lists its numbers as {"name", "value", "ref"}:
+   the name is what the row is called, the value is the number, and the ref is how a
+   formula reads it. A source marked "asked_from" is the table the user was pointing at
+   when they asked: "this table" in the request means that one.
+   A cell whose figure comes from those numbers MUST be a formula, never the number itself:
+   begin it with "=" and write arithmetic over the refs, COPIED EXACTLY AS GIVEN. A ref is
+   either the cell's tags, assumptions[Malt_Annual_Cost,value], or its address,
+   assumptions[1:1][31:31]; use whichever the cell was given, character for character.
+     monthly share of an annual cost      =assumptions[Annual_Insurance,value]/12
+     a rate times a quantity              =assumptions[Fuel_Cost_per_Hour,value]*assumptions[Hours,value]
      several together                     =assumptions[1:1][2:2]/12+assumptions[1:1][3:3]
+   READ THE NAMES TO FIND WHAT THE REQUEST IS ABOUT. "based on the raw material" means the
+   rows whose names are raw materials, and an estimate built from them is arithmetic over
+   THEIR refs: a capacity is a quantity available divided by the quantity one unit needs.
+   Where the estimate needs a number no source holds (how much malt a barrel takes), give it
+   its OWN row as a plain number with a label saying it is an assumption, and say so in the
+   note. Do not bury it inside a formula.
    ONLY refs that appear in "sources", plain numbers, + - * / and round brackets. No
    functions, no ranges, no refs you made up, no cell of the table being filled. A formula
    with anything else in it is thrown away and the cell is left empty.
@@ -113,7 +124,7 @@ def ask(model: str, request: str, table: Dict[str, Any]) -> Dict[str, Any]:
 
 def _formula(s: str, refs: List[str]) -> str:
     """The formula, if it is arithmetic over the refs that were sent, else ''."""
-    body = s.lstrip("=").strip()
+    body = re.sub(r"\s+", "", s.lstrip("=").strip())
     rest, found = body, 0
     for ref in sorted(refs, key=len, reverse=True):
         if ref in rest:
@@ -215,6 +226,9 @@ def _main() -> int:
                 for c in (src.get("cells") or []) if isinstance(src, dict) else []:
                     if isinstance(c, dict) and isinstance(c.get("ref"), str):
                         refs.append(c["ref"])
+                    # A cell offered by its tags can be read by its address too.
+                    if isinstance(c, dict) and isinstance(c.get("address"), str):
+                        refs.append(c["address"])
         else:
             table.pop("sources", None)
         works.resolve(_clean(ask(model, request[:2000], table), len(cols), wanted, refs))

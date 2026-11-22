@@ -19,6 +19,7 @@ const AF = Object.getPrototypeOf(async function () { }).constructor;
 let answer = null, asked = null;
 const load = async (p, ...a) => {
     if (p === 'py/bio/project/table-fill.py') { asked = a; return answer; }
+    if (p === 'baja/plate/ops/new-table.js' && globalThis.__newTable) return globalThis.__newTable(a[0], a[1]);
     const path = fs.existsSync(p) ? p : (fs.existsSync(p + '.js') ? p + '.js' : p);
     const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(path, 'utf8') + ')')(load, {});
     return f(...a);
@@ -190,6 +191,78 @@ const col = (t, c) => t.wells[c].map((w) => '' + w.value);
         const capsrc = fs.readFileSync('baja/plate/menu/project-capabilities.js', 'utf8').replace(/\s+/g, ' ');
         ok(/use assumptions to create a monthly cost table/.test(capsrc) && /from: \{ type: 'string'/.test(capsrc),
            'and the catalogue carries the sentence and the parameter');
+    }
+
+    // ---- asked from a table: "given this table, create a new table that estimates ..." --------
+    // The table is not named in the request; it is the one whose Ask button was pressed. Its
+    // names and values go to the generator, each with the tags that pick it out, and the new
+    // table reads them by those tags.
+    {
+        const slug = (x) => ('' + x).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+        const rowsA = [['title', 'value'], ['Malt Annual Cost', '60000'], ['Hops Annual Cost', '35000'], ['Yeast Annual Cost', '12000'],
+            ['Rent', '8000'], ['Rent', '9000']];
+        const A = mkTable('assumptions', rowsA);
+        for (let c = 0; c < 2; c++) for (let r2 = 1; r2 < rowsA.length; r2++) {
+            A.wells[c][r2].group = {}; A.wells[c][r2].group[slug(rowsA[r2][0])] = 1; A.wells[c][r2].group[c === 0 ? 'title' : 'value'] = 1;
+        }
+        const pt5 = mkTrack([A]);
+        pt5.formulas = {}; pt5.addFormula = (k, f) => { pt5.formulas[k] = f; };
+        const said5 = []; pt5.setMessage = (m) => said5.push('' + m);
+        // what the table's Ask button leaves behind
+        pt5.__askedTable = A; pt5.__askedFrom = { table: A, at: Date.now() };
+        const madeTables = [];
+        const prevLoad = load;
+        // new-table.js needs a canvas; stand in for it, making the table the fill then finds
+        globalThis.__newTable = (pm2, o2) => {
+            const cols = o2.cols, rws = o2.rows;
+            const nt = mkTable(o2.name, Array.from({ length: rws }, () => Array.from({ length: cols }, () => '')));
+            for (let c = 0; c < cols; c++) delete nt.wells[c][0].skin_type;
+            nt.getWellRange = (cells) => { for (let c = 0; c < nt.wells.length; c++) { const r2 = nt.wells[c].indexOf(cells[0]); if (r2 >= 0) return '[' + c + ':' + c + '][' + r2 + ':' + r2 + ']'; } return ''; };
+            pt5.root.push(nt); madeTables.push(nt);
+            return { name: o2.name };
+        };
+        answer = { status: 'OK', note: 'malt per barrel is an assumption', rows: [
+            ['Malt per barrel (assumed)', '50'],
+            ['Barrels from malt', '=assumptions[Malt_Annual_Cost,value]/50'],
+            ['Barrels from hops', '= assumptions[Hops_Annual_Cost, value] / 20'],
+            ['By address', '=assumptions[1:1][3:3]/5'],
+            ['Rent', '=assumptions[1:1][4:4]/12'],
+            ['Made up tag', '=assumptions[Water,value]/2']] };
+        r = await load('baja/plate/ops/fill-table.js', pt5,
+            { what: 'given this assumptions table create a new table that estimates the production capacity based on the raw material' });
+        ok(!r.error && madeTables.length === 1 && madeTables[0].name === 'production_capacity',
+           'a NEW table is made, named for what it holds, not poured into the one asked from: ' + (madeTables[0] && madeTables[0].name) + ' ' + (r.error || ''));
+        ok(col(A, 0).join('|') === 'title|Malt Annual Cost|Hops Annual Cost|Yeast Annual Cost|Rent|Rent', 'and the table asked from is untouched');
+        const s5 = JSON.parse(asked[1]).sources;
+        ok(s5 && s5.length === 1 && s5[0].table === 'assumptions' && s5[0].asked_from === true && /a name in the first, its value in the second/.test(s5[0].shape),
+           'the table asked from is sent as the source, marked as such, with its two-column shape said');
+        const malt = s5[0].cells[0];
+        ok(malt.name === 'Malt Annual Cost' && malt.value === '60000' && malt.ref === 'assumptions[Malt_Annual_Cost,value]'
+           && malt.tags.join() === 'Malt_Annual_Cost,value' && malt.address === 'assumptions[1:1][1:1]',
+           'each value goes under its name, with its tags as the reference and its address beside it: ' + JSON.stringify(malt).slice(0, 150));
+        ok(s5[0].cells.length === 5 && s5[0].cells[3].ref === 'assumptions[1:1][4:4]' && s5[0].cells[3].tags === undefined,
+           'two rows with the same name have no tag that tells them apart, so those are offered by address: ' + s5[0].cells[3].ref);
+        const nt = madeTables[0];
+        ok(col(nt, 1)[2] === '=assumptions[Malt_Annual_Cost,value]/50', 'a formula over a tagged reference is written: ' + col(nt, 1)[2]);
+        ok(col(nt, 1)[3] === '=assumptions[Hops_Annual_Cost,value]/20', 'spaces in it or not: ' + col(nt, 1)[3]);
+        ok(col(nt, 1)[4] === '=assumptions[1:1][3:3]/5' && col(nt, 1)[5] === '=assumptions[1:1][4:4]/12', 'the address of a cell that was offered works too');
+        ok(col(nt, 1)[1] === '50' && col(nt, 0)[1] === 'Malt per barrel (assumed)', 'a number no source holds is its own plain row');
+        ok(col(nt, 1)[6] === '', 'and a tag that was never offered is not written: ' + JSON.stringify(col(nt, 1)[6]));
+        ok(pt5.__askedFrom === null, 'the asked-from table is used for this request and forgotten');
+
+        // the next request, from the field at the top, is not derived from it
+        answer = { status: 'OK', note: '', rows: [['apples', '3']] };
+        r = await load('baja/plate/ops/fill-table.js', pt5, { what: 'a few fruits and how many', table: 'fruit' });
+        ok(JSON.parse(asked[1]).sources === undefined, 'a later, unrelated table has no source: nothing lingers');
+
+        // asked from a table, but about that table: it is filled, not copied
+        pt5.__askedFrom = { table: A, at: Date.now() };
+        answer = { status: 'OK', note: '', rows: [['Water', '100']] };
+        const before = pt5.root.length;
+        r = await load('baja/plate/ops/fill-table.js', pt5, { what: 'add a row for water treatment' });
+        ok(pt5.root.length === before && JSON.parse(asked[1]).sources === undefined && JSON.parse(asked[1]).table === 'assumptions',
+           '"add a row", asked from a table, still fills that table and makes no new one');
+        delete globalThis.__newTable;
     }
 
     // ---- the catalogue -----------------------------------------------------------------

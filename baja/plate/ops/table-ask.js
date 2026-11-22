@@ -52,6 +52,11 @@ function (table, pt) {
             // THE TABLE THIS WAS ASKED FROM, left where the operations can find it, so one
             // that takes a table name resolves to this one even when the name is not said.
             try { if (track) track.__askedTable = table; } catch (e) { }
+            // And for THIS request only: a table made or filled from it is worked out from
+            // this one ("given this table, create a new one that..."), which fill-table.js
+            // reads once and clears. __askedTable above outlives the request on purpose;
+            // this must not, or the next unrelated table would be derived from this one.
+            try { if (track) track.__askedFrom = { table: table, at: Date.now() }; } catch (e) { }
 
             let menus = [];
             try { menus = (track && track.__lastMenubar) ? (track.__lastMenubar() || []) : []; } catch (e) { menus = []; }
