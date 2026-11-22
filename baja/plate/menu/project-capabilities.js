@@ -549,6 +549,36 @@ function () {
             }
         },
         {
+            // A COLUMN OF COMMENTARY. table_size adds an empty column and fill_table makes
+            // rows up; neither reads the formulas, and a description of a formula written
+            // without reading it is a guess.
+            name: 'annotate_rows',
+            summary: 'ADD A NOTES COLUMN and write a short commentary on EVERY ROW of a '
+                + 'table: what the row is and, where it has a formula, what the formula '
+                + 'works out and from what, read off the canvas. THIS IS THE ANSWER to "add '
+                + 'a notes column that describes the formula on each row", "explain each '
+                + 'row", "annotate this table", "add a column describing the formulas", '
+                + '"document this table". Use it instead of table_size or fill_table '
+                + 'whenever the new column is to DESCRIBE or EXPLAIN the rows. It writes '
+                + 'only the notes column and keeps notes that are already there',
+            module: 'baja/plate/ops/annotate-rows.js',
+            params: {
+                table: { type: 'string', default: 'the table the request was made from',
+                    about: 'the NAME of the table, if the request says it' },
+                column: { type: 'string', default: 'Notes',
+                    about: 'the heading for the column, ONLY if the request names one '
+                        + '("a Comments column", "a column called Explanation")' },
+                what: { type: 'string', default: 'describe each row and the formula in it',
+                    about: 'what the notes should say or how, in the user\u2019s own words, '
+                        + 'when the request asks for a particular emphasis ("for an '
+                        + 'investor", "say where each number comes from")' },
+                overwrite: { type: 'enum', values: ['yes'], default: 'not set, so notes '
+                        + 'already written are kept',
+                    about: 'set to yes ONLY when the request says to rewrite, redo or '
+                        + 'replace the notes that are there' }
+            }
+        },
+        {
             name: 'format_cells',
             summary: 'change how the SELECTED cells are shown: as money, or as plain numbers',
             module: 'baja/plate/ops/format-cells.js',
@@ -814,6 +844,11 @@ function () {
         }
         if (name === 'fill_selection') {
             return 'fill in the selected cells' + (args.table ? (' of "' + args.table + '"') : '') + ': ' + args.what;
+        }
+        if (name === 'annotate_rows') {
+            return 'add a ' + (args.column || 'Notes') + ' column to ' + (args.table ? ('"' + args.table + '"') : 'this table')
+                + ' and write a note on each row' + (args.what ? (': ' + args.what) : '')
+                + (args.overwrite === 'yes' ? ' (replacing the notes there)' : '');
         }
         if (name === 'fill_table') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';

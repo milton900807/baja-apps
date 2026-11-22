@@ -264,6 +264,33 @@ function (o) {
             close();
             return;
         }
+        // "ADD A NOTES COLUMN THAT DESCRIBES THE FORMULA ON EACH ROW" GOES STRAIGHT THERE. The
+        // sentence names the column and says what it is for, which is the whole of the
+        // request, so it is not put to a menu search that could as easily settle on
+        // "add a column" and stop. Both halves have to be there: a notes (comments,
+        // explanation ...) column to be added, and something saying it describes the rows.
+        const noteCol = /\b(?:add|create|make|insert|write|give)\b[^.]*?\b(notes?|comments?|commentary|explanations?|descriptions?)\s+col+umn\b/i.exec(text);
+        if (noteCol && text.charAt(0) !== '=' && /\b(describ\w*|explain\w*|comment\w*|document\w*|annotat\w*|formulas?|about each|for each|each row|every row)\b/i.test(text)) {
+            const word = noteCol[1].toLowerCase();
+            const head = /^note/.test(word) ? 'Notes' : /^comment(s)?$/.test(word) ? 'Comments' : /^commentary/.test(word) ? 'Commentary'
+                : /^explanation/.test(word) ? 'Explanation' : 'Description';
+            let put = null;
+            try {
+                put = await withSpinner('Writing a note on each row', 'annotate_rows',
+                    () => exec('baja/plate/ops/annotate-rows.js', o.pm, { table: (o && o.table) || '', column: head, what: text,
+                        overwrite: /\b(rewrite|redo|replace|regenerate|overwrite|again)\b/i.test(text) ? 'yes' : '' }));
+            } catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+            if (put && put.error) {
+                say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                    + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                    + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                    + '">Close</button></div>');
+                try { q('#pc-cancel').onclick = close; } catch (e) { }
+                return;
+            }
+            close();
+            return;
+        }
         if (words || (o && o.repair && text.charAt(0) === '=')) {
             let put = null;
             try {

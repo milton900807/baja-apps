@@ -1164,6 +1164,15 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/fill-table.js:AND THE TABLE THE REQUEST WAS MADE FROM" \
     "py/bio/project/table-fill.py:READ THE NAMES TO FIND WHAT THE REQUEST IS ABOUT" \
     "baja/plate/menu/project-capabilities.js:ASKED FROM A TABLE, \"THIS TABLE\" IS THAT TABLE"
+  # "add a notes column that describes the formula on each row": the column is added and
+  # every row is written about from what its formula reads on the canvas. The card sends
+  # the sentence straight to the operation, the operation resolves the formulas and asks
+  # the python in groups, and the catalogue offers it to the planner for other wordings.
+  install_group "A notes column with a commentary on each row and its formula" \
+    "baja/plate/ops/annotate-rows.js:A NOTES COLUMN, WRITTEN ROW BY ROW FROM WHAT THE CANVAS ACTUALLY HOLDS" \
+    "py/bio/project/rows-annotate.py:THE CALLER HAS ALREADY READ THE FORMULAS" \
+    "baja/plate/menu/project-command.js:GOES STRAIGHT THERE. The" \
+    "baja/plate/menu/project-capabilities.js:A COLUMN OF COMMENTARY"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
