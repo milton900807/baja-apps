@@ -1177,6 +1177,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "min and max read the cells they are given" \
     "baja/plate/ops/frun-object.js:THE SMALLEST AND THE LARGEST OF A BLOCK OF CELLS" \
     "baja/plate/ops/frun-object.js:WHAT A BLOCK ARGUMENT RESOLVED TO IS IN"
+  install_group "A maximized table shows all its columns when they fit" \
+    "baja/plate/plate-track.js:AND NEVER WIDER THAN THE WINDOW WHEN IT COULD FIT"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

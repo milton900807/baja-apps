@@ -10823,8 +10823,22 @@ function (progress) {
                     // own width, INDEPENDENTLY of y, the way a timeline's axes are set: the
                     // cells simply come out wider than they are tall, which is what a table's
                     // cells look like anyway, and the height cap is untouched.
+                    //
+                    // AND NEVER WIDER THAN THE WINDOW WHEN IT COULD FIT. FILL THE ROOM, above,
+                    // grows a short table until its last row reaches the bottom, and it did
+                    // that by zooming, which widens as it heightens. A two-column table of
+                    // ten rows came out with its first column across the whole window and
+                    // its second off the right-hand edge, to be scrolled to: maximized, and
+                    // showing half of itself. Seeing every column matters more than tall
+                    // rows. So whenever the columns fit the window at a readable width (the
+                    // same 40px floor the minimum-size rule uses), x is the table's own
+                    // width, whichever side of it the height rules left the scale on. The
+                    // rows keep the height those rules gave them. Only a table with too many
+                    // columns to fit at that floor scrolls sideways now.
                     const xRangeFit = width * (1 + 2 * sideFrac);
-                    if (Number.isFinite(xRangeFit) && xRangeFit > 0 && xRange > xRangeFit) {
+                    const columnsFit = Number.isFinite(maxXRangeW) && xRangeFit <= maxXRangeW + 1e-9;
+                    if (Number.isFinite(xRangeFit) && xRangeFit > 0
+                        && (xRange > xRangeFit || (columnsFit && xRange < xRangeFit))) {
                         xRange = xRangeFit;
                         // ...and say so, or it is undone on the next frame: __maxEnforceView
                         // re-derives yRange from xRange unless tlFill is set. The flag reads
