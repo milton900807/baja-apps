@@ -446,23 +446,71 @@ function (expression, pt, owner) {
             return total;
         }
 
+        // THE SMALLEST AND THE LARGEST OF A BLOCK OF CELLS.
+        //
+        // =min(production_capacity[1:1][4:6]) came out as NaN over three cells reading
+        // 141.17650, 2058.82350 and 2823.52940. A cell's value is text: that is how cells
+        // hold what is typed into them and what a formula leaves in them, and it is why sum
+        // and average convert before they add. min did not. It took only values that were
+        // already of type number, found none, and answered NaN. (It was also never handed
+        // the cells in the first place: see blockArgs and the 'min' branch below. Either
+        // fault alone was enough.)
+        //
+        // And max was min: its branch below called min(), so =max(...) over any block gave
+        // the smallest, when it gave anything.
+        //
+        // Both now read a cell the way the rest of the engine does. A number is taken as it
+        // is; text that is a number ("141.17650", "$2,500", "40%") is taken as that number;
+        // an empty cell, a label or a heading is not a number and is passed over, since the
+        // smallest of a column is not zero because one of its cells is blank. Nothing
+        // numeric at all is still NaN: there is no smallest of nothing.
+        function numbersIn(values) {
+            const out = [];
+            for (let item of values) {
+                let val = (typeof item === 'object' && item !== null && 'value' in item) ? item.value : item;
+                if (typeof val === 'number') { if (Number.isFinite(val)) out.push(val); continue; }
+                if (typeof val !== 'string') continue;
+                let t = val.trim();
+                if (!t || t.charAt(0) === '=') continue;
+                const pct = /%$/.test(t);
+                t = t.replace(/[$£€,\s]/g, '').replace(/%$/, '');
+                if (!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(t)) continue;
+                const n = Number(t);
+                if (Number.isFinite(n)) out.push(pct ? n / 100 : n);
+            }
+            return out;
+        }
+        // Every value a function's arguments stand for: each argument that names an earlier
+        // result is replaced by that result, and the lot is flattened. Falls back to `res`
+        // for a call whose arguments were already values.
+        function blockArgs(args, results, res) {
+            let out = [];
+            try {
+                out = (Array.isArray(args) ? args : []).map((a) =>
+                    (typeof a === 'string' && results && results[a] !== undefined) ? results[a] : a).flat(Infinity);
+            } catch (e) { out = []; }
+            if (!out.length && Array.isArray(res)) { try { out = res.flat(Infinity); } catch (e) { out = []; } }
+            return out;
+        }
         function min(values) {
             if (!Array.isArray(values)) {
-                console.warn("minup: Expected an array.");
+                console.warn("min: Expected an array.");
                 return NaN;
             }
+            const nums = numbersIn(values);
             let minVal = Infinity;
-            for (let item of values) {
-                let val = (typeof item === 'object' && item !== null && 'value' in item)
-                    ? item.value
-                    : item;
-
-                if (typeof val === 'number' && !isNaN(val)) {
-                    minVal = Math.min(minVal, val);
-                }
+            for (const n of nums) minVal = Math.min(minVal, n);
+            return nums.length ? minVal : NaN;
+        }
+        function max(values) {
+            if (!Array.isArray(values)) {
+                console.warn("max: Expected an array.");
+                return NaN;
             }
-
-            return minVal === Infinity ? NaN : minVal;
+            const nums = numbersIn(values);
+            let maxVal = -Infinity;
+            for (const n of nums) maxVal = Math.max(maxVal, n);
+            return nums.length ? maxVal : NaN;
         }
         function ceil(input) {
 
@@ -506,25 +554,6 @@ function (expression, pt, owner) {
             }
 
             return Math.pow(base, exponent);
-        }
-
-        function max(values) {
-            if (!Array.isArray(values)) {
-                console.warn("maxup: Expected an array.");
-                return NaN;
-            }
-            let maxVal = -Infinity;
-            for (let item of values) {
-                let val = (typeof item === 'object' && item !== null && 'value' in item)
-                    ? item.value
-                    : item;
-
-                if (typeof val === 'number' && !isNaN(val)) {
-                    maxVal = Math.max(maxVal, val);
-                }
-            }
-
-            return maxVal === -Infinity ? NaN : maxVal;
         }
 
         function sqrt(value) {
@@ -2084,18 +2113,19 @@ function (expression, pt, owner) {
                     computedResult = [sumup(res)];
                 }
                 else if (functionName === 'min') {
-                    const flatArray = res.flat();
-
-                    computedResult = [min(flatArray)];
+                    // WHAT A BLOCK ARGUMENT RESOLVED TO IS IN `results`, NOT IN `res`. A range
+                    // or tag reference is worked out first and left under its own key, and
+                    // the argument is that key; `res` was empty for =min(table[1:1][4:6]),
+                    // so min was handed nothing and said NaN before it had looked at a
+                    // single cell. sum and average read their arguments this way already.
+                    computedResult = [min(blockArgs(args, results, res))];
                 }
                 else if (functionName === 'pow') {
                     const flatArray = res.flat();
                     computedResult = [pow(flatArray)];
                 }
                 else if (functionName === 'max') {
-                    const flatArray = res.flat();
-
-                    computedResult = [min(flatArray)];
+                    computedResult = [max(blockArgs(args, results, res))];
                 }
                 else if (functionName === 'normcdf') {
                     const flatArray = res.flat();

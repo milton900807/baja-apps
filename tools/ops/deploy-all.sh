@@ -1173,6 +1173,10 @@ if [[ $DO_API -eq 1 ]]; then
     "py/bio/project/rows-annotate.py:THE CALLER HAS ALREADY READ THE FORMULAS" \
     "baja/plate/menu/project-command.js:GOES STRAIGHT THERE. The" \
     "baja/plate/menu/project-capabilities.js:A COLUMN OF COMMENTARY"
+  # =min(table[1:1][4:6]) answered NaN and =max called min.
+  install_group "min and max read the cells they are given" \
+    "baja/plate/ops/frun-object.js:THE SMALLEST AND THE LARGEST OF A BLOCK OF CELLS" \
+    "baja/plate/ops/frun-object.js:WHAT A BLOCK ARGUMENT RESOLVED TO IS IN"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
