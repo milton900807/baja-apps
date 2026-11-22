@@ -1661,8 +1661,17 @@ if [[ $DO_WEB -eq 1 ]]; then
   command -v npm  >/dev/null || die "npm is not installed."
   say "node $(node -v), npm $(npm -v)"
 
-  git -C "$SRC_DIR" fetch --depth 50 origin "$BRANCH" || die "Could not fetch origin/$BRANCH."
-  git -C "$SRC_DIR" checkout -q "$BRANCH" 2>/dev/null || git -C "$SRC_DIR" checkout -q -B "$BRANCH" "origin/$BRANCH"
+  # A BRANCH OTHER THAN THE ONE THE SOURCE WAS CLONED AT. The source is a shallow clone, and
+  # a shallow clone tracks one branch: `fetch origin BRANCH` for any other leaves the commit
+  # in FETCH_HEAD and creates no origin/BRANCH, so BRANCH=fix/... stopped here with
+  # "'origin/fix/...' is not a commit and a branch cannot be created from it". The fetch
+  # now names where the branch is to land, and the checkout goes to that, whichever branch
+  # it is.
+  git -C "$SRC_DIR" fetch --depth 50 origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" \
+    || die "Could not fetch origin/$BRANCH. Is there a branch of that name in milton900807/baja?"
+  git -C "$SRC_DIR" rev-parse -q --verify "refs/remotes/origin/$BRANCH^{commit}" >/dev/null \
+    || die "Fetched, but origin/$BRANCH is not there to build from."
+  git -C "$SRC_DIR" checkout -q -B "$BRANCH" "origin/$BRANCH" || die "Could not check out $BRANCH."
   git -C "$SRC_DIR" reset -q --hard "origin/$BRANCH"
   say "At $(git -C "$SRC_DIR" log --oneline -1)"
 
