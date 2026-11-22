@@ -172,7 +172,9 @@ Rules, in order of importance:
    and ranks them. Set `source` to the track whose protein is being COPIED and `into`
    to the track being EDITED; they are not interchangeable, and getting them the wrong
    way round plans edits to a transcript nobody asked about. "make A like B" has
-   source=B, into=A. A request only to measure how alike two tracks are, with no edit
+   source=B, into=A. FILL BOTH whenever the request names two tracks, however it
+   words them: returning this operation with no arguments leaves the editor to ask
+   which track is which, which it will, but the request had already said. A request only to measure how alike two tracks are, with no edit
    in it, stays compare_sequences.
 
 9. A HOMOLOG IS A LOOKUP, NOT A GAP IN THE CATALOGUE. "list the closest paralog to this

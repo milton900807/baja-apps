@@ -289,6 +289,9 @@ function (graph, genegraph_panel_layout) {
         // here, unlike a comparison: editing the wrong one of a pair produces a plan for a
         // transcript nobody asked about, which looks like an answer.
         const rescuePair = (a) => {
+            // A pair chosen from the card's own buttons, which is how a request that named
+            // neither gets answered without guessing.
+            if (a && a.__pair && a.__pair.source && a.__pair.into) return a.__pair;
             const src = (a && a.source) ? matchTrack('' + a.source) : null;
             const into = (a && a.into) ? matchTrack('' + a.into) : null;
             if (src && into && src !== into) return { source: src, into: into };
@@ -2039,19 +2042,49 @@ function (graph, genegraph_panel_layout) {
                 },
                 preview: (a) => {
                     const pair = rescuePair(a);
-                    if (!pair) return 'work out which exons to lose or induce to match the other protein';
+                    if (!pair) return 'work out which exons to lose or induce to match the other '
+                        + 'protein, once you say which track is which';
                     return 'work out which exons of ' + (pair.into.name || 'the target')
                         + ' to lose or keep, and which cryptic exons to induce in its introns, so it '
                         + 'translates as close as possible to ' + (pair.source.name || 'the source');
                 },
+                // THREE TRACKS OPEN IS NOT TOO LITTLE INFORMATION, it is too much to assume
+                // from. The request that names neither used to end at "these did not resolve
+                // to two: DNM3, DNM3_mRNA, DNM1" -- a refusal listing the very tracks it
+                // could have offered. Every ordered pair is a question this operation can
+                // answer, and which way round matters, so both directions are offered and
+                // each says plainly which track it would edit.
+                choices: (a) => {
+                    if (a && a.__pair) return [];
+                    if (rescuePair(a)) return [];
+                    const open = tracks();
+                    if (open.length < 2) return [];
+                    const named = (a && a.source) ? matchTrack('' + a.source) : null;
+                    const namedInto = (a && a.into) ? matchTrack('' + a.into) : null;
+                    const out = [];
+                    for (const src of open) {
+                        for (const into of open) {
+                            if (src === into) continue;
+                            if (named && src !== named) continue;
+                            if (namedInto && into !== namedInto) continue;
+                            out.push({
+                                label: 'copy ' + (src.name || 'a track') + ' \u2192 edit ' + (into.name || 'a track'),
+                                detail: (into.name || 'the second') + ' is the one whose exons the plan changes',
+                                args: Object.assign({}, a, { __pair: { source: src, into: into } })
+                            });
+                        }
+                    }
+                    return out.slice(0, 12);
+                },
+                choiceTitle: () => 'Which protein is being copied, and which track is edited?',
                 argBlocker: (a) => {
                     const pair = rescuePair(a);
                     if (pair) return '';
-                    const open = tracks();
-                    return open.length
-                        ? ('two tracks are needed, one to copy and one to edit, and these did not '
-                            + 'resolve to two: ' + open.map((x) => x.name || '(unnamed)').join(', '))
-                        : 'two tracks are needed, and none are open';
+                    // With tracks open there are choices to offer, and a blocker would hide
+                    // them: the card shows one or the other, never both.
+                    if (tracks().length >= 2) return '';
+                    return 'two tracks are needed, one to copy and one to edit, and '
+                        + (tracks().length ? 'only one is open' : 'none are open');
                 }
             },
 

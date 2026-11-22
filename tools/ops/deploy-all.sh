@@ -1157,6 +1157,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # The plan refused a request that named no track, listing the very tracks it could have
+  # offered.
+  install_group "The plan offers its pairs instead of refusing" \
+    "baja/manchester/menu/editor-capabilities.js:THREE TRACKS OPEN IS NOT TOO LITTLE INFORMATION" \
+    "py/bio/editor/plan.py:FILL BOTH whenever the request names two tracks"
   # Which exons of a target to lose, and which cryptic exons to induce in its introns, so
   # that what it translates reproduces the source's protein.
   install_group "The exon plan search and the pieces it shares" \

@@ -110,12 +110,46 @@ const go = async (C, args) => {
         global.lion_engine = { exec: (p2, ...a) => load(p2, ...a) };
     }
 
-    // ---- three open tracks and none named is not a guess ----------------------------------------
+    // ---- three open tracks and none named: OFFER them, do not refuse ---------------------
+    // This came back from the editor as "cannot run: two tracks are needed, one to copy and
+    // one to edit, and these did not resolve to two: DNM3, DNM3_mRNA, DNM1" -- a refusal
+    // that listed the very tracks it could have offered. Which way round matters here, so
+    // both directions are offered rather than a pair being assumed.
     {
         const C3 = (await mkCap([A, B, X])).C;
         const q = C3.preview({ capability: 'plan_peptide_rescue', args: {} });
-        ok(!!q.blocker && /two tracks are needed/.test(q.blocker),
-           'with three open and none named it asks rather than picking two: ' + q.blocker);
+        ok(!q.blocker, 'it does not refuse: ' + (q.blocker || '(no blocker)'));
+        ok(q.choices && q.choices.length === 6,
+           'every ordered pair of the three is on offer: '
+           + (q.choices || []).map((c) => c.label).join(' | '));
+        ok((q.choices || []).some((c) => /copy DNM1 . edit DNM3/.test(c.label))
+           && (q.choices || []).some((c) => /copy DNM3 . edit DNM1/.test(c.label)),
+           'in both directions, because they are different questions');
+        ok((q.choices || []).every((c) => /whose exons the plan changes/.test(c.detail || '')),
+           'each saying which track it would edit');
+
+        // Pressing one runs that pair, and nothing else.
+        const chosen = q.choices.filter((c) => /copy DNM1 . edit DNM3/.test(c.label))[0];
+        searched = null;
+        await q.capability.run(chosen.args);
+        ok(searched && searched.source.name === 'DNM1' && searched.into.name === 'DNM3',
+           'and the one pressed is the one that runs: '
+           + JSON.stringify(searched && [searched.source.name, searched.into.name]));
+
+        // Naming one side narrows the offer rather than refusing it.
+        const q2 = C3.preview({ capability: 'plan_peptide_rescue', args: { source: 'DNM1' } });
+        ok((q2.choices || []).length === 2
+           && (q2.choices || []).every((c) => /^copy DNM1 /.test(c.label)),
+           'naming the track to copy leaves only which one to edit: '
+           + (q2.choices || []).map((c) => c.label).join(' | '));
+    }
+
+    // One track open is a genuine refusal: there is no pair to offer.
+    {
+        const C4 = (await mkCap([A])).C;
+        const q = C4.preview({ capability: 'plan_peptide_rescue', args: {} });
+        ok(!!q.blocker && /only one is open/.test(q.blocker),
+           'one track open says so plainly: ' + q.blocker);
     }
 
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
