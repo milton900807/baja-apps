@@ -1094,6 +1094,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/cell-menu.js:WITH SEVERAL CELLS SELECTED THERE IS NO \"THIS ROW\" OR \"THIS COLUMN\""
   install_group "Set data type offered on a selected column" \
     "baja/plate/menu/cell-menu.js:A WHOLE COLUMN SELECTED IS A COLUMN ABOUT TO BE GIVEN A TYPE"
+  # "bookmark assumptions" frames the table instead of throwing in the console. The field
+  # catches the formula engine's refusal and hands plain words to the card, the card sends
+  # the verb straight to the operation, and the catalogue offers it to the planner.
+  install_group "Bookmark a table by name, and say when a formula is refused" \
+    "manchester/controls/navigation-panel-plates2.js:A FORMULA THAT IS NOT ONE IS SAID, AND SHORT COMMANDS GET A SECOND READING" \
+    "baja/plate/menu/project-command.js:\"BOOKMARK ASSUMPTIONS\" NEEDS NO SEARCH AND NO CARD" \
+    "baja/plate/ops/bookmark-tables.js:A BOOKMARK THAT FRAMES A TABLE, BY NAME" \
+    "baja/plate/menu/project-capabilities.js:A VIEW KEPT BY NAME"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

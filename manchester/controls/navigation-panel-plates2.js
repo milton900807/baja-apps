@@ -86,7 +86,27 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 } catch (e) { try { pt.setMessage('Could not repair that cell: ' + (e && e.message ? e.message : e), 8); } catch (e2) { } }
                 return;
             }
-            if (!looksLikeASentence(t)) return legacy(t, panel);
+            // A FORMULA THAT IS NOT ONE IS SAID, AND SHORT COMMANDS GET A SECOND READING.
+            //
+            // "bookmark assumptions" is two words, which is under the three it takes to be
+            // read as a sentence, so it went to the formula engine. That threw "Invalid
+            // formula: bookmark assumptions. Expected TableName[groups]" as an unhandled
+            // rejection: nothing on screen, an error in a console nobody had open, and a key
+            // that looked as if it had not been pressed. The formula engine still goes
+            // first, because a formula is still the likelier thing in this field. But its
+            // failure is now caught. Text that is nothing but words (no bracket, no "=", no
+            // digit) and at least two of them cannot have been a formula, so it is read as a
+            // request instead. Anything else that fails is shown as the error it is.
+            if (!looksLikeASentence(t)) {
+                if (legacyFirst) return legacy(t, panel);
+                const plainWords = !/[\[\]()|=;:\d+*/^<>]/.test(t) && t.split(/\s+/).filter((w) => /^[A-Za-z][A-Za-z'\u2019_-]*$/.test(w)).length >= 2
+                    && t.split(/\s+/).every((w) => /^[A-Za-z][A-Za-z'\u2019_,.-]*$/.test(w));
+                let failed = null;
+                try { await legacy(t, panel); } catch (e) { failed = ('' + (e && e.message ? e.message : e)); }
+                if (failed === null) return;
+                if (!plainWords) { try { pt.setMessage(failed, 10); } catch (e) { } return; }
+                // falls through to the card, as a sentence would
+            } else
             if (legacyFirst) {
                 let handled = false;
                 try { handled = !!(await legacy(t, panel)); } catch (e) { handled = false; }
@@ -1695,7 +1715,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
             data: {
                 placeholder: __fieldHint(),
                 cmd: createIon(async (str, panel) => runCommandText(str, panel, async (str, panel) => {
-                    pt.createPlateFromFormula(str)
+                    // Returned, so that a formula the engine rejects is something
+                    // runCommandText can catch rather than a rejection nobody is holding.
+                    return pt.createPlateFromFormula(str)
                 })),
                 menus: [
                     ...fileMenu(),

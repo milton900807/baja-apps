@@ -493,6 +493,22 @@ function () {
             }
         },
         {
+            // A VIEW KEPT BY NAME. The canvas has no folders; a bookmark over a table or a
+            // group of tables is how a place on it is found again.
+            name: 'bookmark_tables',
+            summary: 'BOOKMARK one or more tables: save a named view that frames them, listed '
+                + 'under Bookmarks in the navigation bar. THIS IS THE ANSWER to "bookmark '
+                + 'assumptions", "add a bookmark for the cost tables", "save this view of '
+                + 'flight_cost as costs". It does not change any table',
+            module: 'baja/plate/ops/bookmark-tables.js',
+            params: {
+                tables: { type: 'string', default: 'the selected table',
+                    about: 'the NAME of the table to frame; several are separated by commas' },
+                name: { type: 'string', default: 'the name of the table, or the names joined',
+                    about: 'what to call the bookmark, ONLY if the request gives it a name' }
+            }
+        },
+        {
             name: 'format_cells',
             summary: 'change how the SELECTED cells are shown: as money, or as plain numbers',
             module: 'baja/plate/ops/format-cells.js',
@@ -747,6 +763,10 @@ function () {
         if (name === 'write_formula') {
             return 'work out a formula for the selected cell'
                 + (args.table ? (' in "' + args.table + '"') : '') + ': ' + args.what;
+        }
+        if (name === 'bookmark_tables') {
+            return 'bookmark ' + (args.tables ? ('"' + args.tables + '"') : 'the selected table')
+                + (args.name ? (' as "' + args.name + '"') : '');
         }
         if (name === 'fill_table') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';

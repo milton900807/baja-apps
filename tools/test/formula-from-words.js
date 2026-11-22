@@ -198,7 +198,7 @@ const mkTable = (name, rows) => {
     // ---- the field that decides to ask -----------------------------------------------------
     const nav = fs.readFileSync('manchester/controls/navigation-panel-plates2.js', 'utf8');
     const k = nav.indexOf('const red = (() => {');
-    ok(k > 0 && k < nav.indexOf('if (!looksLikeASentence(t)) return legacy(t, panel);'),
+    ok(k > 0 && k < nav.indexOf('if (!looksLikeASentence(t)) {'),
        'the red cell is looked at before the text is handed to the formula engine');
     ok(/repair: true/.test(nav) && /ws\[0\]\.hasError\(\)/.test(nav) && /ws\.length !== 1/.test(nav),
        'only for one selected cell that is red');

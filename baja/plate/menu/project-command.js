@@ -242,6 +242,28 @@ function (o) {
                 return;
             }
         }
+        // "BOOKMARK ASSUMPTIONS" NEEDS NO SEARCH AND NO CARD. The verb is the whole
+        // request and what follows it is the tables, so it goes straight to the operation
+        // that frames them. A table it cannot find is said, with the tables there are.
+        const mark = /^(?:please\s+)?(?:bookmark|add\s+a\s+bookmark\s+(?:for|to|on))\s+(.+?)(?:\s+as\s+(.+))?$/i.exec(text);
+        if (mark) {
+            let put = null;
+            try {
+                put = await withSpinner(text, 'bookmark_tables',
+                    () => exec('baja/plate/ops/bookmark-tables.js', o.pm,
+                        { tables: /^(this|it|this table|the table|the selected table)$/i.test(mark[1].trim()) ? '' : mark[1], name: mark[2] || '' }));
+            } catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+            if (put && put.error) {
+                say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                    + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                    + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                    + '">Close</button></div>');
+                try { q('#pc-cancel').onclick = close; } catch (e) { }
+                return;
+            }
+            close();
+            return;
+        }
         if (words || (o && o.repair && text.charAt(0) === '=')) {
             let put = null;
             try {
