@@ -1157,6 +1157,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # "compare peptides between track 1 and 3" reached nothing: the catalogue never said
+  # peptide, and a track could only be named, never pointed at by position.
+  install_group "Peptides by name, and tracks by position" \
+    "baja/manchester/menu/editor-capabilities.js:A TRACK IS ALSO WHERE IT IS ON THE CANVAS" \
+    "py/bio/editor/plan.py:8b. A TRACK CAN BE NAMED BY WHERE IT IS"
   # A stability figure whose label touched the one before it was dropped in silence, which
   # in that row reads as an exon nothing was measured for.
   install_group "Crowded stability figures stagger instead of vanishing" \

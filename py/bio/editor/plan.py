@@ -157,6 +157,14 @@ Rules, in order of importance:
    this operation too. search_region_in_track stays the answer for ONE named region
    ("exon 16 of A").
 
+8b. A TRACK CAN BE NAMED BY WHERE IT IS. "compare peptides between track 1 and 3",
+   "the second track", "the first and last one" refer to the tracks in the order they
+   sit on the canvas. Pass those words through as they were said -- tracks="track 1,
+   track 3" -- rather than guessing which transcript was meant or leaving the argument
+   out: the editor resolves a position against what is actually open, and leaving it out
+   means every open track. Pass a NAME through as a name for the same reason; DNM1 is a
+   name, not track 1.
+
 9. A HOMOLOG IS A LOOKUP, NOT A GAP IN THE CATALOGUE. "list the closest paralog to this
    track", "find the mouse ortholog", "is this conserved in rat", "what is the fly
    version of this" are all list_homologs: set `kind` to paralogs for a duplicate in the

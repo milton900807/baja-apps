@@ -294,6 +294,33 @@ function (graph, genegraph_panel_layout) {
         // unique substring: "DNM3" should find DNM3-201 without also claiming DNM3OS-201,
         // and two matches is not a match, because framing the wrong track looks like the
         // editor ignoring the request.
+        // A TRACK IS ALSO WHERE IT IS ON THE CANVAS. "compare peptides between track 1 and
+        // 3" is how someone with four transcripts open says which two they mean: the names
+        // are long, similar, and often differ by a suffix nobody wants to type. By name
+        // alone that request matched nothing, fell through to "all the open tracks", and
+        // compared four.
+        //
+        // Position is tried only when the whole string IS a position, so a track named
+        // "T7" or "1" is still found by its name: an exact name match is taken first, and a
+        // string like "DNM1" never counts as a position.
+        const ORDINALS = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+            sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
+        const trackAtPosition = (want) => {
+            const all = tracks();
+            if (!all.length) return null;
+            const w = ('' + want).trim().toLowerCase()
+                .replace(/^the\s+/, '').replace(/\s+(track|one)$/, '').trim();
+            let n = null;
+            const digits = w.match(/^(?:track|trk|t)?\s*#?\s*(\d{1,2})(?:st|nd|rd|th)?$/);
+            if (digits) n = +digits[1];
+            else if (ORDINALS[w]) n = ORDINALS[w];
+            else if (w === 'last') n = all.length;
+            // Out of range is NOT the nearest track: "track 5" with three open is a request
+            // about a track that is not there, and answering it with the third one would be
+            // the editor quietly doing something else.
+            if (!n || n < 1 || n > all.length) return null;
+            return all[n - 1];
+        };
         const matchTrack = (name) => {
             const want = ('' + (name || '')).trim().toLowerCase();
             if (!want) return null;
@@ -301,6 +328,8 @@ function (graph, genegraph_panel_layout) {
             const nm = (t) => ('' + (t.name || '')).toLowerCase();
             const exact = all.filter((t) => nm(t) === want);
             if (exact.length === 1) return exact[0];
+            const byPos = trackAtPosition(want);
+            if (byPos) return byPos;
             const pre = all.filter((t) => nm(t).indexOf(want) === 0);
             if (pre.length === 1) return pre[0];
             const sub = all.filter((t) => nm(t).indexOf(want) >= 0);
@@ -1751,7 +1780,11 @@ function (graph, genegraph_panel_layout) {
                     + 'the answer to "compare these tracks", "compare the sequences", "how '
                     + 'similar are these two", "align these", "what is the identity between '
                     + 'them", "what is different between them", "compare the proteins between '
-                    + 'the mRNA tracks". It does NOT select anything: a '
+                    + 'the mRNA tracks". PEPTIDES, PROTEINS, ORFs AND TRANSLATIONS ARE THE '
+                    + 'SAME QUESTION HERE, with mode=protein: "compare peptides between '
+                    + 'track 1 and 3", "compare the ORFs of these two", "how alike are '
+                    + 'their peptides", "do they translate to the same protein", "compare '
+                    + 'the translations". It does NOT select anything: a '
                     + 'request to COMPARE is this operation, not a pair of selections. Name a '
                     + 'region (exon 16, the 3\u2019 UTR) to compare just that stretch of each '
                     + 'track, which is what a request mentioning one means.',
@@ -1770,7 +1803,8 @@ function (graph, genegraph_panel_layout) {
                     end: { type: 'number', about: 'with region=coordinates: the last base' },
                     mode: {
                         type: 'enum', values: ['protein', 'nucleotide', 'coding'], default: 'protein',
-                        about: 'protein compares the translated ORFs, which is the right default '
+                        about: 'protein compares the translated ORFs, and is what a request '
+                            + 'about peptides, proteins, ORFs or translations means. It is the right default '
                             + 'for two genes. nucleotide compares the coding sequence, or the '
                             + 'track\u2019s own bases when it has no ORF. coding compares both '
                             + 'over the same residues and counts silent against replacing '
@@ -1778,8 +1812,11 @@ function (graph, genegraph_panel_layout) {
                     },
                     tracks: {
                         type: 'string',
-                        about: 'the tracks to compare, by name, comma separated. Omit for the '
-                            + 'selected tracks, or when exactly two are open'
+                        about: 'the tracks to compare, comma separated. Either by name, or by '
+                            + 'where they sit on the canvas when the request says so: "track '
+                            + '1, track 3" for "between track 1 and 3", and "first", '
+                            + '"second", "third", "last" likewise. Omit for the selected '
+                            + 'tracks, or when exactly two are open'
                     },
                     which: {
                         type: 'enum', values: ['mrna', 'all'],
