@@ -23,7 +23,9 @@ function (pt, plate) {
         const T = (key, section, title, blurb, badge) => ({ key, section, title, blurb, badge });
         const CATALOG = [
             // Text
-            T('SIMPLE_TEXT', 'Text', 'Text', 'Plain text, left aligned and wrapped to the cell.', 'Display'),
+            T('SIMPLE_TEXT', 'Text', 'Text', 'Plain text, left aligned and wrapped to the cell. Text too long for the cell is cut short with an ellipsis.', 'Display'),
+            // The one to use for notes: see WRAP_TEXT in well-display-factory.js.
+            T('WRAP_TEXT', 'Text', 'Wrapped text', 'The whole text, wrapped onto as many lines as it needs and sized to fit the cell. Nothing is cut off: long text is drawn smaller, and is all there to zoom in on. For notes and descriptions.', 'Display'),
             T('TITLE', 'Text', 'Title', 'Bold heading text for naming a block of the model.', 'Display'),
             T('TITLE_SUBTLE', 'Text', 'Subtitle', 'A quieter heading in muted grey, for secondary labels.', 'Display'),
             T('TITLE_MONO', 'Text', 'Code', 'Monospaced text, for identifiers, keys and formulas shown as text.', 'Display'),

@@ -1179,6 +1179,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/frun-object.js:WHAT A BLOCK ARGUMENT RESOLVED TO IS IN"
   install_group "A maximized table shows all its columns when they fit" \
     "baja/plate/plate-track.js:AND NEVER WIDER THAN THE WINDOW WHEN IT COULD FIT"
+  # A data type that shows the whole text, wrapped and sized to the cell. The factory draws
+  # it, the library lists it, and generated notes are given it: a library offering a type the
+  # factory does not have would set cells to a type that draws nothing.
+  install_group "Wrapped text: a data type that shows the whole text" \
+    "baja/plate/views/well-display-factory.js:WRAPPED TEXT: THE WHOLE TEXT, ALWAYS" \
+    "baja/plate/views/well-type-library.js:T('WRAP_TEXT', 'Text', 'Wrapped text'" \
+    "baja/plate/ops/annotate-rows.js:A NOTE IS SHOWN WHOLE"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

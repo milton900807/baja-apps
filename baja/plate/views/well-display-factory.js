@@ -2474,6 +2474,116 @@ function () {
             return m + ' \u00D7 10' + exp;
         });
 
+        // WRAPPED TEXT: THE WHOLE TEXT, ALWAYS.
+        //
+        // Plain text (SIMPLE_TEXT) wraps too, but it will not go below 9px, and past that it
+        // cuts the text off with an ellipsis; when even one line will not fit it draws a
+        // lone "…". That is right for a label and wrong for a note: a sentence written to
+        // explain a row came out as "Annual insurance from assump…", which explains nothing.
+        //
+        // This type never cuts. It wraps the text to the cell's width, breaking a word that
+        // is wider than the cell (a URL, a long identifier), keeps line breaks that are in
+        // the text, and then takes the LARGEST size at which every line is inside the cell.
+        // Short text comes out as large as plain text would draw it. Long text comes out
+        // smaller, as small as it has to be, and is all there: on this canvas a cell is
+        // read by zooming in, and what is drawn small is still there to be zoomed to, where
+        // what was replaced by an ellipsis is not.
+        //
+        // Rows in a table are one height, so the cell cannot grow to fit its text; the text
+        // is fitted to the cell instead. It is set from the top left, as a paragraph is, and
+        // centred on the row only when it is a single line, so it sits level with the cells
+        // beside it.
+        t.WRAP_TEXT = (graph, grid, ctx, min, max, x, y, well) => {
+            ctx.save();
+            try {
+                const num = (v, fb = 0) => (typeof v === 'number' && isFinite(v) ? v : fb);
+                const mobile = typeof isMobile === 'function' && isMobile();
+                well.attr__showBorder = false;
+                const sx = num((well.__screen_x ?? graph.X(grid.X(well.x))));
+                const sy = num(graph.Y(grid.Y(well.y)));
+                const sw = num(well.__screen_width, 30), sh = num(well.__screen_height, 30);
+
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0;
+                ctx.fillStyle = well.select ? (mobile ? 'rgba(26,163,189,0.25)' : '#d8eff4') : (well.color || 'white');
+                ctx.strokeStyle = mobile ? 'rgba(70,70,70,0.9)' : 'rgba(120,120,100,1)';
+                ctx.lineWidth = mobile ? 2 : 1;
+                drawRoundedRect(ctx, sx, sy, sw, sh, mobile ? 10 : 5);
+                ctx.fill(); ctx.stroke();
+
+                // Padding gives way before the text does: a small cell keeps its room for words.
+                const pad = Math.max(1, Math.min(10, Math.round(Math.min(sw, sh) * 0.10)));
+                const cx = sx + pad, cy = sy + pad, cw = sw - 2 * pad, ch = sh - 2 * pad;
+                if (cw < 2 || ch < 2) return;
+                const text = (well.value == null) ? '' : String(well.value);
+                if (!text.trim()) return;
+
+                const font = well.font || 'Arial';
+                const LINE = 1.25;
+                // Every line of the text at this size, none longer than the cell is wide.
+                const layout = (fs) => {
+                    ctx.font = fs + 'px ' + font;
+                    const lines = [];
+                    for (const para of text.split(/\r?\n/)) {
+                        const words = para.split(/\s+/).filter(Boolean);
+                        if (!words.length) { lines.push(''); continue; }
+                        let line = '';
+                        for (let word of words) {
+                            // A word wider than the cell is broken where it stops fitting.
+                            while (ctx.measureText(word).width > cw && word.length > 1) {
+                                let k = word.length - 1;
+                                const room = line ? (cw - ctx.measureText(line + ' ').width) : cw;
+                                while (k > 1 && ctx.measureText(word.slice(0, k)).width > Math.max(room, 0)) k--;
+                                if (line && ctx.measureText(word.slice(0, k)).width > room) { lines.push(line); line = ''; continue; }
+                                lines.push((line ? line + ' ' : '') + word.slice(0, k));
+                                line = ''; word = word.slice(k);
+                            }
+                            const tryLine = line ? (line + ' ' + word) : word;
+                            if (line && ctx.measureText(tryLine).width > cw) { lines.push(line); line = word; }
+                            else line = tryLine;
+                        }
+                        if (line) lines.push(line);
+                    }
+                    return { lines: lines, height: lines.length * fs * LINE, fits: lines.length * fs * LINE <= ch + 0.001 };
+                };
+                // The largest size that fits, between what plain text would use and very small.
+                // The top size is the one plain text uses (seven tenths of the cell inside its
+                // 10px padding, 9px at least), so a short entry in a column of wrapped cells
+                // is the same size as the plain cells beside it and not larger for having
+                // less padding to lose.
+                const TOP = Math.max(3, Math.min(mobile ? 14 : 40, ch,
+                    Math.max(mobile ? 6 : 9, Math.floor((Math.min(sw, sh) - 20) * 0.70))));
+                const FLOOR = 3;
+                let lo = FLOOR, hi = TOP, best = null;
+                const top = layout(hi);
+                if (top.fits) best = { fs: hi, l: top };
+                else {
+                    // Halving search over half-pixel sizes: text fits at every size below one
+                    // at which it fits, near enough for a search.
+                    for (let i = 0; i < 14 && hi - lo > 0.4; i++) {
+                        const mid = Math.round(((lo + hi) / 2) * 2) / 2;
+                        const l = layout(mid);
+                        if (l.fits) { best = { fs: mid, l: l }; lo = mid; } else hi = mid;
+                    }
+                    if (!best) best = { fs: FLOOR, l: layout(FLOOR) };
+                }
+
+                ctx.font = best.fs + 'px ' + font;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = well.fgcolor || (mobile ? 'rgba(0,0,0,0.9)' : 'black');
+                const lh = best.fs * LINE;
+                // At the floor and still too long: clipped to the cell, never over the next one.
+                if (!best.l.fits) { ctx.beginPath(); ctx.rect(sx, sy, sw, sh); ctx.clip(); }
+                const startY = (best.l.lines.length === 1) ? (cy + ch / 2) : (cy + lh / 2);
+                for (let i = 0; i < best.l.lines.length; i++) ctx.fillText(best.l.lines[i], cx, startY + i * lh);
+                // For a test, and for anything that wants to know what was drawn.
+                well.__wrap = { fontSize: best.fs, lines: best.l.lines.length, fits: best.l.fits };
+            } finally {
+                ctx.restore();
+            }
+        };
+
         // The canonical type names, captured BEFORE the aliases below are merged in, so a
         // picker can list each type once. Non-enumerable: Object.keys(t) is unchanged.
         try { Object.defineProperty(t, '__canonical', { value: Object.keys(t), enumerable: false }); } catch (e) { }
@@ -2496,6 +2606,7 @@ function () {
             SPARKLINE: ['TREND'],
             DATE: ['DT'],
             TITLE: ['HEADER_TITLE'],
+            WRAP_TEXT: ['WRAP', 'WRAPPED_TEXT', 'NOTE', 'PARAGRAPH'],
             'Input_Number': ['INUM', 'INPUT_NUM'],
             'Input_Percent': ['IPCT', 'INPUT_PCT'],
             'Input_Dollar': ['IMONEY', 'INPUT_USD'],

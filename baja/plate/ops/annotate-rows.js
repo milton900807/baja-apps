@@ -270,6 +270,15 @@ function (pm, o) {
                     while (v.charAt(0) === '=') v = v.slice(1).trim();
                     if (!v) { unanswered++; continue; }
                     try { if (typeof x.cell.setValue === 'function') x.cell.setValue(v.slice(0, 400)); else x.cell.value = v.slice(0, 400); written++; } catch (e) { }
+                    // A NOTE IS SHOWN WHOLE. Plain text cuts a sentence off at the edge of the
+                    // cell with an ellipsis, which for a note is most of it gone. The wrapped
+                    // type draws all of it. Only where no type has been chosen for the cell:
+                    // a type somebody set is theirs.
+                    try {
+                        if (!x.cell.skin_type || x.cell.skin_type === 'SIMPLE_TEXT') {
+                            if (typeof x.cell.setWellType === 'function') x.cell.setWellType('WRAP_TEXT'); else x.cell.skin_type = 'WRAP_TEXT';
+                        }
+                    } catch (e) { }
                 }
                 // Shown as it goes: the column fills in front of the user.
                 try { if (pt.wake) pt.wake(); } catch (e) { }
