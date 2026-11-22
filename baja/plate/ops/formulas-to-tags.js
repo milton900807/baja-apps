@@ -203,13 +203,28 @@ function (pm, o) {
                 if (a === null || b === null || a !== b) { differed++; continue; }
 
                 if (!pushed) { try { pushHistory(HM(t)); } catch (e) { } pushed = true; }
+                // STORED WITHOUT ITS "=", WHICH IS HOW THE TABLE KEEPS A FORMULA. The field at
+                // the top shows a stored formula with an "=" put in front; one stored with its
+                // own came up as "==beer[...]".
+                //
+                // AND UNASKED, THE CELL KEEPS ITS VALUE. Writing the formula text into the
+                // cell is how a formula is entered: the next calculation turns it into a
+                // number. Run after a calculation, with no other to follow, that left the
+                // cell showing "=beer[Basel_Wheat,Quantity]*..." where 1400 had been. The
+                // value has not changed (that was the condition for converting), so only the
+                // stored formula is replaced and the number stays where it is.
+                const bare = c.formula.replace(/^(=\s*)+/, '');
                 try {
                     const wr = t.getWellRange([cell]);
-                    try { t.formula[wr] = c.formula; } catch (e) { }
-                    try { pt.addFormula(t.name + '' + wr, c.formula); } catch (e) { }
+                    try { t.formula[wr] = bare; } catch (e) { }
+                    try { pt.addFormula(t.name + '' + wr, bare); } catch (e) { }
                 } catch (e) { }
-                try { if (typeof cell.formula === 'string') cell.formula = c.formula; } catch (e) { }
-                try { cell.setValue(c.formula); } catch (e) { }
+                try {
+                    if (typeof cell.formula === 'string' && cell.formula.trim()) cell.formula = (cell.formula.trim().charAt(0) === '=') ? c.formula : bare;
+                } catch (e) { }
+                if (!auto || (typeof cell.value === 'string' && cell.value.trim().charAt(0) === '=')) {
+                    try { cell.setValue(c.formula); } catch (e) { }
+                }
                 done.push({ was: before, now: c.formula, references: c.changed, left: c.kept });
                 if (!example) example = c.formula;
             }

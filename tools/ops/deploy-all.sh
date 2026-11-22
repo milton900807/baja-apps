@@ -1130,6 +1130,15 @@ if [[ $DO_API -eq 1 ]]; then
   # Ctrl+S (Cmd+S) saves the document over its file and the browser's Save Page never opens.
   install_group "Ctrl+S saves the document, once, and says how it went" \
     "cpd/baja-analytics.js:ONE SAVE AT A TIME, AND IT SAYS HOW IT WENT"
+  # "==formula" is "=formula" wherever a formula is shown, typed, stored or read, and the
+  # automatic conversion to tags no longer writes a formula's text over a cell's number.
+  # The conversion is what was storing the extra "=", so it goes with the places that
+  # tolerate one.
+  install_group "Two equals signs in front of a formula are one" \
+    "manchester/controls/navigation-panel-plates2.js:ONE \"=\" IN FRONT OF A FORMULA, HOWEVER MANY WERE TYPED OR SHOWN" \
+    "baja/plate/well.js:TWO EQUALS SIGNS IN FRONT OF A FORMULA ARE ONE" \
+    "baja/plate/plate.js:EVERY \"=\" AT THE FRONT, NOT ONE" \
+    "baja/plate/ops/formulas-to-tags.js:AND UNASKED, THE CELL KEEPS ITS VALUE"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

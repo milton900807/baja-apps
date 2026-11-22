@@ -45,8 +45,16 @@ function (plate_graph, selectedPlate, selectedPoint) {
         //
         // The field whose legacy is the formula engine does NOT do this: a sentence run
         // through it first would make a junk plate before anything else got a say.
+        // ONE "=" IN FRONT OF A FORMULA, HOWEVER MANY WERE TYPED OR SHOWN. Shared by what the
+        // field shows and what it sends: a formula with a name, number, bracket or sign after
+        // two or more equals signs has them made into one. Anything else is left as typed.
+        const oneEquals = (x) => {
+            const s = ('' + (x == null ? '' : x));
+            const m = /^\s*(?:=\s*){2,}(?=[A-Za-z0-9_(.+\-])/.exec(s);
+            return m ? ('=' + s.slice(m[0].length)) : s;
+        };
         const runCommandText = async (str, panel, legacy, legacyFirst) => {
-            const t = ('' + (str || '')).trim();
+            const t = oneEquals(('' + (str || '')).trim());
             if (!t) return;
             // ENTER ON A RED CELL IS A REQUEST TO FIX IT, NOT TO WRITE IT AGAIN.
             //
@@ -1041,7 +1049,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         if (selectedPlate.formula[wr]) {
                             const tmc = selectedPlate.formula[wr]
                             if (!panel.caretInWindow)
-                                panel.setText('=' + tmc)
+                                panel.setText(oneEquals('=' + tmc))
                         }
                         else {
 
@@ -1054,7 +1062,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         if (selectedPlate.formula[wr]) {
                             const tmc = selectedPlate.formula[wr];
                             if (!panel.caretInWindow)
-                                panel.setText('=' + tmc)
+                                panel.setText(oneEquals('=' + tmc))
                         } else {
                             const values = well.map(w => w.value ?? '').join(',');
                             const tmc = values;

@@ -85,7 +85,8 @@ const assumptions = (section) => mkTable('assumptions',
        'each address is now the row’s label and the column’s heading: ' + now);
     ok(!/\[\d/.test(now), 'with no address left in it');
     ok(before === 345000 && (await evalF(pt, now)) === 345000, 'and the engine gives the same answer for it: ' + before + ' -> ' + (await evalF(pt, now)));
-    ok(costs.formula['[1:1][1:1]'] === now && pt.formulas['costs[1:1][1:1]'] === now, 'written the way every other formula is');
+    ok(costs.formula['[1:1][1:1]'] === now.slice(1) && pt.formulas['costs[1:1][1:1]'] === now.slice(1),
+       'stored the way the table stores a formula, without its "=": ' + costs.formula['[1:1][1:1]'].slice(0, 40));
     ok(/1 formula in costs now reads by tag/.test(pt.said.join(' ')) && /Undo/.test(pt.said.join(' ')), 'and said: ' + pt.said.join(' | ').slice(0, 110));
 
     // ---- a run that a tag covers exactly becomes one sum ------------------------------------
@@ -191,6 +192,24 @@ const assumptions = (section) => mkTable('assumptions',
         ok(calcs === 0, 'it does not start another calculation: the values have not changed');
         ok(/1 formula in costs now reads by tag instead of by address/.test(pt.said.join(' ')) && /stays back/.test(pt.said.join(' ')),
            'it says what it did: ' + pt.said.join(' | ').slice(0, 120));
+
+        // A CELL THAT HAS BEEN CALCULATED KEEPS ITS NUMBER. The formula lives in the table's
+        // map and the cell holds the answer; unasked, with no calculation to follow, writing
+        // the formula text into the cell left "=beer[Basel_Wheat,Quantity]*..." showing where
+        // the number had been, and the field above it reading "==beer[...".
+        {
+            const a2 = assumptions();
+            const c2 = mkTable('beer', [['Item', 'Total'], ['x', '']], (c, r2) => (r2 === 0 ? ['ColumnHeader'] : ['x', c === 0 ? 'Item' : 'Total']));
+            const p2 = mkTrack([c2, a2]);
+            c2.formulaTextForWell = (w) => { const f = c2.formula[c2.getWellRange([w])]; return f ? (f.charAt(0) === '=' ? f : '=' + f) : null; };
+            c2.wells[1][1].value = 500000;                                   // already worked out
+            c2.formula['[1:1][1:1]'] = 'assumptions[1:1][1:1]*2';
+            mute(); const h2 = await load('baja/plate/ops/auto-tag-formulas.js', p2); const o2 = await h2.run(); unmute();
+            ok(o2.converted === 1 && c2.formula['[1:1][1:1]'] === 'assumptions[Brewery_Equipment,value]*2',
+               'the stored formula is converted, and kept without an "=" of its own: ' + c2.formula['[1:1][1:1]']);
+            ok(c2.wells[1][1].value === 500000, 'and the cell still shows its number, not the formula’s text: ' + c2.wells[1][1].value);
+            ok(('=' + c2.formula['[1:1][1:1]']).indexOf('==') !== 0, 'so the field, which puts one "=" in front, shows one');
+        }
 
         // looked at once
         engineOverride = (...x) => { engineRuns++; return { results: [1] }; };

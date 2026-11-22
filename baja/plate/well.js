@@ -988,6 +988,16 @@ function () {
             setValue(original, update_without_history_stack) {
                 let v = original;
 
+                // TWO EQUALS SIGNS IN FRONT OF A FORMULA ARE ONE. "==beer[Basel_Wheat,Quantity]
+                // *beer[Basel_Wheat,Price]" is a formula with a slip in front of it, and as
+                // typed it is not a formula at all, so the cell showed its text. Only where a
+                // formula plainly follows (a name, a number, a bracket, a sign): a cell that
+                // holds "=====" or "==>" is somebody's ruled line or arrow and is left alone.
+                if (typeof v === 'string' && /^\s*=\s*=/.test(v)) {
+                    const m = /^\s*(?:=\s*)+(?=[A-Za-z0-9_(.+\-])/.exec(v);
+                    if (m) v = '=' + v.slice(m[0].length);
+                }
+
 
 
                 if (typeof v === 'string' && v.length > 10000) {

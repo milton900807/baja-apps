@@ -7744,7 +7744,13 @@ function () {
 
 
                         if (raw.startsWith("=")) {
-                            const afterEq = raw.slice(1).trim();
+                            // EVERY "=" AT THE FRONT, NOT ONE. A formula stored as "==a*b" (an
+                            // "=" typed in front of one the field had already supplied) had
+                            // one taken off here and went to the engine as "=a*b" text inside
+                            // a formula, which it could not read: the cell showed the formula
+                            // instead of its answer. Two equals signs at the start never mean
+                            // anything else, so they are all the one "=".
+                            const afterEq = raw.replace(/^(=\s*)+/, '').trim();
                             const cleaned = afterEq.replace(/,/g, "");
 
                             if (numericRegex.test(cleaned)) {
@@ -7766,7 +7772,7 @@ function () {
                                 continue;
                             } else {
 
-                                this.formula[k] = raw.slice(1);
+                                this.formula[k] = afterEq;
                             }
                         }
                     }
