@@ -17,7 +17,7 @@ function (pt, table, well) {
     // trial in the engine), and a value written where a formula was expected would be a
     // number that silently stops following its inputs.
     //
-    // With several cells selected and an "=", each cell gets its own formula, worked out
+    // With an "=" and a description, each selected cell gets its own formula, worked out
     // from its own row: "=quantity times price" down a Total column is a different formula
     // on every row. A formula that is already written out ("=sum(a[1:1][1:9])") is not a
     // description, and goes in as typed, to the selection, the way the field would put it.
@@ -48,19 +48,34 @@ function (pt, table, well) {
             const text = ('' + ((r && r.text) || '')).trim();
             if (!text) { resolve({ cancelled: true }); return; }
 
-            // Something to look at while a model is asked: these take seconds.
+            // WHAT IS HAPPENING, WHILE IT HAPPENS, AND HOW IT ENDED.
+            //
+            // The first version put a panel up and took it down, and reported the outcome
+            // in the corner line. From the chair that was: a prompt closes, something
+            // flickers, and the table may or may not look different. So the panel now goes
+            // up the moment the prompt closes, says what is being asked and for how many
+            // cells, counts through them when there are several, and ends by saying what was
+            // done (a tick, and the count) or what was not (the reason, kept on screen until
+            // it is closed). The corner line still gets the same words, for afterwards.
             let panel = null;
-            const busy = async (title) => { try { panel = await exec('baja/lib/working.js', title.length > 90 ? (title.slice(0, 88) + '…') : title, ''); } catch (e) { panel = null; } };
-            const idle = () => { try { if (panel) panel.done(); } catch (e) { } panel = null; };
+            const short = (x) => (x.length > 90 ? (x.slice(0, 88) + '\u2026') : x);
+            const busy = async (title, detail) => { try { panel = await exec('baja/lib/working.js', short(title), detail || ''); } catch (e) { panel = null; } };
+            const step = (m) => { try { if (panel && panel.step) panel.step(m); } catch (e) { } };
+            const good = (m) => { say(m, 10); try { if (panel && panel.finish) panel.finish(m); else if (panel) panel.done(); } catch (e) { } panel = null; };
+            const bad = (m) => { say('That did not happen: ' + m, 12); try { if (panel && panel.fail) panel.fail(m); else if (panel) panel.done(); } catch (e) { } panel = null; };
+            const cellsWord = (k) => (k === 1 ? 'the cell' : (k + ' cells'));
 
             if (text.charAt(0) !== '=') {
                 // ---- values ---------------------------------------------------------------
-                await busy('Filling in ' + (n === 1 ? 'the cell' : (n + ' cells')) + ': ' + text);
+                await busy('Filling in ' + cellsWord(n), '\u201c' + short(text) + '\u201d \u2014 asking for a value for ' + (n === 1 ? 'it' : 'each'));
                 let out = null;
                 try { out = await exec('baja/plate/ops/fill-selection.js', track, { plate: table, cells: cells, what: text }); }
                 catch (e) { out = { error: ('' + (e && e.message ? e.message : e)) }; }
-                idle();
-                if (out && out.error) say('That did not happen: ' + out.error, 12);
+                if (out && out.error) bad(out.error);
+                else good((out.filled || 0) + ' cell' + (out.filled === 1 ? '' : 's') + ' filled in'
+                    + (out.left_alone ? ('; ' + out.left_alone + ' left as ' + (out.left_alone === 1 ? 'it was' : 'they were') + (out.note ? (' (' + out.note + ')') : '')) : '')
+                    + (out.formulas_skipped ? ('; ' + out.formulas_skipped + ' holding a formula not touched') : '')
+                    + '. Undo puts ' + (out.filled === 1 ? 'it' : 'them') + ' back.');
                 resolve(out || {});
                 return;
             }
@@ -68,10 +83,9 @@ function (pt, table, well) {
             // ---- a formula ----------------------------------------------------------------
             const body = text.slice(1).trim();
             const described = !!body && !/[()\[\]{}]/.test(body) && /[A-Za-z]\w*\s+[A-Za-z]/.test(body.replace(/\b(and|or|not)\b/gi, '+'));
-            if (n === 1 || !described) {
-                // One cell, or a formula written out: the card that the field at the top
-                // uses, told which cell. It knows the quick answers (a total of what is
-                // above) and shows its own progress and its own refusals.
+            if (!described) {
+                // A formula written out: the card that the field at the top uses. It enters
+                // it as typed, to the selection, and shows its own refusal if there is one.
                 let menus = [];
                 try { menus = (track && track.__lastMenubar) ? (track.__lastMenubar() || []) : []; } catch (e) { menus = []; }
                 await exec('baja/plate/menu/project-command.js', {
@@ -82,22 +96,37 @@ function (pt, table, well) {
                 return;
             }
 
-            // Several cells and a description: one formula each, from each cell's own row.
+            // A description: one formula for each cell, from that cell's own row. A total
+            // (or average, smallest, largest, count) of what is above needs no model.
+            const low = body.toLowerCase();
+            const how = /\b(average|mean|avg)\b/.test(low) ? 'average'
+                : /\b(min|minimum|smallest|lowest|least)\b/.test(low) ? 'min'
+                : /\b(max|maximum|largest|highest|biggest|most)\b/.test(low) ? 'max'
+                : (/\b(count|number of)\b/.test(low) || /\bhow many\b/.test(low)) ? 'count'
+                : /\b(sum|total|add|adds|added)\b/.test(low) ? 'sum' : '';
+            const above = !!how && /\b(above|column)\b/.test(low);
+
             const MAX = 40;
             const todo = cells.slice(0, MAX);
-            await busy('Working out ' + todo.length + ' formulas: ' + text);
+            await busy(todo.length === 1 ? 'Working out a formula' : ('Working out ' + todo.length + ' formulas'),
+                '\u201c' + short(text) + '\u201d');
             let done = 0, failed = 0, firstWhy = '', example = '';
-            for (const w of todo) {
+            for (let i = 0; i < todo.length; i++) {
+                const w = todo[i];
+                if (todo.length > 1) step('\u201c' + short(text) + '\u201d \u2014 cell ' + (i + 1) + ' of ' + todo.length + (done ? (', ' + done + ' written') : ''));
                 let out = null;
-                try { out = await exec('baja/plate/ops/formula-from-words.js', track, { what: text, cell: w, table: table.name || '' }); }
-                catch (e) { out = { error: ('' + (e && e.message ? e.message : e)) }; }
+                try {
+                    out = above
+                        ? await exec('baja/plate/ops/sum-above.js', track, { how: how, cell: w, table: table.name || '' })
+                        : await exec('baja/plate/ops/formula-from-words.js', track, { what: text, cell: w, table: table.name || '' });
+                } catch (e) { out = { error: ('' + (e && e.message ? e.message : e)) }; }
                 if (out && out.formula) { done++; if (!example) example = out.formula; }
                 else { failed++; if (!firstWhy) firstWhy = (out && out.error) || 'no formula came back'; }
             }
-            idle();
-            say((done ? (done + ' formula' + (done === 1 ? '' : 's') + ' written, for example ' + example.slice(0, 70)) : 'No formula was written')
-                + (failed ? ('. ' + failed + ' cell' + (failed === 1 ? ' was' : 's were') + ' left as ' + (failed === 1 ? 'it was' : 'they were') + ': ' + firstWhy.slice(0, 140)) : '')
-                + (n > MAX ? ('. Only the first ' + MAX + ' selected cells were done') : ''), 12);
+            const tail = (failed ? ((done ? '; ' : '') + failed + ' cell' + (failed === 1 ? '' : 's') + ' left as ' + (failed === 1 ? 'it was' : 'they were') + ': ' + firstWhy.slice(0, 160)) : '')
+                + (n > MAX ? ('. Only the first ' + MAX + ' selected cells were done') : '');
+            if (!done) bad(firstWhy.slice(0, 220) + (n > MAX ? ('. Only the first ' + MAX + ' selected cells were tried') : ''));
+            else good((done === 1 ? 'The formula is written: ' : (done + ' formulas written, for example ')) + example.slice(0, 80) + tail + '. Undo puts ' + (done === 1 ? 'it' : 'them') + ' back.');
             resolve({ formulas: done, failed: failed || undefined, example: example || undefined });
         } catch (e) {
             const m = ('' + (e && e.message ? e.message : e));

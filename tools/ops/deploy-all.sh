@@ -1149,6 +1149,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/fill-selection.js:VALUES FOR THE CELLS THAT ARE SELECTED, FROM ONE SENTENCE" \
     "py/bio/project/cells-fill.py:THE CELLS ARE NAMED, AND ONLY THOSE ARE ANSWERED FOR" \
     "baja/plate/menu/project-capabilities.js:PUT SOMETHING SENSIBLE IN THESE"
+  # Ask says what it is doing and how it ended. The panel module gains finish(); the Ask
+  # module calls it. An Ask without the new panel would fall back to taking the panel down
+  # silently, which is the complaint.
+  install_group "Ask shows its progress and its outcome" \
+    "baja/plate/ops/cell-ask.js:WHAT IS HAPPENING, WHILE IT HAPPENS, AND HOW IT ENDED" \
+    "baja/lib/working.js:IT SAYS HOW IT ENDED, TOO"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

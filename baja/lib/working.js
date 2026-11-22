@@ -105,6 +105,29 @@ function (title, detail) {
                 if (window.__bajaWorking === w) window.__bajaWorking = back;
                 under = null;
             },
+            // IT SAYS HOW IT ENDED, TOO. A panel that vanishes the instant the work is done
+            // leaves the same question it was put up to answer: did that do anything? The
+            // outcome used to go to a line in the corner, which is the thing this panel
+            // exists because nobody sees. finish() swaps the spinner for a tick, puts the
+            // result where the eye already is, and takes itself away after a moment or on
+            // a click, so a success is seen without having to be dismissed.
+            finish(text, ms) {
+                try { clearInterval(timer); } catch (e) { }
+                try {
+                    const d = el.querySelector('[data-id="detail"]');
+                    if (d) { d.textContent = '' + (text || 'Done.'); d.style.color = '#b7f0c8'; }
+                    const sp = el.querySelector('svg');
+                    if (sp) sp.outerHTML = '<svg width="22" height="22" viewBox="0 0 22 22" style="flex:none;">'
+                        + '<circle cx="11" cy="11" r="10" fill="#1f9d55"></circle>'
+                        + '<path d="M6 11.5l3.2 3.2L16 8" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+                    const c = el.querySelector('[data-id="clock"]');
+                    if (c) c.textContent = 'took ' + Math.max(1, Math.round((Date.now() - t0) / 1000)) + ' second' + (Math.round((Date.now() - t0) / 1000) > 1 ? 's' : '');
+                    el.style.background = 'rgba(7,32,47,0.35)';
+                    el.style.cursor = 'pointer';
+                    el.addEventListener('click', () => { try { w.done(); } catch (e) { } });
+                } catch (e) { }
+                setTimeout(() => { try { w.done(); } catch (e) { } }, (typeof ms === 'number' && ms > 0) ? ms : 2200);
+            },
             // A failure stays on screen until it is read, which a corner message does not.
             fail(text) {
                 try { clearInterval(timer); } catch (e) { }
