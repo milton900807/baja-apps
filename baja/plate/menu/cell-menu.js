@@ -97,6 +97,13 @@ function (pt, table, well, actions) {
         list.splice(k < 0 ? list.length : k, 0, entry);
     }
 
+    // ASK COMES FIRST. One prompt for whatever is selected: say what should go in the cells
+    // and they are filled in, or start with "=" and a formula is written (see
+    // baja/plate/ops/cell-ask.js). It leads the menu because it is the one row that can do
+    // what none of the others is for.
+    list.unshift({ label: 'Ask', hint: 'say what to fill in, or start with = for a formula', danger: false, ask: true,
+        button: { action: async (w) => exec('baja/plate/ops/cell-ask.js', pt, table, w) } });
+
     // Where: just right of the cell, level with it.
     let left = 120, top = 120;
     try {
@@ -121,7 +128,7 @@ function (pt, table, well, actions) {
     box.innerHTML = list.map((it, i) =>
         '<div role="menuitem" tabindex="-1" data-i="' + i + '" style="padding:7px 10px;border-radius:7px;cursor:pointer;'
         + (it.danger ? 'border-top:1px solid rgba(255,255,255,0.12);margin-top:4px;' : '') + '">'
-        + '<div style="font:600 13px Arial;color:' + (it.danger ? '#fda29b' : '#e8f0fb') + ';">' + esc(it.label) + '</div>'
+        + '<div style="font:600 13px Arial;color:' + (it.danger ? '#fda29b' : (it.ask ? '#fcd34d' : '#e8f0fb')) + ';">' + esc(it.label) + '</div>'
         + (it.hint ? ('<div style="font:11.5px Arial;color:#9fb6d6;margin-top:2px;">' + esc(it.hint) + '</div>') : '')
         + '</div>').join('');
     document.body.appendChild(box);

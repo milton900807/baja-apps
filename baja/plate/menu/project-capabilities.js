@@ -526,6 +526,24 @@ function () {
             }
         },
         {
+            // "PUT SOMETHING SENSIBLE IN THESE." fill_table writes rows and change_values
+            // does arithmetic; neither fills the cells that are selected from a description.
+            name: 'fill_selection',
+            summary: 'FILL IN THE SELECTED CELLS with values worked out from a description, '
+                + 'each from its own row label and column heading. THIS IS THE ANSWER to '
+                + '"put typical values in these", "fill these in with a default", "estimate '
+                + 'these", "set these to TBD". It writes values, not formulas, only into the '
+                + 'selected cells, and leaves a cell holding a formula alone. For arithmetic '
+                + 'on numbers already there use change_values; for new rows use fill_table',
+            module: 'baja/plate/ops/fill-selection.js',
+            params: {
+                what: { type: 'string', required: true,
+                    about: 'what the cells should hold, in the user\u2019s own words' },
+                table: { type: 'string', default: 'the table the request was made from',
+                    about: 'the NAME of the table the selected cells are in, if the request says it' }
+            }
+        },
+        {
             name: 'format_cells',
             summary: 'change how the SELECTED cells are shown: as money, or as plain numbers',
             module: 'baja/plate/ops/format-cells.js',
@@ -788,6 +806,9 @@ function () {
         if (name === 'formulas_to_tags') {
             return 'rewrite the formulas in ' + (args.table ? ('"' + args.table + '"') : 'the selected table')
                 + ' to read cells by tag instead of by address';
+        }
+        if (name === 'fill_selection') {
+            return 'fill in the selected cells' + (args.table ? (' of "' + args.table + '"') : '') + ': ' + args.what;
         }
         if (name === 'fill_table') {
             const which = args.table ? ('"' + args.table + '"') : 'this table';

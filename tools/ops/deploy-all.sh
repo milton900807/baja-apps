@@ -1139,6 +1139,16 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/well.js:TWO EQUALS SIGNS IN FRONT OF A FORMULA ARE ONE" \
     "baja/plate/plate.js:EVERY \"=\" AT THE FRONT, NOT ONE" \
     "baja/plate/ops/formulas-to-tags.js:AND UNASKED, THE CELL KEEPS ITS VALUE"
+  # Ask, at the top of the cell menu: values for the selected cells, or formulas when the
+  # request starts with "=". The menu row opens the prompt, the prompt reaches the new
+  # value-filling operation and its python or the formula service, and the catalogue offers
+  # the value-filling to the planner. A menu row without the modules behind it opens nothing.
+  install_group "Ask from a cell: fill in values, or write formulas with =" \
+    "baja/plate/menu/cell-menu.js:ASK COMES FIRST" \
+    "baja/plate/ops/cell-ask.js:ASK, FROM A CELL" \
+    "baja/plate/ops/fill-selection.js:VALUES FOR THE CELLS THAT ARE SELECTED, FROM ONE SENTENCE" \
+    "py/bio/project/cells-fill.py:THE CELLS ARE NAMED, AND ONLY THOSE ARE ANSWERED FOR" \
+    "baja/plate/menu/project-capabilities.js:PUT SOMETHING SENSIBLE IN THESE"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

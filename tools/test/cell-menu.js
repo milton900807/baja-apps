@@ -73,28 +73,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     let m = await load('baja/plate/menu/cell-menu.js', pt, {}, well, actions);
     const box = () => document.getElementById('baja-cell-menu');
-    ok(!!box() && box().querySelectorAll('[role="menuitem"]').length === 6, 'six rows: the five actions and Set data type');
-    ok(m.items.join('|') === 'Select this row|Select this column|Script for the selection|More options|Set data type|Delete',
+    ok(!!box() && box().querySelectorAll('[role="menuitem"]').length === 7, 'seven rows: Ask, the five actions and Set data type');
+    ok(m.items.join('|') === 'Ask|Select this row|Select this column|Script for the selection|More options|Set data type|Delete',
        'each under a name instead of a glyph: ' + m.items.join(' | '));
     ok(parseInt(box().style.left, 10) === 428 && parseInt(box().style.top, 10) > 200,
        'opened beside the cell: ' + box().style.left + ', ' + box().style.top);
-    ok(/#fda29b/.test(box().querySelectorAll('[role="menuitem"]')[5].innerHTML), 'the one that deletes is marked and set apart, last');
-    ok(/for this cell/.test(box().querySelectorAll('[role="menuitem"]')[4].innerHTML), 'Set data type is there for a single cell, and says it is for this cell');
+    ok(/#fda29b/.test(box().querySelectorAll('[role="menuitem"]')[6].innerHTML), 'the one that deletes is marked and set apart, last');
+    ok(/Ask/.test(box().querySelectorAll('[role="menuitem"]')[0].innerHTML) && /start with = for a formula/.test(box().querySelectorAll('[role="menuitem"]')[0].innerHTML),
+       'Ask leads the menu and says what the = is for');
+    ok(/for this cell/.test(box().querySelectorAll('[role="menuitem"]')[5].innerHTML), 'Set data type is there for a single cell, and says it is for this cell');
 
-    box().querySelectorAll('[role="menuitem"]')[1].onclick({ stopPropagation() { } });
+    box().querySelectorAll('[role="menuitem"]')[2].onclick({ stopPropagation() { } });
     await sleep(5);
     ok(ran.join() === '↓:B6' && !box(), 'a pick runs the table’s own function on that cell and closes: ' + ran.join());
 
     // several cells selected: the two that start from one cell are not offered
     const block = (n) => ({ getSelectedWellsInOrder: () => new Array(n).fill(well) });
     m = await load('baja/plate/menu/cell-menu.js', pt, block(8), well, actions);
-    ok(m.items.join('|') === 'Script for the selection|More options|Set data type|Delete',
+    ok(m.items.join('|') === 'Ask|Script for the selection|More options|Set data type|Delete',
        'with eight cells selected, "this row" and "this column" are gone: ' + m.items.join(' | '));
-    ok(box().querySelectorAll('[role="menuitem"]').length === 4 && /for the 8 selected cells/.test(box().innerHTML),
+    ok(box().querySelectorAll('[role="menuitem"]').length === 5 && /for the 8 selected cells/.test(box().innerHTML),
        'and Set data type says how many cells it is for');
     m.close();
     m = await load('baja/plate/menu/cell-menu.js', pt, block(1), well, actions);
-    ok(m.items.length === 6 && m.items[0] === 'Select this row', 'with one cell selected they are back: ' + m.items.length);
+    ok(m.items.length === 7 && m.items[1] === 'Select this row', 'with one cell selected they are back: ' + m.items.length);
     m.close();
 
     // a whole column selected: its data type can be set from here
@@ -105,7 +107,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const opened = [];
         const prev = global.lion_engine.exec;
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice(1)), colB[1], actions);
-        ok(m.items.join('|') === 'Script for the selection|More options|Set data type|Delete' && /for this column/.test(box().innerHTML),
+        ok(m.items.join('|') === 'Ask|Script for the selection|More options|Set data type|Delete' && /for this column/.test(box().innerHTML),
            'every cell of a column under its heading: "Set data type" is for the column: ' + m.items.join(' | '));
         m.close();
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice()), colB[1], actions);
@@ -118,7 +120,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         ok(m.items.indexOf('Set data type') >= 0 && /for the 6 selected cells/.test(box().innerHTML), 'and so are two columns');
         m.close();
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl([colB[1]]), colB[1], actions);
-        ok(m.items.indexOf('Set data type') === 4 && m.items.length === 6 && /for this cell/.test(box().innerHTML), 'and one cell, which is the total that comes out as a bare number');
+        ok(m.items.indexOf('Set data type') === 5 && m.items.length === 7 && /for this cell/.test(box().innerHTML), 'and one cell, which is the total that comes out as a bare number');
         m.close();
         // a cell that is current but not marked selected is selected first, so the library has something to act on
         const lone = { id: 'lone' }; let picked = false; lone.selectIt = () => { picked = true; };
@@ -136,7 +138,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     // the two tables' "i" differ, and are named for what each does
     m = await load('baja/plate/menu/cell-menu.js', pt, {}, well, [mk('i', 'I')]);
-    ok(m.items[0] === 'Edit as text', 'the main table’s i opens the text window and says so: ' + m.items[0]);
+    ok(m.items[1] === 'Edit as text', 'the main table’s i opens the text window and says so: ' + m.items[0]);
     m.close();
 
     // closing
@@ -154,13 +156,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // keyboard
     ran.length = 0;
     await load('baja/plate/menu/cell-menu.js', pt, {}, well, actions);
-    for (const k of ['ArrowDown', 'ArrowDown', 'Enter']) window.dispatchEvent(new window.KeyboardEvent('keydown', { key: k }));
+    for (const k of ['ArrowDown', 'ArrowDown', 'ArrowDown', 'Enter']) window.dispatchEvent(new window.KeyboardEvent('keydown', { key: k }));
     await sleep(5);
     ok(ran.join() === '↓:B6', 'arrow keys and Enter pick too: ' + ran.join());
 
     // an action that throws is said, not swallowed
     await load('baja/plate/menu/cell-menu.js', pt, {}, well, [{ letter: 'M', name: 'options', action: async () => { throw new Error('no table'); } }])
-        .then((x) => x.pick(0));
+        .then((x) => x.pick(1));
     await sleep(5);
     ok(/did not work: no table/.test(pt.said.join(' ')), 'an action that fails says so: ' + pt.said.join(' | '));
 
