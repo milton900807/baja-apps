@@ -1127,6 +1127,9 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Zooming to a table or cell is in the navigation history" \
     "baja/plate/views/navigation-history.js:A JUMP IS A PLACE LEFT AND A PLACE REACHED, STRAIGHT AWAY" \
     "baja/plate/plate-track.js:THE CAMERA MOVED ON PURPOSE: tell the navigation bar"
+  # Ctrl+S (Cmd+S) saves the document over its file and the browser's Save Page never opens.
+  install_group "Ctrl+S saves the document, once, and says how it went" \
+    "cpd/baja-analytics.js:ONE SAVE AT A TIME, AND IT SAYS HOW IT WENT"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

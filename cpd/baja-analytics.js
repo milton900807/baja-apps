@@ -2980,17 +2980,30 @@ function (path, config) {
                 } catch (e) { }
                 return ('' + (path || '')).trim();
             };
+            // ONE SAVE AT A TIME, AND IT SAYS HOW IT WENT. Ctrl+S is pressed by habit, often
+            // twice, and held keys repeat. A second save started while the first is still
+            // writing races it for the same file, so a save under way is the save: the
+            // extra presses are told so and do nothing. A save that fails says why, because
+            // a keystroke that reports nothing either way is one nobody trusts, and the
+            // next thing they do is close the tab.
+            let saving = false;
             const quickSave = async () => {
-                // A shared document always saves to its shared path, for both people.
-                if (pm.plateTrack.__collab && pm.plateTrack.__collabDoc) {
-                    try { await pm.plateTrack.__collab.save(graph); }
-                    catch (e) { try { pm.plateTrack.setMessage('Could not save the shared document: ' + (e && e.message ? e.message : e), 1); } catch (e2) { } }
-                    return;
-                }
-                const p = currentDocPath();
-                if (!p || p === '/' || !p.split('/').pop()) { await saveAsSaveScreen(); return; }
-                try { pm.plateTrack.setMessage('Saving…', 2); } catch (e) { }
-                await exec('manchester/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path, undefined, { path: p });
+                if (saving) { try { pm.plateTrack.setMessage('Still saving\u2026', 2); } catch (e) { } return; }
+                saving = true;
+                try {
+                    // A shared document always saves to its shared path, for both people.
+                    if (pm.plateTrack.__collab && pm.plateTrack.__collabDoc) {
+                        try { await pm.plateTrack.__collab.save(graph); }
+                        catch (e) { try { pm.plateTrack.setMessage('Could not save the shared document: ' + (e && e.message ? e.message : e), 1); } catch (e2) { } }
+                        return;
+                    }
+                    const p = currentDocPath();
+                    if (!p || p === '/' || !p.split('/').pop()) { await saveAsSaveScreen(); return; }
+                    try { pm.plateTrack.setMessage('Saving…', 2); } catch (e) { }
+                    await exec('manchester/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path, undefined, { path: p });
+                } catch (e) {
+                    try { pm.plateTrack.setMessage('Could not save: ' + (e && e.message ? e.message : e), 8); } catch (e2) { }
+                } finally { saving = false; }
             };
             // BOUND ONCE, BUT NEVER HOLDING THE OLD ONE. This runs again on every menubar
             // rebuild, so binding a listener here each time would save once per rebuild;
@@ -3001,12 +3014,18 @@ function (path, config) {
             if (!window['__bajaQuickSaveBound']) {
                 window['__bajaQuickSaveBound'] = true;
                 window.addEventListener('keydown', (e) => {
-                    if (!(e.key === 's' || e.key === 'S') || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+                    // By the key's position as well as its letter: on a layout where the S
+                    // key types something else, Ctrl+S is still the key marked S.
+                    const isS = e.key === 's' || e.key === 'S' || e.code === 'KeyS';
+                    if (!isS || !(e.ctrlKey || e.metaKey) || e.altKey) return;
                     // Wherever the caret is: Ctrl+S means save the document, and the
-                    // browser's own Save Page is never what is wanted here.
+                    // browser's own Save Page is never what is wanted here. That is stopped
+                    // FIRST and unconditionally, before anything that could throw.
                     e.preventDefault(); e.stopPropagation();
+                    // A held key repeats; one press is one save.
+                    if (e.repeat) return;
                     const f = window['__bajaQuickSave'];
-                    if (typeof f === 'function') f();
+                    if (typeof f === 'function') { try { Promise.resolve(f()).catch(() => { }); } catch (err) { } }
                 }, true);
             }
 
