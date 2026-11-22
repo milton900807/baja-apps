@@ -1108,6 +1108,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/formulas-to-tags.js:FORMULAS THAT NAME WHAT THEY READ, NOT WHERE IT IS" \
     "baja/plate/plate.js:FORMULAS BY TAG. Rewrites this table's formulas" \
     "baja/plate/menu/project-capabilities.js:WHAT A FORMULA READS, BY NAME"
+  # The same conversion after every calculation. The track asks, the new module finds the
+  # formulas that still hold an address, and the operation's auto mode keeps it quiet: an
+  # old operation under the new module would announce and recalculate on every pass.
+  install_group "Formulas are converted to tags at each calculation" \
+    "baja/plate/ops/auto-tag-formulas.js:AT EACH CALCULATION: A FORMULA THAT CAN READ BY TAG, DOES" \
+    "baja/plate/plate-track.js:AT EACH CALCULATION: A FORMULA THAT CAN READ BY TAG, DOES" \
+    "baja/plate/ops/formulas-to-tags.js:The track also runs this by itself after each calculation"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

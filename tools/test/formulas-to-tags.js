@@ -169,6 +169,64 @@ const assumptions = (section) => mkTable('assumptions',
     r = await run(pt, { plate: costs });
     ok(costs.wells[1][1].value === '=assumptions[Brewery_Equipment,value]*2' && r.scope === 'every formula in the table', 'with none selected, the whole table is');
 
+    // ---- at each calculation, without being asked ------------------------------------------
+    {
+        const sleep = (ms) => new Promise((r2) => setTimeout(r2, ms));
+        a = assumptions();
+        costs = mkTable('costs', [['Item', 'Cost'], ['a', ''], ['b', '']], (c, r2) => (r2 === 0 ? ['ColumnHeader'] : ['r' + r2, c === 0 ? 'Item' : 'Cost']));
+        const dup = mkTable('dup', [['t', 'v'], ['Rent', '1'], ['Rent', '2']], (c, r2, row) => (r2 === 0 ? ['ColumnHeader'] : [slug(row[0]), c === 0 ? 't' : 'v']));
+        pt = mkTrack([costs, a, dup]);
+        let calcs = 0; pt.updateCalculations = () => { calcs++; };
+        costs.wells[1][1].value = '=assumptions[1:1][1:1]*2';
+        costs.wells[1][2].value = '=dup[1:1][1:1]*2';              // no tag picks this one out
+        let engineRuns = 0;
+        const realLoad = load;
+        mute();
+        const h = await load('baja/plate/ops/auto-tag-formulas.js', pt);
+        let out = await h.run();
+        unmute();
+        ok(out.converted === 1 && costs.wells[1][1].value === '=assumptions[Brewery_Equipment,value]*2',
+           'a formula that can read by tag is rewritten with nobody asking: ' + costs.wells[1][1].value);
+        ok(costs.wells[1][2].value === '=dup[1:1][1:1]*2', 'one that cannot is left as it is');
+        ok(calcs === 0, 'it does not start another calculation: the values have not changed');
+        ok(/1 formula in costs now reads by tag instead of by address/.test(pt.said.join(' ')) && /stays back/.test(pt.said.join(' ')),
+           'it says what it did: ' + pt.said.join(' | ').slice(0, 120));
+
+        // looked at once
+        engineOverride = (...x) => { engineRuns++; return { results: [1] }; };
+        mute(); out = await h.run(); unmute();
+        ok(out.converted === 0 && engineRuns === 0, 'the next calculation does no work on formulas already looked at: ' + engineRuns + ' engine runs');
+
+        // undo stays undone
+        costs.wells[1][1].value = '=assumptions[1:1][1:1]*2';
+        mute(); out = await h.run(); unmute();
+        ok(costs.wells[1][1].value === '=assumptions[1:1][1:1]*2' && engineRuns === 0, 'a conversion that was undone is not made again');
+        engineOverride = null;
+
+        // a new formula, or new tags, are looked at
+        costs.wells[1][1].value = '=assumptions[1:1][2:2]*3';
+        mute(); out = await h.run(); unmute();
+        ok(costs.wells[1][1].value === '=assumptions[Fermentation_Tanks,value]*3', 'a formula that has changed is looked at again');
+        dup.wells[1][1].group.First = 1;
+        mute(); out = await h.run(); unmute();
+        ok(costs.wells[1][2].value === '=dup[First]*2', 'and so is an old one once a tag makes it possible: ' + costs.wells[1][2].value);
+
+        // off
+        costs.wells[1][1].value = '=assumptions[1:1][4:4]*3'; pt.attr__autoTagFormulas = false;
+        mute(); out = await h.run(); unmute();
+        ok(out === null && costs.wells[1][1].value === '=assumptions[1:1][4:4]*3', 'attr__autoTagFormulas = false turns it off');
+
+        // schedule debounces, and the track asks for it at each calculation
+        pt.attr__autoTagFormulas = true;
+        mute(); h.schedule(); h.schedule(); h.schedule(); await sleep(900); unmute();
+        ok(costs.wells[1][1].value === '=assumptions[Bottling_Line,value]*3', 'scheduled, it runs a moment later');
+        const track = fs.readFileSync('baja/plate/plate-track.js', 'utf8');
+        const k = track.indexOf('async updateCalculations() {');
+        ok(/exec\('baja\/plate\/ops\/auto-tag-formulas\.js', this\)/.test(track.slice(k, k + 1200)) && /h\.schedule\(\)/.test(track.slice(k, k + 1200)),
+           'and updateCalculations asks for it every time');
+        ok(/attr__autoTagFormulas = true;/.test(track), 'on unless turned off');
+    }
+
     // ---- where it is reached from -----------------------------------------------------------
     const plate = fs.readFileSync('baja/plate/plate.js', 'utf8');
     ok(/label: 'Formulas: use tags instead of addresses'/.test(plate) && /exec\('baja\/plate\/ops\/formulas-to-tags\.js', pt, \{ plate: this \}\)/.test(plate),

@@ -2628,6 +2628,9 @@ function (progress) {
             attr__AutoRunCalculation = false;
             attr__showGrid = false;
             attr__displayBookMarks = true;
+            // Formulas that name a cell by its address are rewritten to read it by tag after
+            // each calculation, where the tags pick out the same cell (auto-tag-formulas.js).
+            attr__autoTagFormulas = true;
             attr__showScrollbar = false;
             buttons = [];
             name;
@@ -5633,6 +5636,16 @@ function (progress) {
             }
 
             async updateCalculations() {
+                // AT EACH CALCULATION: A FORMULA THAT CAN READ BY TAG, DOES. Asked for here and
+                // run a moment later, outside the calculation, by its own module (which
+                // remembers what it has already tried, so this costs a scan and no more on
+                // every calculation after the first). attr__autoTagFormulas = false stops it.
+                try {
+                    if (this.attr__autoTagFormulas !== false) {
+                        if (!this.__autoTagger) this.__autoTagger = Promise.resolve(exec('baja/plate/ops/auto-tag-formulas.js', this));
+                        this.__autoTagger.then((h) => { try { if (h && h.schedule) h.schedule(); } catch (e) { } }).catch(() => { this.__autoTagger = null; });
+                    }
+                } catch (e) { }
 
 
 

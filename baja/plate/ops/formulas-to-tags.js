@@ -25,6 +25,10 @@ function (pm, o) {
     //
     // WHICH FORMULAS: the selected cells that hold one, and if none of them does, every
     // formula in the table. One undo puts them all back.
+    //
+    // The track also runs this by itself after each calculation (auto-tag-formulas.js),
+    // with `cells` naming the formulas to look at and `auto` set: then it says nothing and
+    // recalculates nothing, since the caller does the first and the second is what called it.
 
     return new Promise(async (resolve) => {
         try {
@@ -54,10 +58,12 @@ function (pm, o) {
             for (let c = 0; c < t.wells.length; c++) for (const w of (t.wells[c] || [])) if (w) everyCell.push(w);
             let sel = [];
             try { if (typeof t.getSelectedWellsInOrder === 'function') sel = t.getSelectedWellsInOrder() || []; } catch (e) { sel = []; }
+            const auto = !!(o && o.auto);
             let scope = sel.filter((w) => formulaOf(w));
-            const whole = !scope.length;
+            let whole = !scope.length;
             if (whole) scope = everyCell.filter((w) => formulaOf(w));
-            if (!scope.length) { resolve({ error: 'there are no formulas in ' + t.name + ' to convert' }); return; }
+            if (o && Array.isArray(o.cells)) { scope = o.cells.filter((w) => everyCell.indexOf(w) >= 0 && formulaOf(w)); whole = false; }
+            if (!scope.length) { resolve(auto ? { table: t.name, converted: 0 } : { error: 'there are no formulas in ' + t.name + ' to convert' }); return; }
 
             // ---- tags, read the way the engine reads them -------------------------------------
             // A tag is a key of a cell's group. In a reference with two tags the engine takes
@@ -186,7 +192,14 @@ function (pm, o) {
                 const before = formulaOf(cell);
                 const c = convert(before);
                 if (!c.changed) { if (c.kept) untagged++; else noRefs++; continue; }
-                const a = await worksOutTo(before), b = await worksOutTo(c.formula);
+                // Unasked, the trial is silent: a formula the engine cannot work out with tags
+                // is simply left alone, and whatever the engine would have said about the
+                // attempt is about a formula that was never written.
+                let a = null, b = null;
+                const had = Object.prototype.hasOwnProperty.call(pt, 'setMessage'), say = pt.setMessage;
+                if (auto) { try { pt.setMessage = () => { }; } catch (e) { } }
+                try { a = await worksOutTo(before); b = await worksOutTo(c.formula); }
+                finally { if (auto) { try { if (had) pt.setMessage = say; else delete pt.setMessage; } catch (e) { } } }
                 if (a === null || b === null || a !== b) { differed++; continue; }
 
                 if (!pushed) { try { pushHistory(HM(t)); } catch (e) { } pushed = true; }
@@ -201,6 +214,7 @@ function (pm, o) {
                 if (!example) example = c.formula;
             }
 
+            if (!done.length && auto) { resolve({ table: t.name, converted: 0, no_tags: untagged || undefined, different_value: differed || undefined }); return; }
             if (!done.length) {
                 resolve({ error: 'no formula in ' + t.name + ' was changed: '
                     + (untagged ? (untagged + ' read cells that no tag picks out on their own (tag the rows and columns they read, then try again)') : '')
@@ -210,11 +224,13 @@ function (pm, o) {
                 return;
             }
 
-            try { pt.updateCalculations(); } catch (e) { }
+            // The values have not changed (that was the condition for writing), so when this
+            // was called by a calculation there is nothing for another one to do.
+            if (!auto) { try { pt.updateCalculations(); } catch (e) { } }
             try { if (pt.wake) pt.wake(); } catch (e) { }
             const partial = done.filter((d) => d.left).length;
             try {
-                pt.setMessage(done.length + ' formula' + (done.length === 1 ? '' : 's') + ' in ' + t.name
+                if (!auto) pt.setMessage(done.length + ' formula' + (done.length === 1 ? '' : 's') + ' in ' + t.name
                     + (done.length === 1 ? ' now reads' : ' now read') + ' by tag, for example ' + example.slice(0, 80)
                     + (partial ? ('. ' + partial + ' still ' + (partial === 1 ? 'has' : 'have') + ' an address no tag picks out') : '')
                     + (untagged ? ('. ' + untagged + ' could not be converted at all: no tag picks out the cells they read') : '')
