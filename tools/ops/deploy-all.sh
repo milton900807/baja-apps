@@ -1161,6 +1161,9 @@ if [[ $DO_API -eq 1 ]]; then
   # that what it translates reproduces the source's protein.
   install_group "The exon plan search and the pieces it shares" \
     "baja/bio/splicing/exon-plan-search.js:edit by edit, for a transcript to make another protein" \
+    "baja/bio/splicing/exon-plan-view.js:THE PLAN, DRAWN ON THE TRANSCRIPT IT EDITS" \
+    "baja/manchester/menu/editor-capabilities.js:THE QUESTION AFTER" \
+    "py/bio/editor/plan.py:8c. MAKING ONE TRANSCRIPT TRANSLATE LIKE ANOTHER IS A PLAN" \
     "baja/bio/splicing/cryptic-exon-candidates.js:EXONS THE TRANSCRIPT COULD USE BUT DOES NOT" \
     "baja/bio/splicing/strand-orientation.js:WHICH STRAND DOES A MINUS-STRAND TRACK" \
     "baja/bio/protein/align-local.js:ONE LOCAL ALIGNER, USED BY EVERYTHING THAT NEEDS ONE" \

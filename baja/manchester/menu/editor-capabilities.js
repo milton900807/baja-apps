@@ -285,6 +285,22 @@ function (graph, genegraph_panel_layout) {
             if (all.length >= 2) return all.slice();
             return all.length === 1 ? all.slice() : [];
         };
+        // WHICH IS BEING COPIED AND WHICH IS BEING EDITED. The two are not interchangeable
+        // here, unlike a comparison: editing the wrong one of a pair produces a plan for a
+        // transcript nobody asked about, which looks like an answer.
+        const rescuePair = (a) => {
+            const src = (a && a.source) ? matchTrack('' + a.source) : null;
+            const into = (a && a.into) ? matchTrack('' + a.into) : null;
+            if (src && into && src !== into) return { source: src, into: into };
+            const rest = tracks().filter((t) => t !== src && t !== into);
+            if (src && !into && rest.length === 1) return { source: src, into: rest[0] };
+            if (into && !src && rest.length === 1) return { source: rest[0], into: into };
+            const sel = selTracks();
+            if (!src && !into && sel.length === 2) return { source: sel[0], into: sel[1] };
+            const all = tracks();
+            if (!src && !into && all.length === 2) return { source: all[0], into: all[1] };
+            return null;
+        };
         const oneSelTrack = () => {
             const s = selTracks();
             return (s.length === 1) ? s[0] : null;
@@ -1934,6 +1950,108 @@ function (graph, genegraph_panel_layout) {
                                 : 'two tracks are needed to compare, and none are open');
                     }
                     return '';
+                }
+            },
+
+            {
+                // THE QUESTION AFTER "HOW ALIKE ARE THEY". Two paralogues on the canvas and
+                // a comparison between them raises the next question immediately: what
+                // would have to change for this one to make that one's protein. Every
+                // answer is a splicing edit, which is a thing an ASO can be made to do, so
+                // it is a design question rather than an observation, and it had no
+                // operation at all.
+                name: 'plan_peptide_rescue',
+                summary: 'WORK OUT WHICH EXONS OF ONE TRACK TO LOSE OR KEEP, AND WHICH CRYPTIC '
+                    + 'EXONS TO INDUCE IN ITS INTRONS, SO THAT WHAT IT TRANSLATES BEST MATCHES '
+                    + 'ANOTHER TRACK\u2019S PROTEIN. This is the answer to "how do I make DNM3 '
+                    + 'translate like DNM1", "which exons should I skip to match the other '
+                    + 'protein", "what would have to change for these to make the same '
+                    + 'peptide", "maximize the peptide similarity between these two", "which '
+                    + 'cryptic exons could I induce", "plan an exon-skipping strategy against '
+                    + 'this paralogue". It searches skipping an exon, inducing a cryptic exon '
+                    + 'from intronic sequence, shifting an acceptor and retaining an intron, '
+                    + 'keeps only transcripts that stay in frame with no premature stop, and '
+                    + 'ranks the plans. It does NOT compare the two as they stand, which is '
+                    + 'compare_sequences, and it changes nothing: the plans are proposals.',
+                needs: 'track',
+                params: {
+                    source: {
+                        type: 'string',
+                        about: 'the track whose protein is the TARGET TO COPY, by name or by '
+                            + 'position ("track 1", "the first track")'
+                    },
+                    into: {
+                        type: 'string',
+                        about: 'the track to be EDITED, whose exons are what the plan changes, '
+                            + 'by name or by position. "make DNM3 translate like DNM1" has '
+                            + 'source=DNM1 and into=DNM3'
+                    },
+                    max_edits: {
+                        type: 'number', default: 4,
+                        about: 'how many edits one plan may stack, 1 to 8. Fewer is a simpler '
+                            + 'strategy to build'
+                    }
+                },
+                run: async (a) => {
+                    const pair = rescuePair(a);
+                    if (!pair) { result('Two tracks are needed: one to copy, one to edit.'); return; }
+                    let W = null;
+                    try {
+                        W = await exec('baja/lib/working.js',
+                            'Planning ' + (pair.into.name || 'the target') + ' against '
+                                + (pair.source.name || 'the source'),
+                            'Translating every edit and ranking what it makes.');
+                    } catch (e) { W = null; }
+                    const step = (mm) => { try { if (W) W.step(mm); } catch (e) { } };
+                    try {
+                        const r = await exec('baja/bio/splicing/exon-plan-search.js',
+                            pair.source, pair.into,
+                            { onStep: step, max_edits: a.max_edits });
+                        if (!r || !r.ok) {
+                            const why = (r && r.reason) || 'the search did not run';
+                            try { if (W) W.fail(why); } catch (e) { }
+                            result(why);
+                            return r;
+                        }
+                        if (!r.plans.length) {
+                            try { if (W) W.done(); } catch (e) { }
+                            // NOTHING BETTER IS AN ANSWER. It says the target cannot be
+                            // brought closer by splicing alone, which is worth knowing and
+                            // is not a failure of the search.
+                            result('No splicing edit improves the fit: ' + (pair.into.name || 'the target')
+                                + ' is already as close to ' + (pair.source.name || 'the source')
+                                + ' as skipping, inducing, shifting or retaining can bring it ('
+                                + (100 * r.baseline.fit).toFixed(1) + '%).');
+                            return r;
+                        }
+                        step('Drawing ' + r.plans.length + ' plans');
+                        try { await exec('baja/bio/splicing/exon-plan-view.js', r); } catch (e) { }
+                        try { if (W) W.done(); } catch (e) { }
+                        result((pair.into.name || 'the target') + ': ' + r.plans.length + ' plan'
+                            + (r.plans.length === 1 ? '' : 's') + ', best '
+                            + (100 * r.plans[0].fit).toFixed(1) + '% fit from '
+                            + (100 * r.baseline.fit).toFixed(1) + '%.');
+                        return r;
+                    } catch (e) {
+                        try { if (W) W.fail('The plan search failed: ' + ((e && e.message) || e)); } catch (e2) { }
+                        throw e;
+                    }
+                },
+                preview: (a) => {
+                    const pair = rescuePair(a);
+                    if (!pair) return 'work out which exons to lose or induce to match the other protein';
+                    return 'work out which exons of ' + (pair.into.name || 'the target')
+                        + ' to lose or keep, and which cryptic exons to induce in its introns, so it '
+                        + 'translates as close as possible to ' + (pair.source.name || 'the source');
+                },
+                argBlocker: (a) => {
+                    const pair = rescuePair(a);
+                    if (pair) return '';
+                    const open = tracks();
+                    return open.length
+                        ? ('two tracks are needed, one to copy and one to edit, and these did not '
+                            + 'resolve to two: ' + open.map((x) => x.name || '(unnamed)').join(', '))
+                        : 'two tracks are needed, and none are open';
                 }
             },
 

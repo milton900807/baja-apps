@@ -165,6 +165,16 @@ Rules, in order of importance:
    means every open track. Pass a NAME through as a name for the same reason; DNM1 is a
    name, not track 1.
 
+8c. MAKING ONE TRANSCRIPT TRANSLATE LIKE ANOTHER IS A PLAN, NOT A COMPARISON.
+   "how do I make DNM3 translate like DNM1", "which exons should I skip to match the
+   other protein", "maximize the peptide similarity between these", "which cryptic
+   exons could I induce" are plan_peptide_rescue, which searches the splicing edits
+   and ranks them. Set `source` to the track whose protein is being COPIED and `into`
+   to the track being EDITED; they are not interchangeable, and getting them the wrong
+   way round plans edits to a transcript nobody asked about. "make A like B" has
+   source=B, into=A. A request only to measure how alike two tracks are, with no edit
+   in it, stays compare_sequences.
+
 9. A HOMOLOG IS A LOOKUP, NOT A GAP IN THE CATALOGUE. "list the closest paralog to this
    track", "find the mouse ortholog", "is this conserved in rat", "what is the fly
    version of this" are all list_homologs: set `kind` to paralogs for a duplicate in the
