@@ -3210,6 +3210,80 @@ function (progress) {
             // but never with cells under 40 x 10 px: a big table is then shown at that cell
             // size, centred, and the rest of it lies beyond the edges. (zoomintoplate aims
             // for 120 x 14 px cells, which shows only a corner of a large table.)
+            // ZOOM TO CELLS, NOT TO THE TABLE THEY ARE IN.
+            //
+            // "show this cell on the canvas" framed the whole table. In a table of eighty
+            // rows that leaves the cell a few pixels high somewhere in a column of others,
+            // which is the looking-for it was meant to save.
+            //
+            // Where a cell is, is only known from where it was last drawn: columns are not
+            // one width and rows are not one height, and the drawing is what decides both.
+            // A drawn position is only true for the view it was drawn in, so the table is
+            // first put in view at once, without animation, and given two frames to draw.
+            // The cells' screen boxes are then read back through that same view into canvas
+            // coordinates, and the view animates in to them. One cell is given a quarter of
+            // the window with its neighbours around it, so it can be seen where it sits;
+            // several are framed together.
+            async zoomToCells(plate, cells, opts = {}) {
+                const list = (Array.isArray(cells) ? cells : [cells]).filter(Boolean);
+                if (!plate || !list.length) return this.zoomToFitTable(plate, opts);
+                this.clearActionGlyphs();
+                const frames = (n) => new Promise((res) => {
+                    let left = n;
+                    const tick = () => { if (--left <= 0) res(); else next(); };
+                    const next = () => { try { if (this.wake) this.wake(); } catch (e) { } (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (f) => setTimeout(f, 16))(tick); };
+                    next();
+                });
+                try {
+                    this.pushGrid();
+                    this.grid.rescale();
+                    const viewW = Math.max(1, this.grid.width), viewH = Math.max(1, this.grid.height);
+                    const b = this.__maxWorldBounds(plate);
+                    if (!b) return this.zoomToFitTable(plate, opts);
+
+                    // The table, whole, in view now: this is the view the cells are measured in.
+                    const plateW = Math.max(1e-9, b.x1 - b.x0), plateH = Math.max(1e-9, b.yTop - b.yBot);
+                    const fit = Math.max(plateW * 1.12 / viewW, plateH * 1.12 / viewH);
+                    const tcx = (b.x0 + b.x1) / 2, tcy = (b.yTop + b.yBot) / 2;
+                    try { AnimateGrid.INTERUPT = true; } catch (e) { }
+                    this.grid.setxmin(tcx - viewW * fit / 2); this.grid.setxmax(tcx + viewW * fit / 2);
+                    this.grid.setymin(tcy - viewH * fit / 2); this.grid.setymax(tcy + viewH * fit / 2);
+                    this.grid.rescale();
+                    for (const w of list) { w.__screen_x = NaN; }      // so a stale box cannot pass for a fresh one
+                    // Until they have been drawn in this view, and not for ever: a cell that
+                    // is never drawn must not hold the view hostage.
+                    for (let i = 0; i < 30; i++) {
+                        await frames(2);
+                        if (list.every((w) => Number.isFinite(w.__screen_x))) break;
+                    }
+
+                    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, found = 0;
+                    for (const w of list) {
+                        const sx = w.__screen_x, sy = w.__screen_y, sw = w.__screen_width, sh = w.__screen_height;
+                        if (![sx, sy, sw, sh].every(Number.isFinite) || !(sw > 0) || !(sh > 0)) continue;
+                        const ax = this.grid.Xwc(sx), bx = this.grid.Xwc(sx + sw);
+                        const ay = this.grid.Ywc(sy), by = this.grid.Ywc(sy + sh);
+                        if (![ax, bx, ay, by].every(Number.isFinite)) continue;
+                        x0 = Math.min(x0, ax, bx); x1 = Math.max(x1, ax, bx);
+                        y0 = Math.min(y0, ay, by); y1 = Math.max(y1, ay, by);
+                        found++;
+                    }
+                    // Not drawn (collapsed, hidden, off the table's own scroll): the table in
+                    // view is the best there is, and it is already there.
+                    if (!found || !(x1 > x0) || !(y1 > y0)) return;
+
+                    const room = found === 1 ? (opts.room ?? 4) : (opts.roomMany ?? 1.6);
+                    let wpp = Math.max((x1 - x0) * room / viewW, (y1 - y0) * room / viewH);
+                    // Never further out than the whole table: zooming "to a cell" must not
+                    // leave it smaller than it already was.
+                    wpp = Math.min(wpp, fit);
+                    await this.zoomto((x0 + x1) / 2, (y0 + y1) / 2, viewW * wpp, viewH * wpp);
+                } catch (e) {
+                    try { console.warn('zoom to cells', e); } catch (e2) { }
+                    return this.zoomToFitTable(plate, opts);
+                }
+            }
+
             async zoomToFitTable(plate, opts = {}) {
                 this.clearActionGlyphs();
                 if (!plate || !plate.grid) return;

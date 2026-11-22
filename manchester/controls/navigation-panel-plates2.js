@@ -204,8 +204,38 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     return -1;
                 };
 
+                // THE TAGS THEMSELVES COME FIRST. A reference is resolved by the engine from
+                // the tags cells carry, not from what is written in the first column, and
+                // the two differ as soon as a label has a space in it: the tag for "Labor
+                // Wages" is Labor_Wages, no row is labelled that, and the search by label
+                // gave up and showed the table. So the cells that carry every tag in the
+                // reference are found the way the engine finds them, and those are the
+                // cells to show. The label and header search below is what is left for a
+                // reference whose tags no cell carries yet, as while one is being typed.
+                const tagged = (() => {
+                    const names = want.filter((t) => !iterish(t) && idxOf(t, 'row') < 0 && idxOf(t, 'col') < 0);
+                    if (!names.length || names.length !== want.length) return [];
+                    const has = (w, t) => {
+                        const g = w && w.group;
+                        if (!g || typeof g !== 'object') return false;
+                        if (Object.prototype.hasOwnProperty.call(g, t)) return true;
+                        const low = t.toLowerCase();
+                        return Object.keys(g).some((k) => k.toLowerCase() === low);
+                    };
+                    const out = [];
+                    for (let c = 0; c < tb.wells.length; c++) {
+                        const cw = tb.wells[c] || [];
+                        for (let r = 0; r < cw.length; r++) {
+                            const w = cw[r];
+                            if (!w || w.skin_type === 'ColumnHeader') continue;
+                            if (names.every((t) => has(w, t))) out.push({ w: w, c: c, r: r });
+                        }
+                    }
+                    return out;
+                })();
+
                 const unresolved = [];
-                for (const t of want) {
+                for (const t of (tagged.length ? [] : want)) {
                     if (iterish(t)) { unresolved.push(t); continue; }
                     let n = idxOf(t, 'row');
                     if (n >= 0) { if (row < 0) { row = n; rowTag = t; } continue; }
@@ -227,6 +257,18 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 try { pt.wb(null); } catch (e) { }
                 for (const pl of (pt.root || [])) { try { if (pl.deselectAll) pl.deselectAll(); } catch (e) { } }
                 pt.setSelected(tb);
+                // The cells to bring up: the tagged ones, else the value cell of the row the
+                // labels found, else the column.
+                let targets = tagged.map((x) => x.w);
+                if (tagged.length) {
+                    for (const x of tagged) { try { x.w.selectIt(); } catch (e) { x.w.select = true; } }
+                } else if (row >= 0) {
+                    const v = tb.wells[col] && tb.wells[col][row];
+                    if (v) targets = [v];
+                } else if (colOnly) {
+                    targets = (tb.wells[col] || []).slice(1).filter(Boolean);
+                }
+                if (tagged.length) { /* selected above */ } else
                 if (row >= 0) {
                     for (let c = 0; c < tb.wells.length; c++) {
                         const w = tb.wells[c] && tb.wells[c][row];
@@ -241,10 +283,16 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         if (w) { try { w.selectIt(); } catch (e) { w.select = true; } }
                     }
                 }
-                if (pt.zoomToFitTable) await pt.zoomToFitTable(tb); else await pt.zoomintoplate(tb);
+                // TO THE CELL, NOT JUST TO ITS TABLE (plate-track.zoomToCells).
+                if (targets.length && pt.zoomToCells) await pt.zoomToCells(tb, targets);
+                else if (pt.zoomToFitTable) await pt.zoomToFitTable(tb); else await pt.zoomintoplate(tb);
                 // AFTER the zoom: framing the table selects within it, and doing this first
                 // left the label cell current instead of the one the reference names.
-                if (row >= 0) {
+                if (tagged.length) {
+                    // The value rather than its label, when the tags cover both.
+                    const v = (tagged.filter((x) => x.c > 0)[0] || tagged[0]).w;
+                    if (v) pt.selected_well = v;
+                } else if (row >= 0) {
                     const v = tb.wells[col] && tb.wells[col][row];
                     if (v) pt.selected_well = v;
                 } else if (colOnly) {
@@ -252,7 +300,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     if (v) pt.selected_well = v;
                 }
                 const colName = () => txt(tb.wells[col] && tb.wells[col][0]) || (colTag || 'column ' + col);
-                pt.setMessage(row >= 0
+                pt.setMessage(tagged.length
+                    ? (tableName + ' \u203a ' + want.join(', ') + (tagged.length > 1 ? (' (' + tagged.length + ' cells)') : ''))
+                    : row >= 0
                     ? (tableName + ' › ' + (rowTag || 'row ' + row) + (col > 0 ? ' › ' + colName() : ''))
                     : colOnly
                         ? (tableName + ' › ' + colName() + (!unresolved.length ? ' (whole column)'

@@ -1115,6 +1115,12 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/ops/auto-tag-formulas.js:AT EACH CALCULATION: A FORMULA THAT CAN READ BY TAG, DOES" \
     "baja/plate/plate-track.js:AT EACH CALCULATION: A FORMULA THAT CAN READ BY TAG, DOES" \
     "baja/plate/ops/formulas-to-tags.js:The track also runs this by itself after each calculation"
+  # "show this cell on the canvas" goes to the cell. The field finds the cells by their
+  # tags and asks the track to frame them; a field without the track's method falls back
+  # to framing the table, which is the complaint.
+  install_group "Go to a reference zooms to the cell, not just its table" \
+    "baja/plate/plate-track.js:ZOOM TO CELLS, NOT TO THE TABLE THEY ARE IN" \
+    "manchester/controls/navigation-panel-plates2.js:TO THE CELL, NOT JUST TO ITS TABLE"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
