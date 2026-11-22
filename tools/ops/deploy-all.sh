@@ -1092,8 +1092,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/plate-transparent.js:AN ORANGE GLOW BEHIND THE CELL'S MENU BUTTON"
   install_group "No row or column selection offered over several cells" \
     "baja/plate/menu/cell-menu.js:WITH SEVERAL CELLS SELECTED THERE IS NO \"THIS ROW\" OR \"THIS COLUMN\""
-  install_group "Set data type offered on a selected column" \
-    "baja/plate/menu/cell-menu.js:A WHOLE COLUMN SELECTED IS A COLUMN ABOUT TO BE GIVEN A TYPE"
+  install_group "Set data type offered on any selection, one cell included" \
+    "baja/plate/menu/cell-menu.js:\"SET DATA TYPE\" IS ALWAYS HERE, FOR ONE CELL AS MUCH AS FOR A COLUMN"
   # "bookmark assumptions" frames the table instead of throwing in the console. The field
   # catches the formula engine's refusal and hands plain words to the card, the card sends
   # the verb straight to the operation, and the catalogue offers it to the planner.

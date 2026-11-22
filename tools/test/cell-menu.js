@@ -73,12 +73,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     let m = await load('baja/plate/menu/cell-menu.js', pt, {}, well, actions);
     const box = () => document.getElementById('baja-cell-menu');
-    ok(!!box() && box().querySelectorAll('[role="menuitem"]').length === 5, 'five rows, one for each action');
-    ok(m.items.join('|') === 'Select this row|Select this column|Script for the selection|More options|Delete',
+    ok(!!box() && box().querySelectorAll('[role="menuitem"]').length === 6, 'six rows: the five actions and Set data type');
+    ok(m.items.join('|') === 'Select this row|Select this column|Script for the selection|More options|Set data type|Delete',
        'each under a name instead of a glyph: ' + m.items.join(' | '));
     ok(parseInt(box().style.left, 10) === 428 && parseInt(box().style.top, 10) > 200,
        'opened beside the cell: ' + box().style.left + ', ' + box().style.top);
-    ok(/#fda29b/.test(box().querySelectorAll('[role="menuitem"]')[4].innerHTML), 'the one that deletes is marked and set apart');
+    ok(/#fda29b/.test(box().querySelectorAll('[role="menuitem"]')[5].innerHTML), 'the one that deletes is marked and set apart, last');
+    ok(/for this cell/.test(box().querySelectorAll('[role="menuitem"]')[4].innerHTML), 'Set data type is there for a single cell, and says it is for this cell');
 
     box().querySelectorAll('[role="menuitem"]')[1].onclick({ stopPropagation() { } });
     await sleep(5);
@@ -87,12 +88,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // several cells selected: the two that start from one cell are not offered
     const block = (n) => ({ getSelectedWellsInOrder: () => new Array(n).fill(well) });
     m = await load('baja/plate/menu/cell-menu.js', pt, block(8), well, actions);
-    ok(m.items.join('|') === 'Script for the selection|More options|Delete',
+    ok(m.items.join('|') === 'Script for the selection|More options|Set data type|Delete',
        'with eight cells selected, "this row" and "this column" are gone: ' + m.items.join(' | '));
-    ok(box().querySelectorAll('[role="menuitem"]').length === 3, 'and the menu is three rows, not five with two dead ones');
+    ok(box().querySelectorAll('[role="menuitem"]').length === 4 && /for the 8 selected cells/.test(box().innerHTML),
+       'and Set data type says how many cells it is for');
     m.close();
     m = await load('baja/plate/menu/cell-menu.js', pt, block(1), well, actions);
-    ok(m.items.length === 5 && m.items[0] === 'Select this row', 'with one cell selected they are back: ' + m.items.length);
+    ok(m.items.length === 6 && m.items[0] === 'Select this row', 'with one cell selected they are back: ' + m.items.length);
     m.close();
 
     // a whole column selected: its data type can be set from here
@@ -103,21 +105,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const opened = [];
         const prev = global.lion_engine.exec;
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice(1)), colB[1], actions);
-        ok(m.items.join('|') === 'Script for the selection|More options|Set data type|Delete',
-           'every cell of a column under its heading: "Set data type" is offered, above Delete: ' + m.items.join(' | '));
+        ok(m.items.join('|') === 'Script for the selection|More options|Set data type|Delete' && /for this column/.test(box().innerHTML),
+           'every cell of a column under its heading: "Set data type" is for the column: ' + m.items.join(' | '));
         m.close();
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice()), colB[1], actions);
-        ok(m.items.indexOf('Set data type') >= 0, 'the heading selected along with it is still the column');
+        ok(m.items.indexOf('Set data type') >= 0 && /for this column/.test(box().innerHTML), 'the heading selected along with it is still the column');
         m.close();
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colB.slice(1, 3)), colB[1], actions);
-        ok(m.items.indexOf('Set data type') < 0, 'part of a column is not a column: ' + m.items.join(' | '));
+        ok(m.items.indexOf('Set data type') >= 0 && /for the 2 selected cells/.test(box().innerHTML), 'part of a column is offered it for those cells, not for the column');
         m.close();
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl(colA.slice(1).concat(colB.slice(1))), colB[1], actions);
-        ok(m.items.indexOf('Set data type') < 0, 'nor are two columns');
+        ok(m.items.indexOf('Set data type') >= 0 && /for the 6 selected cells/.test(box().innerHTML), 'and so are two columns');
         m.close();
         m = await load('baja/plate/menu/cell-menu.js', pt, tbl([colB[1]]), colB[1], actions);
-        ok(m.items.indexOf('Set data type') < 0 && m.items.length === 5, 'nor one cell');
+        ok(m.items.indexOf('Set data type') === 4 && m.items.length === 6 && /for this cell/.test(box().innerHTML), 'and one cell, which is the total that comes out as a bare number');
         m.close();
+        // a cell that is current but not marked selected is selected first, so the library has something to act on
+        const lone = { id: 'lone' }; let picked = false; lone.selectIt = () => { picked = true; };
+        const prevExec = global.lion_engine.exec;
+        m = await load('baja/plate/menu/cell-menu.js', pt, tbl([]), lone, actions);
+        const lib = [];
+        const realLoad = load;
+        try { m.pick(m.items.indexOf('Set data type')); } catch (e) { }
+        await sleep(20);
+        ok(picked === true, 'a cell the menu was opened on, but that is not marked selected, is selected before the library opens');
         const src = fs.readFileSync('baja/plate/menu/cell-menu.js', 'utf8');
         ok(/exec\('baja\/plate\/views\/well-type-library\.js', pt, table\)/.test(src) && fs.existsSync('baja/plate/views/well-type-library.js'),
            'and it opens the data type library on the selection');

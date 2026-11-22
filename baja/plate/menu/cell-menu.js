@@ -59,15 +59,18 @@ function (pt, table, well, actions) {
         });
     if (!list.length) return null;
 
-    // A WHOLE COLUMN SELECTED IS A COLUMN ABOUT TO BE GIVEN A TYPE. Money, a date, a
-    // percentage: the type belongs to the column, and the library that sets it
-    // (well-type-library.js) works on whatever is selected. It was three menus deep. With
-    // every cell of one column selected, under its heading, it is offered here, above
-    // Delete. A few cells of a column, or cells across two columns, are not a column.
-    let wholeColumn = false;
+    // "SET DATA TYPE" IS ALWAYS HERE, FOR ONE CELL AS MUCH AS FOR A COLUMN. Money, a date, a
+    // percentage: the library that sets it (well-type-library.js) works on whatever is
+    // selected, and it was three menus deep. It was first offered here only with a whole
+    // column selected, on the reasoning that a type belongs to a column. But a total at the
+    // foot of a column of dollars is one cell, and it is exactly the cell that comes out
+    // as a bare 600000 and needs telling. So it is offered for any selection, above Delete,
+    // and its second line says how much it will change.
+    let wholeColumn = false, count = 1;
     try {
         const sel = (table && typeof table.getSelectedWellsInOrder === 'function') ? (table.getSelectedWellsInOrder() || []) : [];
         const cols = (table && Array.isArray(table.wells)) ? table.wells : [];
+        count = Math.max(1, sel.length);
         if (sel.length > 1 && cols.length) {
             const isHead = (w) => !!w && (w.skin_type === 'ColumnHeader'
                 || (w.group && typeof w.group === 'object' && w.group['ColumnHeader'] != null) || w.group === 'ColumnHeader');
@@ -78,9 +81,18 @@ function (pt, table, well, actions) {
             }
         }
     } catch (e) { wholeColumn = false; }
-    if (wholeColumn) {
-        const entry = { label: 'Set data type', hint: 'money, date, percent and the rest, for this column', danger: false,
-            button: { action: async () => exec('baja/plate/views/well-type-library.js', pt, table) } };
+    {
+        const scope = wholeColumn ? 'this column' : (count > 1 ? ('the ' + count + ' selected cells') : 'this cell');
+        const entry = { label: 'Set data type', hint: 'money, date, percent and the rest, for ' + scope, danger: false,
+            button: { action: async (w) => {
+                // The library acts on the selection. A menu opened on a cell that is current
+                // but not marked selected would otherwise change nothing.
+                try {
+                    const sel = (table && typeof table.getSelectedWellsInOrder === 'function') ? (table.getSelectedWellsInOrder() || []) : [];
+                    if (!sel.length && w) { if (typeof w.selectIt === 'function') w.selectIt(); else w.select = true; }
+                } catch (e) { }
+                return exec('baja/plate/views/well-type-library.js', pt, table);
+            } } };
         const k = list.findIndex((x) => x.danger);
         list.splice(k < 0 ? list.length : k, 0, entry);
     }
