@@ -1157,6 +1157,18 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # Which exons of a target to lose, and which cryptic exons to induce in its introns, so
+  # that what it translates reproduces the source's protein.
+  install_group "The exon plan search and the pieces it shares" \
+    "baja/bio/splicing/exon-plan-search.js:edit by edit, for a transcript to make another protein" \
+    "baja/bio/splicing/cryptic-exon-candidates.js:EXONS THE TRANSCRIPT COULD USE BUT DOES NOT" \
+    "baja/bio/splicing/strand-orientation.js:WHICH STRAND DOES A MINUS-STRAND TRACK" \
+    "baja/bio/protein/align-local.js:ONE LOCAL ALIGNER, USED BY EVERYTHING THAT NEEDS ONE" \
+    "baja/bio/protein/peptide-of.js:THE PEPTIDE A TRACK ACTUALLY MAKES" \
+    "baja/bio/protein/compare-proteins.js:ONE TRANSLATION OF A TRACK, shared with the exon plan search" \
+    "baja/bio/orfs/exon-removal-impact.js:a caller editing SEVERAL exons at once" \
+    "baja/manchester/menu/compare-track-sequences.js:THE ALIGNER LIVES IN ONE PLACE" \
+    "baja/bio/splicing/splicing-profile.js:shared with the" 
   # "compare peptides between track 1 and 3" reached nothing: the catalogue never said
   # peptide, and a track could only be named, never pointed at by position.
   install_group "Peptides by name, and tracks by position" \

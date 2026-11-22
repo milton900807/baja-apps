@@ -29,28 +29,16 @@ function (graph, tracks, opts) {
             // a caller showing a panel can only say which one it is in if it is told.
             const step = (typeof (opts && opts.onStep) === 'function') ? opts.onStep : (() => { });
 
-            const peptideOf = (t) => {
-                let orf = null;
-                try { orf = t.orf; } catch (e) { orf = null; }
-                if (!orf || !orf.cdsi || !orf.cdsi.length) {
-                    try { if (t.generateORF) t.generateORF(); } catch (e) { }
-                    try { orf = t.orf; } catch (e) { orf = null; }
-                }
-                if (!orf || !orf.cdsi || !orf.cdsi.length) return '';
-                if (orf.protein && typeof orf.protein === 'string') {
-                    return orf.protein.replace(/[^A-Za-z]/g, '').toUpperCase();
-                }
-                const out = [], seen = {};
-                for (const c of orf.cdsi) {
-                    if (!c || c.ci !== 0 || seen[c.codon_index]) continue;
-                    seen[c.codon_index] = 1;
-                    const aa = '' + (c.aa || '');
-                    if (!aa || /^stop$/i.test(aa)) break;
-                    if (aa.length === 1) out.push(aa.toUpperCase());
-                    else if (/^start$/i.test(aa)) out.push('M');
-                }
-                return out.join('');
-            };
+            // ONE TRANSLATION OF A TRACK, shared with the exon plan search: see
+            // baja/bio/protein/peptide-of.js. Two copies of this walk is two answers to
+            // "what does this track make".
+            const peptideOf = (t) => __pep.get(t) || '';
+            const __pep = new Map();
+            for (const t of ts) {
+                let p2 = '';
+                try { p2 = await exec('baja/bio/protein/peptide-of.js', t); } catch (e) { p2 = ''; }
+                __pep.set(t, p2 || '');
+            }
 
             // Residue -> the base its codon starts at, on the track's own coordinates. The
             // same walk the editor draws the ORF from, so a block lands on the codons the

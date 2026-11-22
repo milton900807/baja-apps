@@ -92,30 +92,12 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                 }
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
-                // Which strand does a MINUS-strand track's string hold? Two loaders disagree:
-                // the server's pre-mRNA payload is the plus-strand genomic slice stored as is
-                // ('plus'), while the older Ensembl path stored the transcript sequence reversed,
-                // i.e. the coding strand by ascending x ('coding'). The model needs the transcript,
-                // so the script has to know which reverse to apply. Decide from the annotated
-                // exon boundaries: at each intron the plus-strand text reads AC before the exon
-                // (the donor, read backwards) and CT after it (the acceptor), the coding-strand
-                // text reads their complements TG and GA. Majority wins; no exons -> 'plus',
-                // which is what the current loader produces.
+                // Which strand a minus-strand track's string holds is decided from its own
+                // exon boundaries: baja/bio/splicing/strand-orientation.js, shared with the
+                // cryptic-exon scan so the two cannot disagree about one track.
                 let orientation = 'plus';
-                if (+strand < 0 && track.getExons && typeof seq === 'string' && Number.isFinite(+track.xi)) {
-                    try {
-                        let plusHits = 0, codingHits = 0;
-                        const at = (x) => { const i = Math.floor(x) - Math.floor(+track.xi); return (i >= 0 && i < seq.length) ? seq[i].toUpperCase() : ''; };
-                        for (const e of (track.getExons() || [])) {
-                            const lo = Math.min(+e.xi, +e.xf), hi = Math.max(+e.xi, +e.xf);
-                            const donor = at(lo - 2) + at(lo - 1);       // intron side of the exon's 3' end
-                            const acceptor = at(hi + 1) + at(hi + 2);    // intron side of the exon's 5' end
-                            if (donor === 'AC') plusHits++; else if (donor === 'TG') codingHits++;
-                            if (acceptor === 'CT') plusHits++; else if (acceptor === 'GA') codingHits++;
-                        }
-                        if (codingHits > plusHits) orientation = 'coding';
-                    } catch (e) { }
-                }
+                try { orientation = await exec('baja/bio/splicing/strand-orientation.js', track, seq); }
+                catch (e) { orientation = 'plus'; }
 
                 // PSI mode needs real exon structure — send the track's annotated
                 // exons (track-local [xi, xf], transcript order) if it has them.

@@ -135,7 +135,11 @@ function (track, exon, opts) {
 
             // A caller with its own narrative takes the machinery and stops here.
             if ((opts || {}).raw) {
-                resolve({ ok: true, plus, startG, before, after, nmdOf: nmdCall, baseAt: baseAt, exons: allExons });
+                // `translate` goes with it: a caller editing SEVERAL exons at once (the exon
+                // plan search builds a whole transcript per plan) needs the same walk, and a
+                // second translator is a second answer to what a frameshift is.
+                resolve({ ok: true, plus, startG, before, after, nmdOf: nmdCall, baseAt: baseAt,
+                    exons: allExons, translate: translate, codon: codon });
                 return;
             }
 
