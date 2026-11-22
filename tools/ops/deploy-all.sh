@@ -1121,6 +1121,12 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Go to a reference zooms to the cell, not just its table" \
     "baja/plate/plate-track.js:ZOOM TO CELLS, NOT TO THE TABLE THEY ARE IN" \
     "manchester/controls/navigation-panel-plates2.js:TO THE CELL, NOT JUST TO ITS TABLE"
+  # A zoom made on purpose is in the Back/Forward history at once. The bar has jump(), the
+  # track calls it from every programmed zoom: a track calling a bar without it does
+  # nothing, and a bar without the track's calls only hears of its own list.
+  install_group "Zooming to a table or cell is in the navigation history" \
+    "baja/plate/views/navigation-history.js:A JUMP IS A PLACE LEFT AND A PLACE REACHED, STRAIGHT AWAY" \
+    "baja/plate/plate-track.js:THE CAMERA MOVED ON PURPOSE: tell the navigation bar"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

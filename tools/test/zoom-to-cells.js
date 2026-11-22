@@ -54,7 +54,8 @@ const method = (src, head) => {
             }
         };
         const calls = [];
-        const me = { grid, calls, fitCalls: 0, wake() { draw(); }, pushGrid() { }, clearActionGlyphs() { },
+        const me = { grid, calls, fitCalls: 0, journeys: [], released: 0, wake() { draw(); }, pushGrid() { }, clearActionGlyphs() { },
+            __navJump(label, hold) { this.journeys.push({ label, hold, span: grid.xmax - grid.xmin }); return { release: () => { this.released++; } }; },
             __maxWorldBounds: (o) => ({ x0: o.grid.xi, x1: o.grid.xi + o.grid.width, yTop: o.grid.yi + o.grid.height, yBot: o.grid.yi }),
             async zoomto(cx, cy, w, h) { calls.push({ cx, cy, w, h }); },
             async zoomToFitTable() { this.fitCalls++; } };
@@ -87,7 +88,7 @@ const method = (src, head) => {
     // ---- the view the cells are measured in is the table's, set before they are read --------
     x = mk();
     const before = x.grid.xmax - x.grid.xmin;
-    await zoomToCells.call(x.me, { INTERUPT: false }, x.plate, [cell]);
+    await zoomToCells.call(x.me, { INTERUPT: false }, x.plate, [x.plate.wells[1][25]]);
     ok(before === 10000 && near(x.grid.xmax - x.grid.xmin, 1000 * Math.max(400 * 1.12 / 1000, 800 * 1.12 / 600), 1),
        'a table that was a speck in the view is brought into it first, so the cell is drawn somewhere real');
 
@@ -100,12 +101,24 @@ const method = (src, head) => {
     await zoomToCells.call(x.me, { INTERUPT: false }, x.plate, []);
     ok(x.me.fitCalls === 1, 'and with no cells at all it is the table, as before');
 
+    // ---- the journey is told to the navigation history --------------------------------------
+    x = mk();
+    await zoomToCells.call(x.me, { INTERUPT: false }, x.plate, [x.plate.wells[1][25]], { label: 'assumptions \u203a Labor_Wages' });
+    ok(x.me.journeys.length === 1 && x.me.journeys[0].hold === true && x.me.journeys[0].label === 'assumptions \u203a Labor_Wages',
+       'the move is announced once, by name, and held: it has two stages');
+    ok(x.me.journeys[0].span === 10000, 'before the view is touched, so the place being left is the real one');
+    ok(x.me.released === 1 && x.me.calls.length === 1, 'and released once the last stage has begun: released ' + x.me.released + ', zooms ' + x.me.calls.length);
+    x = mk(); x.plate.wells[1][5].hidden = true;
+    await zoomToCells.call(x.me, { INTERUPT: false }, x.plate, [x.plate.wells[1][5]]);
+    ok(x.me.released === 1, 'a journey that stops at the table is released too, not left open');
+    ok(/async zoomto\(cx, cy, width, height\) \{[\s\S]{0,260}this\.__navJump\(''\);/.test(track), 'and every programmed zoom announces itself');
+
     // ---- the go-to finds the cell by its tags ----------------------------------------------
     const nav = fs.readFileSync('manchester/controls/navigation-panel-plates2.js', 'utf8');
     const g = nav.slice(nav.indexOf('const gotoReference = async'), nav.indexOf('const gotoReference = async') + 9000);
     ok(/const tagged = \(\(\) => \{/.test(g) && g.indexOf('const tagged') < g.indexOf('const unresolved = []'),
        'cells carrying the reference’s tags are looked for before any label is');
-    ok(/pt\.zoomToCells\(tb, targets\)/.test(g) && g.indexOf('pt.zoomToCells(tb, targets)') < g.indexOf('pt.zoomToFitTable(tb)'),
+    ok(/pt\.zoomToCells\(tb, targets, \{ label:/.test(g) && g.indexOf('pt.zoomToCells(tb, targets') < g.indexOf('pt.zoomToFitTable(tb)'),
        'and the zoom is to those cells, with the table only as the fallback');
     // the matching rule, lifted out and run: Labor_Wages is a tag, "Labor Wages" is a label
     const body = /const tagged = \(\(\) => \{([\s\S]*?)\n                \}\)\(\);/.exec(g)[1];

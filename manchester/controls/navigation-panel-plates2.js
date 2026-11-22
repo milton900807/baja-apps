@@ -284,7 +284,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     }
                 }
                 // TO THE CELL, NOT JUST TO ITS TABLE (plate-track.zoomToCells).
-                if (targets.length && pt.zoomToCells) await pt.zoomToCells(tb, targets);
+                if (targets.length && pt.zoomToCells) await pt.zoomToCells(tb, targets, { label: tableName + ' \u203a ' + want.join(', ') });
                 else if (pt.zoomToFitTable) await pt.zoomToFitTable(tb); else await pt.zoomintoplate(tb);
                 // AFTER the zoom: framing the table selects within it, and doing this first
                 // left the label cell current instead of the one the reference names.

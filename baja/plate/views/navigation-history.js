@@ -50,13 +50,54 @@ function (pt, graph) {
             try { pt.grid.rescale(); } catch (e) { }
             nav.lastView = view(); nav.dwellStart = Date.now();
         };
-        const record = (v, why) => {
+        const record = (v, why, label) => {
             if (nav.index >= 0 && same(nav.history[nav.index].view, v)) return;
             nav.history = nav.history.slice(0, nav.index + 1);
-            nav.history.push({ view: v, at: Date.now(), label: describe(v), why: why || 'stayed' });
+            nav.history.push({ view: v, at: Date.now(), label: label || describe(v), why: why || 'stayed' });
             if (nav.history.length > MAX_HISTORY) nav.history.shift();
             nav.index = nav.history.length - 1;
             render();
+        };
+        // A JUMP IS A PLACE LEFT AND A PLACE REACHED, STRAIGHT AWAY.
+        //
+        // The history was filled only by staying somewhere for twenty seconds. So going to
+        // a table from the list, or to a cell from a formula, and wanting to come straight
+        // back, found Back greyed out or pointing somewhere older: the view just left had
+        // never been stayed in long enough to count, and neither had the one arrived at.
+        // That is the one moment Back is most wanted.
+        //
+        // Anything that moves the camera on purpose calls jump(). The view being left is
+        // recorded at once, so Back returns to it. The view arrived at is recorded when the
+        // camera has stopped moving, not from where it was told to go: the animation settles
+        // the view to the window's shape, and a recorded target that differed from where it
+        // came to rest would be a second, nearly identical place twenty seconds later.
+        //
+        // One jump at a time. A jump made of several moves (the table brought into view,
+        // then the cell) asks to be held and releases when its last move has started, so the
+        // pause between them is not taken for having arrived. A jump asked for while one is
+        // under way is the same journey and only renames it.
+        let arriving = null;
+        const jump = (label, hold) => {
+            if (arriving) { if (label) arriving.label = label; return arriving.handle; }
+            if (pt.__maximized) return { release() { } };
+            record(view(), 'left');
+            const a = { label: label || '', held: !!hold, started: Date.now(), last: view(), still: 0, timer: null, handle: null };
+            const finish = () => {
+                try { clearInterval(a.timer); } catch (e) { }
+                if (arriving === a) arriving = null;
+                const v = view();
+                record(v, 'went', a.label || undefined);
+                nav.lastView = v; nav.dwellStart = Date.now();
+            };
+            a.handle = { release() { a.held = false; a.started = Date.now(); a.still = 0; a.last = view(); } };
+            a.timer = setInterval(() => {
+                const v = view(), age = Date.now() - a.started;
+                if (a.held) { if (age > 8000) a.held = false; return; }
+                if (same(v, a.last)) a.still++; else { a.still = 0; a.last = v; }
+                if ((a.still >= 2 && age > 350) || age > 6000) finish();
+            }, 150);
+            arriving = a;
+            return a.handle;
         };
         const back = async () => { if (nav.index > 0) { nav.index--; await goTo(nav.history[nav.index].view); render(); } };
         const forward = async () => { if (nav.index < nav.history.length - 1) { nav.index++; await goTo(nav.history[nav.index].view); render(); } };
@@ -77,6 +118,7 @@ function (pt, graph) {
         const goToObject = async (o) => {
             try {
                 if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
+                jump(nameOf(o));
                 select(o);
                 if (typeof o.drawPlot === 'function') await pt.zoomintoplot(o);
                 else if (o.shape) {
@@ -94,6 +136,7 @@ function (pt, graph) {
         const showAll = async () => {
             try {
                 if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
+                jump('Everything');
                 if (pt.zoomouttoFit) await pt.zoomouttoFit(); else if (pt.zoomtfit) await pt.zoomtfit();
             } catch (e) { console.warn('bookmark show all', e); }
             closeLists();
@@ -383,6 +426,7 @@ function (pt, graph) {
 
         nav.destroy = () => {
             try { clearInterval(nav.timer); } catch (e) { }
+            try { if (arriving) { clearInterval(arriving.timer); arriving = null; } } catch (e) { }
             try { document.removeEventListener('mousedown', onDocDown, true); document.removeEventListener('touchstart', onDocDown, true); window.removeEventListener('keydown', onKey, true); } catch (e) { }
             try { if (bar.parentNode) bar.parentNode.removeChild(bar); } catch (e) { }
             if (window.__bajaNavPanel === nav) window.__bajaNavPanel = null;
@@ -390,6 +434,7 @@ function (pt, graph) {
         nav.record = (why) => record(view(), why || 'marked');
         nav.refresh = () => { try { __wasMaxed = !!pt.__maximized; render(); } catch (e) { } };
         nav.back = back; nav.forward = forward; nav.open = open;
+        nav.jump = jump;
         window.__bajaNavPanel = nav;
         render();
         return nav;

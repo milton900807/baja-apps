@@ -3224,10 +3224,24 @@ function (progress) {
             // coordinates, and the view animates in to them. One cell is given a quarter of
             // the window with its neighbours around it, so it can be seen where it sits;
             // several are framed together.
+            // THE CAMERA MOVED ON PURPOSE: tell the navigation bar, so Back and Forward know
+            // about it (see jump() in baja/plate/views/navigation-history.js). `hold` is for
+            // a move made in stages; the returned handle's release() says the last has begun.
+            __navJump(label, hold) {
+                try {
+                    const n = this.__nav || (typeof window !== 'undefined' ? window.__bajaNavPanel : null);
+                    if (n && typeof n.jump === 'function') return n.jump(label, hold) || null;
+                } catch (e) { }
+                return null;
+            }
+
             async zoomToCells(plate, cells, opts = {}) {
                 const list = (Array.isArray(cells) ? cells : [cells]).filter(Boolean);
                 if (!plate || !list.length) return this.zoomToFitTable(plate, opts);
                 this.clearActionGlyphs();
+                // Two moves (the table, then the cell) are one journey in the history.
+                const journey = this.__navJump(opts.label || '', true);
+                const arrived = () => { try { if (journey && journey.release) journey.release(); } catch (e) { } };
                 const frames = (n) => new Promise((res) => {
                     let left = n;
                     const tick = () => { if (--left <= 0) res(); else next(); };
@@ -3239,7 +3253,7 @@ function (progress) {
                     this.grid.rescale();
                     const viewW = Math.max(1, this.grid.width), viewH = Math.max(1, this.grid.height);
                     const b = this.__maxWorldBounds(plate);
-                    if (!b) return this.zoomToFitTable(plate, opts);
+                    if (!b) { arrived(); return this.zoomToFitTable(plate, opts); }
 
                     // The table, whole, in view now: this is the view the cells are measured in.
                     const plateW = Math.max(1e-9, b.x1 - b.x0), plateH = Math.max(1e-9, b.yTop - b.yBot);
@@ -3270,7 +3284,7 @@ function (progress) {
                     }
                     // Not drawn (collapsed, hidden, off the table's own scroll): the table in
                     // view is the best there is, and it is already there.
-                    if (!found || !(x1 > x0) || !(y1 > y0)) return;
+                    if (!found || !(x1 > x0) || !(y1 > y0)) { arrived(); return; }
 
                     const room = found === 1 ? (opts.room ?? 4) : (opts.roomMany ?? 1.6);
                     let wpp = Math.max((x1 - x0) * room / viewW, (y1 - y0) * room / viewH);
@@ -3278,8 +3292,10 @@ function (progress) {
                     // leave it smaller than it already was.
                     wpp = Math.min(wpp, fit);
                     await this.zoomto((x0 + x1) / 2, (y0 + y1) / 2, viewW * wpp, viewH * wpp);
+                    arrived();
                 } catch (e) {
                     try { console.warn('zoom to cells', e); } catch (e2) { }
+                    arrived();
                     return this.zoomToFitTable(plate, opts);
                 }
             }
@@ -24278,6 +24294,9 @@ function (progress) {
             }
 
             async zoomto(cx, cy, width, height) {
+                // Every programmed move of the camera ends here or in the navigation bar's own
+                // list, so this is where the history hears of one.
+                this.__navJump('');
                 this.pushGrid();
                 this.clearActionGlyphs();
 
