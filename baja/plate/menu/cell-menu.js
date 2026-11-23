@@ -97,6 +97,48 @@ function (pt, table, well, actions) {
         list.splice(k < 0 ? list.length : k, 0, entry);
     }
 
+    // ON A ROW HEADER: HOW FAR ITS TAG REACHES. A row header names the one cell beside it
+    // (plate.js, rowHeaderReach). Here it can be made to name more: the whole row, or,
+    // with the header and cells along its row selected, as far as the selection goes. And
+    // put back to one. The second line says what it does now.
+    try {
+        const isRowHead = (w) => !!w && (w.skin_type === 'RowHeader'
+            || (w.group && typeof w.group === 'object' && w.group['RowHeader'] != null));
+        const sel = (table && typeof table.getSelectedWellsInOrder === 'function') ? (table.getSelectedWellsInOrder() || []) : [];
+        const at = (w) => { try { return table.getWellIndicies(w); } catch (e) { return null; } };
+        let head = isRowHead(well) ? well : null;
+        if (!head) head = sel.filter(isRowHead)[0] || null;
+        const hi = head ? at(head) : null;
+        if (head && hi && typeof table.rowHeaderReach === 'function' && typeof table.setRowHeaderReach === 'function') {
+            const now = table.rowHeaderReach(head);
+            const says = now === Infinity ? 'now: every cell in its row' : (now === 1 ? 'now: only the cell beside it' : ('now: the next ' + now + ' cells'));
+            const set = (reach, msg) => ({ action: async () => {
+                table.setRowHeaderReach(reach, [head]);
+                try { if (pt && typeof pt.updateCalculations === 'function') pt.updateCalculations(); } catch (e) { }
+                try { if (pt && typeof pt.setMessage === 'function') pt.setMessage(msg, 6); } catch (e) { }
+            } });
+            const name = '' + head.value;
+            const extra = [];
+            // As far as the selection: the cells picked along the header's own row.
+            let far = 0;
+            for (const w of sel) {
+                const i = at(w);
+                if (!i || w === head || i.rowIdx !== hi.rowIdx || i.colIdx <= hi.colIdx) continue;
+                let n = 0;
+                for (let c = hi.colIdx + 1; c <= i.colIdx; c++) { if (!isRowHead(table.wells[c] && table.wells[c][hi.rowIdx])) n++; }
+                far = Math.max(far, n);
+            }
+            if (far > 1 && far !== now) extra.push({ label: 'Header: tag the ' + far + ' cells selected', hint: says, danger: false,
+                button: set(far, '"' + name + '" now names the next ' + far + ' cells.') });
+            if (now !== Infinity) extra.push({ label: 'Header: tag the whole row', hint: says, danger: false,
+                button: set('row', '"' + name + '" now names every cell in its row.') });
+            if (now !== 1) extra.push({ label: 'Header: tag only the next cell', hint: says, danger: false,
+                button: set(1, '"' + name + '" now names only the cell beside it.') });
+            const k = list.findIndex((x) => x.danger);
+            list.splice(k < 0 ? list.length : k, 0, ...extra);
+        }
+    } catch (e) { }
+
     // ASK COMES FIRST. One prompt for whatever is selected: say what should go in the cells
     // and they are filled in, or start with "=" and a formula is written (see
     // baja/plate/ops/cell-ask.js). It leads the menu because it is the one row that can do

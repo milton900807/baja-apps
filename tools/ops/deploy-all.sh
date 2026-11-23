@@ -1186,6 +1186,15 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/views/well-display-factory.js:WRAPPED TEXT: THE WHOLE TEXT, ALWAYS" \
     "baja/plate/views/well-type-library.js:T('WRAP_TEXT', 'Text', 'Wrapped text'" \
     "baja/plate/ops/annotate-rows.js:A NOTE IS SHOWN WHOLE"
+  # A row header tags the cell beside it, not its whole row. The table decides the reach,
+  # the cell saves it, the track hands the table its formulas, and the cell menu sets it: a
+  # menu without the table's half would offer nothing, and the table without the cell's
+  # half would forget what was set at the next save.
+  install_group "Row headers: tag the next cell, not the whole row" \
+    "baja/plate/plate.js:A ROW HEADER NAMES THE CELL BESIDE IT, NOT THE WHOLE ROW" \
+    "baja/plate/well.js:HOW FAR A ROW HEADER'S TAG REACHES, when it was set on this header" \
+    "baja/plate/plate-track.js:THE TRACK GOES WITH IT, so a table can see which of its row tags" \
+    "baja/plate/menu/cell-menu.js:ON A ROW HEADER: HOW FAR ITS TAG REACHES"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

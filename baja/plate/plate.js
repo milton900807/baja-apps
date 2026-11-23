@@ -2148,7 +2148,9 @@ function () {
                 }
             }
 
-            reapplyHeaderWells() {
+            reapplyHeaderWells(track) {
+
+                if (track) this.__noteRowTagsReadAcross(track);
 
                 // Build active row-header groups PER ROW
                 // because multiple RowHeader columns may exist.
@@ -2319,16 +2321,127 @@ function () {
                 if (well && well.value) {
                     let groupName = well.value;
                     this.row_headers.push({ col: colIndex, row: rowIndex, 'groupName': groupName });
+                    // A ROW HEADER NAMES THE CELL BESIDE IT, NOT THE WHOLE ROW. It used to tag
+                    // every cell in its row. That held while a table was a name and a value;
+                    // add a Notes column and "Kegs_from_Yeast" was two cells, a number and a
+                    // sentence, and every formula reading that tag got both and came out NaN.
+                    // So the tag reaches one cell by default, the next one to the right that
+                    // is not itself a header, and further only where someone has said so:
+                    // see rowHeaderReach below. Cells beyond the reach lose the tag, unless
+                    // their own column's header gives it to them.
+                    const reach = this.rowHeaderReach(well);
+                    const tag = this.__headerTagName(groupName);
+                    const isRowHead = (w) => !!w && (w.skin_type === 'RowHeader'
+                        || (w.group && typeof w.group === 'object' && w.group['RowHeader'] != null));
+                    let taken = 0;
                     for (let j = 0; j < this.wells.length; j++) {
-                        const targetWell = this.wells[j][rowIndex];
-                        if (targetWell && typeof targetWell.setGroup === 'function' && targetWell.uid != well.uid) {
+                        const targetWell = this.wells[j] && this.wells[j][rowIndex];
+                        if (!targetWell || typeof targetWell.setGroup !== 'function' || targetWell.uid == well.uid) continue;
+                        let inside;
+                        if (reach === Infinity) inside = true;
+                        else if (j < colIndex || isRowHead(targetWell)) inside = false;
+                        else { inside = taken < reach; taken++; }
+                        if (inside) {
                             targetWell.setGroup(groupName);
+                        } else if (tag && targetWell.group && typeof targetWell.group === 'object'
+                            && Object.prototype.hasOwnProperty.call(targetWell.group, tag)
+                            && typeof targetWell.removeGroup === 'function'
+                            && !this.__columnGivesTag(j, tag, targetWell)) {
+                            targetWell.removeGroup(tag);
                         }
                     }
                 } else {
                     console.log(`No value found for well at row ${rowIndex}, column ${colIndex}`);
                 }
             }
+
+            // The name a value is filed under as a tag: what well.setGroup makes of it.
+            __headerTagName(v) {
+                let g = String(v == null ? '' : v);
+                g = g.trim().replace(/-/g, '_');
+                g = g.trim().replace(/\s+/g, '_');
+                g = g.replace(/[^a-zA-Z0-9_]/g, '_');
+                return g.replace(/_+/g, '_');
+            }
+
+            // Is this tag the name of the cell's own column? Then it is not the row header's
+            // to take away.
+            __columnGivesTag(colIndex, tag, except) {
+                const col = this.wells[colIndex] || [];
+                for (const w of col) {
+                    if (!w || w === except || w.value == null) continue;
+                    const head = w.skin_type === 'ColumnHeader' || (w.group && typeof w.group === 'object' && w.group['ColumnHeader'] != null);
+                    if (head && this.__headerTagName(w.value) === tag) return true;
+                }
+                return false;
+            }
+
+            // HOW FAR A ROW HEADER'S TAG REACHES: a count of cells to its right, or Infinity
+            // for the whole row. In order: what was set on the header itself (headerSpan),
+            // what was set for the table (attr__rowHeaderSpan), and otherwise one cell. One
+            // exception to "otherwise one": a tag that some formula already reads together
+            // with a second tag, Table[Revenue,Q3], is being used to find a cell along the
+            // row, and cutting it to one cell would break that formula. Those keep the row.
+            rowHeaderReach(well) {
+                const asReach = (v) => {
+                    if (v === 'row') return Infinity;
+                    const n = Number(v);
+                    return (v != null && v !== '' && isFinite(n) && n >= 1) ? Math.floor(n) : null;
+                };
+                const own = asReach(well && well.headerSpan);
+                if (own != null) return own;
+                const all = asReach(this.attr__rowHeaderSpan);
+                if (all != null) return all;
+                const across = this.__rowTagsReadAcross;
+                if (across && well && well.value != null && across.has(this.__headerTagName(well.value).toLowerCase())) return Infinity;
+                return 1;
+            }
+
+            // The tags of this table that formulas read in pairs. Looked up from the track at
+            // each calculation; kept between calculations for the callers that have no track.
+            __noteRowTagsReadAcross(track) {
+                const found = new Set();
+                try {
+                    const name = String(this.name || '');
+                    if (!name || !track || !Array.isArray(track.root)) return;
+                    const at = name.toLowerCase() + '[';
+                    for (const t of track.root) {
+                        const fs = (t && t.formula && typeof t.formula === 'object') ? t.formula : {};
+                        for (const k in fs) {
+                            const f = String(fs[k] == null ? '' : fs[k]);
+                            const low = f.toLowerCase();
+                            let from = 0, i;
+                            while ((i = low.indexOf(at, from)) >= 0) {
+                                from = i + at.length;
+                                const before = i > 0 ? low[i - 1] : '';
+                                if (/[a-z0-9_]/.test(before)) continue;
+                                const end = f.indexOf(']', from);
+                                if (end < 0) break;
+                                const inner = f.slice(from, end);
+                                if (inner.indexOf(',') < 0 || inner.indexOf(':') >= 0) continue;
+                                for (const part of inner.split(',')) {
+                                    const tg = this.__headerTagName(part).toLowerCase();
+                                    if (tg) found.add(tg);
+                                }
+                            }
+                        }
+                    }
+                    this.__rowTagsReadAcross = found;
+                } catch (e) { }
+            }
+
+            // Set the reach of one header, of several, or of the table (no wells given).
+            // 'row' is the whole row; null on a header puts it back on the table's setting.
+            setRowHeaderReach(reach, wells) {
+                if (Array.isArray(wells)) {
+                    for (const w of wells) { if (w) { if (reach == null) delete w.headerSpan; else w.headerSpan = reach; } }
+                } else {
+                    this.attr__rowHeaderSpan = reach == null ? undefined : reach;
+                    for (const col of (this.wells || [])) for (const w of (col || [])) { if (w && w.headerSpan != null) delete w.headerSpan; }
+                }
+                try { this.reapplyHeaderWells(); } catch (e) { }
+            }
+
             applyAddressWellForRow(rowIndex, colIndex) {
                 if (rowIndex < 0 || rowIndex >= this.wells[0].length) {
                     console.error("Invalid row index.");
@@ -8436,6 +8549,26 @@ function () {
                                 } catch (e) { try { pt.setMessage('Could not convert the formulas: ' + (e && e.message ? e.message : e), 8); } catch (e2) { } }
                             }
                         });
+                        // ROW HEADERS: THE NEXT CELL, OR THE WHOLE ROW. A row header tags the one
+                        // cell beside it unless told otherwise (see rowHeaderReach). A table
+                        // with a column per month wants the whole row, so that
+                        // Table[Revenue,March] finds its cell; this sets it for every header
+                        // in the table at once. One header is set from its own cell menu.
+                        {
+                            const whole = this.attr__rowHeaderSpan === 'row';
+                            list.push({
+                                label: whole ? 'Row headers: tag only the next cell' : 'Row headers: tag the whole row', move: () => { },
+                                click: async () => {
+                                    try {
+                                        this.setRowHeaderReach(whole ? 1 : 'row');
+                                        if (pt && typeof pt.updateCalculations === 'function') pt.updateCalculations();
+                                        if (pt && typeof pt.setMessage === 'function') pt.setMessage(whole
+                                            ? 'Each row header now names only the cell beside it.'
+                                            : 'Each row header now names every cell in its row.', 6);
+                                    } catch (e) { console.warn('row header reach', e); }
+                                }
+                            });
+                        }
                         list.push({ type: 'separator' });
                         list.push({
                             label: 'Delete table…', emphasis: 'danger', move: () => { },
@@ -13206,6 +13339,7 @@ function () {
                 plate.attr__ShowTableName = jsonData.attr__ShowTableName;
                 plate.attr__displayNumberValues = jsonData.attr__displayNumberValues;
                 plate.group_preferences = jsonData.group_preferences;
+                plate.attr__rowHeaderSpan = jsonData.attr__rowHeaderSpan;
 
                 plate.formula = jsonData.formula || {};
 
@@ -13341,6 +13475,7 @@ function () {
                     attr__displayNumberValues: this.attr__displayNumberValues,
                     attr__displayMenuButtons: this.attr__displayMenuButtons,
                     group_preferences: this.group_preferences,
+                    attr__rowHeaderSpan: this.attr__rowHeaderSpan,
 
                     formula: this.formula || {},
                     wellannotations: this.wellannotations || {},

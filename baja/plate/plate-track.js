@@ -5747,7 +5747,9 @@ function (progress) {
 
                 const plate_jsons = []
                 for (let p of this.root) {
-                    p.reapplyHeaderWells();
+                    // THE TRACK GOES WITH IT, so a table can see which of its row tags the
+                    // formulas read in pairs (plate.js, rowHeaderReach).
+                    p.reapplyHeaderWells(this);
                     plate_jsons.push(p.toValueFormulaJSON())
                     // if (p.findMissingFormulaReferences) {
                     //     let missing_fields = p.findMissingFormulaReferences(this)
