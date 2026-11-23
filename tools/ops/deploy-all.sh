@@ -1202,6 +1202,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/cell-menu.js:\"REMOVE TAGS\", JUST ABOVE DELETE" \
     "baja/plate/plate.js:A CELL WHOSE TAGS WERE REMOVED TAKES NONE FROM ITS HEADERS" \
     "baja/plate/well.js:TAGS REMOVED BY HAND STAY REMOVED"
+  # Arrows on the edges of a maximized window that lead to the table or chart in that
+  # direction on the canvas.
+  install_group "Maximized view: arrows to the neighbouring windows" \
+    "baja/plate/plate-track.js:ARROWS TO THE NEIGHBOURING WINDOWS, WHILE ONE IS MAXIMIZED"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

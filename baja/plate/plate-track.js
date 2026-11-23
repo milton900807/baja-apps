@@ -9102,7 +9102,7 @@ function (progress) {
                 try { this.__sanitizeRefs(); } catch (e) { }
                 if (this.__maximized) {
                     const hit = this.__maxHit(x, y);
-                    if (hit === 'exit' || hit === 'menu') return;
+                    if (hit === 'exit' || hit === 'menu' || (hit && hit.indexOf('go-') === 0)) return;
                     // A press on the bookmark strip: the release handles it (see mouseUp).
                     try { if (this.__bookmark_menu && !this.__objectOnly && !this.__readOnly && this.__bookmark_menu.isIn && this.__bookmark_menu.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) return; } catch (e) { }
                     // The scroll indicator on the right edge: press to jump, drag to scroll.
@@ -9669,6 +9669,7 @@ function (progress) {
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit') { this.exitMaximize(); return; }
                     if (hit === 'menu') { this.__maxOpenMenu(); return; }
+                    if (hit && hit.indexOf('go-') === 0) { this.__maxGo(hit.slice(3)); return; }
                     if (this.__maxTap) {
                         const t = this.__maxTap; this.__maxTap = null;
                         try {
@@ -10428,6 +10429,7 @@ function (progress) {
                     if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
                     if (this.__maxScrollXDrag) { this.__maxScrollXTo(x); return; }
                     try { const hb = this.__maxHBar(); this.__maxHBarHover = !!(hb && y >= hb.zoneTop && y <= hb.zoneBottom); } catch (e) { this.__maxHBarHover = false; }
+                    try { this.__maxArrowHover = this.__maxArrowAt(x, y); } catch (e) { this.__maxArrowHover = null; }
                     if (this.__maxTap && (Math.abs(x - this.__maxTap.x) > 6 || Math.abs(y - this.__maxTap.y) > 6)) this.__maxTap = null;
                     if (this.__maxDrag) {
                         const d = this.__maxDrag, o = this.__maximized, g = this.grid;
@@ -13389,6 +13391,7 @@ function (progress) {
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 this.__maxExitRect = null;
                 this.__maxMenuRect = null;
+                this.__maxArrowRects = null; this.__maxArrowHover = null;
                 if (this.__maxKey) { try { window.removeEventListener('keydown', this.__maxKey, true); } catch (e) { } this.__maxKey = null; }
                 if (this.__maxResize) { try { window.removeEventListener('resize', this.__maxResize); } catch (e) { } this.__maxResize = null; }
                 if (this.__maxRO) { try { this.__maxRO.disconnect(); } catch (e) { } this.__maxRO = null; }
@@ -13598,10 +13601,128 @@ function (progress) {
                     return x >= x0 && x <= x1 && y >= y0 && y <= y1;
                 } catch (e) { return false; }
             }
+            // ARROWS TO THE NEIGHBOURING WINDOWS, WHILE ONE IS MAXIMIZED. Maximized, a table is
+            // the whole window, and getting to the one beside it meant leaving, finding it on
+            // the canvas and maximizing again. Each edge of the window now carries an arrow
+            // when there is a table, chart or timeline in that direction on the canvas, and
+            // pressing it puts this one back and maximizes that one.
+            //
+            // Which one: an object wholly beyond this one's left edge is to the left, and so
+            // on for each side; one beyond a corner is offered both ways; one that overlaps
+            // this one goes by where its centre lies. Of those in a direction the nearest
+            // wins, measured edge to edge, with any sideways gap counted double so that the
+            // one in line is preferred to a nearer one off to the side. Up is larger y: the
+            // canvas's world y runs upward.
+            __maxNeighbours() {
+                const out = { left: null, right: null, up: null, down: null };
+                const cur = this.__maximized;
+                if (!cur || this.__objectOnly) return out;
+                const b = this.__maxWorldBounds(cur);
+                if (!b) return out;
+                const cx = (b.x0 + b.x1) / 2, cy = (b.yTop + b.yBot) / 2;
+                const best = { left: Infinity, right: Infinity, up: Infinity, down: Infinity };
+                const seen = new Set();
+                for (const o of [].concat(Array.isArray(this.root) ? this.root : [], Array.isArray(this.m_plots) ? this.m_plots : [])) {
+                    if (!o || o === cur || o.hidden || o.visible === false || seen.has(o)) continue;
+                    seen.add(o);
+                    const ob = this.__maxWorldBounds(o);
+                    if (!ob || ![ob.x0, ob.x1, ob.yTop, ob.yBot].every(Number.isFinite)) continue;
+                    const dx = (ob.x0 + ob.x1) / 2 - cx, dy = (ob.yTop + ob.yBot) / 2 - cy;
+                    const isRight = ob.x0 >= b.x1, isLeft = ob.x1 <= b.x0, isUp = ob.yBot >= b.yTop, isDown = ob.yTop <= b.yBot;
+                    const apart = isRight || isLeft || isUp || isDown;
+                    const gapX = Math.max(0, ob.x0 - b.x1, b.x0 - ob.x1), gapY = Math.max(0, ob.yBot - b.yTop, b.yBot - ob.yTop);
+                    const wide = Math.abs(dx) >= Math.abs(dy);
+                    const offer = (dir, yes, along, across) => {
+                        if (!yes) return;
+                        const d = along + 2 * across + 1e-6 * (Math.abs(dx) + Math.abs(dy));
+                        if (d < best[dir]) { best[dir] = d; out[dir] = o; }
+                    };
+                    offer('right', apart ? isRight : (dx > 0 && wide), gapX, gapY);
+                    offer('left', apart ? isLeft : (dx < 0 && wide), gapX, gapY);
+                    offer('up', apart ? isUp : (dy > 0 && !wide), gapY, gapX);
+                    offer('down', apart ? isDown : (dy < 0 && !wide), gapY, gapX);
+                }
+                return out;
+            }
+            // Where the four arrows sit: the middle of each edge, clear of the title bar, the
+            // scroll bars and whatever the app docks along the bottom.
+            __maxArrowSpots(W, H) {
+                const R = 19, top = 46, bottom = this.__bottomChromePx() + 18;
+                const midY = top + (H - top - bottom) / 2;
+                return {
+                    left: { x: 14 + R, y: midY, r: R },
+                    right: { x: W - 26 - R, y: midY, r: R },
+                    up: { x: W / 2, y: top + 12 + R, r: R },
+                    down: { x: W / 2, y: H - bottom - 8 - R, r: R }
+                };
+            }
+            __drawMaximizeArrows(ctx) {
+                this.__maxArrowRects = null;
+                if (!this.__maximized || !ctx || this.__objectOnly || this.menu) return;
+                const near = this.__maxNeighbours();
+                const W = ctx.canvas.width, H = ctx.canvas.height;
+                const spots = this.__maxArrowSpots(W, H);
+                const rects = {};
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                for (const dir of ['left', 'right', 'up', 'down']) {
+                    const o = near[dir];
+                    if (!o) continue;
+                    const s = spots[dir], hot = this.__maxArrowHover === dir;
+                    rects[dir] = { x: s.x - s.r - 4, y: s.y - s.r - 4, w: 2 * s.r + 8, h: 2 * s.r + 8, obj: o };
+                    ctx.shadowColor = 'rgba(0,0,0,0.30)'; ctx.shadowBlur = hot ? 14 : 8;
+                    ctx.beginPath(); ctx.arc(s.x, s.y, hot ? s.r + 2 : s.r, 0, Math.PI * 2);
+                    ctx.fillStyle = hot ? '#1aa3bd' : 'rgba(10,37,64,0.86)'; ctx.fill();
+                    ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+                    ctx.lineWidth = 1.5; ctx.strokeStyle = hot ? '#ffffff' : '#1aa3bd'; ctx.stroke();
+                    // The arrow head: a chevron pointing the way it goes.
+                    const ux = dir === 'left' ? -1 : (dir === 'right' ? 1 : 0), uy = dir === 'up' ? -1 : (dir === 'down' ? 1 : 0);
+                    const k = 6;
+                    ctx.beginPath();
+                    ctx.moveTo(s.x - ux * k * 0.5 - uy * k, s.y - uy * k * 0.5 - ux * k);
+                    ctx.lineTo(s.x + ux * k * 0.7, s.y + uy * k * 0.7);
+                    ctx.lineTo(s.x - ux * k * 0.5 + uy * k, s.y - uy * k * 0.5 + ux * k);
+                    ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+                    // Under the pointer it says where it goes.
+                    if (hot) {
+                        const name = '' + (o.name || 'untitled');
+                        ctx.font = '600 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                        const tw = Math.ceil(ctx.measureText(name).width) + 20, th = 26;
+                        let tx = dir === 'left' ? s.x + s.r + 10 : (dir === 'right' ? s.x - s.r - 10 - tw : s.x - tw / 2);
+                        const ty = dir === 'up' ? s.y + s.r + 10 : (dir === 'down' ? s.y - s.r - 10 - th : s.y - th / 2);
+                        tx = Math.max(8, Math.min(tx, W - tw - 8));
+                        ctx.fillStyle = 'rgba(10,37,64,0.94)'; ctx.fillRect(tx, ty, tw, th);
+                        ctx.fillStyle = '#eaf6f9'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(name, tx + tw / 2, ty + th / 2 + 0.5);
+                    }
+                }
+                ctx.restore();
+                this.__maxArrowRects = rects;
+            }
+            __maxArrowAt(x, y) {
+                const rs = this.__maxArrowRects;
+                if (!rs || !this.__maximized) return null;
+                for (const dir in rs) { const r = rs[dir]; if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return dir; }
+                return null;
+            }
+            // Leave this one and maximize the one the arrow points at. Selecting it is what
+            // moves the maximized view (see setSelected); the cells picked here are let go.
+            __maxGo(dir) {
+                const r = this.__maxArrowRects && this.__maxArrowRects[dir];
+                const to = r && r.obj, from = this.__maximized;
+                if (!to || !from || to === from) return false;
+                this.__maxArrowHover = null; this.__maxArrowRects = null;
+                try { if (from.deselectAll) from.deselectAll(); } catch (e) { }
+                try { this.setSelected(to); } catch (e) { }
+                if (this.__maximized !== to) { try { this.maximizeObject(to); } catch (e) { } }
+                return this.__maximized === to;
+            }
             __maxHit(x, y) {
                 if (!this.__maximized) return null;
                 const r = this.__objectOnly ? null : this.__maxExitRect;
                 if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return 'exit';
+                const __go = this.__maxArrowAt(x, y);
+                if (__go) return 'go-' + __go;
                 const u = this.__objectOnly ? null : this.__maxRestoreRect;
                 if (u && x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h) return 'exit';
                 const m = this.__maxMenuRect;
@@ -27710,6 +27831,7 @@ function (progress) {
                     }
                     if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     if (this.__maximized) { try { this.__drawMaximizeChrome(ctx); } catch (e) { } }
+                    if (this.__maximized) { try { this.__drawMaximizeArrows(ctx); } catch (e) { } }
 
                     // THE CAMERA MOVED SINCE THE LAST FRAME. Every pan, zoom, framing of a
                     // table and change of canvas ends up here, which is why the hover is
