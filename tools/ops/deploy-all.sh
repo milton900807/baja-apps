@@ -1195,6 +1195,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/well.js:HOW FAR A ROW HEADER'S TAG REACHES, when it was set on this header" \
     "baja/plate/plate-track.js:THE TRACK GOES WITH IT, so a table can see which of its row tags" \
     "baja/plate/menu/cell-menu.js:ON A ROW HEADER: HOW FAR ITS TAG REACHES"
+  # "Remove tags" in the cell menu. The menu marks the cells, the table's headers pass
+  # marked cells by, and the cell saves the mark: without the table's half the tags are
+  # back at the next calculation.
+  install_group "Cell menu: Remove tags, next to Delete" \
+    "baja/plate/menu/cell-menu.js:\"REMOVE TAGS\", JUST ABOVE DELETE" \
+    "baja/plate/plate.js:A CELL WHOSE TAGS WERE REMOVED TAKES NONE FROM ITS HEADERS" \
+    "baja/plate/well.js:TAGS REMOVED BY HAND STAY REMOVED"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

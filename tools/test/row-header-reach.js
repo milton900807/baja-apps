@@ -156,6 +156,32 @@ ok(/label: whole \? 'Row headers: tag only the next cell' : 'Row headers: tag th
     console.log = () => { }; press('Header: tag the 3 cells selected'); await sleep(30); console.log = log;
     ok(having(t, 'Revenue') === '1:1 2:1 3:1' && having(t, 'Costs') === '1:2', 'and tags them, and no other row');
 
+    // ---- "Remove tags", next to Delete -----------------------------------------------------
+    t = cap(); quiet(() => t.reapplyHeaderWells({ root: [t] }));
+    t.wells[1][1].setGroup('dollar');
+    const notes = [t.wells[2][1], t.wells[2][2], t.wells[2][3]];
+    ls = await open(t, notes[0], notes);
+    ok(ls[ls.length - 2] === 'Remove tags' && ls[ls.length - 1] === 'Delete', 'with cells selected, "Remove tags" sits just above Delete: ' + ls.join(' | '));
+    said.length = 0; calcs = 0;
+    console.log = () => { }; press('Remove tags'); await sleep(30); console.log = log;
+    ok(notes.every((w) => Object.keys(w.group).length === 0) && calcs === 1 && /Removed 3 tags from the 3 selected cells/.test(said.join(' ')),
+       'pressed, the selected cells have no tags, and it says how many went');
+    quiet(() => t.reapplyHeaderWells({ root: [t] }));
+    ok(notes.every((w) => Object.keys(w.group).length === 0) && tags(t, 1, 2) === 'Kegs_from_Yeast,Value', 'they stay off at the next calculation, and the cells not selected keep theirs');
+    quiet(() => t.setRowHeaderReach('row'));
+    ok(notes.every((w) => Object.keys(w.group).length === 0), 'even with the row headers set to tag the whole row');
+    ls = await open(t, notes[0], notes);
+    ok(ls.indexOf('Remove tags') < 0 && ls[ls.length - 2] === 'Restore tags', 'the menu then offers to restore them');
+    console.log = () => { }; press('Restore tags'); await sleep(30); console.log = log;
+    ok(tags(t, 2, 2) === 'Kegs_from_Yeast,Notes', 'and restored, the headers tag the cells again');
+    ls = await open(t, t.wells[1][1]);
+    console.log = () => { }; press('Remove tags'); await sleep(30); console.log = log;
+    ok(tags(t, 1, 1) === 'dollar', 'one cell works the same way, and keeps what makes it a dollar amount');
+    ls = await open(t, t.wells[0][1]);
+    console.log = () => { }; press('Remove tags'); await sleep(30); console.log = log;
+    ok(t.wells[0][1].group['RowHeader'] != null, 'a header stays a header');
+    ok(/noHeaderTags: this\.noHeaderTags,/.test(wellSrc) && /this\.noHeaderTags = jsonObj\.noHeaderTags;/.test(wellSrc), 'and the mark is saved with the cell');
+
     console.log(fails ? ('\n' + fails + ' failed') : '\nall assertions passed');
     process.exit(fails ? 1 : 0);
 })();

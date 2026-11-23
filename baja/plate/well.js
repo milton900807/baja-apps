@@ -667,6 +667,8 @@ function () {
                     // HOW FAR A ROW HEADER'S TAG REACHES, when it was set on this header:
                     // a count of cells, or 'row'. See rowHeaderReach in plate.js.
                     headerSpan: this.headerSpan,
+                    // TAGS REMOVED BY HAND STAY REMOVED: this cell takes none from its headers.
+                    noHeaderTags: this.noHeaderTags,
                     obj: this.obj,
                     concentration: this.concentration,
                     wellType: this.wellType,
@@ -717,6 +719,7 @@ function () {
                 copiedWell.attr__showBorder = this.attr__showBorder;
                 copiedWell.attr__showGroups = this.attr__showGroups;
                 copiedWell.headerSpan = this.headerSpan;
+                copiedWell.noHeaderTags = this.noHeaderTags;
                 copiedWell.score = this.score;
                 copiedWell.concentration = this.concentration;
                 copiedWell.wellType = this.wellType;
@@ -744,6 +747,7 @@ function () {
                 this.attr__showBorder = _well.attr__showBorder;
                 this.attr__showGroups = _well.attr__showGroups;
                 this.headerSpan = _well.headerSpan;
+                this.noHeaderTags = _well.noHeaderTags;
                 this.score = _well.score;
                 this.concentration = _well.concentration;
                 this.wellType = _well.wellType;
@@ -1554,6 +1558,7 @@ function () {
                 this.__screen_height = jsonObj.__screen_height;
                 this.attr__showGroups = jsonObj.attr__showGroups !== undefined ? jsonObj.attr__showGroups : true;
                 this.headerSpan = jsonObj.headerSpan;
+                this.noHeaderTags = jsonObj.noHeaderTags;
                 this.attr__showBorder = jsonObj.attr__showBorder !== undefined ? jsonObj.attr__showBorder : true;
                 this.__hasError = !!jsonObj.__hasError;
                 this.__errorMessage = jsonObj.__errorMessage || null;

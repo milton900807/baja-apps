@@ -139,6 +139,44 @@ function (pt, table, well, actions) {
         }
     } catch (e) { }
 
+    // "REMOVE TAGS", JUST ABOVE DELETE. Takes the tags off whatever is selected and keeps
+    // them off: the cells are marked noHeaderTags, so the row and column headers, which are
+    // applied again at every calculation, pass them by (plate.js). What a cell is (a row
+    // or column header) and how it is drawn (dollar, percent) are not tags in this sense
+    // and stay. Once cells are marked, "Restore tags" is offered for them in its place.
+    try {
+        const KEEP = { RowHeader: 1, ColumnHeader: 1, dollar: 1, percent: 1, $: 1 };
+        let sel = (table && typeof table.getSelectedWellsInOrder === 'function') ? (table.getSelectedWellsInOrder() || []) : [];
+        if (!sel.length && well) sel = [well];
+        const tagsOf = (w) => (w && w.group && typeof w.group === 'object') ? Object.keys(w.group).filter((k) => !KEEP[k]) : [];
+        const tagged = sel.filter((w) => tagsOf(w).length > 0);
+        const marked = sel.filter((w) => w && w.noHeaderTags);
+        const scope = sel.length > 1 ? ('the ' + sel.length + ' selected cells') : 'this cell';
+        const after = (msg) => {
+            try { if (typeof table.reapplyHeaderWells === 'function') table.reapplyHeaderWells(); } catch (e) { }
+            try { if (pt && typeof pt.updateCalculations === 'function') pt.updateCalculations(); } catch (e) { }
+            try { if (pt && typeof pt.setMessage === 'function') pt.setMessage(msg, 6); } catch (e) { }
+        };
+        const extra = [];
+        if (tagged.length) extra.push({ label: 'Remove tags', hint: 'from ' + scope + ', and keep them off', danger: false,
+            button: { action: async () => {
+                let n = 0;
+                for (const w of sel) {
+                    if (!w) continue;
+                    for (const k of tagsOf(w)) { delete w.group[k]; n++; }
+                    w.noHeaderTags = true;
+                }
+                after('Removed ' + n + (n === 1 ? ' tag' : ' tags') + ' from ' + scope + '. Formulas that read those tags no longer find these cells.');
+            } } });
+        else if (marked.length) extra.push({ label: 'Restore tags', hint: 'let the headers tag ' + scope + ' again', danger: false,
+            button: { action: async () => {
+                for (const w of sel) { if (w) delete w.noHeaderTags; }
+                after('The headers tag ' + scope + ' again.');
+            } } });
+        const k = list.findIndex((x) => x.danger);
+        list.splice(k < 0 ? list.length : k, 0, ...extra);
+    } catch (e) { }
+
     // ASK COMES FIRST. One prompt for whatever is selected: say what should go in the cells
     // and they are filled in, or start with "=" and a formula is written (see
     // baja/plate/ops/cell-ask.js). It leads the menu because it is the one row that can do

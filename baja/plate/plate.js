@@ -2257,12 +2257,12 @@ function () {
                     for (let i = 0; i < this.wells[colIndex].length; i++) {
                         const targetWell = this.wells[colIndex][i];
                         if (targetWell && typeof targetWell.setGroup === 'function') {
-                            if (groupName !== 'ColumnHeader' && targetWell.uid != well.uid) {
+                            // A CELL WHOSE TAGS WERE REMOVED TAKES NONE FROM ITS HEADERS
+                            // (noHeaderTags, set from the cell menu's "Remove tags"). The
+                            // headers are applied again at every calculation, and without
+                            // this the tags would be back before the menu had closed.
+                            if (groupName !== 'ColumnHeader' && targetWell.uid != well.uid && !targetWell.noHeaderTags) {
                                 targetWell.setGroup(groupName);
-
-
-
-
                             }
                         }
                     }
@@ -2341,7 +2341,7 @@ function () {
                         if (reach === Infinity) inside = true;
                         else if (j < colIndex || isRowHead(targetWell)) inside = false;
                         else { inside = taken < reach; taken++; }
-                        if (inside) {
+                        if (inside && !targetWell.noHeaderTags) {
                             targetWell.setGroup(groupName);
                         } else if (tag && targetWell.group && typeof targetWell.group === 'object'
                             && Object.prototype.hasOwnProperty.call(targetWell.group, tag)
