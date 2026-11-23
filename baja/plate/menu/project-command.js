@@ -67,10 +67,23 @@ function (o) {
 
     const panel = document.createElement('div');
     panel.id = ID;
-    panel.style.cssText = 'position:fixed;left:50%;top:84px;transform:translateX(-50%);'
-        + 'width:min(680px,92vw);z-index:100060;border-radius:12px;'
+    // ON A PHONE THE CARD IS THE WIDTH OF THE SCREEN AND MADE FOR A THUMB. A card 680px wide
+    // and centred was laid out for a pointer: on a phone it came out a strip with 12px
+    // type, buttons too small to press, and the request cut off after a few words. There
+    // it runs edge to edge under the top bar, scrolls inside itself when it is taller than
+    // the screen, shows the whole request, and its buttons are a finger high. Text boxes
+    // are 16px, below which a phone zooms the page on focus and does not zoom back.
+    let MOBILE = false;
+    try { MOBILE = typeof isMobile === 'function' && !!isMobile(); } catch (e) { MOBILE = false; }
+    panel.style.cssText = (MOBILE
+        ? 'position:fixed;left:8px;right:8px;top:56px;max-height:calc(100vh - 72px);padding:14px 14px 16px;'
+        : 'position:fixed;left:50%;top:84px;transform:translateX(-50%);width:min(680px,92vw);'
+            + 'max-height:calc(100vh - 110px);padding:16px 18px 18px;')
+        + 'overflow-y:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box;'
+        + 'z-index:100060;border-radius:12px;'
         + 'background:#0b1726;border:1px solid rgba(255,255,255,0.14);'
-        + 'box-shadow:0 18px 50px rgba(0,0,0,0.55);padding:16px 18px 18px;';
+        + 'box-shadow:0 18px 50px rgba(0,0,0,0.55);';
+    if (MOBILE) panel.className = 'baja-pc-mobile';
     const CSS = 'baja-pc-css';
     try {
         if (!document.getElementById(CSS)) {
@@ -79,7 +92,12 @@ function (o) {
             st.textContent = '@keyframes bajaPcSpin{to{transform:rotate(360deg)}}'
                 + '.baja-pc-spin{display:inline-block;width:13px;height:13px;border-radius:50%;'
                 + 'border:2px solid rgba(255,255,255,0.25);border-top-color:#22c55e;'
-                + 'animation:bajaPcSpin 0.7s linear infinite;vertical-align:-2px;}';
+                + 'animation:bajaPcSpin 0.7s linear infinite;vertical-align:-2px;}'
+                + '.baja-pc-mobile #pc-body div,.baja-pc-mobile #pc-body label,.baja-pc-mobile #pc-body a{font-size:15px !important;line-height:1.4;}'
+                + '.baja-pc-mobile button{min-height:44px;font-size:15px !important;}'
+                + '.baja-pc-mobile input,.baja-pc-mobile select{font-size:16px !important;min-height:42px;}'
+                + '.baja-pc-mobile #pc-body .pc-row{flex-direction:column;align-items:stretch !important;}'
+                + '.baja-pc-mobile #pc-body .pc-row button{width:100%;}';
             document.head.appendChild(st);
         }
     } catch (e) { }
@@ -89,9 +107,10 @@ function (o) {
     const green = 'cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;'
         + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;';
 
-    panel.innerHTML = '<div style="display:flex;align-items:center;gap:10px;">'
-        + '<div style="font:12px Arial;color:#9fb3c8;flex:1 1 auto;min-width:0;'
-        + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + H(text) + '</div>'
+    panel.innerHTML = '<div style="display:flex;align-items:' + (MOBILE ? 'flex-start' : 'center') + ';gap:10px;">'
+        + '<div style="font:' + (MOBILE ? '14px' : '12px') + ' Arial;color:#9fb3c8;flex:1 1 auto;min-width:0;'
+        + (MOBILE ? 'white-space:normal;word-break:break-word;' : 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')
+        + '">' + H(text) + '</div>'
         + '<button id="pc-close" style="' + btn + '">Close</button></div>'
         + '<div id="pc-body" style="margin-top:12px;">'
         + '<span class="baja-pc-spin"></span>'
@@ -180,6 +199,95 @@ function (o) {
             try { if (w) w.done(); } catch (e) { }
             w = null;
         }
+    };
+
+    // A QUESTION IS ANSWERED, NOT MATCHED TO A MENU.
+    //
+    // "how many kegs does this create" asks for nothing to be done, so there was nothing
+    // on the menu or among the operations for it and the card said "Nothing here does
+    // that". A question about the tables goes to baja/plate/ops/table-answer.js, which
+    // reads the canvas and answers with its working, and the card shows that.
+    //
+    // WHAT COUNTS AS A QUESTION. It opens with a question word (how many, what, which,
+    // why ...) or ends in a question mark. Two things that look like questions are not:
+    // "can you add four rows" is a request, and "how do I add a row" is about the app, so
+    // both go to the menus as before. Anything the menus then cannot place is put to the
+    // answerer as well, so a question phrased some other way is still answered.
+    const looksAsked = (() => {
+        if (text.charAt(0) === '=') return false;
+        const t = text.toLowerCase().trim();
+        if (/^(please\s+)?(can|could|would|will)\s+(you|we|i)\b/.test(t)) return false;
+        if (/^how\s+(do|does|can|could|should|would|to)\b/.test(t)) return false;
+        if (/^(how\s+(many|much|long|far|big|large|often|old|soon)|what|whats|which|why|who|when|where|explain|describe|summari[sz]e|tell\s+me|is|are|does|was|were|has|have)\b/.test(t)) return true;
+        return /\?\s*$/.test(t);
+    })();
+    let answerOut;
+    const tryAnswer = async () => {
+        if (answerOut !== undefined) return answerOut;
+        let out = null;
+        try {
+            const from = (context && context.asked_from && context.asked_from.type === 'table') ? ('' + (context.asked_from.name || '')) : '';
+            out = await exec('baja/plate/ops/table-answer.js', (o && o.pm) || null, { question: text, table: from || (o && o.table) || '' });
+        } catch (e) { out = { error: ('' + (e && e.message ? e.message : e)) }; }
+        answerOut = out || { error: 'no answer' };
+        return answerOut;
+    };
+    const fmtNumber = (v) => {
+        const a = Math.abs(v);
+        if (a !== 0 && a < 1) return '' + Number(v.toPrecision(3));
+        return (Math.round(v * 100) / 100).toLocaleString('en-US');
+    };
+    // The answer, on the card: what it is, how it was reached, the cells it came from (each
+    // one a button that shows the cell), what was assumed, what is missing, and the request
+    // that would build it on the canvas.
+    const showAnswer = (out, alts) => {
+        const a = out.answer;
+        const heads = { read: ['Answer, read from the canvas', '#86efac'], calculated: ['Answer, worked out from the canvas', '#86efac'],
+            estimate: ['An estimate', '#fbbf24'], describe: ['Answer', '#7fb0e8'], cannot: ['The canvas does not hold that', '#fbbf24'] };
+        const head = heads[a.kind] || heads.describe;
+        const line = 'font:12px Arial;color:#9fb3c8;margin-top:8px;';
+        const chip = 'cursor:pointer;border-radius:8px;padding:6px 10px;font:12px Arial;text-align:left;'
+            + 'border:1px solid rgba(127,176,232,0.45);background:rgba(127,176,232,0.10);color:#e8f0fb;';
+        say('<div style="font:700 13px Arial;color:' + head[1] + ';">' + H(head[0])
+            + (out.table ? (' <span style="font-weight:400;color:#6b8299;">\u00b7 ' + H(out.table) + '</span>') : '') + '</div>'
+            + '<div id="pc-answer" style="font:14px Arial;color:#e8f0fb;margin-top:8px;line-height:1.45;">' + H(a.answer) + '</div>'
+            + (a.value != null ? ('<div id="pc-calc" style="font:12.5px Arial;color:#e8f0fb;margin-top:10px;padding:8px 10px;border-radius:8px;'
+                + 'background:rgba(255,255,255,0.05);">' + H(a.calc.replace(/\s+/g, ' ')) + ' = <b>' + H(fmtNumber(a.value))
+                + (a.unit ? (' ' + H(a.unit)) : '') + '</b></div>') : '')
+            + (a.disagrees ? ('<div style="font:12px Arial;color:#fbbf24;margin-top:6px;">The sentence above states a different figure. '
+                + 'The line under it is the arithmetic done again, and is the one to go by.</div>') : '')
+            + (a.from.length ? ('<div style="' + line + '">From these cells (press one to see it):</div>'
+                + '<div class="pc-row" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">'
+                + a.from.map((c, k) => '<button class="pc-cell" data-k="' + k + '" style="' + chip + '">'
+                    + H(c.table) + ': ' + H(c.why || c.at) + ' = <b>' + H(c.value || '(empty)') + '</b></button>').join('') + '</div>') : '')
+            + (a.unchecked ? ('<div style="font:12px Arial;color:#fbbf24;margin-top:8px;">No cell on the canvas could be found for this, so it is unchecked.</div>') : '')
+            + (a.assumed.length ? ('<div style="font:12px Arial;color:#fbbf24;margin-top:10px;">Not on the canvas, assumed:</div>'
+                + a.assumed.map((x) => '<div style="font:12px Arial;color:#e8f0fb;margin-top:3px;">\u2022 ' + H(x) + '</div>').join('')) : '')
+            + (a.missing ? ('<div style="' + line + '">' + (a.kind === 'cannot' ? 'It would need: ' : 'To make it exact: ') + H(a.missing) + '</div>') : '')
+            + '<div class="pc-row" style="display:flex;gap:10px;margin-top:14px;align-items:center;flex-wrap:wrap;">'
+            + (a.next ? ('<button id="pc-next" style="' + green + '">Put it on the canvas</button>') : '')
+            + '<button id="pc-cancel" style="' + btn + '">Close</button></div>'
+            + (a.next ? ('<div style="font:11.5px Arial;color:#6b8299;margin-top:6px;">That runs: ' + H(a.next) + '</div>') : '')
+            + ((alts && alts.length) ? ('<div style="font:12px Arial;color:#6b8299;margin-top:12px;">On the menu: '
+                + alts.map((x) => '<a href="#" class="pc-alt" data-i="' + x.i + '" style="color:#7fb0e8;">' + H(x.path) + '</a>').join(' \u00b7 ') + '</div>') : '')
+            + '<div style="font:11px Arial;color:#6b8299;margin-top:10px;">Written by AI from the tables on this canvas. Nothing was changed.</div>');
+        try { q('#pc-cancel').onclick = close; } catch (e) { }
+        try {
+            const track = (o && o.pm) ? (o.pm.plateTrack || o.pm) : null;
+            const chips = panel.querySelectorAll('.pc-cell');
+            for (let k = 0; k < chips.length; k++) {
+                chips[k].onclick = () => {
+                    const c = a.from[parseInt(chips[k].getAttribute('data-k'), 10)];
+                    if (!c || !track || typeof track.zoomToCells !== 'function') return;
+                    close();
+                    try { track.zoomToCells(c.plate, [c.well], { label: c.table + ': ' + (c.why || c.at) }); } catch (e) { }
+                };
+            }
+        } catch (e) { }
+        try {
+            const nx = q('#pc-next');
+            if (nx) nx.onclick = () => { close(); try { exec('baja/plate/menu/project-command.js', Object.assign({}, o, { text: a.next })); } catch (e) { } };
+        } catch (e) { }
     };
 
     const runRow = async (row) => {
@@ -325,6 +433,14 @@ function (o) {
             return;
         }
 
+        // A QUESTION GOES TO THE ANSWERER FIRST. If the canvas has an answer it is shown and
+        // the menus are never asked. If it has none, the menus get their turn below: "where
+        // is the export" is a question the menubar can answer and the tables cannot.
+        if (looksAsked) {
+            const got = await withSpinner('Reading the tables to answer that', 'table_answer', tryAnswer);
+            if (got && got.answer && got.answer.kind !== 'cannot') { showAnswer(got, []); return; }
+        }
+
         if (!actions.length) {
             say('<div style="font:12.5px Arial;color:#fca5a5;">There is no menu on screen to '
                 + 'match that against.</div>');
@@ -428,6 +544,17 @@ function (o) {
                     op.args[pname] = askedName;
                 }
             } catch (e) { }
+        }
+
+        // NOTHING ON THE MENU OR AMONG THE OPERATIONS: IS IT A QUESTION THE TABLES ANSWER?
+        // Asked once (a question was already put above and its reply is kept). An answer is
+        // shown in place of "Nothing here does that". "The canvas does not hold that" is
+        // shown only for something that read as a question; for anything else the plain
+        // refusal below says more.
+        let answered = false;
+        if (!op && !pick) {
+            const got = await withSpinner('Reading the tables to answer that', 'table_answer', tryAnswer);
+            if (got && got.answer && (got.answer.kind !== 'cannot' || looksAsked)) { showAnswer(got, alts); answered = true; }
         }
 
         if (op) {
@@ -566,6 +693,8 @@ function (o) {
                 }
             } catch (e) { }
             try { q('#pc-op').onclick = runOp; } catch (e) { }
+        } else if (answered) {
+            // The answer is on the card already.
         } else if (!pick) {
 
             // NOTHING MATCHED is an answer, and the near misses are offered as choices

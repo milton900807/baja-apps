@@ -1206,6 +1206,13 @@ if [[ $DO_API -eq 1 ]]; then
   # direction on the canvas.
   install_group "Maximized view: arrows to the neighbouring windows" \
     "baja/plate/plate-track.js:ARROWS TO THE NEIGHBOURING WINDOWS, WHILE ONE IS MAXIMIZED"
+  # A question about a table is answered on the command card, and the card is laid out
+  # for a phone. The card calls the answerer, which calls the python: a card without the
+  # other two would show an error where the answer should be.
+  install_group "Command card: answer questions about a table, and fit a phone" \
+    "baja/plate/menu/project-command.js:A QUESTION IS ANSWERED, NOT MATCHED TO A MENU" \
+    "baja/plate/ops/table-answer.js:A QUESTION ABOUT A TABLE IS ANSWERED, FROM THE CANVAS" \
+    "py/bio/project/table-answer.py:A QUESTION IS NOT AN OPERATION"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup
