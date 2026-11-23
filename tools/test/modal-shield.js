@@ -69,15 +69,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     const shield = await load('baja/lib/modal-shield.js', panel, { allow: ['.ls-sug'] });
 
-    // the panel's own button still works, completely
+    // THE RELEASE OF THE PRESS THAT OPENED THE PANEL IS LET OUT. A panel opened by a press
+    // on the canvas is in front of the pointer when the button comes up, so that release
+    // lands on the panel. The window's mouseup is what ENDS a drag, and swallowing this
+    // one would strand the canvas mid-drag.
+    const winClicks = { n: 0 };
+    window.addEventListener('click', () => winClicks.n++);
+    fire(button, 'mouseup');
+    ok(heard.windowUp === 2, 'a release on the panel with no press on it first still reaches the window, which ends any drag');
+
+    // THE PANEL'S OWN BUTTON, PRESSED: IT WORKS, AND NONE OF IT LEAVES THE PANEL. This is
+    // the Cancel button. Its release used to carry on up to the window while the box was
+    // still on screen, and the canvas acted on it.
     fire(button, 'mousedown'); fire(button, 'mouseup'); fire(button, 'click');
     ok(pressedButton === 1, 'the panel’s own button still fires');
     ok(heard.down === 1 && heard.click === 1,
        'and the canvas element is not told about it, because it never happened there');
-    // A release inside the panel IS left alone on purpose. The window's mouseup is what
-    // ENDS a drag, and swallowing it would be a way to strand the canvas mid-drag; what
-    // matters is that the canvas is never told a press or a click happened on IT.
-    ok(heard.windowUp === 2, 'while the window still hears the release, which ends any drag');
+    ok(heard.windowUp === 2 && winClicks.n === 0, 'nor is the window: the release and the click of a press on the panel stay in the panel');
+    fire(button, 'mouseup');
+    ok(heard.windowUp === 2, 'and once the panel has been pressed, no later release on it gets out either');
 
     // its list, which lives outside the panel, works too
     fire(sug, 'mousedown');
@@ -88,8 +98,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     fire(canvas, 'mousemove');
     ok(moved.canvas === 0 && moved.window === 0,
        'a move over the canvas under the panel reaches neither it nor the window');
+    let movedOnButton = 0;
+    button.addEventListener('mousemove', () => movedOnButton++);
     fire(button, 'mousemove');
-    ok(moved.window === 1, 'while a move inside the panel is left alone');
+    ok(movedOnButton === 1 && moved.window === 0, 'a move inside the panel reaches the panel and stops there: the canvas does not hover under it');
 
     // anything on the canvas is swallowed while the panel is up
     const before = { ...heard };
@@ -167,6 +179,32 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // a panel closed before its shield arrives must not leave one listening
     ok(/if \(closed\) \{ try \{ sh\.release\(\)/.test(pc) && /if \(shieldDone\) \{ try \{ sh\.release\(\)/.test(pt),
        'a shield that arrives after its panel has closed is dropped, not left listening');
+
+    // ---- THE ASK BOX'S CANCEL, PRESSED THE MOMENT THE BOX IS UP ------------------------
+    // The report: Cancel on "Ask about Batch Schedule" let its release through to the
+    // canvas. The box's shield is fetched and is not there yet when the box first shows,
+    // so the box holds its own events from the start. Pressed here before anything has
+    // had time to load.
+    await sleep(450);
+    global.lion_engine = { exec: (p, ...a) => new Promise((res) => setTimeout(() => load(p, ...a).then(res), 60)) };
+    const seen = { up: 0, click: 0, down: 0, move: 0 };
+    const count = (k) => () => seen[k]++;
+    window.addEventListener('mouseup', count('up')); window.addEventListener('click', count('click'));
+    window.addEventListener('mousedown', count('down')); window.addEventListener('mousemove', count('move'));
+    let answer = 'unset';
+    const asking = load('baja/lib/prompt-text.js', { title: 'Ask about Batch Schedule', message: 'x', actions: [{ key: 'go', label: 'GO' }] }).then((v) => { answer = v; });
+    await sleep(5);
+    const cancel = document.getElementById('pt-cancel');
+    ok(!!cancel, 'the Ask box is up');
+    fire(cancel, 'mousemove'); fire(cancel, 'mousedown'); fire(cancel, 'mouseup');
+    ok(seen.down === 0 && seen.up === 0 && seen.move === 0 && !!document.getElementById('baja-prompt-text'),
+       'pressing Cancel, before the shield has even loaded: the window hears no press, no release and no move while the box is still up');
+    fire(cancel, 'click');
+    await asking;
+    ok(answer === null && !document.getElementById('baja-prompt-text') && seen.click === 0, 'the click cancels the box, and that does not reach the window either');
+    const go = fs.readFileSync('baja/plate/menu/project-command.js', 'utf8');
+    ok(/el\.addEventListener\(name, hold\)/.test(pt) && /el\.addEventListener\(name, hold\)/.test(go), 'the Ask box and the operations card both hold their own events from the moment they are on screen');
+    await sleep(500);
 
     console.log(fails ? '\n' + fails + ' assertion(s) failed' : '\nall assertions passed');
     process.exit(fails ? 1 : 0);

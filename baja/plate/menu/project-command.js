@@ -117,6 +117,25 @@ function (o) {
         + '<span style="margin-left:8px;font:700 12.5px Arial;color:#e2e8f0;">Working</span>'
         + '</div>';
     document.body.appendChild(panel);
+    // HELD FROM THE MOMENT IT IS ON SCREEN. The shield below is fetched, and until it has
+    // arrived nothing stood between a press in here and the canvas's listener on the
+    // window: open the card and press Cancel at once, and the release went through. These
+    // are on the card itself and need nothing loaded. A button's own handler has already
+    // run by the time an event gets here, so nothing in the card is affected.
+    // A release with no press in here before it is the end of the press that opened this,
+    // and is let out: it is what ends a drag on the canvas.
+    let heldPress = false;
+    const hold = (e) => {
+        try {
+            if (e.type === 'mousedown' || e.type === 'pointerdown' || e.type === 'touchstart') heldPress = true;
+            else if ((e.type === 'mouseup' || e.type === 'pointerup' || e.type === 'touchend' || e.type === 'pointercancel') && !heldPress) return;
+            e.stopPropagation();
+        } catch (e2) { }
+    };
+    for (const name of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mousemove', 'mouseup',
+        'mouseover', 'mouseout', 'click', 'dblclick', 'contextmenu', 'touchstart', 'touchmove', 'touchend', 'wheel']) {
+        for (const el of [panel]) { try { el.addEventListener(name, hold); } catch (e) { } }
+    }
 
     // THE CANVAS DOES NOT HEAR ANYTHING PRESSED ON THIS CARD. The canvas takes presses from
     // its own element but releases from the window, so pressing a button here moved what was
@@ -387,6 +406,43 @@ function (o) {
                 put = await withSpinner('Writing a note on each row', 'annotate_rows',
                     () => exec('baja/plate/ops/annotate-rows.js', o.pm, { table: (o && o.table) || '', column: head, what: text,
                         overwrite: /\b(rewrite|redo|replace|regenerate|overwrite|again)\b/i.test(text) ? 'yes' : '' }));
+            } catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
+            if (put && put.error) {
+                say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'
+                    + '<div style="font:13px Arial;color:#e8f0fb;margin-top:7px;">' + H(put.error)
+                    + '</div><div style="margin-top:14px;"><button id="pc-cancel" style="' + btn
+                    + '">Close</button></div>');
+                try { q('#pc-cancel').onclick = close; } catch (e) { }
+                return;
+            }
+            close();
+            return;
+        }
+        // "GENERATE A TIMELINE THAT USES THIS TABLE ... AS MANY BATCHES AS I CAN IN 12 MONTHS",
+        // asked from a table, goes straight to the operation that builds one. Left to the
+        // search it was matched to "add a timeline", which made an empty one and never read
+        // the table. All three have to be there: a timeline to be made, batches (or runs, or
+        // "as many as"), and a table the request is about. The period is read from the
+        // words; anything else about it can be said through the card's own route.
+        const fromTable = (context && context.asked_from && context.asked_from.type === 'table' && context.asked_from.name) ? ('' + context.asked_from.name) : ((o && o.table) || '');
+        if (text.charAt(0) !== '=' && /\btimeline\b/i.test(text) && /\b(generate|create|make|build|draw|produce|give me)\b/i.test(text)
+            && /\b(batch|batches|runs|cycles|as many)\b/i.test(text) && (fromTable || /\b(this|the) table\b/i.test(text))) {
+            const low = text.toLowerCase();
+            const NUM = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, nine: 9, ten: 10, twelve: 12, eighteen: 18 };
+            const pm_ = /(\d+(?:\.\d+)?|\b(?:a|an|one|two|three|four|five|six|nine|ten|twelve|eighteen))[\s-]*(day|week|month|year)s?\b/.exec(low);
+            let months = 12;
+            if (pm_) {
+                const k = isFinite(Number(pm_[1])) ? Number(pm_[1]) : (NUM[pm_[1].trim()] || 1);
+                months = pm_[2] === 'day' ? k / 30.4375 : pm_[2] === 'week' ? k * 7 / 30.4375 : pm_[2] === 'year' ? k * 12 : k;
+            }
+            const called = /\b(?:called|named|titled)\s+"?([^",.]+?)"?(?:\s+(?:that|which|using|from|with|to)\b|[,.]|$)/i.exec(text);
+            const lines = /\b(\d+)\s+(?:at a time|at once|in parallel|lines?|fermenters?|tanks?|vessels?|reactors?|machines?)\b/.exec(low);
+            let put = null;
+            try {
+                put = await withSpinner('Building a timeline of batches', 'timeline_from_table',
+                    () => exec('baja/plate/ops/timeline-from-table.js', o.pm, { table: fromTable, months: months,
+                        title: called ? called[1].trim() : '', parallel: lines ? parseInt(lines[1], 10) : 1,
+                        detail: /\b(every|each|all)\s+(of\s+the\s+)?steps?\b/i.test(text) ? 'steps' : '' }));
             } catch (e) { put = { error: ('' + (e && e.message ? e.message : e)) }; }
             if (put && put.error) {
                 say('<div style="font:700 13px Arial;color:#fbbf24;">That did not happen</div>'

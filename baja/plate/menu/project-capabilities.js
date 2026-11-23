@@ -425,6 +425,44 @@ function () {
             }
         },
         {
+            // A TIMELINE BUILT FROM A TABLE OF STEPS. "Generate a timeline that uses this table
+            // to generate as many batches as I can in 12 months" went to new_timeline, which
+            // knows two dates and a name: it made an empty timeline and never read the table.
+            name: 'timeline_from_table',
+            summary: 'BUILD A TIMELINE FROM A TABLE whose rows are the steps of a process and '
+                + 'how long each takes: works out how long one batch (one run of all the '
+                + 'steps) takes, fits as many batches as will go in the period, makes a new '
+                + 'timeline, and puts an interval on it for each step or group of steps and '
+                + 'a milestone for each finished batch. THIS IS THE ANSWER to "generate a '
+                + 'timeline that uses this table", "as many batches as I can in 12 months", '
+                + '"schedule these steps on a timeline", "turn this table into a timeline". '
+                + 'Use it INSTEAD OF new_timeline whenever the timeline is to come FROM a '
+                + 'table; new_timeline makes an empty one',
+            module: 'baja/plate/ops/timeline-from-table.js',
+            params: {
+                table: { type: 'string', default: 'the table the request was made from',
+                    about: 'the NAME of the table of steps, if the request says it' },
+                months: { type: 'number', min: 0.1, max: 240, default: '12',
+                    about: 'how long the period is, in months: "12 months" and "a year" are '
+                        + '12, "6 weeks" is 1.4, "two years" is 24' },
+                start: { type: 'string', default: 'today',
+                    about: 'the first day, as YYYY-MM-DD, ONLY if the request says when to '
+                        + 'start ("from January", "starting next Monday")' },
+                title: { type: 'string', default: 'the table’s name and "batches"',
+                    about: 'what the new timeline is called, ONLY if the request names it' },
+                timeline: { type: 'string', default: 'not set, so a new timeline is made',
+                    about: 'the NAME of a timeline already on the canvas to add the batches '
+                        + 'to, ONLY when the request says to use that one' },
+                parallel: { type: 'number', min: 1, max: 50, default: '1, one batch at a time',
+                    about: 'how many batches can run at once, ONLY if the request says so '
+                        + '("with 3 fermenters", "two lines")' },
+                detail: { type: 'enum', values: ['steps'], default: 'not set: short steps in '
+                        + 'a row are drawn as one interval',
+                    about: 'set to steps ONLY when the request asks for every step to be '
+                        + 'drawn separately' }
+            }
+        },
+        {
             name: 'new_timeline',
             summary: 'add a timeline covering a range of dates',
             module: 'baja/plate/ops/new-timeline.js',
@@ -781,6 +819,14 @@ function () {
             const where = args.edge === 'start' ? 'at the start'
                 : (args.edge === 'end' ? 'at the end' : 'at both ends');
             return dir + ' ' + which + ' by ' + amt + ' ' + where;
+        }
+        if (name === 'timeline_from_table') {
+            const m = Number(args.months) > 0 ? Number(args.months) : 12;
+            return 'build a timeline from ' + (args.table ? ('"' + args.table + '"') : 'this table') + ': as many batches as fit in '
+                + m + (m === 1 ? ' month' : ' months') + (args.start ? (' from ' + args.start) : ' from today')
+                + (Number(args.parallel) > 1 ? (', ' + args.parallel + ' at a time') : '')
+                + (args.timeline ? (', added to "' + args.timeline + '"') : (args.title ? (', called "' + args.title + '"') : ''))
+                + (args.detail === 'steps' ? ', every step drawn' : '');
         }
         if (name === 'new_timeline') {
             return 'add a timeline from ' + args.start + ' to ' + args.end

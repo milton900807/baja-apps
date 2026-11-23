@@ -1213,6 +1213,17 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/plate/menu/project-command.js:A QUESTION IS ANSWERED, NOT MATCHED TO A MENU" \
     "baja/plate/ops/table-answer.js:A QUESTION ABOUT A TABLE IS ANSWERED, FROM THE CANVAS" \
     "py/bio/project/table-answer.py:A QUESTION IS NOT AN OPERATION"
+  # A timeline of batches built from a table of steps. The command card routes to the
+  # operation and the catalogue describes it; either without the operation has nothing to run.
+  install_group "Timeline from a table: as many batches as fit in a period" \
+    "baja/plate/ops/timeline-from-table.js:A TIMELINE OF BATCHES, BUILT FROM A TABLE OF STEPS" \
+    "baja/plate/menu/project-capabilities.js:A TIMELINE BUILT FROM A TABLE OF STEPS" \
+    "baja/plate/menu/project-command.js:AS MANY BATCHES AS I CAN IN 12 MONTHS"
+  # A dialog's own presses and releases no longer reach the canvas while it is on screen.
+  install_group "Dialogs: Cancel and the other buttons do not reach the canvas" \
+    "baja/lib/modal-shield.js:WHAT HAPPENS INSIDE THE PANEL STAYS INSIDE IT" \
+    "baja/lib/prompt-text.js:HELD FROM THE MOMENT IT IS ON SCREEN" \
+    "baja/plate/menu/project-command.js:HELD FROM THE MOMENT IT IS ON SCREEN"
   # Paralogs: the lookup, the screen every row loads from, and the operation that joins
   # them. All three go together -- an old capabilities file has no way to reach either.
   # Where a gene is conserved, built from Ensembl's own pairwise alignments. The lookup

@@ -99,8 +99,35 @@ function (el, opts) {
         } catch (e2) { }
     };
 
+    // WHAT HAPPENS INSIDE THE PANEL STAYS INSIDE IT. Letting the panel's own events through
+    // untouched let them through all the way: a release on the Cancel button reached the
+    // panel, then carried on up to the window, where the canvas listens for releases, and
+    // the canvas acted on a release at that spot while the box was still on screen. The
+    // closing click comes last of all, so everything before it had already got out.
+    //
+    // Anything that arrives here, at the document on the way back up, was inside the panel
+    // (everything else was stopped on the way down, above). The panel and all that is in
+    // it have had their turn by now, so it goes no further: the window never hears it.
+    //
+    // ONE RELEASE IS STILL LET OUT: one with no press in the panel before it. That is the
+    // end of the gesture that OPENED the panel, a press on the canvas whose release lands
+    // on the panel now in front of it, and the window's mouseup is what ends a drag;
+    // swallowing it would strand the canvas mid-drag. Once something in the panel has been
+    // pressed, every release after that is the panel's own and is kept.
+    const PRESS = { mousedown: 1, pointerdown: 1, touchstart: 1 };
+    const RELEASE = { mouseup: 1, pointerup: 1, touchend: 1, pointercancel: 1 };
+    let pressedInside = false;
+    const contain = (e) => {
+        try {
+            if (PRESS[e.type]) pressedInside = true;
+            else if (RELEASE[e.type] && !pressedInside) return;
+            e.stopPropagation();
+        } catch (e2) { }
+    };
+
     for (const name of EVENTS) {
         try { document.addEventListener(name, stop, true); } catch (e) { }
+        try { document.addEventListener(name, contain, false); } catch (e) { }
     }
 
     const remove = () => {
@@ -108,6 +135,7 @@ function (el, opts) {
         released = true;
         for (const name of EVENTS) {
             try { document.removeEventListener(name, stop, true); } catch (e) { }
+            try { document.removeEventListener(name, contain, false); } catch (e) { }
         }
     };
 

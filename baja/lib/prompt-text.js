@@ -62,6 +62,25 @@ function (opts) {
         backdrop.id = 'baja-prompt-text-backdrop';
         backdrop.style.cssText = 'position:fixed;inset:0;z-index:2147482999;background:rgba(10,37,64,0.35);';
         document.body.appendChild(backdrop); document.body.appendChild(panel);
+        // HELD FROM THE MOMENT IT IS ON SCREEN. The shield below is fetched, and until it has
+        // arrived nothing stood between a press in here and the canvas's listener on the
+        // window: open the box and press Cancel at once, and the release went through. These
+        // are on the box itself and need nothing loaded. A button's own handler has already
+        // run by the time an event gets here, so nothing in the box is affected.
+        // A release with no press in here before it is the end of the press that opened this,
+        // and is let out: it is what ends a drag on the canvas.
+        let heldPress = false;
+        const hold = (e) => {
+            try {
+                if (e.type === 'mousedown' || e.type === 'pointerdown' || e.type === 'touchstart') heldPress = true;
+                else if ((e.type === 'mouseup' || e.type === 'pointerup' || e.type === 'touchend' || e.type === 'pointercancel') && !heldPress) return;
+                e.stopPropagation();
+            } catch (e2) { }
+        };
+        for (const name of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mousemove', 'mouseup',
+            'mouseover', 'mouseout', 'click', 'dblclick', 'contextmenu', 'touchstart', 'touchmove', 'touchend', 'wheel']) {
+            for (const el of [panel, backdrop]) { try { el.addEventListener(name, hold); } catch (e) { } }
+        }
         const ta = panel.querySelector('#pt-text');
         ta.value = o.value || '';
         const hsel = panel.querySelector('#pt-hist');
