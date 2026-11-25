@@ -43,12 +43,20 @@ PREPARE = {
     "cryptic": "bajasplice.prepare.cryptic",
 }
 TRAIN = {
+    "cryptic": "bajasplice.train.cryptic",
     "splicesite": "bajasplice.train.splicesite",
     "psi": "bajasplice.train.psi",
     "altss": "bajasplice.train.altss",
     "rbp": "bajasplice.train.rbp",
 }
 EVALUATE = {
+    "coding-constraint": "bajasplice.evaluate.coding_constraint",
+    "exon-age": "bajasplice.evaluate.exon_age",
+    "exon-age-decoys": "bajasplice.evaluate.exon_age_decoys",
+    "tdp43-sensitivity": "bajasplice.evaluate.tdp43_sensitivity",
+    "cryptic-features": "bajasplice.evaluate.cryptic_features",
+    "cryptic-vs-annotated": "bajasplice.evaluate.cryptic_vs_annotated",
+    "constraint-axis": "bajasplice.evaluate.constraint_axis",
     "baseline-splicesite": "bajasplice.evaluate.baselines_splicesite",
     "zero-shot": "bajasplice.evaluate.zero_shot",
     "splicesite-report": "bajasplice.evaluate.splicesite_report",
