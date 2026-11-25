@@ -51,7 +51,7 @@ function (source, target, opts) {
     // opts.beam         6     partial plans carried into the next round
     // opts.keep_single  12    single edits kept for the beam, best first
     // opts.plans        8     plans reported
-    // opts.cryptic      candidates from cryptic-exons.js, when the caller already has them
+    // opts.cryptic      candidates from cryptic-exon-candidates.js, when the caller has them
 
     return (async () => {
         const o = opts || {};
