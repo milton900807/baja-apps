@@ -275,8 +275,7 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/compound-filter.js:WHAT A COMPOUND FILTER MEANS, in one place" \
     "py/bio/compounds/filter-prompt.py:THE MODEL DOES NOT JUDGE ANY COMPOUND" \
     "baja/manchester/menu/compound-ai-filter.js:FILTER THE COMPOUNDS BY DESCRIBING THEM" \
-    "baja/manchester/menu/select-compounds-by.js:ONE DEFINITION OF WHAT THESE WORDS MEAN" \
-    "baja/manchester/menu/track-design-menu.js:Filter by description"
+    "baja/manchester/menu/select-compounds-by.js:ONE DEFINITION OF WHAT THESE WORDS MEAN"
   install_group "select compounds by criteria" \
     "baja/manchester/menu/select-compounds-by.js:SELECT COMPOUNDS BY WHAT THEY ARE" \
     "baja/manchester/menu/compounds-editor.js:Select by criteria" \
@@ -1289,6 +1288,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # Pasting an image started the OCR reader with no way to say no.
+  install_group "Pasting an image does not run OCR" \
+    "manchester/editor.js:PASTING AN IMAGE NO LONGER RUNS OCR"
+
+  # The Compounds card is gone from the Design shelf.
+  install_group "Design shelf without the Compounds card" \
+    "baja/manchester/menu/track-design-menu.js:NO CALLER IN THIS MENU ANY MORE"
+
   # A ranked acceptor is half a splice event; clicking the arc shows the exon, the message
   # and the protein it would make. The site-model fetch moves to one place with it.
   install_group "What a candidate acceptor would make" \

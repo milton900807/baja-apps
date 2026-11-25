@@ -1111,19 +1111,26 @@ function (path, config) {
                         }
                     } else {
 
-                        let loaded = false;
-                        var img = new Image();
+                        // PASTING AN IMAGE NO LONGER RUNS OCR. It used to start the reader
+                        // the moment an image reached the canvas, with no way to say no: a
+                        // screenshot pasted while reaching for something else put up
+                        // "Running OCR... stand by!" and a table nobody asked for.
+                        //
+                        // The reader itself is still there and still works. What is gone is
+                        // it running unasked: it is one of the choices on the paste panel
+                        // (Paste, then "image OCR"), which is where a person who wants a
+                        // table out of a picture goes.
                         if (imgs == undefined) return false;
+                        let hadImage = false;
                         for (var i = 0; i < imgs.length; i++) {
                             if (imgs[i].type.indexOf("image") == -1) continue;
-                            var imgObj = imgs[i].getAsFile();
-                            var url = window.URL || window.webkitURL;
-                            let src = url.createObjectURL(imgObj);
-                            img.onload = function (e) {
-                                loaded = true;
-                                exec('baja/util/ocr-to-table.js', img, graph, genegraph_panel_layout)
-                            };
-                            img.src = src;
+                            hadImage = true;
+                        }
+                        if (hadImage) {
+                            try {
+                                graph.setMessage(' An image was pasted. To read a table out of '
+                                    + 'it, use Paste and choose image OCR. ');
+                            } catch (e) { }
                         }
                         graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         graph.setMouseMode('navigate')

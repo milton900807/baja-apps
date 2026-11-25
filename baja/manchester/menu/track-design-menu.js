@@ -2048,6 +2048,12 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
         // Remove every oligo on this track whose off-target count is over a maximum the user
         // gives. Pushes history first, so the answer to "I did not mean that" is undo.
+        // NO CALLER IN THIS MENU ANY MORE. The Compounds card that opened this and
+        // highlightCompounds below was removed from the Design shelf on request. Both are
+        // left whole rather than deleted: they are the only implementations of what they
+        // do, the work is in them rather than in the card, and putting the card back is
+        // then a few lines. If they are still unused when someone next reads this, that is
+        // the moment to delete them.
         const filterByOffTargets = async () => {
 
             const vap = await prompt("Maximum allowable off-targets:", ["Max"], { "Max": 5 }, 520, 300);
@@ -2913,66 +2919,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 blurb: 'Primer and probe design over this track — primer3, the in-house djPrimer '
                     + 'scorer, or exon-exon junction probes.',
                 books: primerBooks
-            },
-            {
-                // Off-target FILTERING moved in here from a top level node of its own. Pruning
-                // by off-target count is something you do to compounds already on the track, so
-                // it belongs with the rest of that work rather than beside the designers.
-                // Running a screen still lives under Therapeutics, next to the designs that
-                // produce the compounds: one is finishing a design, the other is managing what
-                // the design left behind.
-                title: 'Compounds', badge: 'On this track',
-                subtitle: 'Work with the compounds already here',
-                ready: __oligoCount.here > 0,
-                readyNote: (__oligoCount.canvas > 0) ? 'compounds are on another track' : 'no compounds yet',
-                blurb: (__oligoCount.here > 0)
-                    ? ('Find and prune the ' + __oligoCount.here + ' compound'
-                        + (__oligoCount.here === 1 ? '' : 's') + ' already designed onto ' + __trackLabel + '.')
-                    : ((__oligoCount.canvas > 0)
-                        ? ('No compounds on ' + __trackLabel + '. There '
-                            + (__oligoCount.canvas === 1 ? 'is 1 compound' : 'are ' + __oligoCount.canvas + ' compounds')
-                            + ' elsewhere on the canvas — select that track and reopen this menu.')
-                        : ('Nothing designed on the canvas yet. Design compounds first — '
-                            + 'Therapeutics \u25b8 siRNA, Gapmer or Steric-blocking ASO — and they '
-                            + 'will show up here.')),
-                books: () => [
-                    {
-                        title: 'Highlight compounds', badge: 'Locate',
-                        ready: __oligoCount.here > 0,
-                        readyNote: 'no compounds on this track',
-                        blurb: (__oligoCount.here > 0)
-                            ? ('Twinkle the ' + __oligoCount.here + ' compound'
-                                + (__oligoCount.here === 1 ? '' : 's') + ' on this track magenta for '
-                                + 'about five seconds — motion catches the eye where a static '
-                                + 'highlight on a busy track does not.')
-                            : 'Nothing on this track to highlight.',
-                        open: () => highlightCompounds()
-                    },
-                    {
-                        title: 'Filter by description', badge: 'AI',
-                        ready: __oligoCount.here > 0,
-                        readyNote: 'no compounds on this track',
-                        blurb: 'Say which compounds you mean and pick them out: "the '
-                            + 'self-complementary ones", "anything under 40% GC", "gapmers with a '
-                            + 'Tm over 55". The model reads the sentence into the same fields the '
-                            + 'Select-by-criteria dialog has; the editor does the matching itself, '
-                            + 'so the same words give the same compounds every time. It shows what '
-                            + 'it understood and how many match before anything is selected or '
-                            + 'removed, and says so when part of the request is not something '
-                            + 'these fields can measure.',
-                        open: () => exec('baja/manchester/menu/compound-ai-filter.js', graph, selectedTrack)
-                    },
-                    {
-                        title: 'Filter by off-target count', badge: 'Remove',
-                        ready: __oligoCount.here > 0,
-                        readyNote: 'no compounds on this track',
-                        blurb: 'Remove every oligo whose off-target count is above a maximum you give. '
-                            + 'Amplicons are left alone, and undo restores what it removed. Compounds '
-                            + 'that have not been screened have no count to filter on, so run the '
-                            + 'screen first: Therapeutics \u25b8 Off-targets.',
-                        open: () => filterByOffTargets()
-                    }
-                ]
             },
             {
                 title: 'Clinical Library', badge: 'Reference',
