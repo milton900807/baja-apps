@@ -86,6 +86,22 @@ function (graph, track, region, opts) {
         try {
             const r = await exec(script, t.getSequenceRange(xi, xf), t.chr, xi, xf, t.strand,
                 MIN_EXON, MAX_EXON, 100000, TH);
+            // THE ONLY SHAPE THAT MEANS A SCAN HAPPENED is one carrying a results array.
+            // Everything else the script can resolve -- a missing pyBigWig, a bigWig still
+            // downloading, an error, a payload shape nobody anticipated -- went into
+            // generateCrypticExons, which found no `results` in it, returned [], and was
+            // reported as "nothing reached 0.98". A tool that answers a broken install
+            // with a confident negative result is worse than one that crashes.
+            //
+            // So the result array is the gate, and anything else is described by what it
+            // actually came back with.
+            if (r && r.status === 'missing_dependency') {
+                try { if (W) W.done(); } catch (e) { }
+                await stop('The cryptic exon model needs ' + (r.dependency || 'a package')
+                    + ' on the server, which is not installed: '
+                    + ('' + (r.message || '')).split('\n')[0]);
+                return { missing: r.dependency || 'dependency' };
+            }
             if (r && r.status === 'file_downloading') {
                 try { if (W) W.done(); } catch (e) { }
                 await stop('The conservation file is downloading. This happens once and can take '
@@ -100,6 +116,16 @@ function (graph, track, region, opts) {
                 await stop('Cryptic exon finder: ' + r.error);
                 return { error: '' + r.error };
             }
+            if (!r || !Array.isArray(r.results)) {
+                try { if (W) W.done(); } catch (e) { }
+                const what = r ? ('it came back with ' + (r.status
+                    ? ('status "' + r.status + '"')
+                    : ('{' + Object.keys(r).slice(0, 6).join(', ') + '}'))) : 'it came back empty';
+                await stop('The cryptic exon scan did not return a result list: ' + what
+                    + '. That is not the same as finding nothing.');
+                return { error: 'no results array' };
+            }
+
             const CE = await exec('baja/bio/splicing/cryptic-exons');
             const found = CE.generateCrypticExons(r, { xiAnchor: xi }) || [];
             for (const cry of found) t.add(cry);

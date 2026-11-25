@@ -21,7 +21,7 @@ let ran = null, reply = { hits: [] }, made = [], failed = [];
 const load = async (p, ...a) => {
     if (/cryptic-exon-finder(-mm9)?\.py$/.test('' + p)) { ran = { script: '' + p, args: a }; return reply; }
     if (/splicing\/cryptic-exons$/.test('' + p)) {
-        return { generateCrypticExons: (r, o) => { made.push({ r: r, o: o }); return (r && r.hits) || []; } };
+        return { generateCrypticExons: (r, o) => { made.push({ r: r, o: o }); return (r && r.results) || []; } };
     }
     if (/working\.js$/.test('' + p)) return { step() { }, done() { }, fail(m) { failed.push('' + m); } };
     const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(p, 'utf8') + ')')(load, {});
@@ -46,7 +46,7 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
 (async () => {
     // ---- the window it is given ----------------------------------------------------------
     {
-        ran = null; made = []; reply = { hits: [{ xi: 10, xf: 90 }, { xi: 200, xf: 260 }] };
+        ran = null; made = []; reply = { results: [{ xi: 10, xf: 90 }, { xi: 200, xf: 260 }], meta: {} };
         const g = mkGraph(), t = mkTrack();
         const r = await run(g, t, { xi: 1000, xf: 3000 });
         ok(!!ran, 'the script runs');
@@ -63,7 +63,7 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
     // NONE IS A RESULT. Adding nothing and saying nothing reads exactly like a model that
     // never ran.
     {
-        ran = null; reply = { hits: [] };
+        ran = null; reply = { results: [], meta: {} };
         const g = mkGraph(), t = mkTrack();
         await run(g, t, { xi: 1000, xf: 3000 });
         ok(t.added.length === 0 && g.results.some((m) => /nothing reached 0\.98/.test(m)),
@@ -75,7 +75,7 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
     // whose cryptic exon is the best known there is, comes back empty at 0.98 over all
     // 55 kb of it.
     {
-        ran = null; reply = { hits: [], meta: { n_candidates_generated: 12480 } };
+        ran = null; reply = { results: [], meta: { n_candidates_generated: 12480 } };
         const g = mkGraph(), t = mkTrack();
         const r = await run(g, t, { xi: 1000, xf: 3000 }, { threshold: 0.75 });
         ok(ran && ran.args[8] === 0.75, 'the threshold reaches the script: ' + JSON.stringify(ran.args.slice(5)));
@@ -87,14 +87,14 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
         ok(g.results.some((m) => /12,480 exon-like candidates scored/.test(m)),
            'along with how many candidates were scored: ' + g.results[0]);
         ok(r && r.threshold === 0.75 && r.candidates === 12480, 'and both come back: ' + JSON.stringify(r));
-        reply = { hits: [] };
+        reply = { results: [], meta: {} };
     }
 
     // ---- SPECIES PICKS THE SCRIPT ----------------------------------------------------------
     // The two read different genomes' conservation, so the wrong one scores mouse sequence
     // against human constraint and returns confident nonsense.
     {
-        ran = null; reply = { hits: [] };
+        ran = null; reply = { results: [], meta: {} };
         await run(mkGraph(), mkTrack({ species: 'mouse' }), { xi: 10, xf: 500 });
         ok(/mm9\.py$/.test(ran.script), 'a mouse track gets the mm9 script: ' + ran.script);
         ran = null;
@@ -137,7 +137,7 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
         ok(r4 && r4.error && failed.some((m) => /bigWig not found/.test(m))
            && !g4.results.some((m) => /nothing over the threshold/.test(m)),
            'and an error from the script is an error, not an empty result: ' + JSON.stringify(failed));
-        reply = { hits: [] };
+        reply = { results: [], meta: {} };
     }
 
     // The conservation file downloads once, and that is not a result of zero.
@@ -148,6 +148,40 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
         ok(r && r.downloading && t.added.length === 0
            && g.said.some((m) => /downloading/.test(m)),
            'a first run says the file is coming rather than reporting nothing found: ' + g.said[0]);
+    }
+
+    // ---- A FAILURE IS NOT A RESULT OF ZERO -------------------------------------------------
+    // Every one of these resolves something that is not a scan. They all used to go into
+    // the annotation builder, which found no `results` in them, returned [], and was
+    // reported as "nothing reached 0.98" over a whole gene: a confident negative answer
+    // produced by a broken install.
+    {
+        ran = null; reply = { status: 'missing_dependency', dependency: 'pyBigWig',
+            message: 'pyBigWig is not installed\nInstall it in the Python used by Node.' };
+        const g = mkGraph(), t = mkTrack();
+        const r = await run(g, t, { xi: 10, xf: 500 });
+        ok(r && r.missing === 'pyBigWig' && t.added.length === 0,
+           'a missing dependency is named: ' + JSON.stringify(r));
+        ok(failed.some((m) => /pyBigWig/.test(m) && /not installed/.test(m)),
+           'on the panel, with what is missing: ' + JSON.stringify(failed));
+        ok(!g.results.some((m) => /nothing reached/.test(m)),
+           'and NOT as a scan that found nothing');
+
+        ran = null; reply = { something: 'else', unexpected: true };
+        const g2 = mkGraph();
+        const r2 = await run(g2, mkTrack(), { xi: 10, xf: 500 });
+        ok(r2 && r2.error && failed.some((m) => /did not return a result list/.test(m)),
+           'a payload shape nobody anticipated says so rather than reporting zero: '
+           + JSON.stringify(failed));
+        ok(failed.some((m) => /not the same as finding nothing/.test(m)),
+           'in those words, because the two are what keep being confused');
+
+        ran = null; reply = { results: [], meta: { n_candidates_generated: 0 } };
+        const g3 = mkGraph();
+        await run(g3, mkTrack(), { xi: 10, xf: 500 });
+        ok(g3.results.some((m) => /nothing reached 0\.98/.test(m)),
+           'while a real scan that found nothing still reports exactly that: ' + g3.results[0]);
+        reply = { results: [], meta: {} };
     }
 
     // ---- one implementation, two entry points ------------------------------------------------
