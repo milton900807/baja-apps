@@ -63,25 +63,17 @@ function (track, opts) {
         }
         if (!introns.length) return [];
 
+        // THE FIRST ARGUMENT IS AN EngineMonitor, NOT A PLACEHOLDER, and this passed null
+        // there: the engine consumes a monitor when it finds one in that slot, so a null
+        // shifted every argument by one and the sequence arrived where xi was expected. The
+        // backend then said "no sequence provided" about a track whose sequence was loaded.
+        // acceptor-candidates.js found this and named this file as carrying it too; the
+        // call now happens in one place, baja/bio/splicing/sites-profile.js.
         let prof = o.profile || null;
         if (!prof) {
-            const seq = '' + (t.sequence || '');
-            if (!seq) return [];
-            const xi = (t.xi != null) ? t.xi : 0;
-            let orientation = 'plus';
-            try { orientation = await exec('baja/bio/splicing/strand-orientation.js', t, seq); }
-            catch (e) { orientation = 'plus'; }
-            let data = null;
-            try {
-                data = await exec(window['env']['apiUrl'] + '/py/bio/splice/splicing-profile.py',
-                    null, '' + seq, '' + xi, '' + (t.strand != null ? t.strand : 1), 'sites',
-                    '', orientation, '', '', '');
-            } catch (e) { data = null; }
-            if (!data || data.error) return [];
-            let acc = [], don = [];
-            try { acc = JSON.parse(data.acceptor || '[]'); } catch (e) { acc = []; }
-            try { don = JSON.parse(data.donor || '[]'); } catch (e) { don = []; }
-            prof = { acceptor: acc, donor: don };
+            const P = await exec('baja/bio/splicing/sites-profile.js', t, {});
+            if (!P.ok) return [];
+            prof = { acceptor: P.acceptor, donor: P.donor };
         }
         const acc = (prof.acceptor || []).filter((p) => p && +p[1] >= MIN_SITE);
         const don = (prof.donor || []).filter((p) => p && +p[1] >= MIN_SITE);

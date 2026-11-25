@@ -1289,6 +1289,16 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # A ranked acceptor is half a splice event; clicking the arc shows the exon, the message
+  # and the protein it would make. The site-model fetch moves to one place with it.
+  install_group "What a candidate acceptor would make" \
+    "baja/bio/splicing/alternative-exon.js:WHAT WOULD THIS SITE ACTUALLY MAKE" \
+    "baja/bio/splicing/alternative-peptide-view.js:THE EXON, THE MESSAGE AND THE PROTEIN IT WOULD MAKE" \
+    "baja/bio/splicing/sites-profile.js:FETCHED ONCE AND THE SAME WAY EVERY TIME" \
+    "baja/bio/splicing/acceptor-candidates-view.js:CLICKING AN ARC ASKS WHAT IT WOULD MAKE" \
+    "baja/bio/splicing/acceptor-candidates.js:is baja/bio/splicing/sites-profile.js" \
+    "baja/bio/splicing/cryptic-exon-candidates.js:THE FIRST ARGUMENT IS AN EngineMonitor, NOT A PLACEHOLDER"
+
   # Ask the literature what is in a selected stretch, and draw only what can be found in
   # the sequence.
   install_group "The knowledge layer" \

@@ -130,7 +130,57 @@ function (graph, genegraph_panel_layout, presetTrack) {
             + 'Each arc runs from the canonical donor of the intron the candidate sits in to '
             + 'the candidate, which is the junction that site would make. Arc weight is scaled '
             + 'to THIS gene\u2019s best candidate, not to an absolute probability, because a '
-            + 'fixed scale draws every arc in a typical gene as the same hairline.');
+            + 'fixed scale draws every arc in a typical gene as the same hairline. Click an '
+            + 'arc to see the exon, the message and the protein that site would make.');
+
+        // CLICKING AN ARC ASKS WHAT IT WOULD MAKE. The arc is already the junction that
+        // would exist; the question it raises is what the message would say, and until now
+        // that could only be answered by reading a rank off a table.
+        //
+        // The listener is deliberately narrow. It acts only on a press inside THIS track,
+        // within a few pixels of one of these candidates, while this layer is still on the
+        // track; anything else falls through untouched, because a layer that eats clicks
+        // takes selection and panning with it.
+        try {
+            const near = (xWorld) => {
+                let best = null, bestD = Infinity;
+                for (const r of rows) {
+                    const d = Math.abs(xWorld - r.x);
+                    if (d < bestD) { bestD = d; best = r; }
+                }
+                // Tolerance in BASES scaled from the pixels on screen, so the target is the
+                // same size to the hand at every zoom.
+                let perPx = 1;
+                try {
+                    const tg = track.tgraph;
+                    perPx = Math.abs(tg.Xwc(10) - tg.Xwc(0)) / 10 || 1;
+                } catch (e) { perPx = 1; }
+                return (bestD <= Math.max(2, perPx * 6)) ? best : null;
+            };
+            graph.addMouseDownListener(async (x, y) => {
+                try {
+                    if (!track.track_layers || track.track_layers.indexOf(layer) < 0) return;
+                    const ti = graph.getTrack(x, y);
+                    if (ti < 0 || graph.track[ti] !== track) return;
+                    // The idiom for turning a press into a track coordinate, from
+                    // annotation-layer-editor-sketch-exon.js.
+                    const xv = track.tgraph.Xwc(graph.X(x) - track.tgraph.xi * 2);
+                    const hit = near(xv);
+                    if (!hit) return;
+                    say('Working out what the acceptor at ' + hit.x + ' would make\u2026');
+                    const made = await exec('baja/bio/splicing/alternative-exon.js', track, hit.x, {});
+                    if (!made || !made.ok) {
+                        say('Rank ' + hit.rank + ' at ' + hit.x + ': ' + ((made && made.reason)
+                            || 'nothing could be worked out for that site') + '.');
+                        return;
+                    }
+                    await exec('baja/bio/splicing/alternative-peptide-view.js', made);
+                } catch (e) {
+                    say('That site could not be worked out: ' + ((e && e.message) ? e.message : e));
+                }
+            });
+        } catch (e) { }
+
         return true;
     })();
 }

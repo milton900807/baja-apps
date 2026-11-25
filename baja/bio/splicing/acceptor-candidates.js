@@ -90,61 +90,14 @@ function (track, opts) {
         const annotated = [];
         for (const e of exons) { annotated.push(e.lo - 1, e.hi + 1); }
 
+        // The fetch itself, with its two refusals and the EngineMonitor that must not be
+        // null, is baja/bio/splicing/sites-profile.js: three callers wanted it and each
+        // wrote the argument list out, which is three chances to get it wrong.
         let prof = o.profile || null;
         if (!prof) {
-            const seq = '' + (t.sequence || '');
-            if (!seq) {
-                return fail(who + ' has no sequence loaded, so the site model has nothing to '
-                    + 'score. Load the transcript as pre-mRNA and run again.');
-            }
-            // A SPLICED SEQUENCE IN A GENOMIC FRAME CANNOT BE SCORED, and is the one failure
-            // that otherwise looks exactly like a working run with no hits: the model scores
-            // intronic bases with 1,000 nt of context, and a cDNA has had those removed at
-            // every boundary. The signature is a sequence shorter than the span it claims.
-            // Taken from splicing-profile.js, which has refused it this way for a while.
-            if (isFinite(+t.xi) && isFinite(+t.xf)) {
-                const span = Math.abs(Math.floor(+t.xf) - Math.floor(+t.xi)) + 1;
-                if (seq.length < span * 0.99) {
-                    return fail(who + ' holds a spliced sequence (' + comma(seq.length)
-                        + ' nt) in a ' + comma(span) + ' nt genomic frame, so it has no '
-                        + 'intronic sequence to score. Load the transcript as pre-mRNA (a '
-                        + 'primary-assembly Ensembl id) and run again.');
-                }
-            }
-            const xi = (t.xi != null) ? t.xi : 0;
-            let orientation = 'plus';
-            try { orientation = await exec('baja/bio/splicing/strand-orientation.js', t, seq); }
-            catch (e) { orientation = 'plus'; }
-            // THE FIRST ARGUMENT IS AN EngineMonitor, NOT A PLACEHOLDER. Passing null here
-            // sent the backend "no sequence provided" on a track whose sequence was plainly
-            // loaded: the engine consumes a monitor when it finds one in this slot and
-            // otherwise passes it through as the first real parameter, so a null shifted
-            // every argument by one and the sequence arrived in the xi slot. The proven
-            // caller (splicing-profile.js) constructs one, so this does too.
-            // cryptic-exon-candidates.js still passes null here and has the same bug.
-            let em = null;
-            try { em = new EngineMonitor(() => { }); } catch (e) { em = null; }
-            let data = null, reached = false;
-            try {
-                data = await exec(window['env']['apiUrl'] + '/py/bio/splice/splicing-profile.py',
-                    em, '' + seq, '' + xi, '' + (t.strand != null ? t.strand : 1), 'sites',
-                    '', orientation, '', '', '');
-                reached = true;
-            } catch (e) {
-                return fail('The site model could not be reached: '
-                    + (e && e.message ? e.message : e));
-            }
-            if (reached && !data) return fail('The site model returned nothing for ' + who + '.');
-            if (data.error) return fail('The site model refused ' + who + ': ' + data.error);
-            let acc = [];
-            try { acc = JSON.parse(data.acceptor || '[]'); }
-            catch (e) { return fail('The site model returned acceptor scores this tool could not read: ' + (e && e.message ? e.message : e)); }
-            if (!acc.length) {
-                return fail('The site model ran on ' + who + ' but returned no acceptor '
-                    + 'positions at all, which usually means the sequence it was given was '
-                    + 'not the genomic one.');
-            }
-            prof = { acceptor: acc };
+            const P = await exec('baja/bio/splicing/sites-profile.js', t, {});
+            if (!P.ok) return fail(P.reason);
+            prof = { acceptor: P.acceptor, donor: P.donor };
         }
 
         const inIntron = (x) => {
