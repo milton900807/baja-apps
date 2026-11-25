@@ -1292,6 +1292,10 @@ if [[ $DO_API -eq 1 ]]; then
   # The layer names under the name tab were drawn on every track at once.
   install_group "The layer list shows on the selected track only" \
     "baja/bio/track.js:ONLY ON THE SELECTED TRACK"
+
+  # The tab carried species, locus, size and description on every track at once.
+  install_group "An unselected track tab says only its name" \
+    "baja/bio/track.js:THE NAME ALONE WHEN THE TRACK IS NOT SELECTED"
   # The plan refused a request that named no track, listing the very tracks it could have
   # offered.
   install_group "The plan offers its pairs instead of refusing" \

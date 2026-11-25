@@ -8580,16 +8580,33 @@ return new Promise(async (resolve, reject) => {
 
             // Only while the track is actually on screen.
             if (_yBottom > -60 && _yBottom < _ch + 60 && _hi > 0 && _lo < _cw) {
+              // ONE NOTION OF SELECTED in this renderer, used by the tab's colours, by what
+              // the tab says, and by the layer list under it. Two of them would drift, and
+              // the drift would show as a tab that inverts without naming its species.
+              const _sel = (typeof this.isSelected === 'function')
+                  ? !!this.isSelected() : (this.showResizeBar !== false);
+
+              // THE NAME ALONE WHEN THE TRACK IS NOT SELECTED. Species, locus, size and
+              // description are what you read while working ON a track. On every track at
+              // once they are a row of small print per track, and on a canvas of paralogues
+              // they are nearly the same row each time, so the thing that tells two tracks
+              // apart -- the name -- is the shortest part of the longest label.
+              //
+              // The tab is narrower for it, which is the point: an unselected track says
+              // what it is and gets out of the way. Selecting it brings the rest back, and
+              // the tab already inverts on selection, so the two changes read as one.
               const _name = ('' + (this.name == null ? '' : this.name)).trim();
               const _bits = [];
-              if (this.species) _bits.push(this.species);
-              if (this.chr) {
-                _bits.push('chr' + this.chr + ':' + this.xi + '-' + this.xf);
-                _bits.push(this.getKB() + ' KB');
+              if (_sel) {
+                if (this.species) _bits.push(this.species);
+                if (this.chr) {
+                  _bits.push('chr' + this.chr + ':' + this.xi + '-' + this.xf);
+                  _bits.push(this.getKB() + ' KB');
+                }
+                let _d = ('' + (this.description == null ? '' : this.description)).trim();
+                if (_d.length > 48) _d = _d.slice(0, 47) + '…';
+                if (_d) _bits.push(_d);
               }
-              let _d = ('' + (this.description == null ? '' : this.description)).trim();
-              if (_d.length > 48) _d = _d.slice(0, 47) + '…';
-              if (_d) _bits.push(_d);
               const _detail = _bits.join('  ·  ');
 
               const NAMEF = '700 16px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
@@ -8612,7 +8629,6 @@ return new Promise(async (resolve, reject) => {
               const _x = Math.max(4, _lo);
               const _yTop = _yBottom - _h;
 
-              const _sel = !!this.showResizeBar;
               const _ink = GX_T.ink || '#0a2540';
               const _paper = GX_T.paper || '#ffffff';
 
@@ -8757,8 +8773,7 @@ return new Promise(async (resolve, reject) => {
               // FRONT layer first, as a layers panel lists them: track_layers is drawn in array order,
               // so the last one is on top, and "Bring to front" in the layer menu
               // (track-layers-side-menu.js) has to land at the top of THIS list to mean what it says.
-              const _showList = (this.showLayers !== false) && (typeof this.isSelected === 'function'
-                  ? this.isSelected() : (this.showResizeBar !== false));
+              const _showList = (this.showLayers !== false) && _sel;
               const _layers = _showList ? (this.track_layers || []).slice().reverse() : [];
               if (_layers.length) {
                 const _yLow = graph.grid.Y(this.tgraph.Y(this.tgraph.ymin));
