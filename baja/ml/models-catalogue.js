@@ -444,6 +444,47 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'Candidate acceptor sites', badge: 'BajaSplice', ready: true, group: 'splicing',
+            blurb: 'Intronic acceptor positions, ranked by splice strength.',
+            // RANK, NOT SCORE, AND THAT IS THE WHOLE POINT OF A SEPARATE ENTRY. The site
+            // strength book paints a score at every position, and its own report says a
+            // threshold on that score does not work: only 26% of confirmed cryptic acceptors
+            // clear 0.5, against 0.69% of decoys. What the numbers support is ranking a
+            // gene's own intronic positions and reading the top, which is a different VIEW of
+            // the same model rather than a different model, so it carries the same badge.
+            open: () => __onParentTrack('Candidate acceptor sites', (list) => exec('baja/bio/splicing/acceptor-candidates-view.js', graph, L, list)),
+            docs: {
+                summary: 'The intronic acceptor positions of this transcript, ranked against each '
+                    + 'other by the BajaSplice site model. No score cutoff is applied, because a '
+                    + 'cutoff is what the model cannot support: ranking within a gene is.',
+                provenance: 'The same network as Splicing \u2014 site strength, scored the same way; '
+                    + 'this is a view of it, not a new model. The ranking was measured against 489 '
+                    + 'catalogued TDP-43 cryptic acceptors across 436 genes: the true acceptor has '
+                    + 'a median rank of 35 of a median 5,263 intronic candidates per gene (top '
+                    + '0.7%), the top 25 contains it for about half of genes and the top 10 for '
+                    + 'about 29%. Annotated acceptors are excluded, which costs real recall: '
+                    + 'roughly a quarter to a third of catalogued cryptic acceptors sit within a '
+                    + 'base or two of an annotated edge, and for those genes this returns nothing '
+                    + 'useful rather than the right answer.',
+                usage: 'A ranked list for ONE named gene, as a screening aid for ASO design \u2014 '
+                    + 'not a detector, and not for scanning the genome. Human intron holds roughly '
+                    + '28 million acceptor-like positions against about 925 known cryptic '
+                    + 'acceptors, so a genome-wide sweep at this precision would return mostly '
+                    + 'noise. Read the percentile, which is against this gene\u2019s own intronic '
+                    + 'positions; the raw probability is not calibrated and should not be quoted. '
+                    + 'Nothing here says the spliceosome WILL use a site: it says the sequence '
+                    + 'supports one.',
+                links: [
+                    { title: 'Technical report: BajaSplice', url: 'https://baja.bio/data/BajaSplice-technical-report.pdf',
+                      note: 'Where the rank-not-threshold result comes from: 26% of confirmed cryptic sites above 0.5, against 0.69% of decoys.' },
+                    { title: 'Ma et al., TDP-43 cryptic exon compendium', url: 'https://doi.org/10.1038/s41586-022-04424-7',
+                      note: 'The catalogued cryptic acceptors the ranking was measured against.' },
+                    { title: 'GENCODE annotation', url: 'https://www.gencodegenes.org/',
+                      note: 'Supplies the annotated exon edges that are held out of the ranking.' }
+                ]
+            }
+        },
+        {
             title: 'Intron retention', badge: 'BajaIR', ready: true, group: 'splicing',
             blurb: 'How retention-prone each intron is, from sequence alone.',
             open: () => __onParentTrack('BajaIR intron retention', (list) => exec('baja/bio/splicing/intron-retention.js', graph, L, list)),
