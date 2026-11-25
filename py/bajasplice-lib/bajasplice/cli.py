@@ -43,12 +43,27 @@ PREPARE = {
     "cryptic": "bajasplice.prepare.cryptic",
 }
 TRAIN = {
+    "cryptic": "bajasplice.train.cryptic",
     "splicesite": "bajasplice.train.splicesite",
     "psi": "bajasplice.train.psi",
     "altss": "bajasplice.train.altss",
     "rbp": "bajasplice.train.rbp",
 }
 EVALUATE = {
+    "cryptic-cost": "bajasplice.evaluate.cryptic_cost",
+    "cryptic-fate": "bajasplice.evaluate.cryptic_fate",
+    "buffer-test": "bajasplice.evaluate.buffer_test",
+    "localization-test": "bajasplice.evaluate.localization_test",
+    "motif-background": "bajasplice.evaluate.motif_background",
+    "threshold-drivers": "bajasplice.evaluate.threshold_drivers",
+    "ug-background": "bajasplice.evaluate.ug_background",
+    "coding-constraint": "bajasplice.evaluate.coding_constraint",
+    "exon-age": "bajasplice.evaluate.exon_age",
+    "exon-age-decoys": "bajasplice.evaluate.exon_age_decoys",
+    "tdp43-sensitivity": "bajasplice.evaluate.tdp43_sensitivity",
+    "cryptic-features": "bajasplice.evaluate.cryptic_features",
+    "cryptic-vs-annotated": "bajasplice.evaluate.cryptic_vs_annotated",
+    "constraint-axis": "bajasplice.evaluate.constraint_axis",
     "baseline-splicesite": "bajasplice.evaluate.baselines_splicesite",
     "zero-shot": "bajasplice.evaluate.zero_shot",
     "splicesite-report": "bajasplice.evaluate.splicesite_report",

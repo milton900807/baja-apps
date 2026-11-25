@@ -9,6 +9,7 @@ dependencies = [
     "pandas",
     "scipy",
     "scikit-learn",
+    "joblib",
     "torch",
     "pyfaidx",
     "requests",
@@ -16,6 +17,8 @@ dependencies = [
 
 [project.optional-dependencies]
 plots = ["matplotlib"]
+conservation = ["pyBigWig"]
+crossspecies = ["pyliftover"]
 dev = ["pytest"]
 
 [project.scripts]

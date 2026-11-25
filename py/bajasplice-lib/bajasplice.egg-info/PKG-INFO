@@ -8,11 +8,16 @@ Requires-Dist: numpy
 Requires-Dist: pandas
 Requires-Dist: scipy
 Requires-Dist: scikit-learn
+Requires-Dist: joblib
 Requires-Dist: torch
 Requires-Dist: pyfaidx
 Requires-Dist: requests
 Provides-Extra: plots
 Requires-Dist: matplotlib; extra == "plots"
+Provides-Extra: conservation
+Requires-Dist: pyBigWig; extra == "conservation"
+Provides-Extra: crossspecies
+Requires-Dist: pyliftover; extra == "crossspecies"
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 
