@@ -473,6 +473,50 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            // LISTED WHERE THE OTHER SPLICING MODELS ARE. This one could only be reached by
+            // right-clicking an exon, so the catalogue that lists every splicing model
+            // listed every splicing model but this, and it read as having been lost.
+            title: 'Cryptic exons', badge: 'Phylon', ready: true, group: 'splicing',
+            blurb: 'Stretches of intron as conserved as an exon, which is what a pseudo-exon looks like.',
+            open: () => __onParentTrack('Phylon cryptic exons', (list) => {
+                const t = (list && list[0]) || null;
+                if (!t) return null;
+                // The SELECTED stretch, because this reads a conservation track base by
+                // base and a whole gene is minutes of work. With nothing selected it says
+                // so rather than scanning the window the canvas happens to be showing.
+                const a = (t.markstart != null && t.markend != null)
+                    ? { xi: t.markstart, xf: t.markend } : null;
+                if (!a) {
+                    try { graph.setMessage(' Select the stretch of sequence to scan for cryptic exons. '); } catch (e) { }
+                    return null;
+                }
+                return exec('baja/bio/splicing/cryptic-exon-finder.js', graph, t, a, {});
+            }),
+            docs: {
+                summary: 'Finds stretches of intron that are as conserved as an exon. Candidates are '
+                    + 'cut from canonical splice motifs in the selected window (AG|exon|GT on the '
+                    + 'plus strand, AC|exon|CT on the minus, with no reverse complement), scored on '
+                    + 'GERP conservation, and everything at or above the threshold is kept; '
+                    + 'overlapping hits collapse to the single best one. Each survivor is added to '
+                    + 'the track as an annotation.',
+                provenance: 'A model over conservation features read from a GERP bigWig: '
+                    + 'GRCh38 for human, mm9 for mouse, chosen from the track\u2019s own species. '
+                    + 'The conservation file downloads once, which takes several minutes the first '
+                    + 'time and says so. Exon-length guardrails of 50 to 1,000 nt.',
+                usage: 'Select the stretch to scan, up to about 120 kb; an intron or two at a time is '
+                    + 'the intended use. What a hit MEANS is that the sequence is conserved like an '
+                    + 'exon, not that the spliceosome uses it: pseudo-exons are usually silenced, '
+                    + 'and whether one can be switched on is a question for the splice-site and '
+                    + 'cis-regulatory models, which score the sites rather than the conservation. '
+                    + 'Finding nothing over the threshold is reported as a result, not left as an '
+                    + 'empty track.',
+                links: [
+                    { title: 'GERP++', url: 'http://mendel.stanford.edu/SidowLab/downloads/gerp/',
+                      note: 'The constraint score the features are read from.' }
+                ]
+            }
+        },
+        {
             title: 'NMD consequence of a cassette exon', badge: 'BajaNMD', ready: true, group: 'splicing',
             blurb: 'Whether including an exon destroys the transcript, or skipping it does — and the oligos that switch it.',
             // Gene-level, like intron retention: the exons come from the annotation, so a

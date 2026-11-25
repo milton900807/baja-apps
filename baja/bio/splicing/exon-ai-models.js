@@ -16,36 +16,16 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
     // entry posted to /ljdonr TF-serving and is gone.
     return new Promise(async (resolve) => {
 
-        async function runCrypticExonFinder({ graph, selectedTrack, annotation, exec, infoPrompt, scriptPath }) {
-            if (!selectedTrack) {
-                graph.setMessage(" No track selected ");
-                return;
-            }
-
+        // The finder itself is baja/bio/splicing/cryptic-exon-finder.js, shared with the
+        // models catalogue, which lists every other splicing model. This passes the exon
+        // that was right-clicked, with four bases either side so a candidate that starts
+        // on the boundary is not cut in half.
+        const runCrypticExonFinder = async (species) => {
+            if (!selectedTrack) { graph.setMessage(' No track selected '); return; }
             graph.showSideMenu(null);
-
-            const xi = annotation.xi - 4;
-            const xf = annotation.xf + 4;
-
-            const r = await exec(
-                scriptPath,
-                selectedTrack.getSequenceRange(xi, xf),
-                selectedTrack.chr,
-                xi,
-                xf,
-                selectedTrack.strand
-            );
-
-            const cryptic_exons = await exec('baja/bio/splicing/cryptic-exons');
-            const g = cryptic_exons.generateCrypticExons(r, { xiAnchor: xi });
-
-            for (let cry of g) selectedTrack.add(cry);
-
-            if (r && r.status === "file_downloading") {
-                infoPrompt("Model building; this only needs to happen once but may take several minutes");
-                return;
-            }
-        }
+            await exec('baja/bio/splicing/cryptic-exon-finder.js', graph, selectedTrack,
+                { xi: annotation.xi - 4, xf: annotation.xf + 4 }, { species: species });
+        };
 
         const models = [
             {
@@ -309,30 +289,12 @@ function (graph, genegraph_panel_layout, selectedTrack, annotation) {
                     const submenu = [
                         {
                             label: 'Human',
-                            click: async () => {
-                                await runCrypticExonFinder({
-                                    graph,
-                                    selectedTrack,
-                                    annotation,
-                                    exec,
-                                    infoPrompt,
-                                    scriptPath: 'py/splicing/cryptic-exon-finder.py'
-                                });
-                            },
+                            click: async () => { await runCrypticExonFinder('human'); },
                             move: () => log('')
                         },
                         {
                             label: 'Mouse',
-                            click: async () => {
-                                await runCrypticExonFinder({
-                                    graph,
-                                    selectedTrack,
-                                    annotation,
-                                    exec,
-                                    infoPrompt,
-                                    scriptPath: 'py/splicing/cryptic-exon-finder-mm9.py'
-                                });
-                            },
+                            click: async () => { await runCrypticExonFinder('mouse'); },
                             move: () => log('')
                         }
                     ];

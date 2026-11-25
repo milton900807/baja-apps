@@ -1289,6 +1289,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # The cryptic exon finder could only be reached by right-clicking an exon, so the models
+  # catalogue listed every splicing model but that one.
+  install_group "Cryptic exons in the models catalogue" \
+    "baja/bio/splicing/cryptic-exon-finder.js:THE PHYLON CRYPTIC EXON FINDER, in one place" \
+    "baja/bio/splicing/exon-ai-models.js:The finder itself is baja/bio/splicing/cryptic-exon-finder.js" \
+    "baja/ml/models-catalogue.js:LISTED WHERE THE OTHER SPLICING MODELS ARE" \
+    "py/splicing/cryptic-exon-finder.py:Generate exon-like candidates using canonical splice motifs" \
+    "py/splicing/cryptic-exon-finder-mm9.py:UPDATED FOR mm9"
   # The layer names under the name tab were drawn on every track at once.
   install_group "The layer list shows on the selected track only" \
     "baja/bio/track.js:ONLY ON THE SELECTED TRACK"
