@@ -45,8 +45,7 @@ function (graph, track, annotation, panel) {
             }
             // An mRNA with no exons annotated is the whole genomic span under another name,
             // which looks like it worked and is not an mRNA.
-            const exons = (typeof t.getExons === 'function') ? (t.getExons() || [])
-                : ((t.annotations || []).filter((a) => a && a.type === 'Exon'));
+            const exons = exonsOfTrack(t);
             if (/^(cdna|mrna)$/i.test(ann) && exons.length < 1) {
                 resolve({ error: ('' + (t.name || 'that track')) + ' has no exons annotated, so a '
                     + 'spliced transcript cannot be built from it' });

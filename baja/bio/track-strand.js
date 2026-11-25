@@ -48,7 +48,7 @@ function () {
             if (typeof seq !== 'string' || !Number.isFinite(+track.xi) || !track.getExons) return 'plus';
             const at = (x) => { const i = Math.floor(x) - Math.floor(+track.xi); return (i >= 0 && i < seq.length) ? seq[i].toUpperCase() : ''; };
             let plusHits = 0, codingHits = 0;
-            for (const e of (track.getExons() || [])) {
+            for (const e of exonsOfTrack(track)) {
                 const lo = Math.min(+e.xi, +e.xf), hi = Math.max(+e.xi, +e.xf);
                 const donor = at(lo - 2) + at(lo - 1);
                 const acceptor = at(hi + 1) + at(hi + 2);

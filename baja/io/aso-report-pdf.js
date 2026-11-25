@@ -65,7 +65,7 @@ return (async () => {
     const mapperFor = (t) => {
         const anchors = [];
         try {
-            for (const a of ((t && t.getExons) ? (t.getExons() || []) : [])) {
+            for (const a of exonsOfTrack(t)) {
                 const xi = nOf(a.xi), xf = nOf(a.xf), gi = nOf(a.gxi), gf = nOf(a.gxf);
                 if (xi == null || xf == null || gi == null || gf == null) continue;
                 anchors.push({ x: xi, g: gi }, { x: xf, g: gf });
@@ -329,7 +329,7 @@ return (async () => {
         // Exons, to give the bar some structure to read positions against.
         let exons = [];
         try {
-            exons = (t.getExons ? (t.getExons() || []) : []).map((a) => {
+            exons = exonsOfTrack(t).map((a) => {
                 const lo = Math.min(nOf(a.xi), nOf(a.xf)), hi = Math.max(nOf(a.xi), nOf(a.xf));
                 return (isFinite(lo) && isFinite(hi)) ? { lo: lo, hi: hi } : null;
             }).filter(Boolean);

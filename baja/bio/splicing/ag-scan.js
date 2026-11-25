@@ -63,7 +63,7 @@ function (track, exon, opts) {
             const exonEnd = plus ? eHi : eLo;        // 3' end: the donor side
             const exonLen = eHi - eLo + 1;
 
-            const exons = (track.getExons ? track.getExons() : A.filter((a) => a && a.type === 'Exon'))
+            const exons = exonsOfTrack(track)
                 .filter((e) => e && isFinite(+e.xi) && isFinite(+e.xf))
                 .sort((a, b) => plus ? (Math.min(+a.xi, +a.xf) - Math.min(+b.xi, +b.xf))
                     : (Math.max(+b.xi, +b.xf) - Math.max(+a.xi, +a.xf)));

@@ -452,9 +452,24 @@ model, feature_names, train_args = unwrap_model(loaded)
 seq_for_scan = sequence
 cons_for_scan = cons_ref
 
-# strand == -1 => negative; else positive
-if strand == -1:
-    acceptor, donor = "TG", "GA"
+# WHICH MOTIFS, AND WHETHER THE MINUS BRANCH IS REACHABLE AT ALL.
+#
+# Two bugs sat here. works.param(5) arrives as a string, so `strand == -1` compared "-1"
+# against the integer -1 and was never true: every minus-strand gene was scanned with
+# plus-strand motifs, silently, and the only sign was an empty result.
+#
+# And the motifs themselves were "TG"/"GA", the plain REVERSE of GT and AG rather than
+# their reverse COMPLEMENT. This file's own scanner contract says
+# `acceptor ends at exon_start; donor starts at exon_end` with "- strand: acceptor='AC',
+# donor='CT'", which is also what the biology gives: reading the plus-strand text of a
+# minus-strand gene left to right, the exon is flanked on the left by AC (the donor's
+# complement) and on the right by CT (the acceptor's).
+def _is_minus(v):
+    t = str(v).strip().lower()
+    return t in ("-1", "-", "minus", "neg", "negative", "reverse")
+
+if _is_minus(strand):
+    acceptor, donor = "AC", "CT"
 else:
     acceptor, donor = "AG", "GT"
 

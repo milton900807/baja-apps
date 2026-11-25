@@ -66,8 +66,28 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
         ran = null; reply = { hits: [] };
         const g = mkGraph(), t = mkTrack();
         await run(g, t, { xi: 1000, xf: 3000 });
-        ok(t.added.length === 0 && g.results.some((m) => /nothing over the threshold/.test(m)),
-           'nothing found is said out loud: ' + g.results[0]);
+        ok(t.added.length === 0 && g.results.some((m) => /nothing reached 0\.98/.test(m)),
+           'nothing found is said out loud, WITH THE BAR IT DID NOT REACH: ' + g.results[0]);
+    }
+
+    // THE THRESHOLD IS THE WHOLE ANSWER when nothing comes back. "Nothing here" and
+    // "nothing cleared 0.98" read the same on screen and are not the same finding; STMN2,
+    // whose cryptic exon is the best known there is, comes back empty at 0.98 over all
+    // 55 kb of it.
+    {
+        ran = null; reply = { hits: [], meta: { n_candidates_generated: 12480 } };
+        const g = mkGraph(), t = mkTrack();
+        const r = await run(g, t, { xi: 1000, xf: 3000 }, { threshold: 0.75 });
+        ok(ran && ran.args[8] === 0.75, 'the threshold reaches the script: ' + JSON.stringify(ran.args.slice(5)));
+        ok(ran.args[5] === 50 && ran.args[6] === 1000,
+           'with the exon-length guardrails it expects in the arguments before it');
+        ok(g.results.some((m) => /nothing reached 0\.75/.test(m)), 'and is named in the result');
+        // HOW MANY WERE LOOKED AT separates "no usable motifs in this window" from
+        // "thousands, none conserved enough", which otherwise read identically.
+        ok(g.results.some((m) => /12,480 exon-like candidates scored/.test(m)),
+           'along with how many candidates were scored: ' + g.results[0]);
+        ok(r && r.threshold === 0.75 && r.candidates === 12480, 'and both come back: ' + JSON.stringify(r));
+        reply = { hits: [] };
     }
 
     // ---- SPECIES PICKS THE SCRIPT ----------------------------------------------------------
@@ -148,6 +168,9 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
         ok(/exec\('baja\/bio\/splicing\/cryptic-exon-finder\.js'/.test(cat),
            'and runs the same module');
         const entry = cat.slice(cat.indexOf("title: 'Cryptic exons'"), cat.indexOf("title: 'NMD consequence"));
+        ok(/choice: \{/.test(entry) && /Score threshold/.test(entry),
+           'the card asks for the threshold before the run rather than burying it');
+        ok(/0\.98/.test(entry) && /0\.5/.test(entry), 'with a strict default and a way down from it');
         ok(/selectedRange/.test(entry) && /markstart != null && t\.markend != null/.test(entry),
            'from the selected stretch, since the catalogue hands over a track and not an exon');
         // Requiring a selection made the button do nothing at all for anyone who had not

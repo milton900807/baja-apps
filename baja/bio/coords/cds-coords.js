@@ -34,7 +34,7 @@ function (track) {
 
             // Exonic positions in transcript order. A track with no exon annotation is treated as
             // one continuous exon over its own span, which is what a cDNA track is.
-            let exons = (track.getExons ? track.getExons() : A.filter((a) => a && ty(a) === 'exon'))
+            let exons = exonsOfTrack(track)
                 .filter((e) => e && isFinite(+e.xi) && isFinite(+e.xf))
                 .map((e) => ({ lo: Math.min(+e.xi, +e.xf), hi: Math.max(+e.xi, +e.xf) }));
             if (!exons.length) {

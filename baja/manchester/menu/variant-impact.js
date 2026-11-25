@@ -61,7 +61,7 @@ function (graph, opts) {
             const base = +track.xi;
             if (!isFinite(base)) return null;
             let exons = [];
-            try { exons = (track.getExons() || []).filter((e) => isFinite(+e.xi) && isFinite(+e.xf)); } catch (e) { exons = []; }
+            try { exons = exonsOfTrack(track).filter((e) => isFinite(+e.xi) && isFinite(+e.xf)); } catch (e) { exons = []; }
             if (!exons.length) return null;
             exons = exons.slice().sort((a, b) => (+a.xi) - (+b.xi));
             let tr = null;

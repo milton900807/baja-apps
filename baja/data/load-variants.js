@@ -187,7 +187,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             const exonGenomicSpan = () => {
                 try {
                     let lo = Infinity, hi = -Infinity;
-                    for (const a of (track.getExons() || [])) {
+                    for (const a of exonsOfTrack(track)) {
                         const gi = +a.gxi, gf = +a.gxf;
                         if (!isFinite(gi) || !isFinite(gf)) continue;
                         lo = Math.min(lo, gi, gf);

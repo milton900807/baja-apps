@@ -188,10 +188,21 @@ def scan_exon_like_candidates(
     if L < (min_len + 4):
         return [], {"acceptor": "", "donor": "", "acceptor_pos": [], "donor_pos": []}
 
-    if strand == "+":
-        acceptor, donor = "AG", "GT"
+    # THE SAME TWO BUGS AS THE HUMAN SCRIPT, mirrored. This compared against the literal
+    # "+", so a caller passing 1 or "1" -- which is what a track's strand is -- fell to the
+    # else and every PLUS-strand gene was scanned with minus-strand motifs.
+    #
+    # And those motifs were "CT"/"AC", which is this scanner's pair the wrong way round:
+    # it uses `acceptor` as the motif ending at exon_start and `donor` as the one starting
+    # at exon_end, so a minus-strand exon in plus-strand text is AC|EXON|CT.
+    def _is_minus(v):
+        t = str(v).strip().lower()
+        return t in ("-1", "-", "minus", "neg", "negative", "reverse")
+
+    if _is_minus(strand):
+        acceptor, donor = "AC", "CT"
     else:
-        acceptor, donor = "CT", "AC"
+        acceptor, donor = "AG", "GT"
 
     accept_re = re.compile(acceptor)
     donor_re = re.compile(donor)

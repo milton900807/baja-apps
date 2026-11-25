@@ -38,8 +38,16 @@ function (track, opts) {
         const MAX_TOTAL = (o.max_total != null) ? +o.max_total : 60;
         const plus = +(t.strand != null ? t.strand : 1) >= 0;
 
-        const exons = ((t.getExons ? t.getExons() : (t.annotations || [])
-            .filter((a) => a && ('' + a.type).toLowerCase() === 'exon')) || [])
+        // AN EMPTY getExons() IS NOT THE SAME AS NO getExons(). Branching on whether the
+        // METHOD exists means a track where it exists and returns nothing never reaches
+        // the annotations, and the gene reads as having no exons at all: no introns, no
+        // candidates, and nothing said about why. On STMN2 that is exactly what happened,
+        // in a module written from this same shape.
+        //
+        // The idiom the repo already settled on (exon-stability-report.js) is to CALL it
+        // and fall back on an empty result, not on a missing method, with the call wrapped
+        // so a track that throws falls back too rather than taking the run down.
+        const exons = exonsOfTrack(t)
             .map((e) => ({ lo: Math.min(+e.xi, +e.xf), hi: Math.max(+e.xi, +e.xf) }))
             .filter((e) => isFinite(e.lo) && isFinite(e.hi))
             .sort((a, b) => a.lo - b.lo);

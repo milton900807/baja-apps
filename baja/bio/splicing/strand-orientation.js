@@ -30,7 +30,7 @@ function (track, seq) {
             const i = Math.floor(x) - Math.floor(+t.xi);
             return (i >= 0 && i < s.length) ? s[i].toUpperCase() : '';
         };
-        for (const e of (t.getExons() || [])) {
+        for (const e of exonsOfTrack(t)) {
             const lo = Math.min(+e.xi, +e.xf), hi = Math.max(+e.xi, +e.xf);
             const donor = at(lo - 2) + at(lo - 1);       // intron side of the exon's 3' end
             const acceptor = at(hi + 1) + at(hi + 2);    // intron side of the exon's 5' end

@@ -218,7 +218,7 @@ function (server, graph, genegraph_panel_layout, context, presetQuery) {
         const utrRange = (track, which) => {
             const cds = featRange(annsOfType(track, 'CDS'));
             if (!cds) return null;
-            const exons = track.getExons ? track.getExons() : annsOfType(track, 'Exon');
+            const exons = exonsOfTrack(track);
             let tx = featRange(exons);
             if (!tx) tx = { xi: 0, xf: (track.sequence ? track.sequence.length : Math.abs(track.xf - track.xi)) };
             const plus = isPlusStrand(track);
@@ -229,10 +229,10 @@ function (server, graph, genegraph_panel_layout, context, presetQuery) {
             const f = ('' + (feature || '')).toLowerCase().trim();
             if (!f) return null;
             let m = f.match(/exon\s*(\d+)/);
-            if (m) return nthRange(track.getExons ? track.getExons() : annsOfType(track, 'Exon'), parseInt(m[1], 10));
+            if (m) return nthRange(exonsOfTrack(track), parseInt(m[1], 10));
             m = f.match(/intron\s*(\d+)/);
             if (m) return nthRange(track.getIntrons ? track.getIntrons(0) : [], parseInt(m[1], 10));
-            if (f.indexOf('exon') >= 0) return featRange(track.getExons ? track.getExons() : annsOfType(track, 'Exon'));
+            if (f.indexOf('exon') >= 0) return featRange(exonsOfTrack(track));
             if (f.indexOf('intron') >= 0) return featRange(track.getIntrons ? track.getIntrons(0) : []);
             if (f.indexOf('cds') >= 0 || f.indexOf('coding') >= 0) return featRange(annsOfType(track, 'CDS'));
             if (f.indexOf('utr') >= 0) {
@@ -1094,8 +1094,8 @@ function (server, graph, genegraph_panel_layout, context, presetQuery) {
                         else { tA = (graph.track || [])[0]; tB = (graph.track || [])[1]; }
                         if (!tA || !tB) { graph.setMessage(' Need two tracks to compare.'); return; }
                         const kind = featStr.indexOf('intron') >= 0 ? 'intron' : 'exon';
-                        const listA = kind === 'intron' ? (tA.getIntrons ? tA.getIntrons(0) : []) : (tA.getExons ? tA.getExons() : []);
-                        const listB = kind === 'intron' ? (tB.getIntrons ? tB.getIntrons(0) : []) : (tB.getExons ? tB.getExons() : []);
+                        const listA = kind === 'intron' ? (tA.getIntrons ? tA.getIntrons(0) : []) : exonsOfTrack(tA);
+                        const listB = kind === 'intron' ? (tB.getIntrons ? tB.getIntrons(0) : []) : exonsOfTrack(tB);
                         const n = Math.min((listA || []).length, (listB || []).length);
                         if (!n) { graph.setMessage(' No ' + kind + 's to compare on both tracks.'); return; }
                         graph.setMessage(' Comparing ' + n + ' ' + kind + ' pairs between '

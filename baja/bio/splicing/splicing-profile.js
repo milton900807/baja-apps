@@ -105,7 +105,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode, p
                 let __exonPairs = [];
                 if (mode === 'psi' && track.getExons) {
                     try {
-                        const ex = (track.getExons() || [])
+                        const ex = exonsOfTrack(track)
                             .map((e) => [+e.xi, +e.xf])
                             .filter((p) => isFinite(p[0]) && isFinite(p[1]))
                             .sort((a, b) => a[0] - b[0]);

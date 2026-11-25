@@ -1289,6 +1289,39 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # An empty getExons() read as a track with no exons at all, in twenty-one places.
+  install_group "An empty getExons is not the same as no getExons" \
+    "lib/core.js:WITHOUT THE TRAP THAT HAS NOW COST TWO FEATURES" \
+    "baja/bio/splicing/cryptic-exon-candidates.js:const exons = exonsOfTrack(t)" \
+    "baja/bio/orfs/exon-removal-impact.js:const allExons = exonsOfTrack(track);" \
+    "baja/bio/splicing/splicing-profile.js:const ex = exonsOfTrack(track)" \
+    "baja/bio/splicing/ag-scan.js:const exons = exonsOfTrack(track)" \
+    "baja/bio/coords/cds-coords.js:let exons = exonsOfTrack(track)" \
+    "baja/bio/orfs/make-mrna.js:const exons = exonsOfTrack(t);" \
+    "baja/bio/track-strand.js:exonsOfTrack(track)" \
+    "baja/bio/track-coords.js:The shared one: an empty getExons" \
+    "baja/bio/splicing/cis-attribution.js:exonsOfTrack(track)" \
+    "baja/bio/splicing/strand-orientation.js:exonsOfTrack(t)" \
+    "baja/bio/rna/rna-dynamic-range.js:ex = exonsOfTrack(track);" \
+    "baja/data/prompt-action.js:const exons = exonsOfTrack(track);" \
+    "baja/data/alt-contig-map.js:exonsOfTrack(track)" \
+    "baja/data/load-variants.js:exonsOfTrack(track)" \
+    "baja/data/bed-hits.js:exonsOfTrack(track).slice()" \
+    "baja/data/ip.js:exonsOfTrack(track).slice()" \
+    "baja/data/patents.js:exonsOfTrack(track).slice()" \
+    "baja/io/aso-report-pdf.js:exonsOfTrack(t)" \
+    "baja/manchester/menu/variant-impact.js:exonsOfTrack(track)" \
+    "baja/manchester/menu/compare-tracks.js:exonsOfTrack(t)" \
+    "baja/manchester/menu/comparative-tools.js:exonsOfTrack(tA)"
+
+  # The minus-strand branch was unreachable, and its motifs were the plain reverse rather
+  # than the reverse complement.
+  install_group "Cryptic exon finders read the strand they are given" \
+    "py/splicing/cryptic-exon-finder.py:WHICH MOTIFS, AND WHETHER THE MINUS BRANCH IS REACHABLE AT ALL" \
+    "py/splicing/cryptic-exon-finder-mm9.py:THE SAME TWO BUGS AS THE HUMAN SCRIPT, mirrored" \
+    "baja/bio/splicing/cryptic-exon-finder.js:THE THRESHOLD IS THE WHOLE ANSWER" \
+    "baja/ml/models-catalogue.js:THE THRESHOLD IS THE EXPERIMENT"
+
   # The cryptic exon finder could only be reached by right-clicking an exon, so the models
   # catalogue listed every splicing model but that one.
   install_group "Cryptic exons in the models catalogue" \

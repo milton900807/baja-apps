@@ -58,7 +58,7 @@ function (graph, genegraph_panel_layout) {
 
             // Transcript (cDNA) coordinate -> genomic x through the exons; split each
             // interval at intron boundaries into genomic segments.
-            const exons = (track.getExons ? (track.getExons() || []) : []).slice();
+            const exons = exonsOfTrack(track).slice();
             if (track.strand >= 0) exons.sort((a, b) => a.xi - b.xi);
             else exons.sort((a, b) => b.xi - a.xi);
             const hasExons = exons.length > 0;

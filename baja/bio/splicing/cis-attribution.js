@@ -65,7 +65,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
                     const i = Math.floor(x) - Math.floor(+track.xi);
                     return (i >= 0 && i < seq.length) ? seq[i].toUpperCase() : '';
                 };
-                for (const e of (track.getExons() || [])) {
+                for (const e of exonsOfTrack(track)) {
                     const lo = Math.min(+e.xi, +e.xf), hi = Math.max(+e.xi, +e.xf);
                     const donor = at(lo - 2) + at(lo - 1);
                     const acceptor = at(hi + 1) + at(hi + 2);
@@ -251,7 +251,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetSite) {
         const sitesNear = (track, xwc) => {
             const out = [];
             let exons = [];
-            try { exons = track.getExons() || []; } catch (e) { exons = []; }
+            try { exons = exonsOfTrack(track); } catch (e) { exons = []; }
             if (exons.length) {
                 const plus = +track.strand >= 0;
                 const nearestBy = (f) => exons.reduce((a, b) =>

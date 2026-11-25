@@ -109,7 +109,7 @@ function (track, exon, opts) {
                 };
             };
 
-            const allExons = (track.getExons ? track.getExons() : A.filter((a) => a && a.type === 'Exon'));
+            const allExons = exonsOfTrack(track);
             const others = allExons.filter((e) => e !== exon);
             const O = opts || {};
             const repl = O.replaceWith || null;

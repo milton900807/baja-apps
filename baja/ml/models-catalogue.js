@@ -478,7 +478,7 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             // listed every splicing model but this, and it read as having been lost.
             title: 'Cryptic exons', badge: 'Phylon', ready: true, group: 'splicing',
             blurb: 'Stretches of intron as conserved as an exon, which is what a pseudo-exon looks like.',
-            open: () => __onParentTrack('Phylon cryptic exons', (list) => {
+            open: (chosen) => __onParentTrack('Phylon cryptic exons', (list) => {
                 const t = (list && list[0]) || null;
                 if (!t) return null;
                 // THE SELECTED STRETCH, OR WHAT IS ON SCREEN. This reads a conservation
@@ -496,7 +496,8 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                 if (!a && t.tgraph && t.tgraph.xmin != null && t.tgraph.xmax != null) {
                     a = { xi: t.tgraph.xmin, xf: t.tgraph.xmax };
                 }
-                return exec('baja/bio/splicing/cryptic-exon-finder.js', graph, t, a || {}, {});
+                return exec('baja/bio/splicing/cryptic-exon-finder.js', graph, t, a || {},
+                    { threshold: (chosen != null && chosen !== '') ? +chosen : 0.98 });
             }),
             docs: {
                 summary: 'Finds stretches of intron that are as conserved as an exon. Candidates are '
@@ -516,6 +517,27 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                     + 'cis-regulatory models, which score the sites rather than the conservation. '
                     + 'Finding nothing over the threshold is reported as a result, not left as an '
                     + 'empty track.',
+                // THE THRESHOLD IS THE EXPERIMENT. At 0.98 a whole gene can come back empty,
+                // which reads as "there is nothing here" and means "nothing cleared 0.98".
+                // STMN2 is the case that makes this obvious: its cryptic exon is the
+                // best-known one there is, and a strict pass over all 55 kb of it returns
+                // nothing. Asking for the bar before the run, rather than burying it, is
+                // the difference between a tool that answers and one that just says no.
+                choice: {
+                    label: 'Score threshold',
+                    value: '0.98',
+                    note: 'The posterior a candidate must reach. Lower it to see what is '
+                        + 'there; every hit is still a proposal about conservation, not a '
+                        + 'claim the exon is used.',
+                    options: [
+                        { value: '0.98', label: '0.98 — strict (the default)',
+                          note: 'Few hits, and a gene with a known cryptic exon can still come back empty.' },
+                        { value: '0.9', label: '0.9 — what is nearly there' },
+                        { value: '0.75', label: '0.75 — exploratory' },
+                        { value: '0.5', label: '0.5 — everything the model leans toward',
+                          note: 'Expect many hits in a long intron; read them as an ordering, not a list of exons.' }
+                    ]
+                },
                 links: [
                     { title: 'GERP++', url: 'http://mendel.stanford.edu/SidowLab/downloads/gerp/',
                       note: 'The constraint score the features are read from.' }

@@ -62,6 +62,15 @@ function (graph, track, region, opts) {
             return await stop('That track has no sequence loaded to scan.');
         }
 
+        // THE THRESHOLD IS THE WHOLE ANSWER when nothing comes back. The script defaults to
+        // 0.98, a strict posterior: a scan that reports nothing at 0.98 has not said the
+        // intron is empty, it has said nothing cleared 0.98. Those read the same on screen
+        // and are not the same finding, so the number travels with the result and can be
+        // chosen before the run.
+        const TH = (o.threshold != null && isFinite(+o.threshold)) ? +o.threshold : 0.98;
+        const MIN_EXON = (o.min_exon != null) ? +o.min_exon : 50;
+        const MAX_EXON = (o.max_exon != null) ? +o.max_exon : 1000;
+
         const sp = ('' + (o.species || t.species || '')).toLowerCase();
         const mouse = /mouse|mus|mm9|mm10|mm39/.test(sp);
         const script = mouse ? 'py/splicing/cryptic-exon-finder-mm9.py'
@@ -75,7 +84,8 @@ function (graph, track, region, opts) {
         } catch (e) { W = null; }
 
         try {
-            const r = await exec(script, t.getSequenceRange(xi, xf), t.chr, xi, xf, t.strand);
+            const r = await exec(script, t.getSequenceRange(xi, xf), t.chr, xi, xf, t.strand,
+                MIN_EXON, MAX_EXON, 100000, TH);
             if (r && r.status === 'file_downloading') {
                 try { if (W) W.done(); } catch (e) { }
                 await stop('The conservation file is downloading. This happens once and can take '
@@ -97,15 +107,28 @@ function (graph, track, region, opts) {
             try { if (W) W.done(); } catch (e) { }
             // NONE IS A RESULT. The old path added nothing and said nothing, which reads
             // exactly like the model never ran.
+            // HOW MANY WERE LOOKED AT, not just how many survived. The script counts the
+            // exon-like candidates it cut from the motifs, and that number separates the
+            // reasons for an empty result that otherwise look identical: nothing in the
+            // window carries usable splice motifs at all, or thousands did and none was
+            // conserved enough to clear the bar.
+            const meta = (r && r.meta) || {};
+            const nCand = +meta.n_candidates_generated;
             try {
                 graph.setResultMessage(' Cryptic exons · ' + (t.name || 'track') + ' · '
                     + (found.length
                         ? (found.length + ' candidate' + (found.length === 1 ? '' : 's')
-                            + ' added over ' + (xf - xi) + ' nt')
-                        : ('nothing over the threshold in those ' + (xf - xi) + ' nt'))
+                            + ' added over ' + (xf - xi) + ' nt at ' + TH)
+                        : ('nothing reached ' + TH + ' in those ' + (xf - xi) + ' nt'
+                            + (isFinite(nCand)
+                                ? (', of ' + nCand.toLocaleString() + ' exon-like candidate'
+                                    + (nCand === 1 ? '' : 's') + ' scored')
+                                : '')))
                     + ' · ' + (mouse ? 'mm9' : 'GRCh38') + ' conservation ');
             } catch (e) { }
-            return { added: found.length, xi: xi, xf: xf, species: mouse ? 'mouse' : 'human' };
+            return { added: found.length, xi: xi, xf: xf, threshold: TH,
+                candidates: isFinite(nCand) ? nCand : null,
+                species: mouse ? 'mouse' : 'human' };
         } catch (e) {
             try { if (W) W.fail('Cryptic exon finder: ' + ((e && e.message) ? e.message : e)); } catch (e2) { }
             throw e;

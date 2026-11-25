@@ -59,7 +59,7 @@ function (server, track) {
     const altExons = () => {
         const out = [];
         try {
-            for (const a of (track.getExons() || [])) {
+            for (const a of exonsOfTrack(track)) {
                 const gi = +a.gxi, gf = +a.gxf, xi = +a.xi, xf = +a.xf;
                 if (!isFinite(gi) || !isFinite(gf) || !isFinite(xi) || !isFinite(xf)) continue;
                 out.push({

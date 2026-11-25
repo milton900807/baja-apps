@@ -23,9 +23,9 @@ function () {
         const num = (v) => { const n = +v; return isFinite(n) ? n : null; };
         const bare = (v) => ('' + (v == null ? '' : v)).trim().toLowerCase().replace(/^chr/, '');
 
-        const exonsOf = (t) => {
-            try { return (t && t.getExons) ? (t.getExons() || []) : []; } catch (e) { return []; }
-        };
+        // The shared one: an empty getExons() falls back to the annotations rather
+        // than reading as a track with no exons. See lib/core.js.
+        const exonsOf = (t) => exonsOfTrack(t);
 
         // Track x -> genomic. Null when the track cannot say.
         const genomicOf = (t, localX) => {

@@ -204,7 +204,7 @@ function (graph, tracks, opts) {
         // reporting an empty result as though the samples simply disagreed.
         const spanOf = (t) => {
             try {
-                const ex = t.getExons ? (t.getExons() || []) : [];
+                const ex = exonsOfTrack(t);
                 if (ex.length) {
                     const gs = ex.flatMap((a) => [+a.gxi, +a.gxf]).filter(isFinite);
                     if (gs.length) return [Math.min.apply(null, gs), Math.max.apply(null, gs)];

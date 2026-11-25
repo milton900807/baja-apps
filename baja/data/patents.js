@@ -106,7 +106,7 @@ function (graph, genegraph_panel_layout, tracks) {
             // The x-axis is genomic and the track sequence is exon-collapsed, so a
             // transcript (cDNA) coordinate maps to genomic x through the exons.
             // Split each patent interval at intron boundaries into genomic segments.
-            const exons = (track.getExons ? (track.getExons() || []) : []).slice();
+            const exons = exonsOfTrack(track).slice();
             if (track.strand >= 0) exons.sort((a, b) => a.xi - b.xi);
             else exons.sort((a, b) => b.xi - a.xi);
 

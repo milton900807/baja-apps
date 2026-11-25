@@ -68,7 +68,7 @@ function (graph, genegraph_panel_layout) {
         // match anywhere in track B's sequence, drawing a % TrackLink per feature.
         async function runAllFeatures(tA, tB, kind) {
             if (!tA || !tB) { graph.setMessage(' Need two tracks to compare.'); return; }
-            let listA = kind === 'intron' ? (tA.getIntrons ? tA.getIntrons(0) : []) : (tA.getExons ? tA.getExons() : []);
+            let listA = kind === 'intron' ? (tA.getIntrons ? tA.getIntrons(0) : []) : exonsOfTrack(tA);
             const byLeft = (a, b) => Math.min(a.xi, a.xf) - Math.min(b.xi, b.xf);
             listA = (listA || []).slice().sort(byLeft);   // left-to-right on A
             if (!listA.length) { graph.setMessage(' No ' + kind + 's found on ' + (tA.name || 'track A') + '.'); return; }

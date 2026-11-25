@@ -106,7 +106,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, tissueKey) {
         // the coding part. A track with no exon annotations is drawn across its full length.
         const transcriptSpans = (track, lo, hi) => {
             let ex = [];
-            try { ex = (track.getExons ? track.getExons() : (track.annotations || []).filter((a) => a && a.type === 'Exon')); } catch (e) { }
+            try { ex = exonsOfTrack(track); } catch (e) { }
             const spans = (ex || []).filter((a) => a && isFinite(+a.xi) && isFinite(+a.xf))
                 .map((a) => [Math.min(+a.xi, +a.xf), Math.max(+a.xi, +a.xf)])
                 .sort((u, v) => u[0] - v[0]);
