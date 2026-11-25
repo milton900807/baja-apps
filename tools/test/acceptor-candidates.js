@@ -132,6 +132,31 @@ const rank = async (t, prof, o) => ((await call(t, prof, o)).rows);
     ok(/2 acceptor positions were scored/.test(res.reason) && /2 introns/.test(res.reason),
         'nothing intronic: counts both, got: ' + res.reason);
 
+    // AN EMPTY getExons() FALLS BACK TO annotations. This is the STMN2 bug: the method
+    // exists and returns nothing, the annotations hold the exons, and branching on which
+    // method EXISTS rather than on what it RETURNED reported a five-exon gene as having
+    // none. The fixture deliberately keeps both, with getExons() empty.
+    const emptyMethod = {
+        name: 'T', xi: 0, xf: 6000, strand: 1,
+        annotations: [[100, 300], [2300, 2500], [4500, 4700]].map((e, i) => ({
+            type: 'Exon', index: i + 1, xi: e[0], xf: e[1] })),
+        getExons() { return []; }
+    };
+    res = await call(emptyMethod, { acceptor: [[1000, 0.5], [3000, 0.4]] });
+    ok(res.ok === true, 'empty getExons() falls back to annotations: ' + (res.reason || 'ok'));
+    ok(res.rows.length === 2, 'and ranks both intronic positions, got ' + res.rows.length);
+
+    // A track with NEITHER says so, and names which source it read.
+    const neither = { name: 'T', xi: 0, xf: 6000, strand: 1, annotations: [], getExons() { return []; } };
+    res = await call(neither, { acceptor: [[1000, 0.5]] });
+    ok(res.ok === false && /read via annotations/.test(res.reason),
+        'no exons anywhere: names the source it fell back to, got: ' + res.reason);
+
+    // A throwing getExons() must not take the whole run down.
+    const thrower = Object.assign({}, emptyMethod, { getExons() { throw new Error('boom'); } });
+    res = await call(thrower, { acceptor: [[1000, 0.5], [3000, 0.4]] });
+    ok(res.ok === true && res.rows.length === 2, 'a throwing getExons() falls back rather than failing');
+
     // A successful call reports the pool it ranked against and what it was given.
     res = await call(mk(1), { acceptor: [[1000, 0.5], [1100, 0.4], [200, 0.9]] });
     ok(res.ok === true && res.outOf === 2 && res.scored === 3,

@@ -46,16 +46,30 @@ function (track, opts) {
         const comma = (v) => ('' + v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
         const fail = (reason) => ({ ok: false, reason: reason, rows: [] });
 
-        const exons = ((t.getExons ? t.getExons() : (t.annotations || [])
-            .filter((a) => a && ('' + a.type).toLowerCase() === 'exon')) || [])
+        // AN EMPTY getExons() IS NOT THE SAME AS NO getExons(), and branching on which
+        // METHOD exists rather than on what it RETURNED is what made a five-exon STMN2
+        // track report that it had none. exon-stability-report.js already warns about
+        // exactly this: "a track whose annotations say Exon but whose getExons() is
+        // empty". Try the method, and fall back on an empty answer, not just a missing one.
+        let raw = [];
+        try { raw = (t.getExons && t.getExons()) || []; } catch (e) { raw = []; }
+        let via = 'getExons()';
+        if (!raw.length) {
+            via = 'annotations';
+            try {
+                raw = (t.annotations || []).filter(
+                    (a) => a && ('' + a.type).toLowerCase() === 'exon');
+            } catch (e) { raw = []; }
+        }
+        const exons = (raw || [])
             .map((e) => ({ lo: Math.min(+e.xi, +e.xf), hi: Math.max(+e.xi, +e.xf) }))
             .filter((e) => isFinite(e.lo) && isFinite(e.hi))
             .sort((a, b) => a.lo - b.lo);
         if (exons.length < 2) {
             return fail(who + ' has ' + exons.length + ' readable annotated exon'
-                + (exons.length === 1 ? '' : 's') + ', so it has no introns of its own to '
-                + 'search. A transcript track with its exons drawn should report more than '
-                + 'this; if it does, the exon annotations are not reaching this tool.');
+                + (exons.length === 1 ? '' : 's') + ' (read via ' + via + '), so it has no '
+                + 'introns of its own to search. If the track clearly draws more than that, '
+                + 'its exons carry coordinates this tool could not read.');
         }
 
         const introns = [];
