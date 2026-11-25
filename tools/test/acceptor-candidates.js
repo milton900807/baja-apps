@@ -191,6 +191,34 @@ const rank = async (t, prof, o) => ((await call(t, prof, o)).rows);
     ok(res.ok === true && res.outOf === 2 && res.scored === 3,
         'success carries outOf and scored, got ' + res.outOf + '/' + res.scored);
 
+    // ---- THE ARCS -----------------------------------------------------------------
+    // The ranker hands back the introns so the view can draw each candidate as the
+    // junction it would make. The donor end is the first intronic base after the UPSTREAM
+    // exon, which is the low end of the intron on a plus-strand track and the HIGH end on
+    // a minus-strand one, because transcript order runs the other way. Getting that
+    // backwards draws every arc across the whole intron and still looks plausible.
+    res = await call(mk(1), { acceptor: [[1000, 0.5], [3000, 0.4]] });
+    ok(Array.isArray(res.introns) && res.introns.length === 2, 'introns come back with the rows');
+    ok(res.introns[0].lo === 301 && res.introns[0].hi === 2299,
+        'intron 0 is the gap between exon 1 and exon 2, got ' + JSON.stringify(res.introns[0]));
+    ok(res.plus === true, 'plus strand reported as such');
+
+    const minus = await call(mk(-1), { acceptor: [[1000, 0.5]] });
+    ok(minus.plus === false, 'minus strand reported as such, got ' + minus.plus);
+
+    // The view's own rule, restated here so the two cannot drift apart: on a plus-strand
+    // track the donor is intron.lo, on a minus-strand one it is intron.hi.
+    const donorFor = (r, introns, isPlus) => {
+        const iv = introns[r.intron];
+        return isPlus ? iv.lo : iv.hi;
+    };
+    ok(donorFor(res.rows[0], res.introns, true) === 301,
+        'plus-strand donor is the low end of the intron, got ' + donorFor(res.rows[0], res.introns, true));
+    ok(donorFor(minus.rows[0], minus.introns, false) === 2299,
+        'minus-strand donor is the high end, got ' + donorFor(minus.rows[0], minus.introns, false));
+    ok(res.rows[0].intron === 0 && res.rows[1].intron === 1,
+        'each row names the intron its arc starts from');
+
     console.log(fails ? ('\n' + fails + ' FAILED') : '\nall passed');
     process.exit(fails ? 1 : 0);
 })();

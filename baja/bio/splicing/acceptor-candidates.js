@@ -43,6 +43,7 @@ function (track, opts) {
         const EDGE = (o.edge != null) ? +o.edge : 3;
         const MIN_INTRON = (o.min_intron != null) ? +o.min_intron : 20;
         const who = t.name || 'This track';
+        const plus = +(t.strand != null ? t.strand : 1) >= 0;
         const comma = (v) => ('' + v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
         const fail = (reason) => ({ ok: false, reason: reason, rows: [] });
 
@@ -198,6 +199,14 @@ function (track, opts) {
             rows[i].outOf = n;
             rows[i].score = +rows[i].score.toFixed(4);
         }
-        return { ok: true, outOf: n, scored: scored, rows: (TOP > 0) ? rows.slice(0, TOP) : rows };
+        // The introns go back with the rows so a caller can draw each candidate as the
+        // JUNCTION it would make. An acceptor on its own is not a splice event: it is one
+        // end of one, and the other end is the donor of the intron it sits in.
+        return {
+            ok: true, outOf: n, scored: scored,
+            introns: introns.map((x) => ({ lo: x.lo, hi: x.hi })),
+            plus: plus,
+            rows: (TOP > 0) ? rows.slice(0, TOP) : rows
+        };
     })();
 }
