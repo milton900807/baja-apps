@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+bajanmd/__init__.py
+bajanmd/consequence.py
+bajanmd/design.py
+bajanmd/offtarget.py
+bajanmd.egg-info/PKG-INFO
+bajanmd.egg-info/SOURCES.txt
+bajanmd.egg-info/dependency_links.txt
+bajanmd.egg-info/requires.txt
+bajanmd.egg-info/top_level.txt
+tests/test_consequence.py

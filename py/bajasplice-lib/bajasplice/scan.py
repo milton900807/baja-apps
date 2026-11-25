@@ -189,10 +189,35 @@ def main():
     ap.add_argument("--region", help="chr:start-end:strand")
     ap.add_argument("--rank", choices=["acceptor", "donor"],
                     help="rank intronic cryptic candidates instead of printing a track")
+    ap.add_argument("--cryptic", action="store_true",
+                    help="re-rank acceptor candidates with the trained cryptic "
+                         "model (train it with `bajasplice train cryptic`). "
+                         "Stage one asks whether a position looks like an "
+                         "acceptor; this asks whether TDP-43 holds it shut")
+    ap.add_argument("--genome", help="hg38 FASTA, required with --cryptic")
     ap.add_argument("--ckpt")
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--out")
     a = ap.parse_args()
+
+    if a.cryptic:
+        if not a.gene:
+            raise SystemExit("--cryptic requires --gene")
+        if not a.genome:
+            raise SystemExit("--cryptic needs --genome (hg38 FASTA) for the "
+                             "sequence features")
+        from bajasplice.evaluate.exon_age import TargetFasta
+        from bajasplice.train.cryptic import rank_gene
+        out = rank_gene(a.gene, TargetFasta(a.genome), ckpt=a.ckpt,
+                        top=a.top)
+        if out is None or not len(out):
+            print(f"no intronic acceptor candidates in {a.gene}")
+            return
+        print(out.to_string(index=False))
+        if a.out:
+            out.to_csv(a.out, sep="\t", index=False)
+            print(f"\nwritten to {a.out}")
+        return
 
     if a.rank:
         if not a.gene:
