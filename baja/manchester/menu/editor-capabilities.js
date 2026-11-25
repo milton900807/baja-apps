@@ -1957,6 +1957,56 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // WHAT IS PUBLISHED TO BE IN THIS STRETCH. Everything else in the catalogue
+                // computes from the sequence on screen. This one asks the literature, which
+                // means its answers can be wrong in a way a model cannot be: so each claim
+                // has to arrive with the publication's own sequence for the feature, that
+                // sequence is searched for in the selection, and only what is found is
+                // drawn. The rest is reported as unplaceable rather than quietly omitted.
+                name: 'knowledge_layer',
+                summary: 'ASK WHAT THE LITERATURE SAYS IS INSIDE THE SELECTED STRETCH AND DRAW '
+                    + 'WHAT CAN BE VERIFIED AGAINST THE SEQUENCE. This is the answer to "what '
+                    + 'is known about this intron", "what is published in this region", '
+                    + '"annotate this selection from the literature", "find the cryptic exon '
+                    + 'sites described in papers here", "build a knowledge layer", "what have '
+                    + 'people found in this stretch". It searches publications, and every '
+                    + 'feature it returns is placed by finding that publication\u2019s own '
+                    + 'sequence in the selected stretch: claims whose sequence is not there are '
+                    + 'reported, never drawn at a stated coordinate. It is NOT a prediction '
+                    + 'from the sequence, which is what the splicing and cryptic exon models '
+                    + 'are for, and it changes nothing on the track: the result is a removable '
+                    + 'layer of published claims.',
+                needs: 'selection',
+                params: {
+                    features: {
+                        type: 'number', default: 12,
+                        about: 'how many features to ask for at most, 1 to 25'
+                    }
+                },
+                run: async (a) => {
+                    const t = oneTrack();
+                    if (!t || !hasSel(t)) { result('Select a stretch of sequence first.'); return; }
+                    const r2 = rangeOf(t);
+                    return await exec('baja/bio/knowledge/region-knowledge.js', graph, t,
+                        { xi: r2.start, xf: r2.end }, { max_features: a.features });
+                },
+                preview: (a) => {
+                    const t = oneTrack();
+                    const n = (t && hasSel(t)) ? (rangeOf(t).end - rangeOf(t).start + 1) : 0;
+                    return 'ask what the literature says is inside the selected '
+                        + (n ? (n + ' nt of ' + (t.name || 'the track')) : 'stretch')
+                        + ', and draw the claims whose sequence is actually there';
+                },
+                argBlocker: () => {
+                    const t = oneTrack();
+                    if (!t) return 'no track is selected';
+                    if (!hasSel(t)) return 'nothing is selected: this asks about a stretch of '
+                        + 'sequence, so select one first';
+                    return '';
+                }
+            },
+
+            {
                 // THE QUESTION AFTER "HOW ALIKE ARE THEY". Two paralogues on the canvas and
                 // a comparison between them raises the next question immediately: what
                 // would have to change for this one to make that one's protein. Every

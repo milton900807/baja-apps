@@ -1289,6 +1289,17 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # Ask the literature what is in a selected stretch, and draw only what can be found in
+  # the sequence.
+  install_group "The knowledge layer" \
+    "baja/bio/knowledge/selection-json.js:WHAT IS IN THIS STRETCH, AS DATA" \
+    "baja/bio/knowledge/place-by-sequence.js:NOTHING IS DRAWN THAT CANNOT BE FOUND IN THE SEQUENCE" \
+    "baja/bio/knowledge/knowledge-layer.js:WHAT THE LITERATURE PUTS IN THIS STRETCH, DRAWN ON IT" \
+    "baja/bio/knowledge/region-knowledge.js:ASK WHAT IS KNOWN TO BE IN THIS STRETCH" \
+    "py/bio/knowledge/region-knowledge.py:WHY THE SEQUENCE IS NOT SENT" \
+    "baja/manchester/menu/editor-capabilities.js:WHAT IS PUBLISHED TO BE IN THIS STRETCH" \
+    "py/bio/editor/plan.py:8d. WHAT IS *KNOWN* ABOUT A STRETCH"
+
   # An empty getExons() read as a track with no exons at all, in twenty-one places.
   install_group "An empty getExons is not the same as no getExons" \
     "lib/core.js:WITHOUT THE TRAP THAT HAS NOW COST TWO FEATURES" \

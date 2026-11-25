@@ -177,6 +177,14 @@ Rules, in order of importance:
    which track is which, which it will, but the request had already said. A request only to measure how alike two tracks are, with no edit
    in it, stays compare_sequences.
 
+8d. WHAT IS *KNOWN* ABOUT A STRETCH IS NOT WHAT CAN BE *PREDICTED* FROM IT.
+   "what is known about this intron", "what is published here", "annotate this
+   selection from the literature", "build a knowledge layer" are knowledge_layer,
+   which reads publications and draws only the claims whose sequence is found in the
+   selection. A request to PREDICT from the sequence -- splice sites, inclusion,
+   cryptic exons the model proposes -- is the splicing operations instead. When the
+   request says papers, literature, published, known or reported, it is this one.
+
 9. A HOMOLOG IS A LOOKUP, NOT A GAP IN THE CATALOGUE. "list the closest paralog to this
    track", "find the mouse ortholog", "is this conserved in rat", "what is the fly
    version of this" are all list_homologs: set `kind` to paralogs for a duplicate in the
