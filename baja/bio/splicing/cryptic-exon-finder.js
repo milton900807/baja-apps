@@ -102,11 +102,36 @@ function (graph, track, region, opts) {
                     + ('' + (r.message || '')).split('\n')[0]);
                 return { missing: r.dependency || 'dependency' };
             }
-            if (r && r.status === 'file_downloading') {
+            // ONE LITERAL WHERE THERE IS A FAMILY. This knew the single string
+            // 'file_downloading', but the staging layer resolves 'still_downloading' from
+            // three places and 'download_trigger_failed' from a fourth, so the case this
+            // was written for fell through to the generic branch: the file has been
+            // downloading the whole time, and the first run reported a scan of nothing
+            // instead of saying so.
+            //
+            // The GERP bigWig is a large file. This is not "several minutes" the way a
+            // model warm-up is, and saying so stops the same run being tried every minute.
+            const st = '' + ((r && r.status) || '');
+            if (/download/i.test(st)) {
                 try { if (W) W.done(); } catch (e) { }
-                await stop('The conservation file is downloading. This happens once and can take '
-                    + 'several minutes; run it again when it is done.');
-                return { downloading: true };
+                const started = (r && r.file && r.file.started) ? (+r.file.started) : 0;
+                const mins = started ? Math.max(1, Math.round((Date.now() / 1000 - started) / 60)) : 0;
+                await stop(/fail/i.test(st)
+                    ? ('The server could not start the download of the '
+                        + (mouse ? 'mm9' : 'GRCh38') + ' conservation file this needs. '
+                        + 'Nothing was scanned.')
+                    : ('The ' + (mouse ? 'mm9' : 'GRCh38') + ' conservation file this reads is '
+                        + 'still downloading on the server'
+                        + (mins ? (', ' + mins + ' minute' + (mins === 1 ? '' : 's') + ' in') : '')
+                        + '. It is a large file and downloads once; nothing was scanned, so try '
+                        + 'again later rather than reading this as an empty result.'));
+                return { downloading: true, status: st, minutes: mins || null };
+            }
+            if (r && r.status === 'missing_server_base_url') {
+                try { if (W) W.done(); } catch (e) { }
+                await stop('The server does not know where to fetch the conservation file from '
+                    + '(SERVER_BASE_URL is not set), so nothing was scanned.');
+                return { error: 'missing_server_base_url' };
             }
             // An error from the script is an answer too, and it used to be dropped on the
             // floor: generateCrypticExons would find no hits in it and the run would report

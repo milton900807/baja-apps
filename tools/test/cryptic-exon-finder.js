@@ -140,14 +140,42 @@ const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryp
         reply = { results: [], meta: {} };
     }
 
-    // The conservation file downloads once, and that is not a result of zero.
+    // ONE LITERAL WHERE THERE IS A FAMILY. This knew 'file_downloading' only, while the
+    // staging layer resolves 'still_downloading' from three places and
+    // 'download_trigger_failed' from a fourth. STMN2 came back "nothing reached 0.98 in
+    // those 55,041 nt" for an hour because the file had never finished downloading.
     {
-        ran = null; reply = { status: 'file_downloading' };
-        const g = mkGraph(), t = mkTrack();
-        const r = await run(g, t, { xi: 10, xf: 500 });
-        ok(r && r.downloading && t.added.length === 0
-           && g.said.some((m) => /downloading/.test(m)),
-           'a first run says the file is coming rather than reporting nothing found: ' + g.said[0]);
+        for (const st of ['file_downloading', 'still_downloading']) {
+            ran = null; reply = { status: st };
+            const g = mkGraph(), t = mkTrack();
+            const r = await run(g, t, { xi: 10, xf: 500 });
+            ok(r && r.downloading && t.added.length === 0
+               && failed.some((m) => /still downloading/.test(m)),
+               st + ' says the file is coming rather than reporting nothing found');
+            ok(!g.results.some((m) => /nothing reached/.test(m)), st + ' is not a scan');
+        }
+        // How long it has been going, when the lock says.
+        ran = null;
+        reply = { status: 'still_downloading', file: { started: Math.round(Date.now() / 1000) - 7200 } };
+        await run(mkGraph(), mkTrack(), { xi: 10, xf: 500 });
+        ok(failed.some((m) => /120 minutes in/.test(m)),
+           'with how long it has been at it, which is what says whether to wait or look: '
+           + JSON.stringify(failed));
+
+        // A download that could not even be started is a different sentence.
+        ran = null; reply = { status: 'download_trigger_failed' };
+        const g2 = mkGraph();
+        const r2 = await run(g2, mkTrack(), { xi: 10, xf: 500 });
+        ok(r2 && r2.downloading && failed.some((m) => /could not start the download/.test(m)),
+           'and a failed trigger says that instead of asking you to wait: ' + JSON.stringify(failed));
+
+        ran = null; reply = { status: 'missing_server_base_url' };
+        const g3 = mkGraph();
+        const r3 = await run(g3, mkTrack(), { xi: 10, xf: 500 });
+        ok(r3 && r3.error === 'missing_server_base_url'
+           && failed.some((m) => /SERVER_BASE_URL/.test(m)),
+           'a server with nowhere to fetch from names that: ' + JSON.stringify(failed));
+        reply = { results: [], meta: {} };
     }
 
     // ---- A FAILURE IS NOT A RESULT OF ZERO -------------------------------------------------

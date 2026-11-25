@@ -1319,7 +1319,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Cryptic exon finders read the strand they are given" \
     "py/splicing/cryptic-exon-finder.py:WHICH MOTIFS, AND WHETHER THE MINUS BRANCH IS REACHABLE AT ALL" \
     "py/splicing/cryptic-exon-finder-mm9.py:THE SAME TWO BUGS AS THE HUMAN SCRIPT, mirrored" \
-    "baja/bio/splicing/cryptic-exon-finder.js:THE ONLY SHAPE THAT MEANS A SCAN HAPPENED" \
+    "baja/bio/splicing/cryptic-exon-finder.js:ONE LITERAL WHERE THERE IS A FAMILY" \
     "baja/ml/models-catalogue.js:THE THRESHOLD IS THE EXPERIMENT"
 
   # The cryptic exon finder could only be reached by right-clicking an exon, so the models
