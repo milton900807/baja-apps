@@ -32,8 +32,11 @@ const mk = (strand) => ({
         type: 'Exon', index: i + 1, xi: e[0], xf: e[1] })),
     getExons() { return this.annotations.slice(); }
 });
-const rank = (t, prof, o) => load('baja/bio/splicing/acceptor-candidates.js', t,
-    Object.assign({ profile: prof }, o || {}));
+const call = (t, prof, o) => load('baja/bio/splicing/acceptor-candidates.js', t,
+    Object.assign(prof ? { profile: prof } : {}, o || {}));
+// Most assertions below are about the ranking, so they take the rows; the ones about
+// FAILING take the whole result, because the reason is the thing under test.
+const rank = async (t, prof, o) => ((await call(t, prof, o)).rows);
 
 (async () => {
     // A WEAK SITE STILL RANKS. 0.03 is below every threshold in the codebase and is the
@@ -88,12 +91,51 @@ const rank = (t, prof, o) => load('baja/bio/splicing/acceptor-candidates.js', t,
     const one = { name: 'T', xi: 0, xf: 6000, strand: 1,
         annotations: [{ type: 'Exon', index: 1, xi: 100, xf: 300 }],
         getExons() { return this.annotations.slice(); } };
-    r = await rank(one, { acceptor: [[1000, 0.5]] });
-    ok(Array.isArray(r) && r.length === 0, 'a single-exon transcript returns empty, not an error');
+    let res = await call(one, { acceptor: [[1000, 0.5]] });
+    ok(res.ok === false, 'a single-exon transcript fails rather than throwing');
+    ok(/1 readable annotated exon/.test(res.reason), 'and says how many exons it actually saw: ' + res.reason);
+    ok(Array.isArray(res.rows) && res.rows.length === 0, 'and still carries an empty rows array');
 
     // Non-finite scores would sort unpredictably and must be dropped, not ranked.
     r = await rank(mk(1), { acceptor: [[1000, 0.5], [1100, NaN], [1200, null], [1300, 0.2]] });
     ok(r.length === 2, 'non-finite scores dropped, got ' + r.length);
+
+    // ---- THE PATHS THAT HAD NO COVERAGE AT ALL, and so shipped broken -------------
+    // Every test above passes opts.profile, which skips sequence handling and the model
+    // call entirely. That is exactly why a five-exon STMN2 track came back claiming it
+    // had fewer than two exons: the failure was somewhere in here, and the caller had one
+    // sentence for seven different causes.
+
+    // A track with exons but NO SEQUENCE must say so, not blame the exons.
+    res = await call(mk(1), null, {});
+    ok(res.ok === false, 'no sequence: fails');
+    ok(/no sequence loaded/.test(res.reason), 'no sequence: says so, got: ' + res.reason);
+
+    // A SPLICED sequence in a genomic frame is the failure that looks like a clean empty
+    // run. mk() claims 0..6000; a 600 nt string is a tenth of that.
+    const spliced = Object.assign(mk(1), { sequence: 'A'.repeat(600) });
+    res = await call(spliced, null, {});
+    ok(res.ok === false, 'spliced sequence: fails');
+    ok(/spliced sequence/.test(res.reason) && /6,001 nt genomic frame/.test(res.reason),
+        'spliced sequence: names both lengths, got: ' + res.reason);
+
+    // A full-length sequence reaches the model call, which in this harness cannot be
+    // reached at all -- so the reason must be about the model, not about the track.
+    const genomic = Object.assign(mk(1), { sequence: 'A'.repeat(6001) });
+    res = await call(genomic, null, {});
+    ok(res.ok === false, 'model unreachable: fails');
+    ok(/site model/.test(res.reason), 'model unreachable: blames the model, got: ' + res.reason);
+
+    // Acceptors exist but none are intronic: that is a real finding, with a count.
+    res = await call(mk(1), { acceptor: [[200, 0.9], [2400, 0.8]] });
+    ok(res.ok === false, 'nothing intronic: fails');
+    ok(/2 acceptor positions were scored/.test(res.reason) && /2 introns/.test(res.reason),
+        'nothing intronic: counts both, got: ' + res.reason);
+
+    // A successful call reports the pool it ranked against and what it was given.
+    res = await call(mk(1), { acceptor: [[1000, 0.5], [1100, 0.4], [200, 0.9]] });
+    ok(res.ok === true && res.outOf === 2 && res.scored === 3,
+        'success carries outOf and scored, got ' + res.outOf + '/' + res.scored);
 
     console.log(fails ? ('\n' + fails + ' FAILED') : '\nall passed');
     process.exit(fails ? 1 : 0);

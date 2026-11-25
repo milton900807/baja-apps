@@ -34,21 +34,23 @@ function (graph, genegraph_panel_layout, presetTrack) {
         const TOP = 25;
         say('Scoring intronic acceptor positions on ' + (track.name || 'the track') + '…');
 
-        let rows = [];
+        let res = null;
         try {
-            rows = await exec('baja/bio/splicing/acceptor-candidates.js', track, { top: TOP });
+            res = await exec('baja/bio/splicing/acceptor-candidates.js', track, { top: TOP });
         } catch (e) {
             say('Candidate acceptor sites failed: ' + (e && e.message ? e.message : e));
             return false;
         }
-        if (!rows || !rows.length) {
-            // An empty result has two quite different causes and the user can act on only
-            // one of them, so do not collapse them into "no candidates".
-            say((track.name || 'This track') + ': no intronic acceptor positions could be '
-                + 'ranked. Either the track has fewer than two exons, so it has no introns of '
-                + 'its own to search, or the site model returned nothing for it.');
+        // THE RANKER SAYS WHICH FAILURE IT WAS; this just shows it. Collapsing seven causes
+        // into one sentence is what made a five-exon STMN2 track report "fewer than two
+        // exons", which sent a real debugging session after the wrong thing entirely.
+        if (!res || !res.ok) {
+            say((res && res.reason) ? res.reason
+                : ((track.name || 'This track') + ': the acceptor ranking returned nothing and gave no reason.'));
             return false;
         }
+        const rows = res.rows || [];
+        if (!rows.length) { say((track.name || 'This track') + ': the ranking succeeded but returned no rows.'); return false; }
 
         const TrackLayer = await exec('baja/bio/track-layer.js');
         const axis = { xmin: (track.xi != null) ? +track.xi : 0, xmax: (track.xf != null) ? +track.xf : 0 };
