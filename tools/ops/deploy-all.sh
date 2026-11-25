@@ -1289,6 +1289,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # The layer names under the name tab were drawn on every track at once.
+  install_group "The layer list shows on the selected track only" \
+    "baja/bio/track.js:ONLY ON THE SELECTED TRACK"
   # The plan refused a request that named no track, listing the very tracks it could have
   # offered.
   install_group "The plan offers its pairs instead of refusing" \

@@ -8742,10 +8742,24 @@ return new Promise(async (resolve, reject) => {
               // name. The screen rectangles are kept on the track so the mouse handler
               // can hit-test them; they are rebuilt every frame, because a pan, a zoom or
               // a track resize moves every one of them.
+              // ONLY ON THE SELECTED TRACK. The list answers "what is on this track", which
+              // is a question about the track being worked on. On every track at once it is
+              // a column of names down a canvas of them, sitting over the sequence and the
+              // curves of tracks nobody is looking at, and the one list that matters is
+              // lost among them.
+              //
+              // Showing it means the track is selected, so its rows are reachable the
+              // moment they appear. Nothing is hidden that cannot be brought back by
+              // clicking the track, and __layerTabs is rebuilt from an empty list every
+              // frame, so an unselected track has no rows for the mouse to find either:
+              // an invisible row that still answers a click is worse than no row.
+              //
               // FRONT layer first, as a layers panel lists them: track_layers is drawn in array order,
               // so the last one is on top, and "Bring to front" in the layer menu
               // (track-layers-side-menu.js) has to land at the top of THIS list to mean what it says.
-              const _layers = (this.showLayers === false) ? [] : (this.track_layers || []).slice().reverse();
+              const _showList = (this.showLayers !== false) && (typeof this.isSelected === 'function'
+                  ? this.isSelected() : (this.showResizeBar !== false));
+              const _layers = _showList ? (this.track_layers || []).slice().reverse() : [];
               if (_layers.length) {
                 const _yLow = graph.grid.Y(this.tgraph.Y(this.tgraph.ymin));
                 const _bodyH = Math.abs(_yLow - _yBottom);
