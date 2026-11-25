@@ -28,6 +28,7 @@ bajasplice.egg-info/entry_points.txt
 bajasplice.egg-info/requires.txt
 bajasplice.egg-info/top_level.txt
 bajasplice/data/__init__.py
+bajasplice/data/genes.slim.fly.sqlite
 bajasplice/data/genes.slim.mouse.sqlite
 bajasplice/data/genes.slim.sqlite
 bajasplice/data/measured_psi.tsv
@@ -73,11 +74,19 @@ bajasplice/validate/datasets.py
 bajasplice/validate/suite.py
 bajasplice/weights/__init__.py
 bajasplice/weights/altss.pt
+bajasplice/weights/baboon_ss_ctx2000.pt
+bajasplice/weights/chimp_ss_ctx2000.pt
+bajasplice/weights/cyno_ss_ctx2000.pt
+bajasplice/weights/dm_ss_ctx2000.pt
+bajasplice/weights/marmoset_ss_ctx2000.pt
 bajasplice/weights/mm_ss_ctx2000.pt
 bajasplice/weights/psi_ctx2000.pt
+bajasplice/weights/rat_ss_ctx2000.pt
 bajasplice/weights/rbp.pt
 bajasplice/weights/rbp_bind.pt
+bajasplice/weights/rhesus_ss_ctx2000.pt
 bajasplice/weights/ss_ctx2000.pt
+bajasplice/weights/vervet_ss_ctx2000.pt
 bajasplicedm/__init__.py
 bajasplicedm/__main__.py
 bajasplicedm/cli.py
