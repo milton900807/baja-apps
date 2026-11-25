@@ -1637,7 +1637,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "candidate acceptor sites, ranked by splice strength" \
     "baja/bio/splicing/acceptor-candidates.js:RANK IS THE ANSWER HERE, AND THE SCORE IS NOT" \
     "baja/bio/splicing/acceptor-candidates-view.js:CANDIDATE ACCEPTOR SITES, RANKED, AS A TRACK LAYER" \
-    "baja/ml/models-catalogue.js:RANK, NOT SCORE, AND THAT IS THE WHOLE POINT OF A SEPARATE ENTRY"
+    "baja/ml/models-catalogue.js:RANK, NOT SCORE, AND THAT IS THE WHOLE POINT OF A SEPARATE ENTRY" \
+    "baja/manchester/menu/editor-capabilities.js:rank_acceptor_candidates"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

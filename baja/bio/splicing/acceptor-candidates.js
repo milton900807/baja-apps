@@ -114,10 +114,19 @@ function (track, opts) {
             let orientation = 'plus';
             try { orientation = await exec('baja/bio/splicing/strand-orientation.js', t, seq); }
             catch (e) { orientation = 'plus'; }
+            // THE FIRST ARGUMENT IS AN EngineMonitor, NOT A PLACEHOLDER. Passing null here
+            // sent the backend "no sequence provided" on a track whose sequence was plainly
+            // loaded: the engine consumes a monitor when it finds one in this slot and
+            // otherwise passes it through as the first real parameter, so a null shifted
+            // every argument by one and the sequence arrived in the xi slot. The proven
+            // caller (splicing-profile.js) constructs one, so this does too.
+            // cryptic-exon-candidates.js still passes null here and has the same bug.
+            let em = null;
+            try { em = new EngineMonitor(() => { }); } catch (e) { em = null; }
             let data = null, reached = false;
             try {
                 data = await exec(window['env']['apiUrl'] + '/py/bio/splice/splicing-profile.py',
-                    null, '' + seq, '' + xi, '' + (t.strand != null ? t.strand : 1), 'sites',
+                    em, '' + seq, '' + xi, '' + (t.strand != null ? t.strand : 1), 'sites',
                     '', orientation, '', '', '');
                 reached = true;
             } catch (e) {

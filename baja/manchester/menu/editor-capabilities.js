@@ -1957,6 +1957,50 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // WHERE COULD A CRYPTIC EXON START, ASKED OF ONE GENE AND NOTHING ELSE.
+                // "cryptic exons" went to plan_peptide_rescue, which owns the phrase for a
+                // good reason -- inducing one is how it rescues a peptide -- but that needs
+                // TWO tracks, so a person with one gene open and a plain question got a
+                // refusal about a missing second track. The question they asked has an
+                // answer, and this is it: the intronic acceptor positions of this gene,
+                // ranked against each other.
+                name: 'rank_acceptor_candidates',
+                summary: 'RANK THE INTRONIC ACCEPTOR POSITIONS OF ONE GENE BY SPLICE STRENGTH, '
+                    + 'as a shortlist of where a cryptic exon could begin. This is the answer to '
+                    + '"find the cryptic exons in STMN2", "where could a cryptic exon start", '
+                    + '"cryptic exons", "candidate cryptic acceptors", "what are the possible '
+                    + 'cryptic splice sites here", "score the intronic acceptors", asked of a '
+                    + 'SINGLE track with nothing to compare it to. It ranks and does not '
+                    + 'threshold, because the model\u2019s score cannot carry a cutoff: the true '
+                    + 'cryptic acceptor is in the top 25 for about half of genes and the top 10 '
+                    + 'for about 29%. It does NOT identify cryptic exons, confirm one, or say '
+                    + 'the spliceosome uses a site: it says which positions the sequence best '
+                    + 'supports. It does not pair an acceptor with a donor to propose a whole '
+                    + 'exon, and it cannot see a site sitting on an annotated exon edge. When '
+                    + 'the request is instead to make one track\u2019s protein match ANOTHER '
+                    + 'track\u2019s, that is plan_peptide_rescue and it needs both tracks open.',
+                needs: 'track',
+                params: {
+                    top: {
+                        type: 'number',
+                        about: 'how many candidates to return, best first; 25 by default'
+                    }
+                },
+                run: async (a) => {
+                    const t = oneTrack();
+                    if (!t) { result('Which track? Click one first.'); return; }
+                    return exec('baja/bio/splicing/acceptor-candidates-view.js',
+                        graph, genegraph_panel_layout, t, { top: (a && a.top) ? +a.top : 25 });
+                },
+                preview: (a) => {
+                    const t = oneTrack();
+                    return 'rank the intronic acceptor positions of '
+                        + (t ? (t.name || 'the track') : 'a track you pick')
+                        + ' by splice strength, best ' + ((a && a.top) ? +a.top : 25) + ' first';
+                }
+            },
+
+            {
                 // THE QUESTION AFTER "HOW ALIKE ARE THEY". Two paralogues on the canvas and
                 // a comparison between them raises the next question immediately: what
                 // would have to change for this one to make that one's protein. Every

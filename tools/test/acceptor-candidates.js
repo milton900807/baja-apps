@@ -157,6 +157,35 @@ const rank = async (t, prof, o) => ((await call(t, prof, o)).rows);
     res = await call(thrower, { acceptor: [[1000, 0.5], [3000, 0.4]] });
     ok(res.ok === true && res.rows.length === 2, 'a throwing getExons() falls back rather than failing');
 
+    // THE ARGUMENT ORDER OF THE MODEL CALL, pinned. Passing null where the engine wants
+    // an EngineMonitor shifted every argument by one, so the backend received the monitor
+    // slot as the sequence and answered "no sequence provided" about a track whose
+    // sequence was loaded and on screen.
+    //
+    // The spy goes on lion_engine, NOT on the injected exec: lib/core.js declares its own
+    // exec(), which shadows the parameter, so every module call reaches the engine. A spy
+    // on the parameter is simply never consulted, which is worth knowing before writing
+    // the next one of these.
+    const calls = [];
+    const realEngine = global.lion_engine;
+    global.lion_engine = { exec: (p, ...a) => {
+        if (/splicing-profile\.py/.test('' + p)) { calls.push(a); return { acceptor: '[[1000,0.5]]' }; }
+        return realEngine.exec(p, ...a);
+    } };
+    const genomicTrack = Object.assign(mk(1), { sequence: 'A'.repeat(6001) });
+    res = await load('baja/bio/splicing/acceptor-candidates.js', genomicTrack, {});
+    global.lion_engine = realEngine;
+
+    ok(calls.length === 1, 'the model was called once, got ' + calls.length);
+    const a0 = calls[0] || [];
+    ok(a0[0] && typeof a0[0] === 'object', 'arg 0 is the EngineMonitor, not null');
+    ok(typeof a0[1] === 'string' && a0[1].length === 6001, 'arg 1 is the SEQUENCE, got length ' + ('' + a0[1]).length);
+    ok(a0[2] === '0', 'arg 2 is xi, got ' + a0[2]);
+    ok(a0[3] === '1', 'arg 3 is the strand, got ' + a0[3]);
+    ok(a0[4] === 'sites', 'arg 4 is the mode, got ' + a0[4]);
+    ok(a0[6] === 'plus', 'arg 6 is the orientation, got ' + a0[6]);
+    ok(res.ok === true && res.rows.length === 1, 'and the reply is parsed into a ranked row');
+
     // A successful call reports the pool it ranked against and what it was given.
     res = await call(mk(1), { acceptor: [[1000, 0.5], [1100, 0.4], [200, 0.9]] });
     ok(res.ok === true && res.outOf === 2 && res.scored === 3,
