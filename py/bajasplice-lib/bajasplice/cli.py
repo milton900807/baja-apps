@@ -50,6 +50,13 @@ TRAIN = {
     "rbp": "bajasplice.train.rbp",
 }
 EVALUATE = {
+    "cryptic-cost": "bajasplice.evaluate.cryptic_cost",
+    "cryptic-fate": "bajasplice.evaluate.cryptic_fate",
+    "buffer-test": "bajasplice.evaluate.buffer_test",
+    "localization-test": "bajasplice.evaluate.localization_test",
+    "motif-background": "bajasplice.evaluate.motif_background",
+    "threshold-drivers": "bajasplice.evaluate.threshold_drivers",
+    "ug-background": "bajasplice.evaluate.ug_background",
     "coding-constraint": "bajasplice.evaluate.coding_constraint",
     "exon-age": "bajasplice.evaluate.exon_age",
     "exon-age-decoys": "bajasplice.evaluate.exon_age_decoys",

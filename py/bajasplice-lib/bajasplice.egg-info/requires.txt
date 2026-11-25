@@ -2,9 +2,16 @@ numpy
 pandas
 scipy
 scikit-learn
+joblib
 torch
 pyfaidx
 requests
+
+[conservation]
+pyBigWig
+
+[crossspecies]
+pyliftover
 
 [dev]
 pytest
