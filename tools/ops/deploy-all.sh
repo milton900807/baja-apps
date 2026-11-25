@@ -1294,7 +1294,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "Cryptic exons in the models catalogue" \
     "baja/bio/splicing/cryptic-exon-finder.js:THE PHYLON CRYPTIC EXON FINDER, in one place" \
     "baja/bio/splicing/exon-ai-models.js:The finder itself is baja/bio/splicing/cryptic-exon-finder.js" \
-    "baja/ml/models-catalogue.js:LISTED WHERE THE OTHER SPLICING MODELS ARE" \
+    "baja/ml/models-catalogue.js:THE SELECTED STRETCH, OR WHAT IS ON SCREEN" \
+    "baja/bio/splicing/cryptic-exon-finder.js:A REFUSAL HAS TO BE SEEN" \
     "py/splicing/cryptic-exon-finder.py:Generate exon-like candidates using canonical splice motifs" \
     "py/splicing/cryptic-exon-finder-mm9.py:UPDATED FOR mm9"
   # The layer names under the name tab were drawn on every track at once.

@@ -26,14 +26,27 @@ function (graph, track, region, opts) {
 
     return (async () => {
         const t = track;
-        if (!t) { try { graph.setMessage(' No track selected '); } catch (e) { } return null; }
         const o = opts || {};
+        // A REFUSAL HAS TO BE SEEN. Reached from the models library the canvas is behind a
+        // full-screen overlay when the decision is made, and a setMessage into that canvas
+        // is a button that does nothing. Every way out of this module now raises the panel
+        // that sits above everything, and still writes the canvas message for the callers
+        // that are looking at it.
+        const stop = async (msg) => {
+            try { graph.setMessage(' ' + msg + ' '); } catch (e) { }
+            try {
+                const P = await exec('baja/lib/working.js', 'Cryptic exons', '');
+                P.fail(msg);
+            } catch (e) { }
+            return null;
+        };
+        if (!t) return await stop('No track selected.');
+
         const r0 = region || {};
         let xi = Math.round(Math.min(+r0.xi, +r0.xf));
         let xf = Math.round(Math.max(+r0.xi, +r0.xf));
         if (!isFinite(xi) || !isFinite(xf) || xf <= xi) {
-            try { graph.setMessage(' Select an exon or a stretch of sequence to scan first '); } catch (e) { }
-            return null;
+            return await stop('Select an exon or a stretch of sequence to scan for cryptic exons.');
         }
 
         // The bigWig is read window by window and every candidate is scored, so a whole
@@ -41,11 +54,12 @@ function (graph, track, region, opts) {
         // beats a scan that looks like a hang.
         const MAX_SPAN = (o.max_span != null) ? +o.max_span : 120000;
         if (xf - xi > MAX_SPAN) {
-            try {
-                graph.setMessage(' That is ' + Math.round((xf - xi) / 1000) + ' kb: select up to '
-                    + Math.round(MAX_SPAN / 1000) + ' kb to scan for cryptic exons. ');
-            } catch (e) { }
-            return null;
+            return await stop('That stretch is ' + Math.round((xf - xi) / 1000) + ' kb. Select up to '
+                + Math.round(MAX_SPAN / 1000) + ' kb to scan for cryptic exons: this reads a '
+                + 'conservation track base by base, so a whole gene is minutes of work.');
+        }
+        if (!t.getSequenceRange) {
+            return await stop('That track has no sequence loaded to scan.');
         }
 
         const sp = ('' + (o.species || t.species || '')).toLowerCase();
@@ -64,11 +78,17 @@ function (graph, track, region, opts) {
             const r = await exec(script, t.getSequenceRange(xi, xf), t.chr, xi, xf, t.strand);
             if (r && r.status === 'file_downloading') {
                 try { if (W) W.done(); } catch (e) { }
-                try {
-                    graph.setMessage(' The conservation file is downloading. This happens once and '
-                        + 'can take several minutes; run it again when it is done. ');
-                } catch (e) { }
+                await stop('The conservation file is downloading. This happens once and can take '
+                    + 'several minutes; run it again when it is done.');
                 return { downloading: true };
+            }
+            // An error from the script is an answer too, and it used to be dropped on the
+            // floor: generateCrypticExons would find no hits in it and the run would report
+            // nothing found, which is a different thing entirely.
+            if (r && r.error) {
+                try { if (W) W.done(); } catch (e) { }
+                await stop('Cryptic exon finder: ' + r.error);
+                return { error: '' + r.error };
             }
             const CE = await exec('baja/bio/splicing/cryptic-exons');
             const found = CE.generateCrypticExons(r, { xiAnchor: xi }) || [];

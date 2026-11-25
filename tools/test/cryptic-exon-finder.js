@@ -17,13 +17,13 @@ window.env = { apiUrl: '' };
 const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 
-let ran = null, reply = { hits: [] }, made = [];
+let ran = null, reply = { hits: [] }, made = [], failed = [];
 const load = async (p, ...a) => {
     if (/cryptic-exon-finder(-mm9)?\.py$/.test('' + p)) { ran = { script: '' + p, args: a }; return reply; }
     if (/splicing\/cryptic-exons$/.test('' + p)) {
         return { generateCrypticExons: (r, o) => { made.push({ r: r, o: o }); return (r && r.hits) || []; } };
     }
-    if (/working\.js$/.test('' + p)) return { step() { }, done() { }, fail() { } };
+    if (/working\.js$/.test('' + p)) return { step() { }, done() { }, fail(m) { failed.push('' + m); } };
     const f = await new AF('exec', 'args', core + '\nreturn (' + fs.readFileSync(p, 'utf8') + ')')(load, {});
     return (typeof f === 'function') ? f(...a) : f;
 };
@@ -41,7 +41,7 @@ const mkTrack = (o) => Object.assign({
 const mkGraph = () => ({ said: [], results: [],
     setMessage(m) { this.said.push('' + m); }, setResultMessage(m) { this.results.push('' + m); },
     wake() { } });
-const run = (g, t, reg, o) => load('baja/bio/splicing/cryptic-exon-finder.js', g, t, reg, o || {});
+const run = (g, t, reg, o) => { failed = []; return load('baja/bio/splicing/cryptic-exon-finder.js', g, t, reg, o || {}); };
 
 (async () => {
     // ---- the window it is given ----------------------------------------------------------
@@ -85,17 +85,39 @@ const run = (g, t, reg, o) => load('baja/bio/splicing/cryptic-exon-finder.js', g
         ok(/mm9\.py$/.test(ran.script), 'and the caller can still say which, as the menu does');
     }
 
-    // ---- what it refuses ---------------------------------------------------------------------
+    // ---- what it refuses, AND WHERE THE REFUSAL GOES -----------------------------------------
+    // Reached from the models library, the canvas is behind a full-screen overlay when the
+    // decision is made. A setMessage into that canvas is a button that does nothing, which
+    // is exactly how this was reported.
     {
         ran = null;
         const g = mkGraph();
         await run(g, mkTrack(), {});
         ok(!ran && g.said.some((m) => /Select an exon or a stretch/.test(m)),
            'no window, no scan, and it says what to do: ' + g.said[0]);
+        ok(failed.some((m) => /Select an exon or a stretch/.test(m)),
+           'ON THE PANEL THAT SITS ABOVE EVERYTHING, not only on the covered canvas: '
+           + JSON.stringify(failed));
+
         const g2 = mkGraph();
         await run(g2, mkTrack(), { xi: 0, xf: 400000 });
-        ok(!ran && g2.said.some((m) => /400 kb: select up to/.test(m)),
-           'a span far too big to scan is refused with its size: ' + g2.said[0]);
+        ok(!ran && g2.said.some((m) => /400 kb/.test(m)) && failed.length === 1,
+           'a span far too big to scan is refused with its size, visibly: ' + g2.said[0]);
+
+        const g3 = mkGraph();
+        await run(g3, { name: 'X', chr: '1', add() { } }, { xi: 10, xf: 500 });
+        ok(!ran && failed.some((m) => /no sequence loaded/.test(m)),
+           'a track with no sequence says that rather than throwing mid-scan: ' + JSON.stringify(failed));
+
+        // An error from the script used to be handed to the annotation builder, which
+        // found no hits in it, so a failure was reported as "nothing found".
+        ran = null; reply = { error: 'bigWig not found' };
+        const g4 = mkGraph();
+        const r4 = await run(g4, mkTrack(), { xi: 10, xf: 500 });
+        ok(r4 && r4.error && failed.some((m) => /bigWig not found/.test(m))
+           && !g4.results.some((m) => /nothing over the threshold/.test(m)),
+           'and an error from the script is an error, not an empty result: ' + JSON.stringify(failed));
+        reply = { hits: [] };
     }
 
     // The conservation file downloads once, and that is not a result of zero.
@@ -126,10 +148,12 @@ const run = (g, t, reg, o) => load('baja/bio/splicing/cryptic-exon-finder.js', g
         ok(/exec\('baja\/bio\/splicing\/cryptic-exon-finder\.js'/.test(cat),
            'and runs the same module');
         const entry = cat.slice(cat.indexOf("title: 'Cryptic exons'"), cat.indexOf("title: 'NMD consequence"));
-        ok(/markstart != null && t\.markend != null/.test(entry),
+        ok(/selectedRange/.test(entry) && /markstart != null && t\.markend != null/.test(entry),
            'from the selected stretch, since the catalogue hands over a track and not an exon');
-        ok(/Select the stretch of sequence/.test(entry),
-           'and says so when nothing is selected rather than scanning whatever is on screen');
+        // Requiring a selection made the button do nothing at all for anyone who had not
+        // made one, which is how this was reported: "the button doesn't work".
+        ok(/t\.tgraph\.xmin/.test(entry),
+           'and from what is on screen when nothing is selected, rather than refusing');
         ok(/not that the spliceosome uses it/.test(entry) && /conserved like an/.test(entry),
            'with what a hit means, and does not mean, in its documentation');
     }

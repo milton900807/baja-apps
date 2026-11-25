@@ -481,16 +481,22 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             open: () => __onParentTrack('Phylon cryptic exons', (list) => {
                 const t = (list && list[0]) || null;
                 if (!t) return null;
-                // The SELECTED stretch, because this reads a conservation track base by
-                // base and a whole gene is minutes of work. With nothing selected it says
-                // so rather than scanning the window the canvas happens to be showing.
-                const a = (t.markstart != null && t.markend != null)
-                    ? { xi: t.markstart, xf: t.markend } : null;
-                if (!a) {
-                    try { graph.setMessage(' Select the stretch of sequence to scan for cryptic exons. '); } catch (e) { }
-                    return null;
+                // THE SELECTED STRETCH, OR WHAT IS ON SCREEN. This reads a conservation
+                // track base by base, so it is scoped rather than run over a whole gene.
+                // A selection says exactly which stretch; with none, the window being
+                // looked at is the next best statement of "here", and the finder refuses
+                // it, visibly, if it is too wide. Requiring a selection made the button do
+                // nothing at all for anyone who had not made one.
+                let a = null;
+                try {
+                    const r = (typeof t.selectedRange === 'function') ? t.selectedRange() : null;
+                    if (r && r.start != null && r.end != null) a = { xi: r.start, xf: r.end };
+                } catch (e) { a = null; }
+                if (!a && t.markstart != null && t.markend != null) a = { xi: t.markstart, xf: t.markend };
+                if (!a && t.tgraph && t.tgraph.xmin != null && t.tgraph.xmax != null) {
+                    a = { xi: t.tgraph.xmin, xf: t.tgraph.xmax };
                 }
-                return exec('baja/bio/splicing/cryptic-exon-finder.js', graph, t, a, {});
+                return exec('baja/bio/splicing/cryptic-exon-finder.js', graph, t, a || {}, {});
             }),
             docs: {
                 summary: 'Finds stretches of intron that are as conserved as an exon. Candidates are '
@@ -503,8 +509,8 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                     + 'GRCh38 for human, mm9 for mouse, chosen from the track\u2019s own species. '
                     + 'The conservation file downloads once, which takes several minutes the first '
                     + 'time and says so. Exon-length guardrails of 50 to 1,000 nt.',
-                usage: 'Select the stretch to scan, up to about 120 kb; an intron or two at a time is '
-                    + 'the intended use. What a hit MEANS is that the sequence is conserved like an '
+                usage: 'Scans the selected stretch, or what is on screen when nothing is selected, '
+                    + 'up to about 120 kb; an intron or two at a time is the intended use. What a hit MEANS is that the sequence is conserved like an '
                     + 'exon, not that the spliceosome uses it: pseudo-exons are usually silenced, '
                     + 'and whether one can be switched on is a question for the splice-site and '
                     + 'cis-regulatory models, which score the sites rather than the conservation. '
