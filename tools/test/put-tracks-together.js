@@ -30,13 +30,22 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
 
 // The real mapping, from flexigraph's MGrid: this is what makes a larger yi higher.
 const screenY = (yi) => 800 + 600 - ((yi - 0) * 40);
-const mkGrid = (yi, xi, width) => ({
-    yi: yi, xi: xi, width: width, height: -1, xmin: 0, xmax: width,
+// A GRID'S WINDOW IS THE TRACK'S OWN COORDINATES, which is what the Track constructor
+// sets: setxmin(xi), setxmax(xf). The fixture used to say xmin 0, xmax width, which let a
+// scale measured as width/span look right while the renderer, which divides by
+// (xmax - xmin), drew something else entirely.
+const mkGrid = (yi, xi, width, xmin, xmax) => ({
+    yi: yi, xi: xi, width: width, height: -1, xmin: xmin, xmax: xmax,
     setxmin(v) { this.xmin = v; }, setxmax(v) { this.xmax = v; }, rescale() { this.rescaled = true; }
 });
-const mkTrack = (name, yi, xi, width, span) => ({
-    name: name, xi: 0, xf: span, grid: mkGrid(yi, xi, width)
-});
+const mkTrack = (name, yi, xi, width, span, start) => {
+    const x0 = (start == null) ? 0 : start;
+    return { name: name, xi: x0, xf: x0 + span, grid: mkGrid(yi, xi, width, x0, x0 + span) };
+};
+// WHERE A BASE ACTUALLY LANDS, by the grid's own arithmetic rather than by what the
+// alignment meant to do: X(b) = xi + (b - xmin) * width / (xmax - xmin).
+const drawnScale = (t) => t.grid.width / (t.grid.xmax - t.grid.xmin);
+const drawnAt = (t, b) => t.grid.xi + (b - t.grid.xmin) * drawnScale(t);
 const mkGraph = (ts) => ({
     track: ts, said: [], animated: null,
     animateTo(x0, x1, y0, y1) { this.animated = { x0, x1, y0, y1 }; return Promise.resolve(); },
@@ -95,8 +104,8 @@ const byScreen = (ts) => ts.slice().sort((a, b) => screenY(a.grid.yi) - screenY(
     await run(g, [B, D]);
     ok(D.grid.xi === B.grid.xi,
        'the moved track takes the anchor\'s left edge: ' + D.grid.xi + ' vs ' + B.grid.xi);
-    const scaleB = B.grid.width / Math.abs(B.xf - B.xi);
-    const scaleD = D.grid.width / Math.abs(D.xf - D.xi);
+    const scaleB = drawnScale(B);
+    const scaleD = drawnScale(D);
     ok(Math.abs(scaleB - scaleD) < 1e-9,
        'and the same bases-per-unit, so base 2000 of one is above base 2000 of the other: '
        + scaleB.toFixed(4) + ' vs ' + scaleD.toFixed(4));
@@ -106,10 +115,34 @@ const byScreen = (ts) => ts.slice().sort((a, b) => screenY(a.grid.yi) - screenY(
        + D.grid.width.toFixed(1) + ' vs ' + B.grid.width.toFixed(1));
 
     // Same origin alone is not enough: this is the check that would pass for the wrong fix.
-    const atBase = (t, b) => t.grid.xi + b * (t.grid.width / Math.abs(t.xf - t.xi));
+    const atBase = (t, b) => drawnAt(t, t.xi + b);
     ok(Math.abs(atBase(B, 3000) - atBase(D, 3000)) < 1e-9,
        'base 3000 lands at the same place across in both: '
        + atBase(B, 3000).toFixed(2) + ' and ' + atBase(D, 3000).toFixed(2));
+
+    // ---- a track numbered in genomic coordinates --------------------------------------
+    // THE CASE THAT BROKE IN FRONT OF SOMEBODY. A gene lined up against its own 3' UTR,
+    // cut out of it as a track: both are real tracks, and the UTR is numbered where it
+    // sits in the genome rather than from zero. The window used to be overwritten with the
+    // anchor's, which both shifted the origin by the difference between the two and
+    // changed the scale by the ratio of their spans: DNM3 came out a hundred times too
+    // wide, and the cut track looked like the thing that was broken.
+    const geneStart = 171841498, geneSpan = 571219;
+    const utrStart = 172407042, utrSpan = 5675;
+    const utr = mkTrack('DNM3_3utr', 8.0, 0, utrSpan, utrSpan, utrStart);
+    const gene = mkTrack('DNM3', 6.4, 20, geneSpan, geneSpan, geneStart);
+    const other = mkTrack('DNM1', 4.8, 0, 100000, 100000, 18000000);
+    const gg = mkGraph([utr, gene, other]);
+    await run(gg, [utr, gene]);
+    ok(Math.abs(drawnScale(gene) - drawnScale(utr)) < 1e-9,
+       'the gene is drawn at the same bases-per-unit as the UTR cut from it: '
+       + drawnScale(gene).toFixed(4) + ' vs ' + drawnScale(utr).toFixed(4));
+    ok(gene.grid.xmin === geneStart && gene.grid.xmax === geneStart + geneSpan,
+       'because it keeps its own genomic window rather than borrowing the anchor\u2019s: '
+       + gene.grid.xmin + '\u2013' + gene.grid.xmax);
+    ok(Math.abs(drawnAt(gene, geneStart) - drawnAt(utr, utrStart)) < 1e-9,
+       'and the first base of each lands at the same place across');
+    ok(gene.grid.width > utr.grid.width, 'with the gene reaching further right than its own UTR');
 
     // ---- what it shows afterwards -------------------------------------------------------------
     ok(g.animated && g.animated.y0 < g.animated.y1,

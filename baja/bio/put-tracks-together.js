@@ -83,7 +83,20 @@ function (graph, tracks, opts) {
                     // would make two sequences of different lengths look the same length.
                     tg.width = sp * aScale;
                 }
-                try { tg.setxmin(ag.xmin); tg.setxmax(ag.xmax); } catch (e) { }
+                // EACH TRACK KEEPS ITS OWN COORDINATE WINDOW. It was set to the ANCHOR'S
+                // here, and a grid draws base b at xi + (b - xmin) * width / (xmax - xmin),
+                // so handing a track someone else's xmin and xmax changes the scale by the
+                // ratio of the two spans and moves its origin by the difference. Two mRNAs
+                // both numbered from zero hid it, because the origin shift was zero and the
+                // distortion only showed as a drift between two tracks of different
+                // lengths. A track cut out of a gene, numbered in genomic coordinates,
+                // showed it at once: DNM3 lined up against its own 3' UTR was drawn a
+                // hundred times too wide, which looked like the cut track being broken.
+                //
+                // Each track keeps its own window; the shared origin is tg.xi above, and
+                // the shared scale is the width set from the anchor's. That is what the
+                // paragraph at the top of this file asks for.
+                try { tg.setxmin(+t.xi); tg.setxmax(+t.xf); } catch (e) { }
                 try { tg.rescale(); } catch (e) { }
                 lined.push(t.name || '(unnamed)');
             }

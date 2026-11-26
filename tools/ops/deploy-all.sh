@@ -1745,6 +1745,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "every kind of track can be copied, so every kind can be cut up" \
     "baja/bio/track.js:COPYING A TRACK IS SOMETHING EVERY TRACK CAN DO" \
     "baja/bio/track-flexi.js:The GENOMIC coordinates too"
+  install_group "lining tracks up leaves each one its own coordinate window" \
+    "baja/bio/put-tracks-together.js:EACH TRACK KEEPS ITS OWN COORDINATE WINDOW"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
