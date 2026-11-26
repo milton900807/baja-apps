@@ -485,6 +485,36 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'Potential exons', badge: 'BajaSplice', ready: true, group: 'splicing',
+            blurb: 'What the candidate acceptors would add, as exons on the track.',
+            // THE QUESTION THE ACCEPTOR LAYER RAISES AND DOES NOT ANSWER. A ranked acceptor is
+            // half a splice event: it says where an exon could begin and nothing about what it
+            // would do. Clicking one arc answers for one site, which is the wrong shape for
+            // "of these ten, which ones matter". This closes every candidate with the best
+            // donor the same model scores and draws the exons together, coloured by what they
+            // would do to the message rather than by the strength of the site.
+            open: () => __onParentTrack('Potential exons', (list) => exec('baja/bio/splicing/potential-exons-layer.js', graph, L, list)),
+            docs: {
+                summary: 'Each of the top candidate acceptors closed into an exon with the '
+                    + 'best-scoring donor within cassette-exon distance, translated, and drawn on '
+                    + 'the track. Colour is the consequence to the message: in frame, in frame '
+                    + 'with a stop NMD would find, or a frameshift.',
+                provenance: 'No new model. The acceptors are the Candidate acceptor sites '
+                    + 'ranking, the donors are the same BajaSplice site scores, and the frame and '
+                    + 'NMD calls come from the machinery the exon screens use, so a frameshift '
+                    + 'here means what a frameshift means there.',
+                usage: 'A reading aid for the acceptor ranking, not a detector. Every band is a '
+                    + 'proposal: no reads say any of these exons is used, and the ranking it '
+                    + 'starts from holds the true cryptic site in the top 25 for about half of '
+                    + 'genes. The donor is a choice, so read the \u201c?\u201d: a second donor '
+                    + 'at the same acceptor often makes a different exon with a different frame.',
+                links: [
+                    { title: 'Technical report: BajaSplice', url: 'https://baja.bio/data/BajaSplice-technical-report.pdf',
+                      note: 'The site model behind both ends of every exon drawn here.' }
+                ]
+            }
+        },
+        {
             title: 'Intron retention', badge: 'BajaIR', ready: true, group: 'splicing',
             blurb: 'How retention-prone each intron is, from sequence alone.',
             open: () => __onParentTrack('BajaIR intron retention', (list) => exec('baja/bio/splicing/intron-retention.js', graph, L, list)),

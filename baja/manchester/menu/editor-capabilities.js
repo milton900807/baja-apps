@@ -2051,6 +2051,47 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // THE SECOND HALF OF A RANKED ACCEPTOR. rank_acceptor_candidates says where an
+                // exon could begin; the question straight after it, every time, is what that
+                // would do to the protein. That answer existed only one site at a time, by
+                // clicking an arc, so a person looking at ten candidates had to click ten
+                // times and hold the answers in their head.
+                name: 'show_potential_exons',
+                summary: 'DRAW THE EXONS THE CANDIDATE ACCEPTORS WOULD MAKE, ON THE TRACK, '
+                    + 'COLOURED BY WHAT EACH WOULD DO TO THE MESSAGE. This is the answer to '
+                    + '"show me the potential exons", "what would these acceptor sites '
+                    + 'actually make", "add a layer with the possible cryptic exons", "what is '
+                    + 'the impact of these acceptor sites", "which of these candidates are in '
+                    + 'frame". Each candidate acceptor is closed with the best-scoring donor '
+                    + 'the site model puts within cassette-exon distance after it, translated, '
+                    + 'and drawn as a band: green in frame, amber in frame with a stop NMD '
+                    + 'would find, red a frameshift. It reuses the candidate layer already on '
+                    + 'the track when there is one, and ranks the acceptors itself when there '
+                    + 'is not. It does NOT say any exon is used: no reads are involved and '
+                    + 'every band is a proposal.',
+                needs: 'track',
+                params: {
+                    top: {
+                        type: 'number',
+                        about: 'how many of the top candidates to close into exons; 10 by default'
+                    }
+                },
+                run: async (a) => {
+                    const t = oneTrack();
+                    if (!t) { result('Which track? Click one first.'); return; }
+                    return exec('baja/bio/splicing/potential-exons-layer.js',
+                        graph, genegraph_panel_layout, t, { top: (a && a.top) ? +a.top : 10 });
+                },
+                preview: (a) => {
+                    const t = oneTrack();
+                    return 'draw the exons the top ' + ((a && a.top) ? +a.top : 10)
+                        + ' candidate acceptors of '
+                        + (t ? (t.name || 'the track') : 'a track you pick')
+                        + ' would make, coloured by frame and NMD';
+                }
+            },
+
+            {
                 // THE QUESTION AFTER "HOW ALIKE ARE THEY". Two paralogues on the canvas and
                 // a comparison between them raises the next question immediately: what
                 // would have to change for this one to make that one's protein. Every

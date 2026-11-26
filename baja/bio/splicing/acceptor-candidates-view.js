@@ -140,7 +140,9 @@ function (graph, genegraph_panel_layout, presetTrack) {
             + 'the candidate, which is the junction that site would make. Arc weight is scaled '
             + 'to THIS gene\u2019s best candidate, not to an absolute probability, because a '
             + 'fixed scale draws every arc in a typical gene as the same hairline. Click an '
-            + 'arc to see the exon, the message and the protein that site would make.');
+            + 'arc to see the exon, the message and the protein that site would make, or run '
+            + 'Potential exons to draw what all of them would make at once, coloured by frame '
+            + 'and NMD.');
 
         // CLICKING AN ARC ASKS WHAT IT WOULD MAKE. The arc is already the junction that
         // would exist; the question it raises is what the message would say, and until now

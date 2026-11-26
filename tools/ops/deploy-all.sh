@@ -1733,6 +1733,11 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "a menu the user clicked for opens showing its items" \
     "flexigraph/gene.js:THE PILL IS FOR A MENU NOBODY ASKED FOR" \
     "flexigraph/menu.js:A MENU OPENED BY A CLICK STAYS OPEN UNTIL THE POINTER HAS BEEN IN IT"
+  install_group "potential exons: what the candidate acceptors would make, on the track" \
+    "baja/bio/splicing/potential-exons-layer.js:WHAT THE CANDIDATE ACCEPTORS WOULD ACTUALLY ADD, DRAWN ON THE TRACK" \
+    "baja/bio/splicing/acceptor-candidates-view.js:Potential exons to draw what all of them would make at once, coloured by frame" \
+    "baja/ml/models-catalogue.js:THE QUESTION THE ACCEPTOR LAYER RAISES AND DOES NOT ANSWER" \
+    "baja/manchester/menu/editor-capabilities.js:show_potential_exons"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
