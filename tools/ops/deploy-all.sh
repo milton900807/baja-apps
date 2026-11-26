@@ -1747,6 +1747,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-flexi.js:The GENOMIC coordinates too"
   install_group "lining tracks up leaves each one its own coordinate window" \
     "baja/bio/put-tracks-together.js:EACH TRACK KEEPS ITS OWN COORDINATE WINDOW"
+  install_group "the ratio shift model: blockers that push two messages opposite ways" \
+    "baja/bio/expression/ratio-shift-model.js:THE RATIO SHIFT MODEL: PUSHING TWO MESSAGES IN OPPOSITE DIRECTIONS WITH BLOCKERS" \
+    "baja/bio/expression/ratio-shift-view.js:THE RATIO SHIFT MODEL, SHOWN" \
+    "baja/manchester/menu/editor-capabilities.js:ratio_shift_model" \
+    "baja/ml/models-catalogue.js:A MODEL OF A PAIR"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

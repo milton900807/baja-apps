@@ -485,6 +485,51 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             }
         },
         {
+            title: 'Ratio shift', badge: 'BajaCLIP', ready: true, group: 'splicing',
+            blurb: 'Blockers that would raise one transcript and localise the other less.',
+            // A MODEL OF A PAIR. Everything else on this shelf runs on one transcript, and
+            // the design question behind two paralogues on the canvas is about the ratio
+            // between them: relieve repression on one, take local translation off the
+            // other, with steric blockers that change no sequence. The hard part is not
+            // finding sites but finding sites that belong to ONE of the two, which is why
+            // it cannot be assembled out of two single-track runs.
+            open: () => __onParentTrack('Ratio shift', (list) => {
+                const two = (list || []).filter(Boolean);
+                if (two.length < 2) {
+                    try { graph.setResultMessage(' Ratio shift needs two tracks: select the one to raise and the one to lower. '); } catch (e) { }
+                    return false;
+                }
+                return exec('baja/bio/expression/ratio-shift-model.js', { up: two[0], down: two[1] })
+                    .then((m) => exec('baja/bio/expression/ratio-shift-view.js', graph, m,
+                        { up: two[0], down: two[1] }));
+            }),
+            docs: {
+                summary: 'Takes two transcripts and shortlists steric blockers that would push '
+                    + 'them in opposite directions: over microRNA seed sites and 3\u2019 UTR '
+                    + 'repressors on the one to be raised, and over transport-granule and '
+                    + 'local-initiation sites on the one whose distal translation is to be '
+                    + 'lowered. Every candidate is checked base by base against the other '
+                    + 'transcript, because a blocker matching both moves nothing.',
+                provenance: 'No new model. The repressor and transport sites are BajaCLIP heads '
+                    + 'from the reliable set, scored by ranking one head against the other 169 at '
+                    + 'the same window; the microRNA sites are canonical seed matches from the '
+                    + 'de-targeting list, which is eight microRNAs and not a catalogue. The role '
+                    + 'each protein plays, and therefore which arm it can appear on, is a written '
+                    + 'table in the module rather than anything the model knows.',
+                usage: 'A shortlist to test, on two 3\u2019 UTRs rather than two whole genes. '
+                    + 'Nothing here measures either message or says a site is occupied, the '
+                    + 'raising arm works only where that microRNA or repressor is present, and '
+                    + 'the lowering arm changes WHERE a protein is made more than how much of it '
+                    + 'there is: its readout is localisation, not a whole-cell blot. Selectivity '
+                    + 'is a mismatch count against the other transcript only, which is not the '
+                    + 'transcriptome-wide screen that decides whether an oligo is usable.',
+                links: [
+                    { title: 'BajaCLIP reliable set', url: 'https://baja.bio/data/BajaSplice-technical-report.pdf',
+                      note: 'The heads with held-out AUROC at or above 0.90, which are the only ones this uses.' }
+                ]
+            }
+        },
+        {
             title: 'Potential exons', badge: 'BajaSplice', ready: true, group: 'splicing',
             blurb: 'What the candidate acceptors would add, as exons on the track.',
             // THE QUESTION THE ACCEPTOR LAYER RAISES AND DOES NOT ANSWER. A ranked acceptor is

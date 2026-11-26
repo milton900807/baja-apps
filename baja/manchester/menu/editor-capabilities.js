@@ -2590,6 +2590,82 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // A QUESTION ABOUT A PAIR, WHICH NOTHING HERE COULD ASK. Every model on the
+                // shelf runs on one transcript; the design question behind two paralogues
+                // on the canvas is what would move the RATIO between them, and that is a
+                // different question with a different answer: a site worth blocking in one
+                // is worth nothing if the blocker also matches the other.
+                name: 'ratio_shift_model',
+                summary: 'THE RATIO SHIFT MODEL: WHICH STERIC BLOCKERS WOULD RAISE ONE '
+                    + 'TRANSCRIPT WHILE LOWERING LOCAL TRANSLATION OF ANOTHER. This is the '
+                    + 'answer to "can I block the microRNA repression of one while blocking '
+                    + 'the transport RBPs of the other", "shift the ratio between these two", '
+                    + '"ratio shift model", "raise DNM1 and lower DNM3 locally", "what would '
+                    + 'move the balance between these two messages". The raising arm looks '
+                    + 'for microRNA seed sites and 3’ UTR translational repressors whose '
+                    + 'blockade should de-repress; the lowering arm looks for transport '
+                    + 'granule and local-initiation proteins whose blockade should leave the '
+                    + 'message in the soma. Every candidate is checked base by base against '
+                    + 'the other transcript, because a blocker that matches both moves '
+                    + 'nothing. It changes no sequence and measures nothing: it returns a '
+                    + 'shortlist of sites to test, with what each one would and would not '
+                    + 'show. Run it on the two 3’ UTRs (extract_region_track cuts them) '
+                    + 'rather than on whole genes, where intronic sequence is scored that no '
+                    + 'message ever carries.',
+                needs: 'track',
+                params: {
+                    up: {
+                        type: 'string', required: true,
+                        about: 'the track to RAISE, by name as given in canvas_now: the one '
+                            + 'whose repression is to be relieved'
+                    },
+                    down: {
+                        type: 'string', required: true,
+                        about: 'the track to LOWER, by name: the one whose local translation '
+                            + 'is to be taken away'
+                    },
+                    top: { type: 'number', about: 'how many candidates per arm; 8 by default' },
+                    footprint: { type: 'number', about: 'the length of the blocker the selectivity check assumes; 20 nt by default' }
+                },
+                run: async (a) => {
+                    const U = a.up ? matchTrack(a.up) : null;
+                    const D = a.down ? matchTrack(a.down) : null;
+                    if (!U || !D) {
+                        result('Name both tracks: which to raise and which to lower. Open tracks are '
+                            + tracks().map((x) => x.name || '(unnamed)').join(', ') + '.');
+                        return;
+                    }
+                    result('Scanning ' + (U.name || 'the first track') + ' for repression to relieve and '
+                        + (D.name || 'the second') + ' for transport to block\u2026');
+                    const m = await exec('baja/bio/expression/ratio-shift-model.js',
+                        { up: U, down: D, top: (a && a.top) ? +a.top : 8,
+                          footprint: (a && a.footprint) ? +a.footprint : 20 });
+                    if (!m || !m.ok) { result('Ratio shift: ' + ((m && m.reason) || 'nothing came back.')); return m; }
+                    await exec('baja/bio/expression/ratio-shift-view.js', graph, m, { up: U, down: D });
+                    return { up: m.up.selective, down: m.down.selective };
+                },
+                preview: (a) => {
+                    const U = a.up ? matchTrack(a.up) : null;
+                    const D = a.down ? matchTrack(a.down) : null;
+                    return 'work out which blockers would raise ' + ((U && U.name) || a.up || 'one track')
+                        + ' and lower local translation of ' + ((D && D.name) || a.down || 'the other')
+                        + ', keeping only the sites that do not match both';
+                },
+                argBlocker: (a) => {
+                    if (!a.up || !a.down) return 'name the track to raise and the track to lower';
+                    const U = matchTrack(a.up), D = matchTrack(a.down);
+                    if (!U) return 'no single track matches \u201c' + a.up + '\u201d';
+                    if (!D) return 'no single track matches \u201c' + a.down + '\u201d';
+                    if (U === D) return 'those are the same track, so there is no ratio to shift';
+                    for (const t of [U, D]) {
+                        const len = ('' + ((t && t.sequence) || '')).length;
+                        if (len < 40) return (t.name || 'that track') + ' has no sequence loaded to scan';
+                    }
+                    return '';
+                }
+            },
+
+            {
                 // "DESIGN ASOS" OPENS THE ASO DESIGNER. This used to go through
                 // tile-oligos-design.js, which refuses outright unless a sequence is already
                 // selected -- so with nothing selected, "design asos" put a hint in the status
