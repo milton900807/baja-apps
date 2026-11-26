@@ -7854,8 +7854,13 @@ pattern, GGGG | Required`
                     const maxPerColumn = 10;
                     const itemCount = safeList.length;
                     const cols = Math.ceil(itemCount / maxPerColumn);
-                    const bg = 'rgb(255, 247, 141)';
-                    const fg = 'black';
+                    // THE SAME NAVY AND THE SAME LIGHT INK AS EVERY OTHER PANEL. This was a
+                    // yellow ground with black ink feeding an orange gradient panel (menu.js,
+                    // the `sunset` flag below), which made the side menu the one surface in the
+                    // editor that looked like it came from somewhere else. The alpha is kept
+                    // because _applySideMenuBgAlpha rewrites it to fade the menu in and out.
+                    const bg = 'rgba(11,37,69,0.985)';
+                    const fg = '#eaf6f9';
 
                     const screenWidth =
                         this?.graph?.grid?.width ??
@@ -7979,7 +7984,7 @@ pattern, GGGG | Required`
                     );
 
                     this.side_menu.menu_width = columnWidth;   // PER-COLUMN width
-                    this.side_menu.sunset = true;              // orange sunset panel background
+                    this.side_menu.sunset = true;              // the dark navy panel; see menu.js draw()
                     // Optional label (e.g. the track name) drawn as a chip OUTSIDE the menu.
                     try {
                         if (list && list.__menuTitle) {

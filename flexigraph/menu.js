@@ -455,6 +455,30 @@ function () {
                     } catch (e) { }
                 }
 
+                // THE SIDE PANEL WEARS THE SAME NAVY AS EVERY OTHER WINDOW IN THE EDITOR.
+                // It was a golden-to-orange gradient with black ink, and the result was that
+                // the one surface the user touches most often -- the side menu and the little
+                // chip it collapses into -- was the only thing on screen that did not belong
+                // to the application: the floating menu, the overlay windows, the result
+                // panels and the track chips are all navy #0b2545 with cyan #4fd0e6 accents.
+                // Same palette here, in the values baja/lib/canvas-overlay-panel.js and
+                // baja/manchester/menu/floating-menu.js use, so a menu opened in one place and
+                // a menu opened in another are plainly the same control.
+                //
+                // Set once per menu, and only where the caller has not chosen its own colour:
+                // an item carrying its own bg/fg still wins, and the ink is not recomputed on
+                // every frame of the draw loop.
+                if (this.sunset && !this.__inkDark) {
+                    this.__inkDark = true;
+                    this.sg = 'rgba(26,163,189,0.38)';          // hover fill: the floating menu's
+                    this.sf = '#ffffff';                        // hovered label
+                    this.fg = '#eaf6f9';                        // resting label
+                    this.titleColor = '#eaf6f9';
+                    this.panelBorder = '#1aa3bd';
+                    this.textInk = 'rgba(234,246,249,0.85)';    // type: 'text' wording
+                    this.titleBandBg = 'rgba(255,255,255,0.10)';
+                }
+
                 // ---- Collapsed: draw ONLY the title chip -------------------------------
                 // A small pill with the menu's title and a chevron. Hovering it expands the
                 // full panel (see mouseMove); this keeps a side menu from covering the canvas
@@ -503,11 +527,11 @@ function () {
                         ctx.quadraticCurveTo(cx, cy, cx + r, cy);
                     }
                     ctx.closePath();
-                    ctx.fillStyle = this.sunset ? '#ffb45c' : 'rgba(255,255,255,0.98)';
+                    ctx.fillStyle = this.sunset ? 'rgba(10,37,64,0.985)' : 'rgba(255,255,255,0.98)';
                     ctx.fill();
                     ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
                     ctx.lineWidth = 1;
-                    ctx.strokeStyle = 'rgba(16,24,40,0.22)';
+                    ctx.strokeStyle = this.sunset ? '#1aa3bd' : 'rgba(16,24,40,0.22)';
                     ctx.stroke();
                     ctx.fillStyle = this.titleColor || '#111827';
                     ctx.textBaseline = 'middle';
@@ -519,7 +543,7 @@ function () {
                         ctx.fillText(label, cx + 12, cy + h / 2 + 0.5);
                     }
                     ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-                    ctx.strokeStyle = this.titleColor || '#111827';
+                    ctx.strokeStyle = this.sunset ? '#4fd0e6' : (this.titleColor || '#111827');
                     ctx.beginPath();
                     if (__mob) {
                         // Chevron UP — the full menu opens upward from the bottom bar.
@@ -572,12 +596,21 @@ function () {
                 ctx.shadowOffsetY = 5;
                 let __panelFill = this.panelBg || 'rgba(255,255,255,0.98)';
                 if (this.sunset) {
-                    // Orange sunset gradient (top-down): golden -> orange -> deep sunset.
+                    // Navy ground, barely graded top to bottom so the panel has a surface
+                    // without reading as a second colour. The ALPHA comes from this.bg, which
+                    // _applySideMenuBgAlpha in gene.js rewrites frame by frame to fade the menu
+                    // in and out: the old gradient was opaque and ignored it, so the fade moved
+                    // nothing and the panel appeared and vanished outright.
+                    let __a = 0.985;
+                    try {
+                        const __m = ('' + (this.bg || '')).match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)/);
+                        if (__m) __a = Math.max(0, Math.min(1, +__m[1]));
+                    } catch (e) { }
+                    __panelFill = 'rgba(11,37,69,' + __a + ')';
                     try {
                         const __g = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
-                        __g.addColorStop(0, '#ffd08a');
-                        __g.addColorStop(0.5, '#ff9e5e');
-                        __g.addColorStop(1, '#f56b4a');
+                        __g.addColorStop(0, 'rgba(14,45,78,' + __a + ')');
+                        __g.addColorStop(1, 'rgba(8,30,54,' + __a + ')');
                         __panelFill = __g;
                     } catch (e) { }
                 }
@@ -587,7 +620,7 @@ function () {
                 ctx.restore();
 
                 ctx.lineWidth = 1;
-                ctx.strokeStyle = this.panelBorder || '#d4dae3';
+                ctx.strokeStyle = this.panelBorder || (this.sunset ? '#1aa3bd' : '#d4dae3');
                 menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
                 ctx.stroke();
 
@@ -624,7 +657,7 @@ function () {
                     // SAVED AND RESTORED AROUND THE WHOLE HEADER. The item labels below are
                     // drawn with no textBaseline of their own and inherit whatever is current.
                     ctx.save();
-                    let dark = false;
+                    let dark = !!this.sunset;
                     try {
                         const m = ('' + (this.panelBg || '')).match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
                         if (m) dark = (0.2126 * +m[1] + 0.7152 * +m[2] + 0.0722 * +m[3]) < 128;
@@ -670,7 +703,7 @@ function () {
                         menuRoundPath(ctx, -chipLen / 2, -chipThick / 2, chipLen, chipThick, 6);
                         ctx.fill();
                         ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-                        ctx.fillStyle = '#ffd9a0';                     // warm text
+                        ctx.fillStyle = this.sunset ? '#eaf6f9' : '#ffd9a0';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
                         ctx.fillText(this.title, 0, 0.5);
@@ -694,7 +727,7 @@ function () {
 
                     // Separator rows render as a thin divider
                     if (menuItem.type === 'separator') {
-                        ctx.strokeStyle = '#e5e8ee';
+                        ctx.strokeStyle = this.sunset ? 'rgba(159,196,212,0.22)' : '#e5e8ee';
                         ctx.lineWidth = 1;
                         ctx.beginPath();
                         ctx.moveTo(x + 8, y + height / 2);
@@ -724,7 +757,7 @@ function () {
                         ctx.fillStyle = menuItem.sg || this.sg || '#eef2f8';
                         menuRoundPath(ctx, x, y, width, height, itemRadius);
                         ctx.fill();
-                        ctx.fillStyle = '#2f6feb';
+                        ctx.fillStyle = this.sunset ? '#4fd0e6' : '#2f6feb';
                         menuRoundPath(ctx, x, y, 3, height, 1.5);
                         ctx.fill();
                     } else if (menuItem.bg) {
@@ -737,9 +770,9 @@ function () {
                     if (menuItem.label) {
                         ctx.font = (emphFill ? '600 ' : '') + '13px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
                         ctx.fillStyle = emphFill ? '#ffffff'
-                            : isText ? (menuItem.fg || this.textInk || (this.panelBg && /rgba?\(\s*(?:[0-9]|[1-5][0-9]|6[0-4])\s*,/.test(this.panelBg) ? 'rgba(234,246,249,0.85)' : '#4a5a70'))
-                            : isHi ? (menuItem.sf || this.sf || '#1d4ed8')
-                            : (menuItem.fg || this.fg || '#344054');
+                            : isText ? (menuItem.fg || this.textInk || ((this.sunset || (this.panelBg && /rgba?\(\s*(?:[0-9]|[1-5][0-9]|6[0-4])\s*,/.test(this.panelBg))) ? 'rgba(234,246,249,0.85)' : '#4a5a70'))
+                            : isHi ? (menuItem.sf || this.sf || (this.sunset ? '#ffffff' : '#1d4ed8'))
+                            : (menuItem.fg || this.fg || (this.sunset ? '#eaf6f9' : '#344054'));
                         ctx.textAlign = emphFill ? 'center' : 'left';
 
                         let textToDisplay = menuItem.label;

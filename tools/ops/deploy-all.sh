@@ -1727,6 +1727,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/acceptor-candidates-view.js:CANDIDATE ACCEPTOR SITES, RANKED, AS A TRACK LAYER" \
     "baja/ml/models-catalogue.js:RANK, NOT SCORE, AND THAT IS THE WHOLE POINT OF A SEPARATE ENTRY" \
     "baja/manchester/menu/editor-capabilities.js:rank_acceptor_candidates"
+  install_group "the side menu and its chip wear the editor navy, not a sunset gradient" \
+    "flexigraph/menu.js:THE SIDE PANEL WEARS THE SAME NAVY AS EVERY OTHER WINDOW IN THE EDITOR" \
+    "flexigraph/gene.js:THE SAME NAVY AND THE SAME LIGHT INK AS EVERY OTHER PANEL"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
