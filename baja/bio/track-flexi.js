@@ -2604,6 +2604,11 @@ return new Promise(async (resolve, reject) => {
             copy.track_type = this.track_type;
             copy.targetPhase = this.targetPhase;
             copy.trackRef = this.trackRef;
+            // The GENOMIC coordinates too. A copy that keeps its local frame and loses
+            // these cannot be related back to the genome at all, and nothing says so: it
+            // draws exactly like the original.
+            if (this.gxi != null) copy.gxi = this.gxi;
+            if (this.gxf != null) copy.gxf = this.gxf;
 
             const dup = (item) => {
                 if (!item || typeof item !== 'object') return item;

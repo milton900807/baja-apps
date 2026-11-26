@@ -1742,6 +1742,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/tracks/region-track.js:CUT A NAMED REGION OUT OF A TRACK, AS A TRACK OF ITS OWN" \
     "baja/bio/track-regions.js:ANY ANNOTATION ON THE TRACK, BY NAME OR BY TYPE" \
     "baja/manchester/menu/editor-capabilities.js:extract_region_track"
+  install_group "every kind of track can be copied, so every kind can be cut up" \
+    "baja/bio/track.js:COPYING A TRACK IS SOMETHING EVERY TRACK CAN DO" \
+    "baja/bio/track-flexi.js:The GENOMIC coordinates too"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

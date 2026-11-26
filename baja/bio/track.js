@@ -4075,6 +4075,75 @@ return new Promise(async (resolve, reject) => {
       });
       return largestGxf;
     }
+    // COPYING A TRACK IS SOMETHING EVERY TRACK CAN DO. This method lived only in
+    // track-flexi.js, so a gene loaded through load-track.js -- which builds its tracks
+    // from THIS class -- came back "DNM3 is not a kind of track that can be copied", and
+    // then "not a kind of track that can be cut up" when region-track.js leaned on the
+    // same method. Two renderers of the same thing, one of which could be copied.
+    //
+    // Same contract as the flexi copy: every collection rebuilt rather than shared, so
+    // editing or cutting down the copy leaves the original whole, which is the only
+    // reason to make one. The difference is the grid: this class calls it tgraph.
+    copyTrack(newName) {
+      const name = ('' + (newName == null ? '' : newName)).trim()
+        || ((this.name || 'track') + '_copy');
+      const copy = new Track(name, this.xi, this.xf, this.y, this.strand);
+
+      copy.sequence = this.sequence;
+      copy.chr = this.chr;
+      copy.species = this.species;
+      copy.transcriptID = this.transcriptID;
+      copy.geneID = this.geneID;
+      copy.description = this.description;
+      copy.track_type = this.track_type;
+      copy.targetPhase = this.targetPhase;
+      copy.trackRef = this.trackRef;
+      if (this.gxi != null) copy.gxi = this.gxi;
+      if (this.gxf != null) copy.gxf = this.gxf;
+
+      const dup = (item) => {
+        if (!item || typeof item !== 'object') return item;
+        let c;
+        const Klass = (item.constructor && item.constructor !== Object) ? item.constructor : null;
+        try { c = Klass ? Object.assign(Object.create(Klass.prototype), item) : Object.assign({}, item); }
+        catch (e) { c = Object.assign({}, item); }
+        // Anything pointing back at the track it came from now points at the copy.
+        for (const k of ['track', '__track', 'parentTrack']) {
+          try { if (c[k] === this) c[k] = copy; } catch (e) { }
+        }
+        return c;
+      };
+      const dupAll = (list) => (Array.isArray(list) ? list.map(dup) : []);
+
+      copy.annotations = dupAll(this.annotations);
+      copy.oligos = dupAll(this.oligos);
+      copy.snpindels = dupAll(this.snpindels);
+      copy.structures = dupAll(this.structures);
+      copy.genomicsCoord = Array.isArray(this.genomicsCoord) ? this.genomicsCoord.slice() : [];
+      try { copy.highlight_features = Object.assign({}, this.highlight_features || {}); } catch (e) { }
+      try { copy.track_layers = this.copyLayers() || []; } catch (e) { copy.track_layers = []; }
+      for (const l of copy.track_layers) {
+        try { if (l && l.track === this) l.track = copy; } catch (e) { }
+      }
+
+      // Same width and left edge, one track step away so it does not land on top of the
+      // original. World Y runs the opposite way to screen Y, so adding a step puts the
+      // copy above it, where every newly made track in this codebase goes.
+      copy.tgraph.xi = this.tgraph.xi;
+      copy.tgraph.yi = this.tgraph.yi + Math.abs(this.tgraph.height) + 1;
+      copy.tgraph.width = this.tgraph.width;
+      copy.tgraph.height = this.tgraph.height;
+      try { copy.tgraph.setxmin(this.tgraph.xmin); copy.tgraph.setxmax(this.tgraph.xmax); } catch (e) { }
+      try { copy.tgraph.rescale(); } catch (e) { }
+
+      for (const k of ['showPlots', 'showName', 'showSnpIndels', 'showLayers',
+        'showOfftargets', 'showOligoMap', 'showArc', 'showAnnotaions',
+        'hideTrackCoords', 'showResizeBar', 'showTrackRefMap']) {
+        try { copy[k] = this[k]; } catch (e) { }
+      }
+      return copy;
+    }
+
     createTrackFromAnnotation(annotation) {
       let seq = "";
       let _annotations = [];

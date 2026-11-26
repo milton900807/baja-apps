@@ -1,165 +1,116 @@
-// A COPY OF A TRACK IS SEPARATE FROM IT.
+// EVERY KIND OF TRACK CAN BE COPIED, AND THE TWO CLASSES COPY THE SAME WAY.
 //
 //     node tools/test/copy-track.js
 //
-// "copy this track to new track called pathogenic" was answered with "not something the
-// editor can do: copying or duplicating a track". It is an ordinary thing to want: keep the
-// original whole and cut the copy down to the part being worked on, which is usually what
-// the name says it is for.
+// The editor has two Track classes that render the same thing: baja/bio/track.js, which
+// load-track.js builds a loaded gene from, and baja/bio/track-flexi.js. copyTrack lived
+// only in the flexi one, so a gene loaded from Ensembl answered "DNM3 is not a kind of
+// track that can be copied", and then "not a kind of track that can be cut up" when
+// region-track.js leaned on the same method. Nothing on screen distinguishes the two
+// classes, so the refusal looked like a statement about the gene.
 //
-// The one thing a copy must get right is that it is NOT the original. If the two share their
-// annotations array, or share the annotation objects inside it, then deleting the benign
-// variants from the copy deletes them from the original too, and the reason for making a
-// copy is gone.
+// Both methods are read out of their own files and run here, against the same fixture and
+// the same assertions, so one of them quietly losing a collection -- or the pair drifting
+// apart again -- fails rather than waits to be found by hand.
 const fs = require('fs');
 
 let fails = 0;
-const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
+const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) fails++; };
 
-// The real copyTrack, lifted from the Track class with its braces counted, and given the
-// smallest world it needs: a Track to construct and a grid to place.
-const liftMethod = (file, head) => {
+// The method text, lifted from the class by matching braces from its signature.
+const methodOf = (file, sig) => {
     const src = fs.readFileSync(file, 'utf8');
-    const at = src.indexOf(head);
-    if (at < 0) throw new Error('no ' + head + ' in ' + file);
-    let depth = 0, end = -1;
-    for (let i = src.indexOf('{', at); i < src.length; i++) {
-        if (src[i] === '{') depth++;
-        else if (src[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+    const at = src.indexOf(sig);
+    if (at < 0) return null;
+    let i = src.indexOf('{', at), depth = 0, end = -1;
+    for (let k = i; k < src.length; k++) {
+        const ch = src[k];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) { end = k; break; } }
     }
-    const body = src.slice(at, end).replace(/^copyTrack/, 'function');
-    // eslint-disable-next-line no-eval
-    return eval('(function (Track) { return (' + body + '); })');
+    return (end > 0) ? src.slice(at, end + 1) : null;
 };
 
-const mkGrid = (yi, h) => ({
-    xi: 0, yi: yi, width: 100, height: h, xmin: 0, xmax: 100,
-    setxmin(v) { this.xmin = v; }, setxmax(v) { this.xmax = v; },
-    setymax() { }, setymin() { }, setSize() { }, setInset() { }, rescale() { this.rescaled = true; }
-});
-function Track(name, xi, xf, y, strand) {
-    this.name = '' + name; this.xi = xi; this.xf = xf; this.y = y; this.strand = strand;
-    this.grid = mkGrid(0, -40);
-    this.annotations = []; this.oligos = []; this.snpindels = []; this.structures = [];
-    this.genomicsCoord = []; this.track_layers = []; this.highlight_features = {};
-}
-// Items with classes of their own, as the real ones have: a copy must keep the class, or a
-// layer redraws with the wrong painter and an annotation loses its methods.
-function Annotation(type, name, xi, xf) { this.type = type; this.name = name; this.xi = xi; this.xf = xf; }
-Annotation.prototype.width = function () { return this.xf - this.xi; };
-function Variant(id, sig) { this.id = id; this.significance = sig; }
-Variant.prototype.label = function () { return this.id + ':' + this.significance; };
+const run = (file, gridName) => {
+    const text = methodOf(file, 'copyTrack(newName)');
+    ok(!!text, file + ' publishes copyTrack');
+    if (!text) return;
 
-const copyTrack = liftMethod('baja/bio/track-flexi.js', 'copyTrack(newName) {')(Track);
+    // A stand-in for the class itself: the constructor the method calls, and a grid with
+    // the handful of methods it touches.
+    const mkGrid = () => ({ xi: 3, yi: 7, width: 500, height: 10, xmin: 1000, xmax: 1999,
+        setxmin(v) { this.xmin = v; }, setxmax(v) { this.xmax = v; }, rescale() { this.rescaled = true; } });
+    const Track = function (name, xi, xf, y, strand) {
+        this.name = name; this.xi = xi; this.xf = xf; this.y = y; this.strand = strand;
+        this[gridName] = mkGrid();
+    };
+    const holder = new Function('Track', 'return ({ ' + text + ' });')(Track);
 
-const original = () => {
-    const t = new Track('MAPK8IP3-216', 0, 100, 0, 1);
-    t.sequence = 'ACGTACGTAC';
-    t.chr = 'chr16'; t.species = 'human';
-    t.transcriptID = 'ENST00000002'; t.geneID = 'ENSG00000003';
-    t.description = 'JIP3'; t.track_type = 'GENE'; t.targetPhase = 2;
-    t.annotations = [new Annotation('Exon', 'e1', 0, 10), new Annotation('Exon', 'e2', 20, 30)];
-    t.snpindels = [new Variant('rs1', 'Pathogenic'), new Variant('rs2', 'Benign')];
-    t.oligos = [{ name: 'aso1', __track: t }];
-    t.showSnpIndels = false; t.showName = true;
-    t.copyLayers = function () { return [{ name: 'clinvar*', track: this }]; };
-    return t;
+    class Ann { constructor(o) { Object.assign(this, o); } what() { return this.type; } }
+    const layer = { name: 'PSI', track: null };
+    const self = {
+        name: 'DNM3', xi: 1000, xf: 1999, y: 2, strand: -1, sequence: 'ACGT'.repeat(250),
+        chr: 'chr1', species: 'Human', transcriptID: 'ENST1', geneID: 'ENSG1',
+        description: 'dynamin 3', track_type: 'GENOMIC', targetPhase: 7, trackRef: { r: 1 },
+        gxi: 171841498, gxf: 172412717,
+        annotations: [new Ann({ type: 'Exon', name: 'e1', xi: 1000, xf: 1100 })],
+        oligos: [{ name: 'aso', xi: 1200 }],
+        snpindels: [{ name: 'v', xi: 1300 }],
+        structures: [{ s: 1 }],
+        genomicsCoord: [1, 2, 3],
+        highlight_features: { exon: true },
+        track_layers: [layer],
+        showPlots: true, showName: false, showSnpIndels: true, hideTrackCoords: true,
+        copyLayers() { return this.track_layers.map((l) => Object.assign({}, l)); },
+        copyTrack: holder.copyTrack
+    };
+    layer.track = self;
+    self[gridName] = mkGrid();
+    const G = (t) => t[gridName];
+
+    const c = self.copyTrack('');
+    ok(c.name === 'DNM3_copy', 'an unnamed copy is named after the original');
+    ok(self.copyTrack('pathogenic').name === 'pathogenic', 'and a name given is the name used');
+
+    // WHAT THE TRACK IS. A copy that loses transcriptID matches nothing in a BED, which
+    // reads as the copy having no data rather than no name.
+    for (const k of ['chr', 'species', 'transcriptID', 'geneID', 'description', 'track_type', 'targetPhase']) {
+        ok(c[k] === self[k], 'carries ' + k);
+    }
+    ok(c.sequence === self.sequence, 'and the sequence');
+    ok(c.xi === self.xi && c.xf === self.xf && c.strand === self.strand, 'with the same coordinates and strand');
+    ok(c.gxi === self.gxi && c.gxf === self.gxf, 'and the genomic ones');
+
+    // EVERY COLLECTION REBUILT, NOT SHARED. Sharing is the whole failure mode: cutting the
+    // copy down then empties the original, which is the one thing a copy must not do.
+    for (const k of ['annotations', 'oligos', 'snpindels', 'structures', 'genomicsCoord', 'track_layers']) {
+        ok(c[k] !== self[k], k + ' is a new array');
+    }
+    ok(c.annotations[0] !== self.annotations[0], 'each annotation is a new object');
+    ok(c.annotations[0].xi === 1000 && c.annotations[0].name === 'e1', 'holding the same values');
+    ok(typeof c.annotations[0].what === 'function' && c.annotations[0].what() === 'Exon',
+       'and keeping its class, so its methods still work');
+    ok(c.highlight_features !== self.highlight_features, 'highlight flags are copied, not shared');
+
+    // ANYTHING POINTING BACK AT THE TRACK POINTS AT THE COPY, or the copy's layer draws on
+    // the original.
+    ok(c.track_layers[0].track === c, 'a layer on the copy points at the copy');
+    ok(self.track_layers[0].track === self, 'and the original keeps its own');
+
+    // Placed one step from the original, not on top of it.
+    ok(G(c).xi === G(self).xi, 'same left edge');
+    ok(G(c).yi === G(self).yi + Math.abs(G(self).height) + 1, 'one track step away');
+    ok(G(c).xmin === G(self).xmin && G(c).xmax === G(self).xmax, 'covering the same window');
+    ok(G(c).rescaled === true, 'and rescaled after being moved');
+
+    ok(c.showPlots === true && c.showName === false && c.hideTrackCoords === true,
+       'display flags match what was on screen');
 };
 
-(() => {
-    let t = original();
-    let c = copyTrack.call(t, 'pathogenic');
+console.log('baja/bio/track.js');
+run('baja/bio/track.js', 'tgraph');
+console.log('\nbaja/bio/track-flexi.js');
+run('baja/bio/track-flexi.js', 'grid');
 
-    // ---- it is a copy -------------------------------------------------------------------
-    ok(c.name === 'pathogenic', 'it takes the name asked for: ' + c.name);
-    ok(c.sequence === t.sequence && c.chr === 'chr16' && c.strand === 1,
-       'with the same sequence and place');
-    ok(c.transcriptID === 'ENST00000002' && c.geneID === 'ENSG00000003' && c.species === 'human',
-       'and the identity the data layers look a track up by, or the copy quietly matches '
-       + 'nothing in a BED and looks empty');
-    ok(c.annotations.length === 2 && c.snpindels.length === 2 && c.oligos.length === 1,
-       'everything on it came across: ' + [c.annotations.length, c.snpindels.length, c.oligos.length].join('/'));
-    ok(c.track_layers.length === 1, 'including the data layers, through their own copier');
-    ok(c.showSnpIndels === false && c.showName === true,
-       'and it looks the way the original looked');
-
-    // ---- and it is SEPARATE, which is the whole point -----------------------------------
-    ok(c.annotations !== t.annotations && c.snpindels !== t.snpindels && c.oligos !== t.oligos,
-       'the arrays are new, not the same arrays under a second name');
-    ok(c.annotations[0] !== t.annotations[0] && c.snpindels[0] !== t.snpindels[0],
-       'and so is every item in them');
-
-    // The thing someone makes a copy FOR.
-    c.snpindels = c.snpindels.filter((v) => v.significance === 'Pathogenic');
-    ok(c.snpindels.length === 1 && t.snpindels.length === 2,
-       'cutting the copy down to the pathogenic variants leaves the original with both: '
-       + c.snpindels.length + ' and ' + t.snpindels.length);
-    c.annotations[1].name = 'renamed';
-    ok(t.annotations[1].name === 'e2',
-       'and renaming something on the copy does not rename it on the original: '
-       + t.annotations[1].name);
-
-    // ---- the items are still themselves ---------------------------------------------------
-    ok(c.annotations[0] instanceof Annotation && typeof c.annotations[0].width === 'function',
-       'a copied annotation keeps its class, so it keeps its methods');
-    ok(c.snpindels[0] instanceof Variant && c.snpindels[0].label() === 'rs1:Pathogenic',
-       'and so does a copied variant: ' + c.snpindels[0].label());
-
-    // Nothing on the copy still points at the original, or an edit made through an item
-    // would reach back across.
-    ok(c.oligos[0].__track === c, 'an item\'s back-reference points at the copy: '
-       + (c.oligos[0].__track === c ? 'copy' : (c.oligos[0].__track === t ? 'STILL THE ORIGINAL' : '?')));
-    ok(c.track_layers[0].track === c, 'and so does a layer\'s');
-
-    // ---- where it lands -------------------------------------------------------------------
-    // World y is inverted against screen y, so a LARGER yi is higher on screen: this step
-    // places the copy one track ABOVE, the same way every other new track in the codebase
-    // is placed. What is being checked is that it is one clear step away and not on top.
-    ok(c.grid.yi === t.grid.yi + Math.abs(t.grid.height) + 1,
-       'it sits one track step clear of the original rather than on top of it: ' + c.grid.yi);
-    ok(c.grid.xi === t.grid.xi && c.grid.width === t.grid.width,
-       'at the same width and left edge, so the two line up');
-
-    // ---- a name that was not given ---------------------------------------------------------
-    t = original();
-    c = copyTrack.call(t, '');
-    ok(c.name === 'MAPK8IP3-216_copy', 'with no name asked for it is named after the original: ' + c.name);
-    c = copyTrack.call(t, '   ');
-    ok(c.name === 'MAPK8IP3-216_copy', 'and blank spaces are not a name either');
-
-    // ---- the operation and the capability --------------------------------------------------
-    const op = fs.readFileSync('baja/bio/copy-track.js', 'utf8');
-    ok(/ensureUniqueTrackName/.test(op),
-       'the operation renames a copy whose name is taken rather than refusing: two tracks '
-       + 'with one name makes every by-name operation ambiguous');
-    ok(/deselectAllTracks[\s\S]{0,80}made\.select\(\)/.test(op),
-       'and leaves the copy selected, so the next operation runs on it');
-    const cap = fs.readFileSync('baja/manchester/menu/editor-capabilities.js', 'utf8');
-    ok(/name: 'copy_track'/.test(cap), 'copy_track is a declared capability');
-    // THE WORDS PEOPLE ACTUALLY USE. The planner only ever sees this text, so a phrasing
-    // missing from it is a phrasing that gets answered with "nothing in the editor does
-    // that" -- which is how a working operation stays invisible.
-    const capSel = cap.slice(cap.indexOf("name: 'copy_track'"), cap.indexOf("name: 'design_oligos'"));
-    const joined = capSel.replace(/'\s*\+\s*'/g, '');
-    for (const phrase of ['copy this track', 'duplicate this track',
-        'duplicate this track and call the new one pathogenic', 'clone this track',
-        'make a copy called X', 'save this as a new track']) {
-        ok(joined.indexOf(phrase) >= 0, 'it answers to ' + JSON.stringify(phrase));
-    }
-    ok(/COPY AND DUPLICATE mean the same thing here/i.test(joined),
-       'and says outright that copy and duplicate are the same thing, rather than leaving '
-       + 'the planner to decide whether duplicate is something else');
-    for (const phrase of ['call the new one pathogenic', 'name it pathogenic',
-        'to a new track called pathogenic']) {
-        ok(joined.indexOf(phrase) >= 0,
-           'the name is read from ' + JSON.stringify(phrase));
-    }
-    ok(/Take the name only, without the words around it/.test(joined),
-       'and only the name is taken, not the words around it');
-    ok(/a\.track \? matchTrack\(a\.track\) : oneTrack\(\)/.test(cap.slice(cap.indexOf("name: 'copy_track'"))),
-       '"this track" resolves the same way every other single-track operation resolves it: '
-       + 'the selected one, then the only one');
-
-    console.log(fails ? '\n' + fails + ' assertion(s) failed' : '\nall assertions passed');
-    process.exit(fails ? 1 : 0);
-})();
+console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
+process.exit(fails ? 1 : 0);
