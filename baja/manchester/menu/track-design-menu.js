@@ -2725,6 +2725,54 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             // chosen: Therapeutics -> Allele selective -> modality -> chemistry.
             open: () => exec('baja/manchester/menu/allele-selective-design.js', window['env']['apiUrl'], graph, genegraph_panel_layout, selectedTrack)
         }, {
+            // A DESIGN QUESTION ABOUT A PAIR, which this menu had no shape for: every card
+            // above designs against one transcript, and the question behind two paralogues
+            // on the canvas is what would move the RATIO between them. It sits in
+            // Therapeutics because what it proposes is a steric blocker, the same modality
+            // as the card above it, aimed at a site rather than at a sequence to cut.
+            //
+            // The direction cannot be guessed, so it is the choice: each other transcript
+            // offers both ways round, with the selected track named in each.
+            title: 'Ratio shift', badge: 'Two transcripts',
+            ready: __ratioPartners.length > 0,
+            readyNote: 'needs a second transcript',
+            subtitle: 'Raise one, localise the other less',
+            blurb: (__ratioPartners.length > 0)
+                ? ('Blockers that push two messages opposite ways: over a microRNA site or a '
+                    + '3\u2019 UTR repressor on the one to RAISE, and over a transport-granule '
+                    + 'or local-initiation site on the one whose distal translation is to be '
+                    + 'LOWERED. Every candidate is checked base by base against the other '
+                    + 'transcript, because a blocker matching both moves nothing \u2014 which is '
+                    + 'the usual outcome between paralogues. Nothing is measured and no site is '
+                    + 'known to be occupied: it returns a shortlist to test. Best run on the two '
+                    + '3\u2019 UTRs rather than two whole genes.')
+                : ('Only one transcript with sequence is on the canvas, and this is a model of a '
+                    + 'PAIR: it needs the other one to check that a blocker would not hit both. '
+                    + 'Load the second transcript, or cut the two 3\u2019 UTRs out first.'),
+            books: () => __ratioPartners.slice(0, 6).reduce((out, other) => {
+                const mine = __trackLabel, theirs = other.name || '(unnamed)';
+                out.push({
+                    title: 'Raise ' + mine + ', lower ' + theirs, badge: 'Ratio shift',
+                    blurb: 'Relieve repression on ' + mine + ' and take local translation away '
+                        + 'from ' + theirs + '. Sites on each are kept only where a blocker would '
+                        + 'not also match the other.',
+                    open: () => exec('baja/bio/expression/ratio-shift-model.js',
+                        { up: selectedTrack, down: other })
+                        .then((m) => exec('baja/bio/expression/ratio-shift-view.js', graph, m,
+                            { up: selectedTrack, down: other }))
+                });
+                out.push({
+                    title: 'Raise ' + theirs + ', lower ' + mine, badge: 'Ratio shift',
+                    blurb: 'The same thing the other way round: ' + theirs + ' up, '
+                        + mine + ' localised less.',
+                    open: () => exec('baja/bio/expression/ratio-shift-model.js',
+                        { up: other, down: selectedTrack })
+                        .then((m) => exec('baja/bio/expression/ratio-shift-view.js', graph, m,
+                            { up: other, down: selectedTrack }))
+                });
+                return out;
+            }, [])
+        }, {
             // Screening belongs beside designing: an ASO is not finished until you know what
             // else it binds, and having to leave Therapeutics to find out made that a separate
             // errand. The same entry points as the off-target tools menu -- one screen, reached
@@ -2889,6 +2937,21 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             return { here: here, canvas: canvas };
         })();
         const __trackLabel = (selectedTrack && selectedTrack.name) || 'this track';
+
+        // THE OTHER TRANSCRIPTS A RATIO COULD BE SHIFTED AGAINST. Only tracks with enough
+        // sequence to scan: the model refuses a track it cannot read, and a card that opens
+        // onto that refusal is worse than a card that says what is missing.
+        const __ratioPartners = (() => {
+            const out = [];
+            try {
+                for (const t of ((graph && graph.track) || [])) {
+                    if (!t || t === selectedTrack) continue;
+                    if (('' + (t.sequence || '')).length < 40) continue;
+                    out.push(t);
+                }
+            } catch (e) { }
+            return out;
+        })();
 
         // Variants available to design against. The SAME filter allele-selective-design.js
         // applies -- a snpindel with no xi is not a position it can aim at -- so the menu

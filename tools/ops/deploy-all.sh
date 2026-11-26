@@ -1751,7 +1751,8 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/expression/ratio-shift-model.js:THE RATIO SHIFT MODEL: PUSHING TWO MESSAGES IN OPPOSITE DIRECTIONS WITH BLOCKERS" \
     "baja/bio/expression/ratio-shift-view.js:THE RATIO SHIFT MODEL, SHOWN" \
     "baja/manchester/menu/editor-capabilities.js:ratio_shift_model" \
-    "baja/ml/models-catalogue.js:A MODEL OF A PAIR"
+    "baja/ml/models-catalogue.js:A MODEL OF A PAIR" \
+    "baja/manchester/menu/track-design-menu.js:A DESIGN QUESTION ABOUT A PAIR"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
