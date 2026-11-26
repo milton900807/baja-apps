@@ -1288,6 +1288,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # Exon details came out of the host's text-editor sheet, and two menus measured the
+  # exon's length differently.
+  install_group "Exon details in the standard window" \
+    "baja/bio/exon-details.js:WHAT THIS EXON IS, in the editor" \
+    "baja/manchester/menu/menu-factory.js:one measurement of an exon length" \
+    "baja/manchester/menu/phylon-menu.js:Both now ask baja/bio/exon-details.js"
+
   # Pasting an image started the OCR reader with no way to say no.
   install_group "Pasting an image does not run OCR" \
     "manchester/editor.js:PASTING AN IMAGE NO LONGER RUNS OCR"

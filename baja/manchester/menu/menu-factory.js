@@ -695,23 +695,10 @@ function () {
                                         graph.setMessage(" No track selected ");
                                         return;
                                     }
-                                    let info = annotation.name + '\n\n';
-                                    let diff = Math.abs(annotation.gxf - annotation.gxi)+1;
-                                    if (diff % 3 === 0) {
-                                        info += ' Exon is in frame. \n'
-
-                                    } else {
-                                        info += ' Exon is out of frame. \n'
-                                    }
-
-                                    info += ' Total length is ' + diff + ' nt\n'
-
-                                    showModal({
-                                        'wid': 'text-editor',
-                                        'data': {
-                                            'text': info
-                                        }
-                                    })
+                                    // baja/bio/exon-details.js: the editor's standard result
+                                    // window, and one measurement of an exon length rather
+                                    // than this menu's and the Phylon menu's disagreeing.
+                                    await exec('baja/bio/exon-details.js', graph, selectedTrack, annotation);
                                 }
                                 ,
                                 move: () => {

@@ -10,23 +10,11 @@ function (graph, genegraph_panel_layout) {
                         graph.setMessage(" No track selected ");
                         return;
                     }
-                    let info = annotation.name + '\n\n';
-                    let diff = annotation.gxf - annotation.gxi;
-                    if (diff % 3 === 0) {
-                        info += ' Exon is in frame. \n'
-
-                    } else {
-                        info += ' Exon is out of frame. \n'
-                    }
-
-                    info += ' Total length is ' + diff + ' nt\n'
-
-                    showModal({
-                        'wid': 'text-editor',
-                        'data': {
-                            'text': info
-                        }
-                    })
+                    // This measured the exon as gxf - gxi while the track menu measured it
+                    // as abs(gxf - gxi) + 1, so the same exon was 121 nt here and 122 there,
+                    // and a difference of one is exactly what decides in frame from out of
+                    // frame. Both now ask baja/bio/exon-details.js.
+                    await exec('baja/bio/exon-details.js', graph, selectedTrack, annotation);
                 }
                 ,
                 move: () => {
