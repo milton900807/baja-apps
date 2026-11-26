@@ -1761,6 +1761,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/track-design-menu.js:A LEAF THAT ASKS" \
     "baja/ml/models-catalogue.js:WHICH TRACK IS RAISED IS NOT GUESSED FROM THE SELECTION ORDER" \
     "baja/manchester/menu/editor-capabilities.js:A HALF-NAMED PAIR IS A QUESTION, NOT A REFUSAL"
+  install_group "one sequence that does both ends of the ratio" \
+    "baja/bio/expression/ratio-shift-model.js:ONE SEQUENCE THAT DOES BOTH" \
+    "baja/bio/expression/ratio-shift-view.js:ONE SEQUENCE THAT DOES BOTH, ABOVE THE TWO ARMS" \
+    "baja/manchester/menu/editor-capabilities.js:is there a single oligo that " \
+    "baja/ml/models-catalogue.js:whether a single shared sequence would do"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

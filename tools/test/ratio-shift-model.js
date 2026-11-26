@@ -82,7 +82,29 @@ const run = async (over, o) => {
     ) }, { up: UP, down: DOWN, top: 10 });
 
     ok(r.ok, 'the model runs: ' + (r.reason || ''));
-    ok(/Both arms have somewhere to aim/.test(r.verdict), 'and says what the pair supports: ' + (r.verdict || '').slice(0, 60));
+    // ---- ONE SEQUENCE THAT DOES BOTH -----------------------------------------------------
+    // The fixture is built for this: the stretch shared between the two messages carries an
+    // 8mer miR-122 site on the one to be raised and the FUS site on the one to be lowered.
+    // A blocker there binds both and does a different job in each, which is a different
+    // design from the two arms: one molecule, and the two effects arrive together.
+    ok(r.dualAll >= 1, 'the shared stretch is found as a dual-action sequence: ' + r.dualAll);
+    const d = r.dual[0];
+    ok(d.raises.label === 'miR-122-5p' && d.lowers.label === 'FUS',
+       'with what it does at each end named: raises ' + d.raises.label + ', lowers ' + d.lowers.label);
+    ok(d.mismatches === 0, 'the sequence is shared, so the same oligo binds both: ' + d.mismatches + ' mismatches');
+    ok(d.covered >= 10, 'and it covers enough of the far site to block it: ' + d.covered + ' nt');
+    ok(UP_SEQ.indexOf(d.footprint) >= 0 && DOWN_SEQ.indexOf(d.footprint) >= 0,
+       'the sequence is really in both messages');
+    ok(d.upStart != null && d.downStart != null, 'with a position on each track');
+    ok(/would do both/.test(r.verdict), 'the verdict leads with it: ' + (r.verdict || '').slice(0, 50));
+    ok(/cannot be dosed apart/.test(r.verdict), 'and says what one molecule costs you');
+    ok(/Both arms/.test(r.verdict) || /Separately, /.test(r.verdict),
+       'while still reporting the two separate arms');
+
+    // A SITE THAT CAN BE AIMED IS NOT A DUAL SITE. The two lists are built from opposite
+    // sides of the same cut-off, so a candidate cannot be in both.
+    ok(r.dual.every((x) => !x.raises.selective || !x.lowers.selective),
+       'nothing counted as dual was also counted as selective');
 
     // ---- the up arm: microRNA sites and repressors ---------------------------------------
     const upLabels = r.up.candidates.map((c) => c.label);

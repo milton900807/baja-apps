@@ -67,12 +67,55 @@ function (graph, model, opts) {
                 + '</div>';
         };
 
+        // ONE SEQUENCE THAT DOES BOTH, ABOVE THE TWO ARMS. It is a different design, not a
+        // better candidate: one molecule where the arms need two, and the two effects then
+        // arrive together at one dose. That is worth the top of the window when it exists,
+        // and worth saying plainly when it does not, because "no dual sequence" is an
+        // answer to the question that was asked and an empty section is not.
+        const dualBlock = (() => {
+            const list = m.dual || [];
+            if (!list.length) {
+                return '<div style="border:1px solid ' + C.rule + ';border-radius:10px;padding:12px 14px;margin:0 0 14px">'
+                    + '<div style="font:700 13px ' + C.font + ';color:' + C.accent + ';letter-spacing:.04em;margin-bottom:4px">ONE SEQUENCE THAT DOES BOTH</div>'
+                    + '<div style="color:' + C.dim + '">None. No stretch is shared closely enough by both '
+                    + 'messages while also sitting over something repressive on ' + esc(m.up.track)
+                    + ' and over transport or local initiation on ' + esc(m.down.track)
+                    + ', so the two arms below need an oligo each.</div></div>';
+            }
+            const rows = list.map((d) => ''
+                + '<tr>'
+                + '<td style="padding:8px 10px;vertical-align:top;font-family:ui-monospace,Menlo,monospace;'
+                + 'font-size:13px;color:' + C.accent + ';white-space:nowrap">' + esc(d.footprint)
+                + '<div style="font-size:11px;color:' + C.dim + ';font-family:' + C.font + '">read off '
+                + esc(d.writtenFor === 'up' ? m.up.track : m.down.track) + ', '
+                + (d.mismatches === 0
+                    ? 'identical in both'
+                    : (d.mismatches + ' mismatch' + (d.mismatches === 1 ? '' : 'es') + ' against the other, which costs affinity there'))
+                + '</div></td>'
+                + '<td style="padding:8px 10px;vertical-align:top">'
+                + '<div><span style="color:' + C.ok + '">raises</span> ' + esc(m.up.track) + ': over '
+                + esc(d.raises.label) + ' at ' + n(d.upStart) + '\u2013' + n(d.upEnd) + '</div>'
+                + '<div><span style="color:' + C.warm + '">lowers</span> ' + esc(m.down.track) + ': over '
+                + esc(d.lowers.label) + ' at ' + n(d.downStart) + '\u2013' + n(d.downEnd) + '</div>'
+                + '<div style="font-size:12px;color:' + C.dim + ';margin-top:3px">covers ' + n(d.covered)
+                + ' nt of the far site \u00b7 ' + esc(d.lowers.detail || '') + '</div>'
+                + '</td></tr>').join('');
+            return '<div style="border:1px solid ' + C.outline + ';border-radius:10px;padding:12px 14px;margin:0 0 14px">'
+                + '<div style="font:700 13px ' + C.font + ';color:' + C.accent + ';letter-spacing:.04em;margin-bottom:6px">ONE SEQUENCE THAT DOES BOTH</div>'
+                + '<div style="font-size:12px;color:' + C.dim + ';margin-bottom:8px">Shared by both messages, '
+                + 'repressive on ' + esc(m.up.track) + ' and transport or local initiation on '
+                + esc(m.down.track) + '. One blocker raises the first and strands the second, so the '
+                + 'two effects arrive together and cannot be dosed apart.</div>'
+                + '<table style="border-collapse:collapse;width:100%;font-size:13px">' + rows + '</table></div>';
+        })();
+
         const body = ''
             // THE VERDICT FIRST, and it is a direction, never a ratio: nothing in the model
             // measures either message.
             + '<div style="border:1px solid ' + C.outline + ';border-radius:10px;padding:12px 14px;margin:0 0 14px">'
             + '<div style="font:700 13px ' + C.font + ';color:' + C.accent + ';letter-spacing:.04em;margin-bottom:4px">WHAT THE PAIR SUPPORTS</div>'
             + '<div>' + esc(m.verdict || '') + '</div></div>'
+            + dualBlock
             + '<div style="display:flex;gap:22px;flex-wrap:wrap">' + column(m.up, 'up') + column(m.down, 'down') + '</div>'
             + '<div style="margin-top:18px;border-top:1px solid ' + C.rule + ';padding-top:12px">'
             + '<div style="font:700 13px ' + C.font + ';color:' + C.accent + ';letter-spacing:.04em;margin-bottom:6px">WHAT THIS IS NOT</div>'
@@ -122,6 +165,11 @@ function (graph, model, opts) {
             const pts = [];
             for (const r of arm.candidates) pts.push(r.footprintStart, r.footprintEnd);
             for (const r of strays) pts.push(r.otherStart, r.otherEnd);
+            for (const d of (m.dual || [])) {
+                const a0 = (side === 'up') ? d.upStart : d.downStart;
+                const b0 = (side === 'up') ? d.upEnd : d.downEnd;
+                if (a0 != null && b0 != null) pts.push(a0, b0);
+            }
             const L = new TrackLayer((track.name || 'track') + '_RATIO_' + (side === 'up' ? 'raise' : 'lower'),
                 Math.min.apply(null, pts) - MIN, 0, Math.max.apply(null, pts) + MIN, 1);
             L.type = 'RatioShift';
@@ -142,6 +190,26 @@ function (graph, model, opts) {
                     (r.detail || '') + ' \u00b7 ' + r.mismatches + ' mismatches from the other transcript \u00b7 '
                     + r.footprint]);
             }
+            // THE DUAL SEQUENCES, ON BOTH TRACKS. The same oligo is a band on each, which is
+            // the claim made visible: one stretch, two jobs. Drawn in its own colour because
+            // it is not a better version of the candidates around it but a different design.
+            for (const d of (m.dual || [])) {
+                const a0 = (side === 'up') ? d.upStart : d.downStart;
+                const b0 = (side === 'up') ? d.upEnd : d.downEnd;
+                if (a0 == null || b0 == null) continue;
+                const a = Math.min(a0, b0), b = Math.max(a0, b0);
+                const dd = widen(a, b);
+                L.addInterval(dd[0], dd[1], lanes[i % lanes.length],
+                    'one sequence: raises ' + d.raises.label + ', lowers ' + d.lowers.label,
+                    'rgba(79,208,230,0.65)');
+                i++;
+                rowsHelp.push(['one sequence, ' + a + '\u2013' + b,
+                    'the same blocker over ' + d.raises.label + ' on ' + m.up.track + ' and '
+                    + d.lowers.label + ' on ' + m.down.track + ' \u00b7 ' + d.footprint
+                    + ' \u00b7 ' + (d.mismatches === 0 ? 'identical in both'
+                        : (d.mismatches + ' mismatches against the other message'))]);
+            }
+
             // A CANDIDATE CALLED UNSELECTIVE IS A STATEMENT ABOUT THIS TRACK: the sequence
             // it would also match is here. Said only as a mismatch count in a table, it
             // leaves the reader to find the place by eye.
@@ -183,7 +251,11 @@ function (graph, model, opts) {
         try { if (graph.rescale) graph.rescale(); } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
 
-        say('Ratio shift: ' + m.up.selective + ' selective site' + (m.up.selective === 1 ? '' : 's')
+        say('Ratio shift: ' + (m.dual && m.dual.length
+            ? (m.dual.length + ' sequence' + (m.dual.length === 1 ? '' : 's')
+                + ' would do both ends at once; ')
+            : 'no single sequence does both ends; ')
+            + m.up.selective + ' selective site' + (m.up.selective === 1 ? '' : 's')
             + ' to raise ' + m.up.track + ' and ' + m.down.selective + ' to lower ' + m.down.track
             + ', drawn on each track and listed in the window. These are proposals from sequence '
             + 'alone: nothing here measures either message or says a site is used.');

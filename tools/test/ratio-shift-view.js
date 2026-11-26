@@ -39,6 +39,13 @@ const MODEL = {
               mismatches: 0, selective: false, strength: 0.9, score: 0.135, ambiguous: true,
               otherStart: 9100, otherEnd: 9119, otherTrack: 'DNM3_3utr' }
         ] },
+    dual: [{
+        footprint: 'TTTTACGTACGTACGTAAAA', writtenFor: 'up', mismatches: 0, covered: 16,
+        raises: { label: 'FMR1', detail: 'repressor and transport granule', strength: 0.9, selective: false },
+        lowers: { label: 'FUS', detail: 'FUS travels in transport granules', strength: 0.8, selective: false },
+        upStart: 1505, upEnd: 1524, downStart: 9100, downEnd: 9119, score: 0.8
+    }],
+    dualAll: 1,
     down: { track: 'DNM3_3utr', length: 760, minus: true, all: 2, selective: 1, missing: [],
         candidates: [
             { kind: 'rbp', label: 'TARDBP', detail: 'TDP-43 carries messages into the axon', start: 9000, end: 9040,
@@ -63,6 +70,16 @@ const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [
 
     const t = txt();
     ok(/WHAT THE PAIR SUPPORTS/.test(t) && /Both arms have somewhere to aim/.test(t), 'the verdict is in it');
+
+    // ONE SEQUENCE THAT DOES BOTH IS THE HEADLINE, above the two arms: it is a different
+    // design, not a better candidate, and the thing it costs is said with it.
+    ok(t.indexOf('ONE SEQUENCE THAT DOES BOTH') >= 0, 'the dual section is there');
+    ok(t.indexOf('ONE SEQUENCE THAT DOES BOTH') < t.indexOf('Raise DNM1_3utr'), 'and above the two arms');
+    ok(t.indexOf('TTTTACGTACGTACGTAAAA') >= 0, 'with the sequence itself');
+    ok(/identical in both/.test(t), 'saying it binds both without a mismatch');
+    ok(/raises/.test(t) && /lowers/.test(t) && t.indexOf('FMR1') >= 0 && t.indexOf('FUS') >= 0,
+       'and what it does at each end');
+    ok(/cannot be dosed apart/.test(t), 'and what one molecule costs you');
     ok(/Raise DNM1_3utr/.test(t) && /Lower DNM3_3utr/.test(t), 'one column per arm, each saying which way it goes');
     ok(t.indexOf('miR-122-5p') >= 0 && t.indexOf('TARDBP') >= 0, 'the candidates are listed');
     ok(t.indexOf('ACGTACGTACACTCCAGGTT') >= 0, 'with the sequence a blocker would cover');
@@ -81,7 +98,7 @@ const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [
     const L = up.track_layers[0];
     ok(/_RATIO_raise$/.test(L.name) && /_RATIO_lower$/.test(down.track_layers[0].name),
        'named for the direction they are for: ' + L.name);
-    ok(L.intervals.length === 2, 'a band per candidate');
+    ok(L.intervals.filter((iv) => !/one sequence/.test('' + iv.t)).length === 2, 'a band per candidate');
     const bands = {}; for (const iv of L.intervals) bands[('' + iv.t).split(' ')[0]] = iv;
     ok(bands['miR-122-5p'].x1 === 1394 && bands['miR-122-5p'].x2 === 1413,
        'drawn over the blocker footprint, not over the seed: '
@@ -113,6 +130,32 @@ const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [
        'and the lowering layer says what it actually changes');
 
     ok(/nothing here measures either message/.test(said.join(' ')), 'the closing line says it too');
+    ok(/1 sequence would do both ends at once/.test(said.join(' ')), 'and leads with the dual answer');
+
+    // The dual sequence is a band on BOTH tracks: one stretch, two jobs, which is the claim.
+    for (const [who, trk] of [['up', up], ['down', down]]) {
+        const b = trk.track_layers[0].intervals.filter((iv) => /one sequence/.test('' + iv.t))[0];
+        ok(!!b, 'the dual sequence is drawn on the ' + who + ' track');
+        ok(/raises FMR1, lowers FUS/.test((b || {}).t || ''), 'labelled with both jobs on the ' + who + ' track');
+    }
+    const bUp = up.track_layers[0].intervals.filter((iv) => /one sequence/.test('' + iv.t))[0];
+    const bDown = down.track_layers[0].intervals.filter((iv) => /one sequence/.test('' + iv.t))[0];
+    ok(bUp.x1 === 1505 && bDown.x1 === 9100, 'each at its own position: ' + bUp.x1 + ' and ' + bDown.x1);
+    ok(bUp.color === bDown.color && bUp.color !== bands['miR-122-5p'].color,
+       'in a colour of their own, because it is a different design and not a better candidate');
+
+    // "NONE" IS AN ANSWER TO THE QUESTION THAT WAS ASKED. An empty section is not.
+    document.body.innerHTML = '';
+    const up2 = mkTrack('DNM1_3utr', 1000, 1600), down2 = mkTrack('DNM3_3utr', 8800, 9400);
+    const noDual = JSON.parse(JSON.stringify(MODEL));
+    noDual.dual = []; noDual.dualAll = 0;
+    await load('baja/bio/expression/ratio-shift-view.js',
+        { setResultMessage: () => { }, wake: () => { }, rescale: () => { } }, noDual,
+        { up: up2, down: down2 });
+    const t2 = txt();
+    ok(/ONE SEQUENCE THAT DOES BOTH/.test(t2) && /None\./.test(t2),
+       'with no dual sequence the section says None rather than vanishing');
+    ok(/need an oligo each/.test(t2), 'and what that means for the design');
 
     // A refusal makes no window at all.
     document.body.innerHTML = '';

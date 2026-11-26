@@ -233,6 +233,74 @@ function (opts) {
         const downRows = rows(D, U, rd.by, DOWN_RBPS);
         downRows.sort((a, b) => b.score - a.score);
 
+        // ---- ONE SEQUENCE THAT DOES BOTH ---------------------------------------------------
+        // The two arms above are two oligos. The question underneath them is whether there
+        // is ONE: a stretch that both messages carry, which is a repressive site on the one
+        // to be raised and a transport or local-initiation site on the one to be lowered. A
+        // single blocker over it would de-repress one and strand the other, which is the
+        // ratio moved from both ends by one molecule.
+        //
+        // This is the opposite test from selectivity, run on the same numbers. A candidate
+        // is only dual if the blocker MATCHES both messages closely enough to bind each --
+        // so the sites that fail the selectivity check are exactly the ones eligible here --
+        // and if what it lands on in the other message is itself a site with the right job.
+        // Matching alone is not enough: a 20-mer that is shared but sits over nothing in the
+        // second message blocks nothing there.
+        //
+        // COVERAGE IS A LENGTH, NOT AN OVERLAP FLAG. A blocker clipping two bases of a
+        // seventy-base RBP footprint has touched it and not occupied it, so at least half
+        // the oligo has to lie over the site before this will call it covered.
+        const COVER = Math.max(6, Math.floor(FOOT / 2));
+        const overlap = (a1, b1, a2, b2) => {
+            const lo = Math.max(Math.min(a1, b1), Math.min(a2, b2));
+            const hi = Math.min(Math.max(a1, b1), Math.max(a2, b2));
+            return Math.max(0, hi - lo + 1);
+        };
+        const dualFrom = (list, otherRows, whose) => {
+            const out = [];
+            for (const r of list) {
+                // Binds the other message at all? The selectivity cut-off is the same line:
+                // above it the blocker is aimed at one transcript, at or below it, it acts
+                // on both, which is a failure there and the whole point here.
+                if (r.selective || r.otherStart == null) continue;
+                for (const q of otherRows) {
+                    const cov = overlap(r.otherStart, r.otherEnd, q.start, q.end);
+                    if (cov < COVER) continue;
+                    out.push({
+                        // Written from the message it was read off, with the other end's
+                        // mismatches stated, because an oligo made to one sequence is a
+                        // mismatched oligo on the other and that costs affinity.
+                        footprint: r.footprint, writtenFor: whose,
+                        mismatches: r.mismatches, covered: cov,
+                        raises: (whose === 'up') ? r : q,
+                        lowers: (whose === 'up') ? q : r,
+                        upStart: (whose === 'up') ? r.footprintStart : r.otherStart,
+                        upEnd: (whose === 'up') ? r.footprintEnd : r.otherEnd,
+                        downStart: (whose === 'up') ? r.otherStart : r.footprintStart,
+                        downEnd: (whose === 'up') ? r.otherEnd : r.footprintEnd,
+                        // Both halves have to be worth blocking, so the weaker one sets the
+                        // score: a strong microRNA site over a barely-ranked RBP window is
+                        // not a dual blocker, it is a single one with a story attached.
+                        score: Math.round(1000 * Math.min(r.strength, q.strength)
+                            * (1 - (r.mismatches / Math.max(1, FOOT)))) / 1000
+                    });
+                }
+            }
+            return out;
+        };
+        // Both directions are searched and then deduplicated by where they land, because the
+        // same shared stretch is reachable from either message and would otherwise be listed
+        // twice with the two sequences written out of the two transcripts.
+        const dualRaw = dualFrom(upRows, downRows, 'up').concat(dualFrom(downRows, upRows, 'down'));
+        const seen = {};
+        const dual = [];
+        for (const d of dualRaw.sort((x, y) => y.score - x.score)) {
+            const key = Math.round(d.upStart / 10) + ':' + Math.round(d.downStart / 10);
+            if (seen[key]) continue;
+            seen[key] = true;
+            dual.push(d);
+        }
+
         const sel = (list) => list.filter((r) => r.selective);
         const result = {
             ok: true,
@@ -246,7 +314,9 @@ function (opts) {
                 candidates: downRows.slice(0, TOP), all: downRows.length,
                 selective: sel(downRows).length, missing: missingDown
             },
-            footprint: FOOT, mismatchCutoff: SAFE,
+            dual: dual.slice(0, TOP),
+            dualAll: dual.length,
+            footprint: FOOT, mismatchCutoff: SAFE, coverage: COVER,
             mirnaSetSize: (M.MIRNA || []).length
         };
 
@@ -254,16 +324,29 @@ function (opts) {
         // message, so a number with a fold in it would be invented. What the model can say is
         // whether each arm has anything to aim at that would not also hit the other one.
         const a = result.up.selective, b = result.down.selective;
-        result.verdict = (a && b)
+        // ONE SEQUENCE DOING BOTH IS THE HEADLINE WHEN THERE IS ONE, because it is a
+        // different design: one molecule instead of two, and the two effects cannot then be
+        // dosed apart. That last part is a cost, not a detail, so it is said here.
+        result.verdict = (dual.length)
+            ? (dual.length + ' sequence' + (dual.length === 1 ? '' : 's') + ' would do both: '
+                + 'shared by the two messages, sitting over something repressive on ' + U.name
+                + ' and over transport or local initiation on ' + D.name + '. One blocker '
+                + 'there should raise the first and strand the second, which also means the '
+                + 'two effects arrive together and cannot be dosed apart. '
+                + ((a && b) ? ('Separately, ' + a + ' site' + (a === 1 ? '' : 's') + ' on '
+                    + U.name + ' and ' + b + ' on ' + D.name + ' can each be blocked without '
+                    + 'touching the other.')
+                    : 'Neither arm has a selective site of its own, so this is the only route here.'))
+            : (a && b)
             ? ('Both arms have somewhere to aim: ' + a + ' site' + (a === 1 ? '' : 's') + ' on '
                 + U.name + ' that can be blocked without matching ' + D.name + ', and ' + b
                 + ' on ' + D.name + ' that can be blocked without matching ' + U.name
                 + '. The ratio can be pushed from both ends independently, which is the only '
                 + 'thing this says.')
             : (!a && !b)
-                ? ('Neither arm has a site that can be blocked selectively, so a blocker made '
-                    + 'against either message would be expected to act on both and move the '
-                    + 'ratio very little.')
+                ? ('No single sequence does both, and neither arm has a site that can be '
+                    + 'blocked selectively either, so a blocker made against either message '
+                    + 'would be expected to act on both and move the ratio very little.')
                 : (a ? (D.name + ' has no transport or local-initiation site that can be blocked '
                     + 'without also matching ' + U.name + ', so only the raising arm is '
                     + 'available: this would raise one without lowering the other.')
@@ -288,6 +371,10 @@ function (opts) {
                 + 'Western blot of whole cells.',
             'A steric blocker over a 3’ UTR site can change stability and polyadenylation '
                 + 'as well as the thing it was aimed at, in either direction.',
+            'A sequence that does both rests on the same stretch having a different job in '
+                + 'each message: repressive in one, transport or local initiation in the '
+                + 'other. Both halves of that are predictions, and one blocker means the two '
+                + 'effects cannot be given at different doses or at different times.',
             'Selectivity here is a mismatch count over a ' + FOOT + '-mer against the other '
                 + 'transcript only. It is not a transcriptome-wide specificity check, which '
                 + 'is a separate screen and is the one that decides whether an oligo is usable.'

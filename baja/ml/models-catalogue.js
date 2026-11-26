@@ -504,7 +504,9 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
                     + 'repressors on the one to be raised, and over transport-granule and '
                     + 'local-initiation sites on the one whose distal translation is to be '
                     + 'lowered. Every candidate is checked base by base against the other '
-                    + 'transcript, because a blocker matching both moves nothing.',
+                    + 'transcript, which answers two questions at once: which blockers are '
+                    + 'aimed at one message, and whether a single shared sequence would do '
+                    + 'both ends at the same time.',
                 provenance: 'No new model. The repressor and transport sites are BajaCLIP heads '
                     + 'from the reliable set, scored by ranking one head against the other 169 at '
                     + 'the same window; the microRNA sites are canonical seed matches from the '

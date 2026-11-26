@@ -2743,10 +2743,12 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     + 'or local-initiation site on the one whose distal translation is to be '
                     + 'LOWERED. You pick both and which way round, because swapping them is a '
                     + 'different experiment. Every candidate is checked base by base against '
-                    + 'the other transcript, since a blocker matching both moves nothing, which '
-                    + 'is the usual outcome between paralogues. Nothing is measured and no site '
-                    + 'is known to be occupied: it returns a shortlist to test, marked on both '
-                    + 'tracks. Best run on the two 3\u2019 UTRs rather than two whole genes.')
+                    + 'the other transcript, so you also get the other answer: whether ONE '
+                    + 'sequence does both, shared by the two messages and sitting over '
+                    + 'something repressive in one and over transport in the other. Nothing is '
+                    + 'measured and no site is known to be occupied: it returns a shortlist to '
+                    + 'test, marked on both tracks. Best run on the two 3\u2019 UTRs rather '
+                    + 'than two whole genes.')
                 : ('Only one transcript with sequence is on the canvas, and this is a model of a '
                     + 'PAIR: it needs the other one to check that a blocker would not hit both. '
                     + 'Load the second transcript, or cut the two 3\u2019 UTRs out first.'),
