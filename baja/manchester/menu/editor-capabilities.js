@@ -1337,6 +1337,94 @@ function (graph, genegraph_panel_layout) {
                 }
             },
             {
+                // GREYING IS THE MIDDLE OPTION BETWEEN SHOWING AND REMOVING. Reading one of
+                // four layers on a track meant hiding or deleting the other three, which
+                // throws away the thing that made the layer worth reading: how it looks
+                // against the rest. remove_layers sits right below this for a reason -- it
+                // is what people reached for when they wanted this.
+                name: 'focus_layer',
+                summary: 'GREY OUT EVERY LAYER EXCEPT ONE, so it can be read against the rest '
+                    + 'without hiding them. This is the answer to "grey out the other layers", '
+                    + '"just show me the PSI layer", "fade everything except the acceptor '
+                    + 'sites", "highlight this layer over the others", "focus on the domains '
+                    + 'layer". The others keep their place and are drawn in grey at low '
+                    + 'opacity: nothing is hidden, removed or recomputed. Asking for the same '
+                    + 'layer again, or asking to show all layers, puts the colour back. To '
+                    + 'take layers OFF a track that is remove_layers; to stop one being drawn '
+                    + 'at all, that is hiding it.',
+                needs: 'track',
+                params: {
+                    match: {
+                        type: 'string',
+                        about: 'the layer to keep in colour. PREFER THE LAYER\u2019S OWN NAME as '
+                            + 'canvas_now lists it under the track, or its kind (RNASeq, SLIM, '
+                            + 'CDD, SEQSIM). Use "none" or "all" to put every layer back in '
+                            + 'colour'
+                    },
+                    scope: {
+                        type: 'enum', values: ['canvas', 'track'], default: 'canvas',
+                        about: 'canvas greys the other layers on every track, which is what a '
+                            + 'comparison between tracks needs; track greys only the other '
+                            + 'layers on the one the chosen layer is on'
+                    },
+                    track: {
+                        type: 'string',
+                        about: 'which track the layer is on, by name. Omit unless the same '
+                            + 'layer name is on more than one'
+                    }
+                },
+                run: async (a) => {
+                    const want = ('' + (a.match || '')).trim();
+                    if (!want || /^(none|all|nothing|everything)$/i.test(want)) {
+                        return exec('baja/bio/layers/focus-layer.js', graph, null);
+                    }
+                    if (!LM) { result('Cannot work out which layer you mean: baja/bio/layer-match.js did not load.'); return; }
+                    const ts = a.track ? [matchTrack(a.track)].filter(Boolean) : tracks();
+                    const hits = [];
+                    for (const t of ts) {
+                        if (!Array.isArray(t.track_layers)) continue;
+                        for (const h of LM.match(t.track_layers, want)) hits.push({ track: t, layer: h.layer });
+                    }
+                    if (!hits.length) {
+                        // What there IS, because "no layer matches" with nothing after it
+                        // leaves the user guessing at a name they have not got in front of
+                        // them.
+                        const have = [];
+                        for (const t of ts) for (const l of ((t.track_layers) || [])) {
+                            const n = LM.nameOf(l); if (n && have.indexOf(n) < 0) have.push(n);
+                        }
+                        result('No layer matches \u201c' + want + '\u201d'
+                            + (have.length ? ('. On the canvas: ' + have.slice(0, 12).join(', ')) : '.'));
+                        return;
+                    }
+                    // Several matches is not a reason to refuse: greying everything except a
+                    // set of layers is the same request, and the first one names it.
+                    const keep = hits[0].layer;
+                    const r = await exec('baja/bio/layers/focus-layer.js', graph, keep,
+                        { scope: a.scope || 'canvas' });
+                    if (hits.length > 1) {
+                        result('\u201c' + want + '\u201d matched ' + hits.length + ' layers; kept '
+                            + LM.nameOf(keep) + ' in colour and greyed the rest.');
+                    }
+                    return r;
+                },
+                preview: (a) => {
+                    const want = ('' + (a.match || '')).trim();
+                    if (!want || /^(none|all|nothing|everything)$/i.test(want)) return 'put every layer back in colour';
+                    return 'grey out every layer except \u201c' + want + '\u201d'
+                        + ((a.scope === 'track') ? ' on its own track' : ' across the canvas');
+                },
+                argBlocker: (a) => {
+                    const want = ('' + (a.match || '')).trim();
+                    if (!want || /^(none|all|nothing|everything)$/i.test(want)) return '';
+                    let any = 0;
+                    for (const t of tracks()) any += ((t && t.track_layers) || []).length;
+                    if (!any) return 'there are no layers on the canvas to grey';
+                    return '';
+                }
+            },
+
+            {
                 // UNLOADING HAD NO OPERATION WHILE LOADING HAD ONE. "remove the rna seq
                 // layers from mapk8ip3_mrna" was answered by opening the shelf of data that
                 // can be loaded onto a track, which is the opposite of what was asked.

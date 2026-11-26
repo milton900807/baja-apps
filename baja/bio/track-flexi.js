@@ -4817,6 +4817,25 @@ return new Promise(async (resolve, reject) => {
             }
             graph.rescale();
             this.grid.rescale();
+            // GREYING THE LAYERS THAT ARE NOT THE ONE BEING LOOKED AT. A track carrying a PSI
+            // layer, an acceptor layer and two domain layers is four pictures drawn on top
+            // of each other, and the only way to read one of them was to delete the rest and
+            // run them again. A muted layer still draws -- it is the context that makes the
+            // focused one mean anything -- through a grayscale filter at low opacity.
+            //
+            // The filter is the lever rather than globalAlpha because a painter sets its own
+            // alpha all the time and would overwrite it; none of them set ctx.filter. It is
+            // put on around the layer's own draw and taken off after, so a painter that
+            // saves and restores internally cannot leak it onto whatever is drawn next.
+            const __drawLayer = async (l) => {
+                const mute = !!(l && l.muted);
+                if (!mute) { await l.drawPlot(plateTrack, this, ctx); return; }
+                let had = 'none';
+                try { had = ctx.filter || 'none'; } catch (e) { had = 'none'; }
+                try { ctx.filter = 'grayscale(1) opacity(0.3)'; } catch (e) { }
+                try { await l.drawPlot(plateTrack, this, ctx); }
+                finally { try { ctx.filter = had; } catch (e) { } }
+            };
             if (this.showLayers) {
                 for (let l of this.track_layers) {
                     l.setXi(graph.X(this.grid.xi))
@@ -4837,14 +4856,14 @@ return new Promise(async (resolve, reject) => {
                         yi < 0 && yi + h > graph.height || yi > 0 && yi + h < graph.height) {
 
                         if (!l.highlight)
-                            await l.drawPlot(plateTrack, this, ctx)
+                            await __drawLayer(l)
                         else {
                             highlighted = l;
                         }
                     }
                 }
                 if (highlighted != null) {
-                    await highlighted.drawPlot(plateTrack, this, ctx)
+                    await __drawLayer(highlighted)
                 }
 
             }

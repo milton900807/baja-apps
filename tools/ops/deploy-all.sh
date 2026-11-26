@@ -1770,6 +1770,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/expression/ratio-shift-model.js:A WINDOW NARROWS WHERE SITES ARE LOOKED FOR, AND NOTHING ELSE" \
     "baja/bio/expression/ratio-shift-picker.js:THE SELECTION ON A TRACK, if there is one" \
     "baja/bio/expression/ratio-shift-view.js:WHERE IT LOOKED, when that was not everywhere"
+  install_group "grey out the layers that are not the one being looked at" \
+    "baja/bio/layers/focus-layer.js:ONE LAYER IN FULL COLOUR, THE REST GREYED OUT" \
+    "baja/bio/track-flexi.js:GREYING THE LAYERS THAT ARE NOT THE ONE BEING LOOKED AT" \
+    "baja/manchester/menu/track-layer-popup.js:GREYING THE OTHERS IS NOT HIDING THEM" \
+    "baja/manchester/menu/editor-capabilities.js:GREYING IS THE MIDDLE OPTION BETWEEN SHOWING AND REMOVING"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

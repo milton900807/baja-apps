@@ -58,6 +58,8 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
         const z = all.indexOf(layer);
         const isFront = z === all.length - 1, isBack = z === 0;
         const vis = layer.visible !== false;
+        let isFocused = false;
+        try { isFocused = (graph.focusedLayer === layer); } catch (e) { isFocused = false; }
         const dot = layer.fillstyle || layer.color || '#1aa3bd';
         const where = all.length < 2 ? 'only layer' : (isFront ? 'front layer' : isBack ? 'back layer' : 'layer ' + (all.length - z) + ' of ' + all.length + ' from the front');
 
@@ -73,7 +75,8 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
             '<div style="display:flex;align-items:center;gap:9px;padding:6px 10px 8px 10px;">'
             + '<span style="width:11px;height:11px;border-radius:50%;background:' + esc(dot) + ';border:2px solid rgba(255,255,255,0.85);flex:none;opacity:' + (vis ? 1 : 0.4) + ';"></span>'
             + '<div style="min-width:0;"><div style="font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;">' + esc(nameOf(layer)) + '</div>'
-            + '<div style="font-size:11px;color:#9fc4d4;overflow:hidden;text-overflow:ellipsis;">' + esc(track.name || 'track') + ' · ' + esc(where) + (vis ? '' : ' · hidden') + '</div></div></div>'
+            + '<div style="font-size:11px;color:#9fc4d4;overflow:hidden;text-overflow:ellipsis;">' + esc(track.name || 'track') + ' · ' + esc(where) + (vis ? '' : ' · hidden')
+            + (isFocused ? ' · others greyed' : '') + '</div></div></div>'
             + rule
             + rowHtml('front', '⤒', 'Bring to front', { off: isFront })
             + rowHtml('forward', '↑', 'Bring forward', { off: isFront })
@@ -81,6 +84,10 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
             + rowHtml('back', '⤓', 'Send to back', { off: isBack })
             + rule
             + rowHtml('vis', vis ? '◌' : '●', vis ? 'Hide layer' : 'Show layer')
+            // GREYING THE OTHERS IS NOT HIDING THEM, and the two sit together because the
+            // row above is what people reached for when they wanted this: hiding a layer to
+            // read another one loses the comparison that made it worth reading.
+            + rowHtml('focus', '◉', isFocused ? 'Stop greying the others' : 'Grey out the other layers')
             + rowHtml('rename', '✎', 'Rename…')
             + rowHtml('more', '⋯', 'More options…')
             + rule
@@ -149,6 +156,10 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
             backward: () => { if (move('backward')) wake(); },
             back: () => { if (move('back')) wake(); },
             vis: () => { pushHistory(); layer.visible = !(layer.visible !== false); wake(); },
+            // No history push: greying is a way of LOOKING at the canvas, not a change to
+            // it, and putting it on the undo stack would make Undo step back through how
+            // somebody read their data before it reached the edit they wanted undone.
+            focus: () => exec('baja/bio/layers/focus-layer.js', graph, isFocused ? null : layer),
             rename: async () => {
                 let va = null;
                 try { va = await prompt('Rename layer', ['Name'], { 'Name': nameOf(layer) }, 380, 200); } catch (e) { va = null; }
