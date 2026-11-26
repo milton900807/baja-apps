@@ -367,7 +367,14 @@ function () {
                 // whole panel — not the moment it leaves the chip.
                 if (this.collapsible && !((typeof isMobile === 'function') && isMobile())) {
                     const over = this.isIn(graph, x, y);
+                    if (over) this.__touched = true;
                     if (over && this.collapsed) { this.collapsed = false; this.highlight = -1; return; }
+                    // A MENU OPENED BY A CLICK STAYS OPEN UNTIL THE POINTER HAS BEEN IN IT.
+                    // Opening already expanded is not enough on its own: the menu appears at
+                    // the edge of the canvas while the pointer is wherever the click happened,
+                    // so the very next mouse move is a leave and the panel tucked itself back
+                    // into a chip before it could be read. One visit arms the ordinary rule.
+                    if (!over && !this.collapsed && this.__openOnArrival && !this.__touched) { this.highlight = -1; return; }
                     if (!over && !this.collapsed) { this.collapsed = true; this.highlight = -1; this.stopScrolling(); return; }
                     if (this.collapsed) { this.highlight = -1; return; }
                 }

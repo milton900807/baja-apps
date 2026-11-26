@@ -1730,6 +1730,9 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "the side menu and its chip wear the editor navy, not a sunset gradient" \
     "flexigraph/menu.js:THE SIDE PANEL WEARS THE SAME NAVY AS EVERY OTHER WINDOW IN THE EDITOR" \
     "flexigraph/gene.js:THE SAME NAVY AND THE SAME LIGHT INK AS EVERY OTHER PANEL"
+  install_group "a menu the user clicked for opens showing its items" \
+    "flexigraph/gene.js:THE PILL IS FOR A MENU NOBODY ASKED FOR" \
+    "flexigraph/menu.js:A MENU OPENED BY A CLICK STAYS OPEN UNTIL THE POINTER HAS BEEN IN IT"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

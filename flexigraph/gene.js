@@ -8000,6 +8000,24 @@ pattern, GGGG | Required`
                         // pill (see menu.js draw()), so the full-screen mobile menu only opens
                         // once the user taps it.
                         if (!(list && list.__noCollapse)) {
+                            // THE PILL IS FOR A MENU NOBODY ASKED FOR. Every side menu opened
+                            // as a title chip that had to be hovered to expand, including the
+                            // ones the user had just clicked to get: choosing KRAS in the
+                            // selection window produced a chip reading KRAS, which is the
+                            // answer to a question that was already asked and a second reach
+                            // for the same thing.
+                            //
+                            // A RECENT __menuParent is exactly the signal, and it is the same
+                            // one the chip is named from: it is set when a menu item is clicked
+                            // (menu.js) and when a row of the selection window is (above). So a
+                            // menu that follows a click opens showing its items, and one that
+                            // arrives on its own -- from a tool, a load, a canvas gesture --
+                            // still opens discreetly and keeps the canvas clear.
+                            let __asked = false;
+                            try {
+                                const __mp = this.__menuParent;
+                                __asked = !!(__mp && (Date.now() - (__mp.t || 0)) < 4000);
+                            } catch (e) { }
                             // The chip is named after the PARENT — the item the user clicked to
                             // get here. "Layers", "Models", "Primer probes": where they are,
                             // in the word they chose, rather than a summary of what is inside.
@@ -8056,7 +8074,10 @@ pattern, GGGG | Required`
                             // own from its own parent click.
                             try { this.__menuParent = null; } catch (e) { }
                             this.side_menu.collapsible = true;
-                            this.side_menu.collapsed = true;
+                            this.side_menu.collapsed = !__asked;
+                            // It still collapses, but only once the pointer has been inside it:
+                            // see mouseMove in menu.js.
+                            if (__asked) this.side_menu.__openOnArrival = true;
                         }
                     } catch (e) { }
                 }, 10);
