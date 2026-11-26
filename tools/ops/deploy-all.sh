@@ -1775,6 +1775,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-flexi.js:GREYING THE LAYERS THAT ARE NOT THE ONE BEING LOOKED AT" \
     "baja/manchester/menu/track-layer-popup.js:GREYING THE OTHERS IS NOT HIDING THEM" \
     "baja/manchester/menu/editor-capabilities.js:GREYING IS THE MIDDLE OPTION BETWEEN SHOWING AND REMOVING"
+  install_group "grey every layer is its own request, not a way of saying none" \
+    "baja/bio/layers/focus-layer.js:GREY EVERYTHING, WITH NOTHING IN COLOUR" \
+    "baja/manchester/menu/editor-capabilities.js:NO LAYER NAMED AND NO ACTION IS A REQUEST TO PUT THINGS BACK"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

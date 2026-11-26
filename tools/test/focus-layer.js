@@ -84,6 +84,59 @@ const muted = (g) => g.track.reduce((s, t) => s.concat(t.track_layers.filter((l)
     r = await load('baja/bio/layers/focus-layer.js', lone, lone.track[0].track_layers[0]);
     ok(r.muted === 0 && /nothing to grey/.test(lone.said.join(' ')), 'one layer alone is said to be alone');
 
+    // ---- grey EVERYTHING, with nothing in colour -------------------------------------------
+    // A different request from focusing one layer, and the opposite of putting them back:
+    // "grey out all layers on all tracks" was read as the restore and cleared the greying
+    // instead of applying it, because the word "all" was listed as a way of saying none.
+    g = mkGraph();
+    r = await load('baja/bio/layers/focus-layer.js', g, null, { all: true });
+    ok(r.all === true && r.muted === 4, 'every visible layer is greyed: ' + r.muted);
+    ok(muted(g).join(',') === 'PSI,ACC,CDD_domains,PSI*', 'on every track: ' + muted(g).join(','));
+    ok(!g.B.track_layers[1].muted, 'except the hidden one, which is not drawn anyway');
+    ok(/none in colour/.test(g.said.join(' ')), 'and the message says nothing is in colour');
+    ok(/still drawn and nothing has been removed/.test(g.said.join(' ')), 'but they are still drawn');
+
+    // From there, focusing one of them is still one step, and restoring is still one step.
+    await load('baja/bio/layers/focus-layer.js', g, g.A.track_layers[1]);
+    ok(g.A.track_layers[1].muted === false && muted(g).length === 3, 'focusing after greying all works');
+    await load('baja/bio/layers/focus-layer.js', g, null);
+    ok(muted(g).length === 0, 'and everything comes back');
+
+    // ---- the words that choose between them --------------------------------------------
+    // This is where it went wrong, so it is tested where the choice is made: the
+    // capability's own run(), lifted out and given stubs.
+    const caps = fs.readFileSync('baja/manchester/menu/editor-capabilities.js', 'utf8');
+    const at = caps.indexOf("name: 'focus_layer',");
+    ok(at > 0, 'the capability is there');
+    const runAt = caps.indexOf('run: async (a) => {', at);
+    let depth = 0, end = -1;
+    for (let k = caps.indexOf('{', runAt); k < caps.length; k++) {
+        if (caps[k] === '{') depth++;
+        else if (caps[k] === '}') { depth--; if (depth === 0) { end = k; break; } }
+    }
+    const runSrc = caps.slice(runAt + 'run: '.length, end + 1);
+    const callsOf = async (a) => {
+        const seen = [];
+        const exec = (path, g2, layer, opts) => { seen.push({ path: path, layer: layer, opts: opts || {} }); return Promise.resolve({ ok: true }); };
+        const fn = new Function('exec', 'graph', 'result', 'tracks', 'matchTrack', 'LM',
+            'return (' + runSrc + ');')(exec, {}, () => { }, () => [], () => null,
+            { match: () => [], nameOf: (l) => '' + l });
+        await fn(a);
+        return seen;
+    };
+    let c = await callsOf({ action: 'grey_all' });
+    ok(c.length === 1 && c[0].opts.all === true, 'action grey_all greys everything');
+    c = await callsOf({ action: 'restore' });
+    ok(c.length === 1 && !c[0].opts.all && c[0].layer === null, 'action restore puts them back');
+    c = await callsOf({ match: 'all' });
+    ok(c[0].opts.all === true, '"all" on its own means every layer greyed, not restored');
+    c = await callsOf({ match: 'all layers' });
+    ok(c[0].opts.all === true, 'and so does "all layers"');
+    c = await callsOf({ match: 'none' });
+    ok(!c[0].opts.all && c[0].layer === null, 'while "none" is the restore');
+    c = await callsOf({});
+    ok(!c[0].opts.all && c[0].layer === null, 'and nothing at all is the restore too');
+
     // ---- the renderer honours the flag ---------------------------------------------------
     // The flag is only worth setting if something reads it, and the read is one wrapper
     // around the layer's own draw in baja/bio/track-flexi.js: a filter rather than an

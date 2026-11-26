@@ -1343,23 +1343,38 @@ function (graph, genegraph_panel_layout) {
                 // against the rest. remove_layers sits right below this for a reason -- it
                 // is what people reached for when they wanted this.
                 name: 'focus_layer',
-                summary: 'GREY OUT EVERY LAYER EXCEPT ONE, so it can be read against the rest '
-                    + 'without hiding them. This is the answer to "grey out the other layers", '
-                    + '"just show me the PSI layer", "fade everything except the acceptor '
-                    + 'sites", "highlight this layer over the others", "focus on the domains '
-                    + 'layer". The others keep their place and are drawn in grey at low '
-                    + 'opacity: nothing is hidden, removed or recomputed. Asking for the same '
-                    + 'layer again, or asking to show all layers, puts the colour back. To '
-                    + 'take layers OFF a track that is remove_layers; to stop one being drawn '
-                    + 'at all, that is hiding it.',
+                summary: 'GREY LAYERS OUT so something can be read over them, without hiding '
+                    + 'or removing anything. Three things, chosen with action:\n'
+                    + '  action="focus" with match=<layer>: that layer stays in colour and '
+                    + 'every other one is greyed. "grey out the other layers", "just show me '
+                    + 'the PSI layer", "fade everything except the acceptor sites", "highlight '
+                    + 'this layer over the others", "focus on the domains layer".\n'
+                    + '  action="grey_all": EVERY layer is greyed and none is in colour, so '
+                    + 'the track underneath can be read on its own. "grey out all layers", '
+                    + '"grey out all the layers on all tracks", "mute every layer", "fade all '
+                    + 'the layers".\n'
+                    + '  action="restore": every layer back in colour. "show all layers in '
+                    + 'colour again", "un-grey the layers", "put the colours back", "stop '
+                    + 'greying".\n'
+                    + 'A greyed layer is still drawn, in grey at low opacity: nothing is '
+                    + 'hidden, removed or recomputed. Note that "all" means EVERY layer and '
+                    + 'never means restore: a request to grey all layers is grey_all, not '
+                    + 'restore. To take layers OFF a track that is remove_layers; to stop one '
+                    + 'being drawn at all, that is hiding it.',
                 needs: 'track',
                 params: {
+                    action: {
+                        type: 'enum', values: ['focus', 'grey_all', 'restore'], default: 'focus',
+                        about: 'focus greys everything except the layer named in match; '
+                            + 'grey_all greys every layer with none in colour; restore puts '
+                            + 'them all back. A request to grey ALL layers is grey_all'
+                    },
                     match: {
                         type: 'string',
-                        about: 'the layer to keep in colour. PREFER THE LAYER\u2019S OWN NAME as '
-                            + 'canvas_now lists it under the track, or its kind (RNASeq, SLIM, '
-                            + 'CDD, SEQSIM). Use "none" or "all" to put every layer back in '
-                            + 'colour'
+                        about: 'with action=focus: the layer to keep in colour. PREFER THE '
+                            + 'LAYER\u2019S OWN NAME as canvas_now lists it under the track, or '
+                            + 'its kind (RNASeq, SLIM, CDD, SEQSIM). Not used by the other two '
+                            + 'actions'
                     },
                     scope: {
                         type: 'enum', values: ['canvas', 'track'], default: 'canvas',
@@ -1374,9 +1389,23 @@ function (graph, genegraph_panel_layout) {
                     }
                 },
                 run: async (a) => {
-                    const want = ('' + (a.match || '')).trim();
-                    if (!want || /^(none|all|nothing|everything)$/i.test(want)) {
+                    const act = ('' + (a.action || '')).trim().toLowerCase();
+                    if (act === 'grey_all' || act === 'grey') {
+                        return exec('baja/bio/layers/focus-layer.js', graph, null, { all: true });
+                    }
+                    if (act === 'restore') {
                         return exec('baja/bio/layers/focus-layer.js', graph, null);
+                    }
+                    const want = ('' + (a.match || '')).trim();
+                    // NO LAYER NAMED AND NO ACTION IS A REQUEST TO PUT THINGS BACK, which is
+                    // what "none" and "nothing" mean too. "all" is deliberately NOT in this
+                    // list: "grey out all layers" is a request to grey every one of them,
+                    // and reading it as restore did the opposite of what was asked.
+                    if (!want || /^(none|nothing)$/i.test(want)) {
+                        return exec('baja/bio/layers/focus-layer.js', graph, null);
+                    }
+                    if (/^(all|everything|every layer|all layers)$/i.test(want)) {
+                        return exec('baja/bio/layers/focus-layer.js', graph, null, { all: true });
                     }
                     if (!LM) { result('Cannot work out which layer you mean: baja/bio/layer-match.js did not load.'); return; }
                     const ts = a.track ? [matchTrack(a.track)].filter(Boolean) : tracks();
@@ -1409,17 +1438,29 @@ function (graph, genegraph_panel_layout) {
                     return r;
                 },
                 preview: (a) => {
+                    const act = ('' + (a.action || '')).trim().toLowerCase();
                     const want = ('' + (a.match || '')).trim();
-                    if (!want || /^(none|all|nothing|everything)$/i.test(want)) return 'put every layer back in colour';
+                    if (act === 'restore' || (!act && !want) || /^(none|nothing)$/i.test(want)) {
+                        return 'put every layer back in colour';
+                    }
+                    if (act === 'grey_all' || act === 'grey' || /^(all|everything|every layer|all layers)$/i.test(want)) {
+                        return 'grey out every layer on every track, none left in colour';
+                    }
                     return 'grey out every layer except \u201c' + want + '\u201d'
                         + ((a.scope === 'track') ? ' on its own track' : ' across the canvas');
                 },
                 argBlocker: (a) => {
+                    const act = ('' + (a.action || '')).trim().toLowerCase();
                     const want = ('' + (a.match || '')).trim();
-                    if (!want || /^(none|all|nothing|everything)$/i.test(want)) return '';
                     let any = 0;
                     for (const t of tracks()) any += ((t && t.track_layers) || []).length;
+                    if (act === 'restore' || (!act && !want) || /^(none|nothing)$/i.test(want)) return '';
                     if (!any) return 'there are no layers on the canvas to grey';
+                    if ((act === 'focus' || !act) && !want
+                        && !/^(all|everything|every layer|all layers)$/i.test(want)) {
+                        return 'which layer should stay in colour? name it, or ask for all of '
+                            + 'them to be greyed';
+                    }
                     return '';
                 }
             },

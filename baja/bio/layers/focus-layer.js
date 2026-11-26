@@ -3,6 +3,7 @@ function (graph, layer, opts) {
     // ONE LAYER IN FULL COLOUR, THE REST GREYED OUT.
     //   await exec('baja/bio/layers/focus-layer.js', graph, layer);        // focus, or unfocus it
     //   await exec('baja/bio/layers/focus-layer.js', graph, null);         // everything back
+    //   await exec('baja/bio/layers/focus-layer.js', graph, null, { all: true });   // grey everything
     //   await exec('baja/bio/layers/focus-layer.js', graph, layer, { scope: 'track' });
     //
     // A track carrying a PSI layer, an acceptor layer and two domain layers is four pictures
@@ -35,6 +36,28 @@ function (graph, layer, opts) {
             try { if (graph.focusedLayer) graph.focusedLayer = null; } catch (e) { }
             return n;
         };
+
+        // GREY EVERYTHING, WITH NOTHING IN COLOUR. Not the same request as focusing one
+        // layer and not a way of saying "put them back", though both were reachable through
+        // the word "all": the canvas is being cleared of layer colour so the track itself --
+        // its exons, its sequence, its compounds -- can be read without four pictures
+        // competing over it.
+        if (!layer && o.all) {
+            clear();
+            let n = 0;
+            for (const t of tracks) {
+                for (const l of layersOf(t)) {
+                    if (l.visible === false) continue;
+                    l.muted = true; n++;
+                }
+            }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            say(n ? (n + ' layer' + (n === 1 ? '' : 's') + ' greyed, none in colour. They are '
+                    + 'still drawn and nothing has been removed: ask for any one of them to be '
+                    + 'focused, or for the layers to be shown in colour again.')
+                : 'There are no visible layers to grey.');
+            return { focused: null, muted: n, all: true };
+        }
 
         // Nothing to focus: put everything back. This is also what the menu's second press
         // and "show all layers" both come through.
