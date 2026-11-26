@@ -4,6 +4,7 @@ function (track) {
     //   const R = await exec('baja/bio/track-regions.js', track);
     //   R.resolve({ region: 'three_prime_utr' })   -> { start, end, label } | { error }
     //   R.resolve({ region: 'exon', index: 3 })
+    //   R.resolve({ region: 'annotation', name: 'DYNc' })
     //   R.available()                              -> what this track can actually offer
     //
     // The editor draws 5' and 3' UTR labels but never had them as spans: they are derived
@@ -79,12 +80,46 @@ function (track) {
         if (!w) return null;
         // Plus strand: 5' is everything before the CDS, 3' is everything after. Minus strand
         // is the mirror of that, which is the whole point of deriving it here.
+        //
+        // THE CDS'S OWN FIRST AND LAST BASES ARE NOT UTR. The boundary used to be the
+        // coding base itself, so every UTR carried one base of the CDS: harmless as a
+        // selection to look at, and not harmless once the region is cut out as a track or
+        // counted, where the 3' UTR then begins with the last base of the stop codon.
         const m = minus();
-        if (which === 5) return m ? span(Math.max(t.xi, t.xf), w.end) : span(w.start, Math.min(t.xi, t.xf));
-        return m ? span(w.start, Math.min(t.xi, t.xf)) : span(Math.max(t.xi, t.xf), w.end);
+        const lo = Math.min(t.xi, t.xf), hi = Math.max(t.xi, t.xf);
+        if (which === 5) return m ? span(hi + 1, w.end) : span(w.start, lo - 1);
+        return m ? span(w.start, lo - 1) : span(hi + 1, w.end);
     };
 
     const cds = () => { const t = translation(); return t ? span(t.xi, t.xf) : null; };
+
+    // ANY ANNOTATION ON THE TRACK, BY NAME OR BY TYPE. The derived regions above are the
+    // five or six a transcript always has; a track also carries whatever was loaded onto it
+    // -- protein domains, CDD sites, a motif somebody annotated -- and those had no way of
+    // being named at all, so "the DYNc domain" was a region the editor drew and could not
+    // act on.
+    //
+    // A name can match SEVERAL annotations: a domain interrupted by an intron is two or
+    // three pieces, and a type name like Exon matches every one of them. The span returned
+    // is the whole stretch from the first to the last, with `pieces` saying how many, so a
+    // caller can tell the difference between one feature and a run of them rather than
+    // being handed a span that quietly spreads across a gene.
+    const matchAnnotations = (text) => {
+        const want = ('' + (text == null ? '' : text)).trim().toLowerCase();
+        if (!want) return [];
+        let all = [];
+        try { all = (T.annotations || []).filter((a) => a && isFinite(a.xi) && isFinite(a.xf)); }
+        catch (e) { all = []; }
+        const nm = (a) => ('' + (a.name == null ? '' : a.name)).toLowerCase();
+        const ty = (a) => ('' + (a.type == null ? '' : a.type)).toLowerCase();
+        // Name first and exactly, then type, then a partial name: an exact name is what the
+        // user read off the canvas, and a partial match that outranked it would hand back a
+        // different feature from the one they pointed at.
+        let hit = all.filter((a) => nm(a) === want);
+        if (!hit.length) hit = all.filter((a) => ty(a) === want);
+        if (!hit.length) hit = all.filter((a) => nm(a).indexOf(want) >= 0);
+        return hit;
+    };
 
     const LABEL = {
         five_prime_utr: "5' UTR", three_prime_utr: "3' UTR", cds: 'CDS',
@@ -136,6 +171,32 @@ function (track) {
             r = (what === 'exon') ? span(e.xi, e.xf) : e;
             if (!r) return { error: 'that ' + what + ' has no extent' };
             return { start: r.start, end: r.end, label: what + ' ' + i + ' of ' + list.length };
+        } else if (what === 'annotation') {
+            const text = ('' + (s.name == null ? '' : s.name)).trim();
+            if (!text) return { error: 'which annotation? name one as it is drawn on the track' };
+            const hit = matchAnnotations(text);
+            if (!hit.length) {
+                // What it DOES carry, because "no annotation called that" with nothing after
+                // it leaves the user guessing at spelling and capitalisation.
+                const names = [];
+                try {
+                    for (const a of (T.annotations || [])) {
+                        const n = ('' + (a && a.name ? a.name : '')).trim();
+                        if (n && names.indexOf(n) < 0) names.push(n);
+                        if (names.length >= 12) break;
+                    }
+                } catch (e) { }
+                return { error: name + ' has no annotation called \u201c' + text + '\u201d'
+                    + (names.length ? ('. It carries: ' + names.join(', ')) : '') };
+            }
+            let lo = Infinity, hi = -Infinity;
+            for (const a of hit) { lo = Math.min(lo, a.xi, a.xf); hi = Math.max(hi, a.xi, a.xf); }
+            r = span(lo, hi);
+            if (!r) return { error: '\u201c' + text + '\u201d has no extent on ' + name };
+            const one = hit[0];
+            const label = ('' + (one.name || one.type || text))
+                + (hit.length > 1 ? (' (' + hit.length + ' pieces)') : '');
+            return { start: r.start, end: r.end, label: label, pieces: hit.length, annotations: hit };
         } else if (what === 'coordinates') {
             const a = num(s.start), b = num(s.end);
             if (a == null || b == null) return { error: 'that needs a start and an end' };
@@ -247,8 +308,9 @@ function (track) {
 
     return {
         resolve: resolve, available: available, position: position, named: named,
+        matchAnnotations: matchAnnotations,
         exons: exons, introns: introns, cds: cds, whole: whole,
         utr5: () => utr(5), utr3: () => utr(3), isMinus: minus,
-        REGIONS: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'coordinates']
+        REGIONS: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'annotation', 'coordinates']
     };
 }

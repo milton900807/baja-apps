@@ -1738,6 +1738,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/acceptor-candidates-view.js:Potential exons to draw what all of them would make at once, coloured by frame" \
     "baja/ml/models-catalogue.js:THE QUESTION THE ACCEPTOR LAYER RAISES AND DOES NOT ANSWER" \
     "baja/manchester/menu/editor-capabilities.js:show_potential_exons"
+  install_group "cut a named region out of a track as a track of its own" \
+    "baja/bio/tracks/region-track.js:CUT A NAMED REGION OUT OF A TRACK, AS A TRACK OF ITS OWN" \
+    "baja/bio/track-regions.js:ANY ANNOTATION ON THE TRACK, BY NAME OR BY TYPE" \
+    "baja/manchester/menu/editor-capabilities.js:extract_region_track"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

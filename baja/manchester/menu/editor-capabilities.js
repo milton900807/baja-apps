@@ -377,6 +377,23 @@ function (graph, genegraph_panel_layout) {
         // and the Ask card shows a Go button for each. __track never comes from the model --
         // validate() drops any key that is not a declared parameter -- only from a choice.
         const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
+        // SEVERAL TRACKS BY NAME, for an operation asked of more than one at once ("cut the
+        // 3' UTR from DNM3 and DNM1"). A name that matches nothing is left out rather than
+        // failing the whole step: the run reports it, and cutting one of two tracks is a
+        // better outcome than cutting neither.
+        const __regionTracks = (a) => {
+            const want = (a && Array.isArray(a.tracks)) ? a.tracks : [];
+            if (want.length) {
+                const out = [];
+                for (const nm of want) {
+                    const t = matchTrack(nm);
+                    if (t && out.indexOf(t) < 0) out.push(t);
+                }
+                return out;
+            }
+            const one = (a && a.__track) || oneSelTrack() || oneTrack();
+            return one ? [one] : [];
+        };
         // The track a MODEL runs on: the one chosen or named, else the selected one, else the
         // only one open. Same rule as pickTrack with the selection preferred, which is what a
         // model wants -- you select a transcript and run a model on it.
@@ -2457,6 +2474,122 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // CUTTING A REGION OUT AS ITS OWN TRACK. "cut the 3' UTR from DNM3 and DNM1"
+                // had no answer, though both halves were here: the editor knows where the
+                // 3' UTR is and it can copy a track. Working on one region therefore meant
+                // copying the whole gene and deleting the rest by hand, on every track.
+                //
+                // It takes a LIST of tracks because that is how the question is asked. One
+                // track per step would have made "from DNM3 and DNM1" two steps that each
+                // need their own confirmation, for an operation that is the same both times.
+                name: 'extract_region_track',
+                summary: 'CUT A NAMED REGION OUT OF ONE OR MORE TRACKS, EACH AS A NEW TRACK OF '
+                    + 'ITS OWN. This is the answer to "cut the 3\u2019 UTR from DNM3 and DNM1", '
+                    + '"make a track of just the 5\u2019 UTR", "extract exon 14 as its own '
+                    + 'track", "pull out the CDS as a separate track", "give me a track with '
+                    + 'only the DYNc domain". The region can be the 5\u2019 UTR, the 3\u2019 '
+                    + 'UTR, the CDS, a numbered exon or intron, any annotation on the track by '
+                    + 'name, or a coordinate range. Each new track is named after its parent '
+                    + 'with the region on the end (DNM3_3_utr) unless a name is given, keeps '
+                    + 'the parent\u2019s coordinates so the two can be read against each other, '
+                    + 'and carries the annotations, variants and compounds inside the window. '
+                    + 'It is a SLICE: a region spanning introns brings them with it, and '
+                    + 'Create mRNA on the result gives the spliced version. It does not change '
+                    + 'the original. To select a region without making a track, that is '
+                    + 'select_sequence_region; to copy a track whole, copy_track.',
+                needs: 'track',
+                params: {
+                    region: {
+                        type: 'enum',
+                        values: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'annotation', 'coordinates'],
+                        required: true,
+                        about: 'which part to cut. Use exon or intron with index, annotation '
+                            + 'with name for anything drawn on the track by name (a protein '
+                            + 'domain, a motif, a feature), and coordinates with start and end'
+                    },
+                    index: { type: 'number', about: 'which exon or intron, counting from 1 along the transcript' },
+                    name: {
+                        type: 'string',
+                        about: 'with region=annotation: the annotation to cut, as it is drawn '
+                            + 'on the track, e.g. "DYNc". Not the name for the new track'
+                    },
+                    start: { type: 'number', about: 'with region=coordinates: the first base, in the track\u2019s own coordinates' },
+                    end: { type: 'number', about: 'with region=coordinates: the last base' },
+                    tracks: {
+                        type: 'string[]',
+                        about: 'which tracks to cut from, by name, as given in canvas_now: '
+                            + '["DNM3", "DNM1"] for "from DNM3 and DNM1". Omit it for the '
+                            + 'selected track, or when only one is open'
+                    },
+                    as: {
+                        type: 'string',
+                        about: 'what to call the new track. Only for a single track: with '
+                            + 'several, each is named after its own parent so the names stay '
+                            + 'apart'
+                    }
+                },
+                run: async (a) => {
+                    const list = __regionTracks(a);
+                    if (!list.length) { result('Which track? Name it, or click one first.'); return; }
+                    const spec = { region: a.region, index: a.index, name: a.name, start: a.start, end: a.end };
+                    const made = [], failed = [];
+                    for (const t of list) {
+                        const r = await exec('baja/bio/tracks/region-track.js', graph, t, spec,
+                            { name: (list.length === 1 ? (a.as || '') : '') }, genegraph_panel_layout);
+                        if (!r || r.error) failed.push((t.name || 'a track') + ': ' + ((r && r.error) || 'nothing came back'));
+                        else made.push(r);
+                    }
+                    // EVERY FAILURE BY NAME. Cutting the same region from two tracks fails on
+                    // one of them often -- one transcript has no annotated CDS, the other
+                    // does -- and a count would leave the user comparing track lists to work
+                    // out which one is missing.
+                    if (made.length) {
+                        result(made.map((r) => r.name + ' (' + r.length.toLocaleString() + ' nt)').join(', ')
+                            + (made.length === 1 ? ' is the ' : ' are the ') + made[0].label
+                            + ' of ' + made.map((r) => r.from).join(' and ')
+                            + (failed.length ? ('. ' + failed.join('; ')) : '') + '.');
+                    } else {
+                        result(failed.length ? failed.join('; ') : 'nothing could be cut.');
+                    }
+                    return { made: made.map((r) => r.name), failed: failed };
+                },
+                preview: (a) => {
+                    const list = __regionTracks(a);
+                    const what = (a.region === 'annotation')
+                        ? ('\u201c' + (a.name || '') + '\u201d')
+                        : (('' + (a.region || 'region')).replace(/_/g, ' ')
+                            + ((a.index != null) ? (' ' + a.index) : ''));
+                    return 'cut the ' + what + ' out of '
+                        + (list.length ? list.map((t) => t.name || 'a track').join(' and ') : 'a track you pick')
+                        + ' as ' + (list.length > 1 ? 'new tracks' : 'a new track')
+                        + ((list.length === 1 && a.as) ? (' called \u201c' + a.as + '\u201d') : '');
+                },
+                argBlocker: (a) => {
+                    const list = __regionTracks(a);
+                    if (!list.length) {
+                        return (a.tracks && a.tracks.length)
+                            ? ('no track matches ' + a.tracks.map((x) => '\u201c' + x + '\u201d').join(' or ')
+                                + ': open tracks are ' + tracks().map((x) => x.name || '(unnamed)').join(', '))
+                            : 'say which track to cut from: there is more than one open';
+                    }
+                    if (a.region === 'annotation' && !('' + (a.name || '')).trim()) {
+                        return 'which annotation? name it as it is drawn on the track';
+                    }
+                    // Resolved here when the regions are already loaded, so "this transcript
+                    // has 11 exons, so there is no exon 14" is read before the button and not
+                    // after a run that made nothing.
+                    for (const t of list) {
+                        const R = regionsNow(t);
+                        if (!R) continue;
+                        const r = R.resolve({ region: a.region, index: a.index, name: a.name, start: a.start, end: a.end });
+                        // One track failing does not block a pair: the run reports it by name.
+                        if (r.error && list.length === 1) return r.error;
+                    }
+                    return '';
+                }
+            },
+
+            {
                 // "DESIGN ASOS" OPENS THE ASO DESIGNER. This used to go through
                 // tile-oligos-design.js, which refuses outright unless a sequence is already
                 // selected -- so with nothing selected, "design asos" put a hint in the status
@@ -3483,13 +3616,18 @@ function (graph, genegraph_panel_layout) {
                 params: {
                     region: {
                         type: 'enum',
-                        values: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'coordinates'],
+                        values: ['five_prime_utr', 'three_prime_utr', 'cds', 'transcript', 'exon', 'intron', 'annotation', 'coordinates'],
                         required: true,
                         about: "which part. cds is the coding sequence (also called the ORF or the "
-                            + "translated region). Use exon or intron with index, and coordinates "
-                            + "with start and end"
+                            + "translated region). Use exon or intron with index, annotation with "
+                            + "name for anything drawn on the track by name (a protein domain, a "
+                            + "motif, a feature), and coordinates with start and end"
                     },
                     index: { type: 'number', about: 'which exon or intron, counting from 1 along the transcript' },
+                    // ANYTHING THE TRACK CARRIES, BY THE NAME IT IS DRAWN UNDER. The regions
+                    // above are the handful a transcript always has; a domain or a motif on
+                    // the canvas could be seen and not selected.
+                    name: { type: 'string', about: 'with region=annotation: which annotation, as it is drawn on the track, e.g. "DYNc"' },
                     start: { type: 'number', about: 'with region=coordinates: the first base, counting from the start of the track' },
                     end: { type: 'number', about: 'with region=coordinates: the last base' },
                     track: { type: 'string', about: 'which track, by name. Omit when there is only one, or to use the selected one' },
