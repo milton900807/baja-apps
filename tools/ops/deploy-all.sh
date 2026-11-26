@@ -1288,6 +1288,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/match-regions.js:AND RUN IT IF IT HAS NOT BEEN RUN" \
     "baja/manchester/menu/editor-capabilities.js:RUN WHAT THE PICTURE NEEDS RATHER THAN ASKING FOR IT" \
     "baja/bio/compare-view.js:WHAT IS ON SCREEN DECIDES WHAT THE LINE SAYS"
+  # Candidate arcs and PSI arcs were the same colours on one track.
+  install_group "Candidate acceptor arcs are grey" \
+    "baja/bio/splicing/acceptor-candidates-view.js:GREY, BECAUSE THESE ARCS ARE NOT MEASUREMENTS"
+
   # Exon details came out of the host's text-editor sheet, and two menus measured the
   # exon's length differently.
   install_group "Exon details in the standard window" \

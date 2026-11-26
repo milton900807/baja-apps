@@ -86,8 +86,17 @@ function (graph, genegraph_panel_layout, presetTrack) {
         layer.data_type = 'splicing';
         layer.arc_type = 'SpliceSashimi';
         layer.magnitudeMode = 'sites';
-        layer.donorColor = 'rgba(94,84,199,0.95)';     // indigo, as the site-strength layer uses
-        layer.acceptorColor = 'rgba(46,160,102,0.95)'; // green
+        // GREY, BECAUSE THESE ARCS ARE NOT MEASUREMENTS. Drawn in the palette the other
+        // splicing layers use, a candidate was indistinguishable from a PSI junction on the
+        // same track: both are arcs, both are weighted by a number, and on a gene with both
+        // layers up the canvas read as one dense picture in which some arcs were measured
+        // inclusion and others were a model's guess at a site. Colour is the only thing
+        // separating them at a glance, so this layer gives up the palette.
+        //
+        // The two ends still differ, dark to light along the arc, so the direction of the
+        // junction stays readable.
+        layer.donorColor = 'rgba(138,138,138,0.85)';
+        layer.acceptorColor = 'rgba(74,74,74,0.95)';
         layer.acceptorCandidates = rows;               // kept for a later comparison
 
         // mag follows the sites convention (a 0..1 score presented on a 0..2 scale) so an

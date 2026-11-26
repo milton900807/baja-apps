@@ -219,6 +219,36 @@ const rank = async (t, prof, o) => ((await call(t, prof, o)).rows);
     ok(res.rows[0].intron === 0 && res.rows[1].intron === 1,
         'each row names the intron its arc starts from');
 
+    // ---- GREY, BECAUSE THESE ARCS ARE NOT MEASUREMENTS ----------------------------------
+    // Drawn in the splicing palette, a candidate arc was indistinguishable from a PSI
+    // junction on the same track: both are arcs, both are weighted by a number, and with
+    // both layers up some arcs were measured inclusion and others a model's guess at a
+    // site, with nothing separating them at a glance.
+    {
+        const view = require('fs').readFileSync('baja/bio/splicing/acceptor-candidates-view.js', 'utf8');
+        const grab = (k) => {
+            const m = view.match(new RegExp('layer\\.' + k + " = 'rgba\\((\\d+),(\\d+),(\\d+)"));
+            return m ? [+m[1], +m[2], +m[3]] : null;
+        };
+        for (const k of ['donorColor', 'acceptorColor']) {
+            const c = grab(k);
+            ok(!!c, k + ' is set on the layer: ' + JSON.stringify(c));
+            // Grey means the three channels are within a few points of each other; the
+            // test is on the colour itself rather than on the word "grey" in a comment.
+            const spread = c ? (Math.max.apply(null, c) - Math.min.apply(null, c)) : 999;
+            ok(spread <= 20, k + ' is grey, not a hue: channels ' + JSON.stringify(c)
+                + ', spread ' + spread);
+        }
+        const d = grab('donorColor'), a = grab('acceptorColor');
+        ok(Math.abs(d[0] - a[0]) >= 25,
+            'the two ends still differ in lightness, so the direction of the arc reads: '
+            + d[0] + ' against ' + a[0]);
+        // The PSI layer's own colours, which these must not be.
+        const layer = require('fs').readFileSync('baja/bio/track-layer.js', 'utf8');
+        ok(/donorColor \|\| 'rgba\(26,163,189/.test(layer) && !/rgba\(26,163,189/.test(view),
+            'and they are not the splicing default the PSI arcs use');
+    }
+
     console.log(fails ? ('\n' + fails + ' FAILED') : '\nall passed');
     process.exit(fails ? 1 : 0);
 })();
