@@ -170,6 +170,15 @@ function (opts) {
             const x = bestMismatch(fp.seq, other);
             const [ta, tb] = m.back(s, e);
             const [fa, fb] = m.back(fp.a, fp.b);
+            // WHERE ELSE IT WOULD BIND. The mismatch count says a blocker is not selective;
+            // this says where on the other transcript it would sit instead, which is the
+            // thing anyone asks next and which can be drawn on that track beside its own
+            // candidates.
+            let oa = null, ob = null;
+            if (x.at >= 0) {
+                const back2 = other.back(x.at, x.at + fp.seq.length);
+                oa = back2[0]; ob = back2[1];
+            }
             // SELECTIVITY IS A COUNT, NOT A VERDICT: 0 mismatches is the same sequence in
             // both messages and cannot be blocked apart; at or below the cut-off is a
             // blocker that probably hits both.
@@ -179,6 +188,7 @@ function (opts) {
                 start: ta, end: tb, mstart: s, mend: e,
                 footprint: fp.seq, footprintStart: fa, footprintEnd: fb,
                 mismatches: x.mm, selective: selective,
+                otherStart: oa, otherEnd: ob, otherTrack: other.name,
                 strength: strength,
                 // Ranked on the two things that decide whether a blocker is worth making:
                 // how good the site is, and whether it can be aimed at one message. A site

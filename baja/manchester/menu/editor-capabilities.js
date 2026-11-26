@@ -2615,14 +2615,14 @@ function (graph, genegraph_panel_layout) {
                 needs: 'track',
                 params: {
                     up: {
-                        type: 'string', required: true,
+                        type: 'string',
                         about: 'the track to RAISE, by name as given in canvas_now: the one '
-                            + 'whose repression is to be relieved'
+                            + 'whose repression is to be relieved. Omit it and the editor asks'
                     },
                     down: {
-                        type: 'string', required: true,
+                        type: 'string',
                         about: 'the track to LOWER, by name: the one whose local translation '
-                            + 'is to be taken away'
+                            + 'is to be taken away. Omit it and the editor asks'
                     },
                     top: { type: 'number', about: 'how many candidates per arm; 8 by default' },
                     footprint: { type: 'number', about: 'the length of the blocker the selectivity check assumes; 20 nt by default' }
@@ -2630,10 +2630,16 @@ function (graph, genegraph_panel_layout) {
                 run: async (a) => {
                     const U = a.up ? matchTrack(a.up) : null;
                     const D = a.down ? matchTrack(a.down) : null;
+                    // A HALF-NAMED PAIR IS A QUESTION, NOT A REFUSAL. "shift the ratio
+                    // between these" names neither track and is a perfectly clear request;
+                    // the picker asks the half that is missing, in the order the sentence
+                    // runs, and asks nothing when both were named.
                     if (!U || !D) {
-                        result('Name both tracks: which to raise and which to lower. Open tracks are '
-                            + tracks().map((x) => x.name || '(unnamed)').join(', ') + '.');
-                        return;
+                        return exec('baja/bio/expression/ratio-shift-picker.js', graph, {
+                            up: U || null, down: D || null,
+                            top: (a && a.top) ? +a.top : 8,
+                            footprint: (a && a.footprint) ? +a.footprint : 20
+                        });
                     }
                     result('Scanning ' + (U.name || 'the first track') + ' for repression to relieve and '
                         + (D.name || 'the second') + ' for transport to block\u2026');
@@ -2647,17 +2653,27 @@ function (graph, genegraph_panel_layout) {
                 preview: (a) => {
                     const U = a.up ? matchTrack(a.up) : null;
                     const D = a.down ? matchTrack(a.down) : null;
-                    return 'work out which blockers would raise ' + ((U && U.name) || a.up || 'one track')
-                        + ' and lower local translation of ' + ((D && D.name) || a.down || 'the other')
+                    return 'work out which blockers would raise ' + ((U && U.name) || a.up || 'a track you pick')
+                        + ' and lower local translation of ' + ((D && D.name) || a.down || 'a track you pick')
                         + ', keeping only the sites that do not match both';
                 },
                 argBlocker: (a) => {
-                    if (!a.up || !a.down) return 'name the track to raise and the track to lower';
-                    const U = matchTrack(a.up), D = matchTrack(a.down);
-                    if (!U) return 'no single track matches \u201c' + a.up + '\u201d';
-                    if (!D) return 'no single track matches \u201c' + a.down + '\u201d';
-                    if (U === D) return 'those are the same track, so there is no ratio to shift';
+                    // Only what the picker cannot fix. A missing name is asked for; a name
+                    // that matches nothing is still worth saying, because the user meant a
+                    // particular track and picking from a list is not the same answer.
+                    const usable = tracks().filter((t) => ('' + ((t && t.sequence) || '')).length >= 40);
+                    if (usable.length < 2) {
+                        return 'ratio shift is a model of a pair: it needs two transcripts with '
+                            + 'sequence on the canvas, and there '
+                            + (usable.length === 1 ? 'is one' : 'are none');
+                    }
+                    const U = a.up ? matchTrack(a.up) : null;
+                    const D = a.down ? matchTrack(a.down) : null;
+                    if (a.up && !U) return 'no single track matches \u201c' + a.up + '\u201d';
+                    if (a.down && !D) return 'no single track matches \u201c' + a.down + '\u201d';
+                    if (U && D && U === D) return 'those are the same track, so there is no ratio to shift';
                     for (const t of [U, D]) {
+                        if (!t) continue;
                         const len = ('' + ((t && t.sequence) || '')).length;
                         if (len < 40) return (t.name || 'that track') + ' has no sequence loaded to scan';
                     }

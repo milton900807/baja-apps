@@ -493,16 +493,11 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             // other, with steric blockers that change no sequence. The hard part is not
             // finding sites but finding sites that belong to ONE of the two, which is why
             // it cannot be assembled out of two single-track runs.
-            open: () => __onParentTrack('Ratio shift', (list) => {
-                const two = (list || []).filter(Boolean);
-                if (two.length < 2) {
-                    try { graph.setResultMessage(' Ratio shift needs two tracks: select the one to raise and the one to lower. '); } catch (e) { }
-                    return false;
-                }
-                return exec('baja/bio/expression/ratio-shift-model.js', { up: two[0], down: two[1] })
-                    .then((m) => exec('baja/bio/expression/ratio-shift-view.js', graph, m,
-                        { up: two[0], down: two[1] }));
-            }),
+            // WHICH TRACK IS RAISED IS NOT GUESSED FROM THE SELECTION ORDER. Two selected
+            // tracks are a pair, not a direction, and running them the wrong way round is a
+            // different experiment that would look like it worked. The picker asks, and a
+            // selection only ever narrows what it asks about.
+            open: () => exec('baja/bio/expression/ratio-shift-picker.js', graph, {}),
             docs: {
                 summary: 'Takes two transcripts and shortlists steric blockers that would push '
                     + 'them in opposite directions: over microRNA seed sites and 3\u2019 UTR '

@@ -2741,37 +2741,21 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 ? ('Blockers that push two messages opposite ways: over a microRNA site or a '
                     + '3\u2019 UTR repressor on the one to RAISE, and over a transport-granule '
                     + 'or local-initiation site on the one whose distal translation is to be '
-                    + 'LOWERED. Every candidate is checked base by base against the other '
-                    + 'transcript, because a blocker matching both moves nothing \u2014 which is '
-                    + 'the usual outcome between paralogues. Nothing is measured and no site is '
-                    + 'known to be occupied: it returns a shortlist to test. Best run on the two '
-                    + '3\u2019 UTRs rather than two whole genes.')
+                    + 'LOWERED. You pick both and which way round, because swapping them is a '
+                    + 'different experiment. Every candidate is checked base by base against '
+                    + 'the other transcript, since a blocker matching both moves nothing, which '
+                    + 'is the usual outcome between paralogues. Nothing is measured and no site '
+                    + 'is known to be occupied: it returns a shortlist to test, marked on both '
+                    + 'tracks. Best run on the two 3\u2019 UTRs rather than two whole genes.')
                 : ('Only one transcript with sequence is on the canvas, and this is a model of a '
                     + 'PAIR: it needs the other one to check that a blocker would not hit both. '
                     + 'Load the second transcript, or cut the two 3\u2019 UTRs out first.'),
-            books: () => __ratioPartners.slice(0, 6).reduce((out, other) => {
-                const mine = __trackLabel, theirs = other.name || '(unnamed)';
-                out.push({
-                    title: 'Raise ' + mine + ', lower ' + theirs, badge: 'Ratio shift',
-                    blurb: 'Relieve repression on ' + mine + ' and take local translation away '
-                        + 'from ' + theirs + '. Sites on each are kept only where a blocker would '
-                        + 'not also match the other.',
-                    open: () => exec('baja/bio/expression/ratio-shift-model.js',
-                        { up: selectedTrack, down: other })
-                        .then((m) => exec('baja/bio/expression/ratio-shift-view.js', graph, m,
-                            { up: selectedTrack, down: other }))
-                });
-                out.push({
-                    title: 'Raise ' + theirs + ', lower ' + mine, badge: 'Ratio shift',
-                    blurb: 'The same thing the other way round: ' + theirs + ' up, '
-                        + mine + ' localised less.',
-                    open: () => exec('baja/bio/expression/ratio-shift-model.js',
-                        { up: other, down: selectedTrack })
-                        .then((m) => exec('baja/bio/expression/ratio-shift-view.js', graph, m,
-                            { up: other, down: selectedTrack }))
-                });
-                return out;
-            }, [])
+            // A LEAF THAT ASKS. The card used to list every pairing and both directions as
+            // its own little shelf, which is the same two questions asked in the shape of a
+            // menu: with three transcripts open it was six near-identical entries to read.
+            // The picker asks them in the order the sentence runs -- raise this one, lower
+            // that one -- and starts from no assumption about which track is which.
+            open: () => exec('baja/bio/expression/ratio-shift-picker.js', graph, {})
         }, {
             // Screening belongs beside designing: an ASO is not finished until you know what
             // else it binds, and having to leave Therapeutics to find out made that a separate

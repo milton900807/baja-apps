@@ -19,6 +19,12 @@ function (opts) {
         const o = opts || {};
         const items = Array.isArray(o.items) ? o.items.filter(Boolean) : [];
         const onPick = (typeof o.onPick === 'function') ? o.onPick : (() => { });
+        // DISMISSAL IS AN ANSWER TOO. Without this, a caller that awaits a pick -- one
+        // question after another, as choosing two tracks does -- waits for ever when the
+        // list is closed with Escape or a click outside it, and the only sign is an editor
+        // that has quietly stopped responding to that command.
+        const onClose = (typeof o.onClose === 'function') ? o.onClose : (() => { });
+        let picked = false;
         const ID = 'baja-pick-list';
 
         const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -65,6 +71,9 @@ function (opts) {
         const close = () => {
             try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
             try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
+            // Only when the list is leaving with nothing chosen: a pick closes it too, and
+            // firing both would have every caller handle the same event twice.
+            if (!picked) { try { onClose(); } catch (e) { } }
         };
 
         const rows = [];
@@ -78,7 +87,7 @@ function (opts) {
                 + '<span style="flex:0 0 auto;color:#7f9bb8;">▸</span>';
             row.onmouseenter = () => { row.style.background = 'rgba(255,255,255,0.07)'; };
             row.onmouseleave = () => { row.style.background = 'transparent'; };
-            row.onclick = () => { close(); try { onPick(it); } catch (e) { } };
+            row.onclick = () => { picked = true; close(); try { onPick(it); } catch (e) { } };
             body.appendChild(row);
             rows.push({ row: row, hay: (('' + (it.label || '')) + ' ' + ('' + (it.sub || ''))).toLowerCase() });
         }

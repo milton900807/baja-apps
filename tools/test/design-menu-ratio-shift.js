@@ -42,19 +42,16 @@ ok(/blockers that push two messages opposite ways/i.test(card.blurb), 'the blurb
 ok(/Nothing is measured/.test(card.blurb), 'and that it measures nothing');
 ok(/3’ UTRs rather than two whole genes/.test(card.blurb), 'and where to run it');
 
-const books = card.books();
-ok(books.length === 2, 'one entry per direction: ' + books.length);
-ok(/Raise DNM1_3utr, lower DNM3_3utr/.test(books[0].title), 'the selected track is named in each: ' + books[0].title);
-ok(/Raise DNM3_3utr, lower DNM1_3utr/.test(books[1].title), 'and the other way round is offered too');
-
-// DIRECTION IS THE WHOLE CHOICE, so the two entries must not both run the same way.
+// THE CARD ASKS RATHER THAN GUESSES. It used to list every pairing and both directions as
+// its own little shelf: with three transcripts open that is six near-identical entries,
+// and the direction, which is the whole choice, was buried in the wording of each.
 calls.length = 0;
-books[0].open();
-ok(calls.length === 1 && /ratio-shift-model/.test(calls[0].path), 'the entry runs the model');
-ok(calls[0].a.up === selected && calls[0].a.down === other, 'raising the selected track, lowering the other');
-calls.length = 0;
-books[1].open();
-ok(calls[0].a.up === other && calls[0].a.down === selected, 'and the second entry is the reverse, not a copy');
+card.open();
+ok(calls.length === 1 && /ratio-shift-picker/.test(calls[0].path), 'the card opens the picker: ' + (calls[0] || {}).path);
+ok(calls[0].b && Object.keys(calls[0].b).length === 0,
+   'with neither end preset, so both tracks are chosen on purpose rather than one being '
+   + 'taken from whichever track this menu was opened on');
+ok(typeof card.books !== 'function', 'and it is a leaf, not a shelf of pairings');
 
 // ---- with nothing to pair it with ---------------------------------------------------------
 card = mk([], 'DNM1_3utr', selected);
@@ -68,12 +65,6 @@ ok(card.readyNote === 'needs a second transcript', 'and the badge says what is m
 // and the refusal there are the same rule, written once in each place and tested here.
 const gate = src.slice(src.indexOf('const __ratioPartners'), src.indexOf('const __ratioPartners') + 600);
 ok(/length < 40/.test(gate), 'the partner list skips a track with no sequence to scan');
-
-// ---- and six is enough -----------------------------------------------------------------------
-const many = [];
-for (let i = 0; i < 9; i++) many.push({ name: 't' + i, sequence: SEQ });
-card = mk(many, 'DNM1_3utr', selected);
-ok(card.books().length === 12, 'a crowded canvas is capped rather than listing every pair: ' + card.books().length);
 
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
 process.exit(fails ? 1 : 0);

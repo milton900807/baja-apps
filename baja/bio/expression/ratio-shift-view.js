@@ -92,12 +92,38 @@ function (graph, model, opts) {
         // claim about. A table of coordinates read away from the track is how a blocker ends
         // up drawn against the wrong end of a UTR.
         const TrackLayer = await exec('baja/bio/track-layer.js');
-        const mark = async (arm, track, side) => {
+        // A 20-MER IS NOT VISIBLE ON A TRANSCRIPT. Drawn true to size it is a hairline at any
+        // zoom that shows a whole 3' UTR and nothing at all on a gene, so the layer read as
+        // empty: WHERE is the one thing this layer exists to say. Bands narrower than this
+        // are widened to it, every label and help row carries the real span, and the note
+        // says the widening happened, because a band wider than its oligo is a lie about
+        // coordinates unless it is declared.
+        const minWidth = (track) => {
+            try {
+                const span = Math.abs((+track.xf) - (+track.xi));
+                // A track that does not say how wide it is gets no widening at all: a made
+                // up minimum would draw bands at a size with nothing behind it.
+                if (!isFinite(span) || span <= 0) return 1;
+                return Math.max(1, Math.round(span / 300));
+            } catch (e) { return 1; }
+        };
+        const mark = async (arm, track, side, otherArm) => {
             if (!track || !arm || !(arm.candidates || []).length) return;
-            const lo = Math.min.apply(null, arm.candidates.map((r) => r.footprintStart));
-            const hi = Math.max.apply(null, arm.candidates.map((r) => r.footprintEnd));
+            const MIN = minWidth(track);
+            const widen = (a, b) => {
+                if ((b - a + 1) >= MIN) return [a, b];
+                const pad = Math.floor((MIN - (b - a + 1)) / 2);
+                return [a - pad, b + pad];
+            };
+            // Where a blocker aimed at the OTHER track would also land on this one. These
+            // are coordinates on this track, so this is where they belong.
+            const strays = ((otherArm && otherArm.candidates) || []).filter(
+                (r) => !r.selective && r.otherStart != null);
+            const pts = [];
+            for (const r of arm.candidates) pts.push(r.footprintStart, r.footprintEnd);
+            for (const r of strays) pts.push(r.otherStart, r.otherEnd);
             const L = new TrackLayer((track.name || 'track') + '_RATIO_' + (side === 'up' ? 'raise' : 'lower'),
-                Math.min(lo, hi), 0, Math.max(lo, hi), 1);
+                Math.min.apply(null, pts) - MIN, 0, Math.max.apply(null, pts) + MIN, 1);
             L.type = 'RatioShift';
             L.labelColor = '#eaf6f9';
             L.fixedIntervalDepth = 12;
@@ -107,12 +133,28 @@ function (graph, model, opts) {
             const rowsHelp = [];
             for (const r of arm.candidates) {
                 const a = Math.min(r.footprintStart, r.footprintEnd), b = Math.max(r.footprintStart, r.footprintEnd);
-                L.addInterval(a, b, lanes[i % lanes.length], r.label + (r.selective ? '' : ' (hits both)'),
+                const d = widen(a, b);
+                L.addInterval(d[0], d[1], lanes[i % lanes.length],
+                    r.label + ' \u00b7 ' + (b - a + 1) + ' nt' + (r.selective ? '' : ' \u00b7 hits both'),
                     r.selective ? COLOR[r.kind] : 'rgba(159,196,212,0.35)');
                 i++;
-                rowsHelp.push([r.label + ' ' + a + '–' + b,
-                    (r.detail || '') + ' · ' + r.mismatches + ' mismatches from the other transcript · '
+                rowsHelp.push([r.label + ' ' + a + '\u2013' + b,
+                    (r.detail || '') + ' \u00b7 ' + r.mismatches + ' mismatches from the other transcript \u00b7 '
                     + r.footprint]);
+            }
+            // A CANDIDATE CALLED UNSELECTIVE IS A STATEMENT ABOUT THIS TRACK: the sequence
+            // it would also match is here. Said only as a mismatch count in a table, it
+            // leaves the reader to find the place by eye.
+            for (const r of strays) {
+                const a = Math.min(r.otherStart, r.otherEnd), b = Math.max(r.otherStart, r.otherEnd);
+                const d = widen(a, b);
+                L.addInterval(d[0], d[1], lanes[i % lanes.length],
+                    r.label + ' blocker would also bind here', 'rgba(248,113,113,0.45)');
+                i++;
+                rowsHelp.push(['a blocker aimed at ' + r.label + ' on ' + (r.otherTrack || 'the other track')
+                    + ' would also bind ' + a + '\u2013' + b,
+                    'only ' + r.mismatches + ' mismatches from its ' + ('' + r.footprint).length
+                    + '-mer, which is why that site is not offered as selective']);
             }
             L.decor = {
                 help: {
@@ -123,14 +165,21 @@ function (graph, model, opts) {
                             ? 'Blocking a repressive site should raise output only where the repressor is present and using it.'
                             : 'Blocking a transport or local-initiation site changes where the protein is made more than how much of it there is.')
                         + ' A band drawn pale matches the other transcript closely enough that '
-                        + 'one blocker would act on both.'
+                        + 'one blocker would act on both, and a red band is where a blocker '
+                        + 'aimed at the other transcript would also land on this one.'
+                        + ' Bands narrower than ' + MIN + ' bases at this zoom are drawn at that '
+                        + 'width so they can be seen; the length in every label and row is the '
+                        + 'real one.'
                 }
             };
             L.ratioShift = arm.candidates;
             try { track.addLayer(L); } catch (e) { try { (track.track_layers || []).push(L); } catch (e2) { } }
+            // Pulsed on arrival: a new layer on a track that already carries several is
+            // otherwise one more row to find.
+            try { if (L.setTimedHighlight) L.setTimedHighlight(10000); } catch (e) { }
         };
-        await mark(m.up, o.up, 'up');
-        await mark(m.down, o.down, 'down');
+        await mark(m.up, o.up, 'up', m.down);
+        await mark(m.down, o.down, 'down', m.up);
         try { if (graph.rescale) graph.rescale(); } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
 

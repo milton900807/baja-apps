@@ -36,7 +36,8 @@ const MODEL = {
               mismatches: 9, selective: true, strength: 1, score: 1 },
             { kind: 'rbp', label: 'FMR1', detail: 'repressor and transport granule', start: 1500, end: 1530,
               footprint: 'TTTTACGTACGTACGTAAAA', footprintStart: 1505, footprintEnd: 1524,
-              mismatches: 0, selective: false, strength: 0.9, score: 0.135, ambiguous: true }
+              mismatches: 0, selective: false, strength: 0.9, score: 0.135, ambiguous: true,
+              otherStart: 9100, otherEnd: 9119, otherTrack: 'DNM3_3utr' }
         ] },
     down: { track: 'DNM3_3utr', length: 760, minus: true, all: 2, selective: 1, missing: [],
         candidates: [
@@ -48,10 +49,13 @@ const MODEL = {
         'Blocking a transport site changes WHERE a protein is made.']
 };
 
-const mkTrack = (name) => ({ name: name, track_layers: [], addLayer(l) { this.track_layers.push(l); } });
+// A track says how wide it is, which is what decides whether a 20-mer has to be widened
+// to be visible at all.
+const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [],
+    addLayer(l) { this.track_layers.push(l); } });
 
 (async () => {
-    const up = mkTrack('DNM1_3utr'), down = mkTrack('DNM3_3utr');
+    const up = mkTrack('DNM1_3utr', 1000, 1600), down = mkTrack('DNM3_3utr', 8800, 9400);
     const said = [];
     const graph = { setResultMessage: (m) => said.push(m), wake: () => { }, rescale: () => { } };
     const v = await load('baja/bio/expression/ratio-shift-view.js', graph, MODEL, { up: up, down: down });
@@ -82,9 +86,29 @@ const mkTrack = (name) => ({ name: name, track_layers: [], addLayer(l) { this.tr
     ok(bands['miR-122-5p'].x1 === 1394 && bands['miR-122-5p'].x2 === 1413,
        'drawn over the blocker footprint, not over the seed: '
        + bands['miR-122-5p'].x1 + '-' + bands['miR-122-5p'].x2);
+    ok(/20 nt/.test(bands['miR-122-5p'].t), 'and the label carries the real length of it');
     ok(/hits both/.test(bands['FMR1'].t), 'a band that cannot be aimed says so on the band');
+    // AND WHERE IT WOULD GO INSTEAD. "0 mismatches from the other transcript" is a number;
+    // the place it refers to is on the other track, and that is where it is drawn.
+    const strays = down.track_layers[0].intervals.filter((iv) => /would also bind here/.test('' + iv.t));
+    ok(strays.length === 1, 'the other track is marked where that blocker would also land');
+    ok(/FMR1 blocker/.test(strays[0].t), 'named for the blocker it belongs to: ' + strays[0].t);
+    ok(/would also bind/.test((down.track_layers[0].decor.help.rows || []).map((r) => r.join(' ')).join(' ')),
+       'with the reason in the help rows');
     ok(bands['FMR1'].color !== bands['miR-122-5p'].color, 'and is drawn differently');
     ok(/not a measurement/.test(L.decor.help.note), 'the help note keeps the caveat beside the sequence');
+
+    // A 20-MER ON A WHOLE GENE IS NOTHING TO LOOK AT. The band is widened so the layer says
+    // WHERE, and the note says that is what happened.
+    const wideUp = mkTrack('DNM1', 1000, 580000), wideDown = mkTrack('DNM3', 8800, 580000);
+    await load('baja/bio/expression/ratio-shift-view.js',
+        { setResultMessage: () => { }, wake: () => { }, rescale: () => { } }, MODEL,
+        { up: wideUp, down: wideDown });
+    const W = wideUp.track_layers[0].intervals.filter((iv) => /miR-122/.test('' + iv.t))[0];
+    ok((W.x2 - W.x1) > 1000, 'on a gene-wide track the band is widened to be visible: ' + (W.x2 - W.x1));
+    ok(/20 nt/.test(W.t), 'while its label still says what the oligo really covers');
+    ok(/drawn at that width so they can be seen/.test(wideUp.track_layers[0].decor.help.note),
+       'and the note declares the widening');
     ok(/where the protein is made more than how much/.test(down.track_layers[0].decor.help.note),
        'and the lowering layer says what it actually changes');
 

@@ -1753,6 +1753,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/editor-capabilities.js:ratio_shift_model" \
     "baja/ml/models-catalogue.js:A MODEL OF A PAIR" \
     "baja/manchester/menu/track-design-menu.js:A DESIGN QUESTION ABOUT A PAIR"
+  install_group "the ratio shift asks which track goes which way, and marks both" \
+    "baja/bio/expression/ratio-shift-picker.js:CHOOSING THE TWO TRACKS FOR A RATIO SHIFT" \
+    "baja/lib/pick-list.js:DISMISSAL IS AN ANSWER TOO" \
+    "baja/bio/expression/ratio-shift-view.js:A 20-MER IS NOT VISIBLE ON A TRANSCRIPT" \
+    "baja/bio/expression/ratio-shift-model.js:WHERE ELSE IT WOULD BIND" \
+    "baja/manchester/menu/track-design-menu.js:A LEAF THAT ASKS" \
+    "baja/ml/models-catalogue.js:WHICH TRACK IS RAISED IS NOT GUESSED FROM THE SELECTION ORDER" \
+    "baja/manchester/menu/editor-capabilities.js:A HALF-NAMED PAIR IS A QUESTION, NOT A REFUSAL"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
