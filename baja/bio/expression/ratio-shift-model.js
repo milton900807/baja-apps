@@ -54,27 +54,47 @@ function (opts) {
         // already; baja/bio/rbp/rbp-profile.js does NOT, and sends the stored strand whatever
         // the gene, which is worth knowing when comparing its layers with these positions.
         const RC = { A: 'T', T: 'A', G: 'C', C: 'G', N: 'N' };
-        const messageOf = (t) => {
-            const lo = Math.floor(+t.xi), hi = Math.floor(+t.xf);
+        // A WINDOW NARROWS WHERE SITES ARE LOOKED FOR, AND NOTHING ELSE. Someone who has
+        // selected the stretch they care about does not want the whole 3' UTR ranked, but
+        // the selectivity check still has to run against the WHOLE other message: an oligo
+        // binds wherever its sequence occurs, not only inside a region somebody chose, and
+        // cross-checking against a window would quietly call a blocker selective because
+        // the place it also binds was outside the box.
+        const messageOf = (t, range) => {
+            const tlo = Math.floor(+t.xi), thi = Math.floor(+t.xf);
             let plus = '';
             try { plus = ('' + (t.sequence || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGTN]/g, ''); }
             catch (e) { plus = ''; }
+            let lo = tlo, hi = Math.min(thi, tlo + plus.length - 1);
+            let whole = true;
+            if (range && isFinite(+range.start) && isFinite(+range.end) && +range.end > +range.start) {
+                const a = Math.max(lo, Math.floor(Math.min(+range.start, +range.end)));
+                const b = Math.min(hi, Math.ceil(Math.max(+range.start, +range.end)));
+                if (b > a) { plus = plus.slice(a - tlo, b - tlo + 1); lo = a; hi = b; whole = false; }
+            }
             const minus = (+(t.strand || 0) < 0);
             const L = plus.length;
             const seq = minus ? plus.split('').reverse().map((b) => RC[b] || 'N').join('') : plus;
             return {
                 track: t, name: t.name || 'track', seq: seq, length: L, minus: minus, lo: lo, hi: hi,
+                whole: whole,
                 // message [s,e) -> track [a,b]. On a minus-strand gene the END of a site is
                 // the LOWER track coordinate.
                 back: (s, e) => (minus ? [lo + (L - e), lo + (L - s) - 1] : [lo + s, lo + e - 1])
             };
         };
-        const U = messageOf(up), D = messageOf(down);
+        const U = messageOf(up, o.upRange), D = messageOf(down, o.downRange);
+        // The full messages, which is what a blocker is checked against.
+        const Ufull = o.upRange ? messageOf(up, null) : U;
+        const Dfull = o.downRange ? messageOf(down, null) : D;
         for (const m of [U, D]) {
             if (m.seq.length < 40) {
-                return fail(m.name + ' has ' + m.seq.length + ' nt of sequence loaded, which is too '
-                    + 'short to look for blocker sites in. Load the transcript, or cut the UTR from a '
-                    + 'track that has its sequence.');
+                return fail(m.name + (m.whole
+                    ? (' has ' + m.seq.length + ' nt of sequence loaded, which is too short to look '
+                        + 'for blocker sites in. Load the transcript, or cut the UTR from a track '
+                        + 'that has its sequence.')
+                    : (': the selected window is ' + m.seq.length + ' nt, which is too short to look '
+                        + 'for blocker sites in. Select more of it, or run on the whole transcript.')));
             }
         }
 
@@ -126,6 +146,7 @@ function (opts) {
             return { by: by };
         };
 
+        // Sites are looked for in the window; the cross-check below reads the full messages.
         const [ru, rd] = await Promise.all([rbpSites(U, UP_RBPS), rbpSites(D, DOWN_RBPS)]);
         if (ru.error) return fail(ru.error);
         if (rd.error) return fail(rd.error);
@@ -222,15 +243,15 @@ function (opts) {
             // 6mers are reported and ranked last: marginal on their own, and leaving them
             // out would be a quiet judgement rather than a measurement.
             const strength = { '8mer-1a': 1, '7mer-m8': 0.75, '7mer-A1': 0.65, '6mer': 0.3 }[h.cls] || 0.3;
-            upRows.push(candidate(U, D, 'mirna', h.start, h.end, h.name,
+            upRows.push(candidate(U, Dfull, 'mirna', h.start, h.end, h.name,
                 h.cls + ' site · ' + (h.use || '') + (h.tissue ? (' · ' + h.tissue) : ''),
                 strength, { mirna: h.name, cls: h.cls, tissue: h.tissue }));
         }
-        upRows.push.apply(upRows, rows(U, D, ru.by, UP_RBPS));
+        upRows.push.apply(upRows, rows(U, Dfull, ru.by, UP_RBPS));
         upRows.sort((a, b) => b.score - a.score);
 
         // DOWN ARM: transport granules and local initiation.
-        const downRows = rows(D, U, rd.by, DOWN_RBPS);
+        const downRows = rows(D, Ufull, rd.by, DOWN_RBPS);
         downRows.sort((a, b) => b.score - a.score);
 
         // ---- ONE SEQUENCE THAT DOES BOTH ---------------------------------------------------
@@ -306,11 +327,13 @@ function (opts) {
             ok: true,
             up: {
                 track: U.name, length: U.seq.length, minus: U.minus,
+                whole: U.whole, start: U.lo, end: U.hi,
                 candidates: upRows.slice(0, TOP), all: upRows.length,
                 selective: sel(upRows).length, missing: missingUp
             },
             down: {
                 track: D.name, length: D.seq.length, minus: D.minus,
+                whole: D.whole, start: D.lo, end: D.hi,
                 candidates: downRows.slice(0, TOP), all: downRows.length,
                 selective: sel(downRows).length, missing: missingDown
             },
@@ -375,6 +398,13 @@ function (opts) {
                 + 'each message: repressive in one, transport or local initiation in the '
                 + 'other. Both halves of that are predictions, and one blocker means the two '
                 + 'effects cannot be given at different doses or at different times.',
+            ((U.whole && D.whole)
+                ? 'Both transcripts were scanned end to end.'
+                : ('Sites were looked for only inside the window chosen on '
+                    + [U.whole ? null : U.name, D.whole ? null : D.name].filter(Boolean).join(' and ')
+                    + ', so a better site outside it was never considered. The check that a '
+                    + 'blocker does not also bind the other message was run against the whole '
+                    + 'of it, as it has to be.')),
             'Selectivity here is a mismatch count over a ' + FOOT + '-mer against the other '
                 + 'transcript only. It is not a transcriptome-wide specificity check, which '
                 + 'is a separate screen and is the one that decides whether an oligo is usable.'

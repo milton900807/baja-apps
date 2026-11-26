@@ -28,9 +28,26 @@ function (graph, opts) {
         }
 
         const label = (t) => ('' + (t.name || '(unnamed)'));
+        // THE SELECTION ON A TRACK, if there is one. Both renderers resolve it through
+        // selectedRange(), which reads world-coordinate marks and offset marks to the same
+        // absolute span; the raw marks are right in one convention and silently wrong in
+        // the other.
+        const selOf = (t) => {
+            try {
+                if (typeof t.selectedRange === 'function') {
+                    const r = t.selectedRange();
+                    if (r && isFinite(+r.start) && isFinite(+r.end) && +r.end > +r.start) {
+                        return { start: Math.floor(+r.start), end: Math.ceil(+r.end) };
+                    }
+                }
+            } catch (e) { }
+            return null;
+        };
         const sub = (t) => {
             const n = ('' + (t.sequence || '')).length;
             const bits = [n.toLocaleString() + ' nt'];
+            const r = selOf(t);
+            if (r) bits.push((r.end - r.start + 1).toLocaleString() + ' nt selected');
             if (t.species) bits.push('' + t.species);
             if (t.chr) bits.push('' + t.chr);
             if (+(t.strand || 0) < 0) bits.push('minus strand');
@@ -69,10 +86,51 @@ function (graph, opts) {
         }
         if (up === down) { say('Ratio shift: those are the same track, so there is no ratio to shift.'); return false; }
 
-        say('Ratio shift: scanning ' + label(up) + ' for repression to relieve and '
-            + label(down) + ' for transport to block…');
+        // ---- the window on each ------------------------------------------------------------
+        // Asked only where there is a selection to ask about, and asked per track, because
+        // the answer is usually different: the stretch that matters on the transcript being
+        // raised has nothing to do with the one on the transcript being lowered.
+        //
+        // A window narrows where SITES are looked for. The check that a blocker does not
+        // also bind the other message still runs against the whole of it, which is the
+        // model's own rule and not something this can choose.
+        const windowFor = async (t, role) => {
+            const r = selOf(t);
+            if (!r) return null;
+            const nt = (r.end - r.start + 1).toLocaleString();
+            const choice = await new Promise((resolve) => {
+                let done = false;
+                const once = (v) => { if (!done) { done = true; resolve(v); } };
+                exec('baja/lib/pick-list.js', {
+                    title: 'Ratio shift · how much of ' + label(t) + ' to scan',
+                    subtitle: 'the transcript being ' + role + ', and it has a selection on it',
+                    items: [
+                        { label: 'The selected ' + nt + ' nt',
+                          sub: 'look for sites only inside ' + r.start.toLocaleString() + '–'
+                              + r.end.toLocaleString(), ref: r },
+                        { label: 'The whole of ' + label(t),
+                          sub: ('' + (t.sequence || '')).length.toLocaleString() + ' nt, the selection ignored',
+                          ref: 'whole' }
+                    ],
+                    onPick: (item) => once(item && item.ref),
+                    onClose: () => once('cancelled')
+                }).then((x) => { if (x === null) once('cancelled'); });
+            });
+            if (choice === 'cancelled') return 'cancelled';
+            return (choice === 'whole') ? null : choice;
+        };
+        const upRange = (o.upRange !== undefined) ? o.upRange : await windowFor(up, 'raised');
+        if (upRange === 'cancelled') { say('Ratio shift: cancelled.'); return false; }
+        const downRange = (o.downRange !== undefined) ? o.downRange : await windowFor(down, 'lowered');
+        if (downRange === 'cancelled') { say('Ratio shift: cancelled.'); return false; }
+
+        const span = (r) => (r ? (' over ' + (r.end - r.start + 1).toLocaleString() + ' selected nt') : '');
+
+        say('Ratio shift: scanning ' + label(up) + span(upRange) + ' for repression to relieve and '
+            + label(down) + span(downRange) + ' for transport to block…');
         const m = await exec('baja/bio/expression/ratio-shift-model.js',
-            { up: up, down: down, top: (o.top != null) ? +o.top : 8,
+            { up: up, down: down, upRange: upRange, downRange: downRange,
+              top: (o.top != null) ? +o.top : 8,
               footprint: (o.footprint != null) ? +o.footprint : 20 });
         return exec('baja/bio/expression/ratio-shift-view.js', graph, m, { up: up, down: down });
     })();

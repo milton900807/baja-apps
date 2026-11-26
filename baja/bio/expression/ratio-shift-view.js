@@ -53,7 +53,15 @@ function (graph, model, opts) {
             return '<div style="flex:1 1 0;min-width:320px">'
                 + '<div style="font:700 14px ' + C.font + ';color:' + C.title + ';margin:0 0 6px">' + head + '</div>'
                 + '<div style="font-size:12px;color:' + C.dim + ';margin:0 0 10px">'
-                + n(arm.all) + ' site' + (arm.all === 1 ? '' : 's') + ' found, ' + n(arm.selective)
+                + n(arm.all) + ' site' + (arm.all === 1 ? '' : 's') + ' found'
+                // WHERE IT LOOKED, when that was not everywhere. A shortlist from a chosen
+                // window reads exactly like a shortlist from the whole transcript, and the
+                // difference is the sites that were never considered.
+                + (arm.whole === false
+                    ? (' in the chosen window ' + n(arm.start) + '\u2013' + n(arm.end)
+                        + ' (' + n(arm.length) + ' nt)')
+                    : '')
+                + ', ' + n(arm.selective)
                 + ' of them blockable without matching the other transcript'
                 + (arm.minus ? ' · minus strand, scanned on the message' : '')
                 + (arm.missing && arm.missing.length

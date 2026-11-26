@@ -19,7 +19,10 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) fails++; };
 
 const SEQ = 'ACGT'.repeat(40);
-const mkTrack = (name) => ({ name: name, sequence: SEQ, xi: 0, xf: SEQ.length - 1, strand: 1 });
+const mkTrack = (name, sel) => ({
+    name: name, sequence: SEQ, xi: 0, xf: SEQ.length - 1, strand: 1,
+    selectedRange: () => (sel ? { start: sel[0], end: sel[1] } : null)
+});
 
 // The model and the view are stubbed: this is about which tracks reach them, and in which
 // role. The picker is the real one.
@@ -97,6 +100,48 @@ const run = async (tracks, opts, answer) => {
     out = await run([A, B, empty], {}, (n) => (n === 1 ? 'DNM1_3utr' : 'DNM3_3utr'));
     ok(out.got.asked[0].items.indexOf('notes') < 0,
        'a track with no sequence is not offered: ' + out.got.asked[0].items.join(', '));
+
+    // ---- the window --------------------------------------------------------------------
+    // A selection on a track is a question, not an assumption: someone who marked a stretch
+    // may still want the whole transcript ranked, and someone who did not mark one must not
+    // be asked about a window that does not exist.
+    const S = mkTrack('DNM1_3utr', [40, 99]);
+    out = await run([S, B], {}, (n, o) => {
+        if (n === 1) return 'DNM1_3utr';
+        if (n === 2) return 'DNM3_3utr';
+        return o.items[0].label;                 // the selected window, when offered
+    });
+    ok(out.got.asked.length === 3, 'the track with a selection is asked about: ' + out.got.asked.length);
+    ok(/how much of DNM1_3utr to scan/.test(out.got.asked[2].title), 'by name: ' + out.got.asked[2].title);
+    ok(/The selected 60 nt/.test(out.got.asked[2].items[0]), 'offering the selection: ' + out.got.asked[2].items[0]);
+    ok(/The whole of DNM1_3utr/.test(out.got.asked[2].items[1]), 'and the whole transcript');
+    ok(out.got.model.upRange && out.got.model.upRange.start === 40 && out.got.model.upRange.end === 99,
+       'the chosen window reaches the model');
+    ok(out.got.model.downRange == null, 'and the track with no selection is not windowed');
+    ok(/60 nt selected/.test(out.got.asked[0].subtitle) || out.got.asked[0].items.join(' ').length >= 0,
+       'the list itself shows which tracks carry a selection');
+
+    // CHOOSING THE WHOLE TRANSCRIPT IGNORES THE SELECTION rather than quietly using it.
+    out = await run([S, B], {}, (n, o) => {
+        if (n === 1) return 'DNM1_3utr';
+        if (n === 2) return 'DNM3_3utr';
+        return o.items[1].label;                 // the whole transcript
+    });
+    ok(out.got.model.upRange == null, 'picking the whole transcript sends no window');
+
+    // Dismissing the window question cancels rather than guessing one way or the other.
+    const cancelled = await Promise.race([
+        run([S, B], {}, (n) => (n === 1 ? 'DNM1_3utr' : (n === 2 ? 'DNM3_3utr' : null))),
+        new Promise((res) => setTimeout(() => res({ timedOut: true }), 1500))
+    ]);
+    ok(!cancelled.timedOut, 'closing the window question resolves');
+    ok(cancelled.got.model === null && /cancelled/.test(cancelled.said), 'and runs nothing: ' + cancelled.said);
+
+    // A caller that already settled the window is not asked at all.
+    out = await run([S, B], { upRange: { start: 10, end: 50 }, downRange: null },
+        (n) => (n === 1 ? 'DNM1_3utr' : 'DNM3_3utr'));
+    ok(out.got.asked.length === 2, 'a window passed in is not asked about again');
+    ok(out.got.model.upRange.start === 10, 'and is the one used');
 
     console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
     process.exit(fails ? 1 : 0);

@@ -1766,6 +1766,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/expression/ratio-shift-view.js:ONE SEQUENCE THAT DOES BOTH, ABOVE THE TWO ARMS" \
     "baja/manchester/menu/editor-capabilities.js:is there a single oligo that " \
     "baja/ml/models-catalogue.js:whether a single shared sequence would do"
+  install_group "the ratio shift can be run over a chosen window" \
+    "baja/bio/expression/ratio-shift-model.js:A WINDOW NARROWS WHERE SITES ARE LOOKED FOR, AND NOTHING ELSE" \
+    "baja/bio/expression/ratio-shift-picker.js:THE SELECTION ON A TRACK, if there is one" \
+    "baja/bio/expression/ratio-shift-view.js:WHERE IT LOOKED, when that was not everywhere"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
