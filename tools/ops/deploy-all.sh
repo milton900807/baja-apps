@@ -1800,13 +1800,16 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/track-layer-popup.js:THIS TRACK, because this menu belongs to one" \
     "baja/bio/layers/focus-layer.js:The track given by the caller wins over the search"
   install_group "compare the selected stretch across its own track" \
-    "baja/bio/compare/selection-similarity.js:WHERE ELSE ON THIS TRACK DOES THE SELECTED STRETCH OCCUR" \
+    "baja/bio/compare/selection-similarity.js:WHERE ELSE DOES THE SELECTED STRETCH OCCUR" \
     "baja/manchester/menu/selected-sequence-menu.js:WHERE ELSE DOES THIS STRETCH OCCUR"
   install_group "a row press swallowed by a menu says so" \
     "baja/manchester/menu/layer-row-press.js:A PRESS SWALLOWED IN SILENCE IS WHAT A BROKEN BUTTON LOOKS LIKE"
   install_group "a faded or unvisited menu does not own a layer row press" \
     "baja/manchester/menu/layer-row-press.js:A MENU THAT IS NOT ON SCREEN DOES NOT OWN PRESSES" \
     "baja/manchester/menu/mouse-over-highlight.js:Track theme was here"
+  install_group "compare a selection against a track you choose" \
+    "baja/bio/compare/selection-similarity.js:THE TRACK SCANNED IS NOT NECESSARILY THE TRACK SELECTED ON" \
+    "baja/manchester/menu/selected-sequence-menu.js:WHICH TRACK TO SCAN"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

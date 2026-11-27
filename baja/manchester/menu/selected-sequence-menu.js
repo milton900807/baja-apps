@@ -218,6 +218,45 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             })
         ];
 
+        // WHICH TRACK TO SCAN. On its own track the question is "is this repeated"; against
+        // another it is the one people actually have with two genes on the canvas -- does my
+        // site exist over there, did the paralogue keep it. Asked only when there is more
+        // than one track with sequence, so the common case is still one press.
+        const compareAcross = async (min) => {
+            const usable = ((graph && graph.track) || []).filter((x) => {
+                try { return !!x && ('' + (x.sequence || '')).length >= 20; } catch (e) { return false; }
+            });
+            const others = usable.filter((x) => x !== t);
+            if (!others.length) {
+                return exec('baja/bio/compare/selection-similarity.js', graph, t, range, { min: min });
+            }
+            const pick = await new Promise((resolve) => {
+                let done = false;
+                const once = (v) => { if (!done) { done = true; resolve(v); } };
+                exec('baja/lib/pick-list.js', {
+                    title: 'Compare the selected ' + len.toLocaleString() + ' nt against',
+                    subtitle: 'at ' + Math.round(min * 100) + '% or better, both strands \u00b7 the '
+                        + 'matches are drawn on the track that is scanned',
+                    items: [{
+                        label: (t.name || 'this track') + '  (itself)',
+                        sub: 'where else on it does this stretch occur',
+                        ref: t
+                    }].concat(others.map((x) => ({
+                        label: x.name || '(unnamed)',
+                        sub: ('' + (x.sequence || '')).length.toLocaleString() + ' nt'
+                            + (x.species ? (' \u00b7 ' + x.species) : '')
+                            + (x.chr ? (' \u00b7 ' + x.chr) : ''),
+                        ref: x
+                    }))),
+                    onPick: (it) => once(it && it.ref),
+                    onClose: () => once(null)
+                }).then((x) => { if (x === null) once(null); });
+            });
+            if (!pick) { say(' Nothing to compare against was chosen. '); return; }
+            return exec('baja/bio/compare/selection-similarity.js', graph, t, range,
+                { min: min, against: pick });
+        };
+
         const seqItems = [
             go('Details...', async () => exec('baja/manchester/menu/show-selected-sequence-details.js', t, graph, genegraph_panel_layout)),
             go('Selected-sequence tools...', async () => exec('baja/manchester/menu/selected-sequence-tools.js', graph, genegraph_panel_layout, t)),
@@ -228,10 +267,8 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             // threshold is in the label because it is the whole result: at 50% a 20-mer is
             // noise and a 500-mer is a real relative, and the user is the one who knows
             // which they have.
-            go('Compare across the track (\u226550%)...', async () =>
-                exec('baja/bio/compare/selection-similarity.js', graph, t, range, { min: 0.5 })),
-            go('Compare across the track (\u226570%)...', async () =>
-                exec('baja/bio/compare/selection-similarity.js', graph, t, range, { min: 0.7 })),
+            go('Compare across a track (\u226550%)...', async () => compareAcross(0.5)),
+            go('Compare across a track (\u226570%)...', async () => compareAcross(0.7)),
             go('Mutate from sequence...', async () => exec('baja/manchester/menu/mutation-from-track-sequence.js', graph, genegraph_panel_layout, true)),
             go('Copy sequence', async () => copy(seqOf(), 'selection')),
             go('Copy reverse complement', async () => copy(revComp(seqOf()), 'reverse complement')),

@@ -131,11 +131,62 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
     ok(/Nothing on KRAS matches/.test(quiet.said), 'said plainly: ' + quiet.said.slice(0, 60));
     ok(lonely.track_layers.length === 0, 'and no empty layer is left on the track');
 
+    // ---- AGAINST ANOTHER TRACK ---------------------------------------------------------
+    // The question people actually have with two genes on the canvas: does my site exist
+    // over there. The hits are coordinates on the track that was SCANNED, so that is where
+    // the layer goes and whose annotations label it.
+    const home = mkTrack();
+    const other = {
+        name: 'KRAS_paralogue', xi: 9000, xf: 9000 + (bg(500, 21) + PERFECT + bg(500, 22)).length - 1,
+        strand: 1, sequence: bg(500, 21) + PERFECT + bg(500, 22),
+        annotations: [{ type: 'Exon', name: 'exon 2', xi: 9500, xf: 9600 }],
+        track_layers: [], addLayer(l) { this.track_layers.push(l); }
+    };
+    const said2 = [];
+    const g2 = { track: [home, other], setResultMessage: (m) => said2.push(m), wake: () => { } };
+    const across = await load('baja/bio/compare/selection-similarity.js', g2, home,
+        { start: BASE, end: BASE + 100 }, { min: 0.5, against: other });
+    ok(across.ok && across.sameTrack === false, 'it runs against another track');
+    ok(other.track_layers.length === 1 && home.track_layers.length === 0,
+       'and the layer lands on the track that was scanned, not the one selected on');
+    ok(across.hits.some((h) => h.start === 9500 && h.identity === 1),
+       'the copy over there is found at its own coordinates: ' + JSON.stringify(across.hits[0] || {}));
+    ok(/exon 2/.test('' + other.track_layers[0].intervals[0].t),
+       'labelled with the scanned track\u2019s annotation: ' + other.track_layers[0].intervals[0].t);
+    ok(/KRAS/.test(other.track_layers[0].decor.help.title)
+       && /KRAS/.test(other.track_layers[0].decor.help.note),
+       'and the layer says where the selection came from: ' + other.track_layers[0].decor.help.title);
+    ok(/KRAS_paralogue: /.test(said2.join(' ')) && /of KRAS /.test(said2.join(' ')),
+       'the message names both: ' + said2.join(' ').slice(0, 80));
+
+    // ON ANOTHER TRACK THERE IS NOTHING TO EXCLUDE. The selection's own offsets belong to a
+    // different gene over there, and blanking them would hide a real match.
+    const twin = { name: 'twin', xi: BASE, xf: BASE + SEQ.length - 1, strand: 1, sequence: SEQ,
+        annotations: [], track_layers: [], addLayer(l) { this.track_layers.push(l); } };
+    const g3 = { track: [mkTrack(), twin], setResultMessage: () => { }, wake: () => { } };
+    const onTwin = await load('baja/bio/compare/selection-similarity.js', g3, g3.track[0],
+        { start: BASE, end: BASE + 100 }, { min: 0.5, against: twin });
+    ok(onTwin.hits.some((h) => h.start === BASE && h.identity === 1),
+       'the stretch at the same coordinates on the other track IS a hit, at 100%');
+
+    // A selection longer than the whole of the other track is refused for what it is.
+    const shortTrack = { name: 'stub', xi: 0, xf: 49, strand: 1, sequence: bg(50, 31),
+        annotations: [], track_layers: [], addLayer(l) { this.track_layers.push(l); } };
+    const g4 = { track: [mkTrack(), shortTrack], setResultMessage: () => { }, wake: () => { } };
+    const tooBig = await load('baja/bio/compare/selection-similarity.js', g4, g4.track[0],
+        { start: BASE, end: BASE + 100 }, { min: 0.5, against: shortTrack });
+    ok(/nowhere on it long enough/.test(tooBig.reason || ''), 'with the reason: ' + (tooBig.reason || ''));
+
     // ---- the menu offers it ------------------------------------------------------------------
     const menu = fs.readFileSync('baja/manchester/menu/selected-sequence-menu.js', 'utf8');
-    ok(/Compare across the track \(\\u226550%\)/.test(menu), 'the selected-sequence menu offers it');
-    ok(/selection-similarity\.js', graph, t, range, \{ min: 0\.7 \}/.test(menu),
+    ok(/Compare across a track \(\\u226550%\)/.test(menu), 'the selected-sequence menu offers it');
+    ok(/compareAcross\(0\.7\)/.test(menu),
        'at a second threshold, because 50% on a 20-mer and 50% on a 500-mer are different questions');
+    // It asks which track only when there IS another one, so the common case stays one press.
+    ok(/if \(!others\.length\) \{\n\s+return exec\('baja\/bio\/compare\/selection-similarity\.js'/.test(menu),
+       'with one track open it runs without asking');
+    ok(/\(itself\)/.test(menu), 'and the track selected on is one of the choices');
+    ok(/against: pick/.test(menu), 'the chosen track is what gets scanned');
 
     console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
     process.exit(fails ? 1 : 0);

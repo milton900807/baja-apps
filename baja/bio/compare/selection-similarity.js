@@ -1,14 +1,21 @@
 function (graph, track, range, opts) {
 
-    // WHERE ELSE ON THIS TRACK DOES THE SELECTED STRETCH OCCUR?
-    //   exec('baja/bio/compare/selection-similarity.js', graph, track, {start, end}, { min: 0.5 })
+    // WHERE ELSE DOES THE SELECTED STRETCH OCCUR?
+    //   exec('baja/bio/compare/selection-similarity.js', graph, track, {start, end},
+    //        { min: 0.5, against: otherTrack })
     //
-    // The selection is compared with every other stretch of the same length on the track --
-    // one comparison per offset, both strands -- and the places that match it better than
-    // the threshold are drawn as a layer, each labelled with its identity. That is the
+    // The selection is compared with every stretch of the same length on a track -- one
+    // comparison per offset, both strands -- and the places that match it better than the
+    // threshold are drawn as a layer there, each labelled with its identity. That is the
     // question behind "is this repeated", "is there a paralogous copy here", "did my ASO
     // site just move", and it had no answer short of exporting the sequence and running
     // something else.
+    //
+    // THE TRACK SCANNED IS NOT NECESSARILY THE TRACK SELECTED ON. Against another track it
+    // answers the question people actually have with two genes on the canvas: does my site
+    // exist over there. The layer lands on the track that was SCANNED, because that is
+    // whose coordinates the hits are in, and the selection is only excluded from its own
+    // track, where it would otherwise head every list at 100%.
     //
     // UNGAPPED, DELIBERATELY. Every hit is the selection laid over the track at one offset
     // and counted base by base: no gaps, no alignment. That is what makes the number mean
@@ -36,17 +43,29 @@ function (graph, track, range, opts) {
         const TOP = Math.max(1, Math.min(300, (o.top != null) ? +o.top : 60));
 
         const clean = (x) => ('' + (x || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGTN]/g, '');
-        const whole = clean(track.sequence);
-        const base = Math.floor(+track.xi);
-        if (whole.length < 20) return fail((track.name || 'That track') + ' has no sequence loaded to compare against.');
+        // The track the SELECTION is on, and the track being SCANNED. They are the same
+        // track unless a caller says otherwise.
+        const src = track;
+        const tgt = o.against || track;
+        const sameTrack = (tgt === src);
+        const srcSeq = clean(src.sequence);
+        const srcBase = Math.floor(+src.xi);
+        const whole = sameTrack ? srcSeq : clean(tgt.sequence);
+        const base = sameTrack ? srcBase : Math.floor(+tgt.xi);
+        if (srcSeq.length < 20) return fail((src.name || 'That track') + ' has no sequence loaded to compare.');
+        if (whole.length < 20) return fail((tgt.name || 'That track') + ' has no sequence loaded to compare against.');
 
-        const qi = lo - base, qj = hi - base;
-        const q = whole.slice(Math.max(0, qi), Math.max(0, qj));
+        const qi = lo - srcBase, qj = hi - srcBase;
+        const q = srcSeq.slice(Math.max(0, qi), Math.max(0, qj));
         const L = q.length;
         if (L < 8) return fail('The selection is ' + L + ' nt. Select at least 8 to compare it across the track.');
-        if (L > whole.length / 2) {
+        if (sameTrack && L > whole.length / 2) {
             return fail('The selection is ' + L.toLocaleString() + ' nt, more than half of '
-                + (track.name || 'the track') + '. There is not enough left to compare it with.');
+                + (src.name || 'the track') + '. There is not enough left to compare it with.');
+        }
+        if (!sameTrack && L > whole.length) {
+            return fail('The selection is ' + L.toLocaleString() + ' nt and ' + (tgt.name || 'that track')
+                + ' is ' + whole.length.toLocaleString() + ' nt. There is nowhere on it long enough to lay the selection over.');
         }
 
         const RC = { A: 'T', T: 'A', G: 'C', C: 'G', N: 'N' };
@@ -66,8 +85,11 @@ function (graph, track, range, opts) {
         const work = (n - L) * L * 2;
         const step = (work > 2e8) ? Math.ceil(work / 2e8) : 1;
 
+        // The selection is excluded only on its OWN track. On another one there is nothing
+        // to exclude, and excluding the same offsets there would blank out a stretch of a
+        // different gene for no reason.
         const selfLo = qi, selfHi = qj;
-        const overlapsSelf = (s) => (Math.min(s + L, selfHi) - Math.max(s, selfLo)) > (L / 2);
+        const overlapsSelf = (s) => sameTrack && ((Math.min(s + L, selfHi) - Math.max(s, selfLo)) > (L / 2));
 
         const scan = (pat, strandMark) => {
             const out = [];
@@ -88,11 +110,12 @@ function (graph, track, range, opts) {
         let hits = scan(q, false);
         if (o.bothStrands !== false) hits = hits.concat(scan(qrc, true));
         if (!hits.length) {
-            say('Nothing on ' + (track.name || 'the track') + ' matches the selected '
+            say('Nothing on ' + (tgt.name || 'the track') + ' matches the selected '
                 + L.toLocaleString() + ' nt at ' + Math.round(MIN * 100) + '% or better, on either '
                 + 'strand. The comparison is ungapped, so a copy carrying an insertion or a '
                 + 'deletion would not be found as one piece.');
-            return { ok: true, hits: [], anchor: { start: lo, end: hi }, length: L, step: step };
+            return { ok: true, hits: [], anchor: { start: lo, end: hi }, length: L, step: step,
+                on: (tgt.name || ''), from: (src.name || ''), sameTrack: sameTrack };
         }
 
         // NON-MAXIMUM SUPPRESSION. A good match is a good match at the offsets either side
@@ -115,7 +138,7 @@ function (graph, track, range, opts) {
         const annAt = (a, b) => {
             const names = [];
             try {
-                for (const an of (track.annotations || [])) {
+                for (const an of (tgt.annotations || [])) {
                     if (!an || !isFinite(an.xi) || !isFinite(an.xf)) continue;
                     const alo = Math.min(+an.xi, +an.xf), ahi = Math.max(+an.xi, +an.xf);
                     if (ahi < a || alo > b) continue;
@@ -129,7 +152,8 @@ function (graph, track, range, opts) {
 
         const TrackLayer = await exec('baja/bio/track-layer.js');
         const axis = { lo: base, hi: base + n - 1 };
-        const name = (track.name || 'track') + '_SIM' + Math.round(MIN * 100) + '_' + kept.length;
+        const name = (tgt.name || 'track') + '_SIM' + Math.round(MIN * 100) + '_' + kept.length
+            + (sameTrack ? '' : ('_vs_' + (src.name || 'sel')));
         const L2 = new TrackLayer(name, axis.lo, 0, axis.hi, 1);
         L2.type = 'SelectionSimilarity';
         L2.labelColor = '#eaf6f9';
@@ -162,10 +186,13 @@ function (graph, track, range, opts) {
 
         L2.decor = {
             help: {
-                title: 'Matches to ' + lo + '–' + hi + ' (' + L + ' nt)',
+                title: 'Matches to ' + (sameTrack ? '' : ((src.name || 'another track') + ' '))
+                    + lo + '–' + hi + ' (' + L + ' nt)',
                 rows: rows,
                 note: 'Each band is a stretch of this track laid base against base with the '
-                    + 'selection, kept when at least ' + Math.round(MIN * 100) + '% of the positions '
+                    + (sameTrack ? 'selection'
+                        : ('selected ' + L + ' nt of ' + (src.name || 'another track')))
+                    + ', kept when at least ' + Math.round(MIN * 100) + '% of the positions '
                     + 'agree. The comparison is UNGAPPED: a copy carrying an insertion or a '
                     + 'deletion reads as two shorter matches rather than one, and would be found '
                     + 'by an aligner that this is not. Bands marked rc match the reverse '
@@ -174,24 +201,27 @@ function (graph, track, range, opts) {
                     + ((step > 1) ? (' This scan stepped ' + step + ' bases at a time because the '
                         + 'track is long: a match offset from the ones looked at may have been '
                         + 'missed.') : '')
-                    + ' The selection itself is not drawn.'
+                    + (sameTrack ? ' The selection itself is not drawn.' : '')
             }
         };
         L2.similarityHits = kept.map((h) => ({ start: base + h.s, end: base + h.s + L - 1, identity: h.id, rc: h.rc }));
 
-        try { track.addLayer(L2); } catch (e) { try { (track.track_layers || []).push(L2); } catch (e2) { } }
+        // ONTO THE TRACK THAT WAS SCANNED, because that is whose coordinates these are.
+        try { tgt.addLayer(L2); } catch (e) { try { (tgt.track_layers || []).push(L2); } catch (e2) { } }
         try { if (graph.wake) graph.wake(); } catch (e) { }
 
         const best = kept.slice().sort((a, b) => b.id - a.id)[0];
-        say((track.name || 'Track') + ': ' + kept.length + ' place'
+        say((tgt.name || 'Track') + ': ' + kept.length + ' place'
             + (kept.length === 1 ? '' : 's') + ' match the selected ' + L.toLocaleString()
-            + ' nt at ' + Math.round(MIN * 100) + '% or better, best ' + Math.round(best.id * 100)
+            + ' nt of ' + (sameTrack ? 'it' : (src.name || 'the other track'))
+            + ' at ' + Math.round(MIN * 100) + '% or better, best ' + Math.round(best.id * 100)
             + '% at ' + (base + best.s) + (best.rc ? ' on the reverse complement' : '')
             + '. The comparison is ungapped, so a copy with an insertion or deletion would show '
             + 'as two shorter matches rather than one'
             + ((step > 1) ? (', and this scan stepped ' + step + ' bases at a time because the track is long')
                 : '') + '.');
         return { ok: true, hits: L2.similarityHits, layer: L2, length: L, step: step,
-            anchor: { start: lo, end: hi } };
+            anchor: { start: lo, end: hi }, on: (tgt.name || ''), from: (src.name || ''),
+            sameTrack: sameTrack };
     })();
 }
