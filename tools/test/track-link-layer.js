@@ -234,6 +234,32 @@ const mkGraph = (tracks) => ({ track: tracks, X: (v) => v / 10, Y: (v) => v, wak
     ok(ph.links.length === 1 && ph.links[0] === hLinks[0], 'Remove drops that line only');
     ok((gh.__linkPainters || []).indexOf(ph) >= 0, 'and the layer stays while it has a line left');
 
+    // REMOVE ALL OTHER LINES keeps the one that was pressed. Reading a picture with
+    // thirty lines in it means one line at a time, and clearing twenty-nine by hand is
+    // bookkeeping rather than reading.
+    const gk = mkGraph([H1, H2]);
+    gk.openMenuAtPointer = (r) => { opened.push(r); return true; };
+    gk.showSideMenu = () => { };
+    const kLinks = [0, 1, 2, 3].map((k) => ({
+        from: { track: H1, start: 100 + k, end: 110 + k },
+        to: { track: H2, start: 500 + k, end: 510 + k }, label: (90 - k) + '%'
+    }));
+    const pk = await load('baja/bio/compare/track-link-layer.js', gk, kLinks, { id: 'keep' });
+    pk.menu(kLinks[2], gk);
+    const kRows = opened[opened.length - 1];
+    const others = kRows.filter((r) => /^Remove all other lines/.test(('' + r.label).trim()))[0];
+    ok(!!others && /\(3\)/.test('' + others.label),
+       'the menu offers to drop the rest, and says how many: ' + (others && others.label));
+    others.click();
+    ok(pk.links.length === 1 && pk.links[0] === kLinks[2],
+       'the line that was pressed is the one that stays');
+    ok((gk.__linkPainters || []).indexOf(pk) >= 0, 'and the layer is still on the canvas');
+    pk.menu(kLinks[2], gk);
+    const kRows2 = opened[opened.length - 1];
+    const others2 = kRows2.filter((r) => /^Remove all other lines/.test(('' + r.label).trim()))[0];
+    ok(others2 && others2.disabled === true,
+       'with nothing left to drop it is greyed rather than offered: ' + (others2 && others2.label));
+
     // REMOVE GRAPH LAYER drops the painter itself, so nothing is asked for every frame.
     ph.menu(hLinks[0], gh);
     const rows3 = opened[opened.length - 1];

@@ -239,6 +239,16 @@ function (graph, links, opts) {
                     }
                     redraw();
                 };
+                // KEEP THIS ONE, DROP THE REST. The way to read a picture with thirty
+                // lines in it is one line at a time, and taking twenty-nine away by hand
+                // is not reading, it is bookkeeping. The line stays coloured and marked as
+                // the one that was chosen.
+                const dropOthers = () => {
+                    const keep = L;
+                    list.length = 0;
+                    list.push(keep);
+                    redraw();
+                };
                 const dropAll = () => {
                     list.length = 0;
                     painter.chosen = null;
@@ -273,6 +283,12 @@ function (graph, links, opts) {
                     {
                         label: 'Remove', emphasis: 'danger', move: () => { },
                         click: () => { drop(); close(); }
+                    },
+                    {
+                        label: 'Remove all other lines  (' + Math.max(0, list.length - 1) + ')',
+                        move: () => { },
+                        disabled: list.length < 2,
+                        click: () => { dropOthers(); close(); }
                     },
                     {
                         label: 'Remove Graph Layer  (' + list.length + ' line'
