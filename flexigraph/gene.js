@@ -5234,6 +5234,34 @@ function (progress, options) {
                             if (hitBtn) { await this.handleControlButton(hitBtn); return; }
                         }
 
+                        // A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS. It is drawn
+                        // over the tracks and belongs to neither, so nothing here picked it
+                        // up: a line could be looked at and not touched, and a set of them
+                        // was all or nothing. The painters are asked in the order they are
+                        // drawn, last one first, so the press picks the line on top.
+                        {
+                            let __hitLink = false;
+                            try {
+                                const __lps = (this.graph.__linkPainters || []).slice().reverse();
+                                for (const lp of __lps) {
+                                    if (!lp || typeof lp.hit !== 'function') continue;
+                                    const L = lp.hit(xs, ys, this.graph);
+                                    if (!L) continue;
+                                    __hitLink = true;
+                                    this.__downMenuHandled = true;
+                                    try { if (lp.menu) lp.menu(L, this.graph); } catch (e) { }
+                                    break;
+                                }
+                                if (!__hitLink) {
+                                    // A press anywhere else puts the highlight down again.
+                                    for (const lp of __lps) {
+                                        try { if (lp && lp.clearChoice) lp.clearChoice(); } catch (e) { }
+                                    }
+                                }
+                            } catch (e) { }
+                            if (__hitLink) return;
+                        }
+
                         // BOX ZOOM OWNS THE CANVAS.
                         //
                         // Everything below this point intercepts the press before the registered

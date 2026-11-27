@@ -292,6 +292,17 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
        'with one track open it does not ask which track');
     ok(/The whole selection/.test(menu) && /nt windows/.test(menu),
        'and the window question has the whole selection as its first answer');
+    // THE SIZES PEOPLE MEAN, and a box for the one they mean that is not listed.
+    const sizes = (menu.match(/const sizes = \[([^\]]*)\]/) || [])[1] || '';
+    const nums = sizes.split(',').map((x) => +x.trim()).filter((x) => x);
+    ok(nums.length >= 12 && Math.min(...nums) === 8 && Math.max(...nums) >= 1000,
+       'the sizes run from a seed match to a conserved element: ' + nums.join(', '));
+    ok(nums.every((x, i) => i === 0 || x < nums[i - 1]), 'largest first, as the list reads');
+    ok(/Another size\.\.\./.test(menu) && /prompt-text\.js/.test(menu),
+       'and a size of your own can be typed');
+    ok(/is not a size to /.test(menu) && /same as /.test(menu),
+       'a typed window that is too short or longer than the selection is answered rather '
+       + 'than quietly rounded');
     ok(/window: win \|\| null/.test(menu), 'the chosen window is what gets run');
     ok(/\(itself\)/.test(menu), 'and the track selected on is one of the choices');
     ok(/against: pick/.test(menu), 'the chosen track is what gets scanned');

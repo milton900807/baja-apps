@@ -82,9 +82,12 @@ function (graph, links, opts) {
                     // THE SPAN AT EACH END, not just a point. A line landing in the middle of
                     // a 500 nt match says nothing about how much of the track it covers, and
                     // at a zoom where the match is half the screen that is the whole story.
-                    ctx.globalAlpha = 0.85;
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = 3;
+                    // A line may carry a colour of its own, chosen from its menu. The
+                    // painter's colour is what it falls back to, not what it overrides.
+                    const col = L.color || color;
+                    ctx.globalAlpha = (L === painter.chosen) ? 1 : 0.85;
+                    ctx.strokeStyle = col;
+                    ctx.lineWidth = (L === painter.chosen) ? 5 : 3;
                     ctx.beginPath();
                     ctx.moveTo(Math.min(a1, b1), y1); ctx.lineTo(Math.max(a1, b1), y1);
                     ctx.moveTo(Math.min(a2, b2), y2); ctx.lineTo(Math.max(a2, b2), y2);
@@ -93,12 +96,20 @@ function (graph, links, opts) {
                     // A curve rather than a straight line, bowed towards the midpoint, so two
                     // links that cross are told apart and neither is mistaken for a track.
                     const my = (y1 + y2) / 2;
-                    ctx.globalAlpha = 0.7;
-                    ctx.lineWidth = 1.6;
+                    ctx.globalAlpha = (L === painter.chosen) ? 1 : 0.7;
+                    ctx.lineWidth = (L === painter.chosen) ? 3.4 : 1.6;
                     ctx.beginPath();
                     ctx.moveTo(x1, y1);
                     ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
                     ctx.stroke();
+
+                    // WHERE THIS LINE WAS JUST DRAWN, so a press can be matched to it. The
+                    // curve is worked out again from the tracks on every frame, so the only
+                    // honest thing to hit-test against is the frame that is on screen: a
+                    // geometry worked out at press time from a different zoom would pick
+                    // the wrong line, or none.
+                    L.__geom = { x1: x1, y1: y1, x2: x2, y2: y2, my: my,
+                        a1: a1, b1: b1, a2: a2, b2: b2 };
 
                     const label = ('' + (L.label == null ? '' : L.label));
                     if (label) {
@@ -110,7 +121,7 @@ function (graph, links, opts) {
                         if (ctx.roundRect) ctx.roundRect(lx - w / 2, ly - 9, w, 18, 6);
                         else ctx.rect(lx - w / 2, ly - 9, w, 18);
                         ctx.fill();
-                        ctx.strokeStyle = color;
+                        ctx.strokeStyle = col;
                         ctx.lineWidth = 1;
                         ctx.stroke();
                         ctx.fillStyle = ink;
@@ -118,6 +129,120 @@ function (graph, links, opts) {
                     }
                 }
                 ctx.restore();
+            },
+
+            // ---- A LINE IS SOMETHING YOU CAN PRESS ---------------------------------
+            // Drawn over the tracks and belonging to neither, a line had no way of being
+            // picked: the only way to be rid of one was to run the comparison again
+            // differently, and a set of twelve lines was all or nothing. The press is
+            // matched against the curve AS DRAWN on the last frame, sampled along its
+            // length, plus the span bar at each end and the label, which are the parts of
+            // it people actually aim at.
+            hit: (sx, sy) => {
+                if (!isFinite(sx) || !isFinite(sy)) return null;
+                const dSeg = (px, py, ax, ay, bx, by) => {
+                    const vx = bx - ax, vy = by - ay;
+                    const len2 = vx * vx + vy * vy;
+                    let t = len2 ? (((px - ax) * vx + (py - ay) * vy) / len2) : 0;
+                    t = Math.max(0, Math.min(1, t));
+                    const qx = ax + vx * t, qy = ay + vy * t;
+                    return Math.hypot(px - qx, py - qy);
+                };
+                const NEAR = 9;                       // pixels, about the width of the line
+                let best = null, bestD = NEAR;
+                for (const L of list) {
+                    const G = L.__geom;
+                    if (!G) continue;                 // never drawn, or off screen
+                    let d = Math.min(
+                        dSeg(sx, sy, Math.min(G.a1, G.b1), G.y1, Math.max(G.a1, G.b1), G.y1),
+                        dSeg(sx, sy, Math.min(G.a2, G.b2), G.y2, Math.max(G.a2, G.b2), G.y2));
+                    let px = G.x1, py = G.y1;
+                    for (let k = 1; k <= 24 && d > 0; k++) {
+                        const t = k / 24, u = 1 - t;
+                        const qx = u * u * u * G.x1 + 3 * u * u * t * G.x1 + 3 * u * t * t * G.x2 + t * t * t * G.x2;
+                        const qy = u * u * u * G.y1 + 3 * u * u * t * G.my + 3 * u * t * t * G.my + t * t * t * G.y2;
+                        d = Math.min(d, dSeg(sx, sy, px, py, qx, qy));
+                        px = qx; py = qy;
+                    }
+                    if (d < bestD) { bestD = d; best = L; }
+                }
+                return best;
+            },
+
+            // THE MENU ON ONE LINE. Colour it, drop it, or drop the whole set: the three
+            // things there are to do with a line that is drawn over your data.
+            menu: (L, g) => {
+                const gg = g || graph;
+                const where = (e) => (((e.track && e.track.name) || 'track') + ' '
+                    + Math.min(e.start, e.end) + '\u2013' + Math.max(e.start, e.end));
+                const redraw = () => { try { if (gg.wake) gg.wake(); } catch (e) { } };
+                const close = () => { try { gg.showSideMenu(null); } catch (e) { } };
+                const open = (rows) => {
+                    try { (gg.openMenuAtPointer || gg.showSideMenu).call(gg, rows); } catch (e) { }
+                };
+                const drop = () => {
+                    const i = list.indexOf(L);
+                    if (i >= 0) list.splice(i, 1);
+                    painter.chosen = null;
+                    // A painter with nothing left to draw is not kept: an empty set of
+                    // lines is an invisible thing still being asked for on every frame.
+                    if (!list.length) {
+                        try {
+                            gg.__linkPainters = (gg.__linkPainters || []).filter((x) => x !== painter);
+                        } catch (e) { }
+                    }
+                    redraw();
+                };
+                const dropAll = () => {
+                    list.length = 0;
+                    painter.chosen = null;
+                    try {
+                        gg.__linkPainters = (gg.__linkPainters || []).filter((x) => x !== painter);
+                    } catch (e) { }
+                    redraw();
+                };
+                const COLORS = [
+                    ['rgba(79,208,230,0.95)', 'Cyan'], ['rgba(255,170,60,0.95)', 'Amber'],
+                    ['rgba(120,230,150,0.95)', 'Green'], ['rgba(240,110,140,0.95)', 'Pink'],
+                    ['rgba(180,150,255,0.95)', 'Violet'], ['rgba(245,245,245,0.95)', 'White']
+                ];
+                painter.chosen = L;
+                redraw();
+                const head = (L.label ? (L.label + ' \u00b7 ') : '') + where(L.from)
+                    + '  \u2192  ' + where(L.to);
+                open([
+                    { label: head, header: true },
+                    {
+                        label: 'Color \u25b8', move: () => { },
+                        click: () => open([{ label: 'Line colour', header: true }].concat(
+                            COLORS.map(([hex, nm]) => ({
+                                label: '  \u25a0 ' + nm + ((L.color || color) === hex ? '   \u2713' : ''),
+                                move: () => { },
+                                click: () => { L.color = hex; painter.chosen = null; redraw(); close(); }
+                            })), [{
+                                label: '  Back to the layer colour', move: () => { },
+                                click: () => { L.color = null; painter.chosen = null; redraw(); close(); }
+                            }]))
+                    },
+                    {
+                        label: 'Remove', emphasis: 'danger', move: () => { },
+                        click: () => { drop(); close(); }
+                    },
+                    {
+                        label: 'Remove Graph Layer  (' + list.length + ' line'
+                            + (list.length === 1 ? '' : 's') + ')',
+                        emphasis: 'danger', move: () => { },
+                        click: () => { dropAll(); close(); }
+                    }
+                ]);
+            },
+
+            // A press that missed every line puts the highlight down again.
+            clearChoice: () => {
+                if (!painter.chosen) return false;
+                painter.chosen = null;
+                try { if (graph.wake) graph.wake(); } catch (e) { }
+                return true;
             }
         };
         graph.__linkPainters.push(painter);

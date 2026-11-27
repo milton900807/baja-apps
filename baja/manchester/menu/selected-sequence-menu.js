@@ -233,7 +233,13 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         // slides along is the block case under another name.
         const pickWindow = async () => {
             if (len < 24) return 0;                       // nothing to slide along
-            const sizes = [500, 200, 100, 60, 30].filter((w) => w < len && w >= 8).slice(0, 4);
+            // The sizes people actually mean: a protein-binding site is tens of bases, a
+            // seed match is a handful, a conserved element is hundreds. Only the ones
+            // shorter than the selection are offered, and the list ends in a box for a
+            // number of your own, because the right window is a property of the biology
+            // being looked for and not of this list.
+            const sizes = [2000, 1000, 500, 300, 200, 150, 100, 75, 50, 40, 30, 25, 20, 15, 12, 10, 8]
+                .filter((w) => w < len && w >= 8);
             if (!sizes.length) return 0;
             const chosen = await new Promise((resolve) => {
                 let done = false;
@@ -252,12 +258,43 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                         sub: Math.ceil(Math.max(0, len - w) / Math.max(1, Math.floor(w / 2))) + 1
                             + ' windows · each hit says which part of the selection matched',
                         ref: w
-                    }))),
+                    })), [{
+                        label: 'Another size...',
+                        sub: 'type any window from 8 nt up to the selection itself',
+                        ref: 'ask'
+                    }]),
                     onPick: (it) => once(it ? it.ref : null),
                     onClose: () => once(null)
                 }).then((x) => { if (x === null) once(null); });
             });
-            return chosen;                                // null means they closed it
+            if (chosen !== 'ask') return chosen;          // null means they closed it
+
+            // A NUMBER OF YOUR OWN. Refused rather than quietly rounded: a window of 3 nt
+            // or one longer than the selection is a different question from the one it
+            // would be silently turned into, and a person who typed it should be told
+            // which question is being run.
+            const typed = await exec('baja/lib/prompt-text.js', {
+                title: 'Window size',
+                message: 'How many bases to compare at a time, slid along the '
+                    + len.toLocaleString() + ' nt selection in steps of half that. '
+                    + 'Between 8 and ' + len.toLocaleString() + '.',
+                placeholder: 'e.g. 45',
+                action: 'Compare'
+            });
+            if (typed == null) return null;
+            const w = Math.floor(+('' + typed).replace(/[^0-9.]/g, ''));
+            if (!isFinite(w) || w < 8) {
+                say(' A window of ' + (('' + typed).trim() || 'that') + ' is not a size to '
+                    + 'compare with: 8 nt is the shortest worth laying over a track. ');
+                return null;
+            }
+            if (w >= len) {
+                say(' A window of ' + w.toLocaleString() + ' nt is the whole '
+                    + len.toLocaleString() + ' nt selection or more, so it is the same as '
+                    + 'comparing it in one block. Running it that way. ');
+                return 0;
+            }
+            return w;
         };
 
         const compareAcross = async (min) => {

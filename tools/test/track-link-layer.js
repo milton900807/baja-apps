@@ -132,6 +132,86 @@ const mkGraph = (tracks) => ({ track: tracks, X: (v) => v / 10, Y: (v) => v, wak
     ok(cv3 && cv3[6] === 500, 'a grid without a Y of its own falls back to its top edge: '
        + (cv3 && cv3[6]));
 
+    // ---- A LINE IS SOMETHING YOU CAN PRESS ----------------------------------------------
+    // Drawn over the tracks and belonging to neither, a line could be looked at and not
+    // touched: no colour of its own, no way to drop one without dropping all twelve.
+    const H1 = mkMidTrack('DNM1_3utr', 100, 40), H2 = mkMidTrack('DNM3_3utr', 300, 60);
+    const opened = [];
+    const gh = mkGraph([H1, H2]);
+    gh.openMenuAtPointer = (rows) => { opened.push(rows); return true; };
+    gh.showSideMenu = () => { };
+    const hLinks = [
+        { from: { track: H1, start: 1000, end: 1100 }, to: { track: H2, start: 5000, end: 5100 }, label: '94%' },
+        { from: { track: H1, start: 3000, end: 3100 }, to: { track: H2, start: 8000, end: 8100 }, label: '61%' }
+    ];
+    const ph = await load('baja/bio/compare/track-link-layer.js', gh, hLinks, { id: 'press' });
+    ph.draw(mkCtx(), gh);                                  // geometry comes from the frame
+
+    // The span bar at each end is the easiest part to aim at, so it counts as the line.
+    ok(ph.hit(105, 120) === hLinks[0], 'a press on the first line picks it');
+    ok(ph.hit(505, 330) === hLinks[0], 'from either end');
+    ok(ph.hit(805, 330) === hLinks[1], 'and the second line is a different line');
+    ok(ph.hit(105, 220) === null, 'a press in open space picks nothing');
+    // Halfway down, where only the curve is: x runs 105 to 505, y 120 to 330.
+    const midHit = ph.hit(305, 225);
+    ok(midHit === hLinks[0], 'the curve itself is pressable between the tracks, not just its ends');
+
+    ph.menu(hLinks[0], gh);
+    const rows = opened[opened.length - 1];
+    ok(!!rows && /94%/.test('' + rows[0].label) && /DNM1_3utr/.test('' + rows[0].label)
+       && /DNM3_3utr/.test('' + rows[0].label),
+       'the menu says which line it is about: ' + (rows && rows[0].label));
+    const labelsOf = (r) => r.map((x) => ('' + x.label).trim());
+    ok(labelsOf(rows).some((l) => /^Color/.test(l)) && labelsOf(rows).some((l) => l === 'Remove')
+       && labelsOf(rows).some((l) => /^Remove Graph Layer/.test(l)),
+       'and offers the three things there are to do: ' + labelsOf(rows).join(' | '));
+    ok(ph.chosen === hLinks[0], 'the line being asked about is marked while the menu is open');
+
+    // COLOUR ONE LINE, not the layer: the other keeps the colour it had.
+    const colorRow = rows.filter((r) => /^Color/.test(('' + r.label).trim()))[0];
+    colorRow.click();
+    const colorRows = opened[opened.length - 1];
+    const amber = colorRows.filter((r) => /Amber/.test('' + r.label))[0];
+    amber.click();
+    ok(/255,170,60/.test('' + hLinks[0].color) && !hLinks[1].color,
+       'the colour lands on the line that was pressed and no other: ' + hLinks[0].color);
+    const cc = mkCtx();
+    ph.draw(cc, gh);
+    ok(cc.ops.length > 0, 'and it still draws afterwards');
+
+    // REMOVE drops that line and leaves the rest of the set alone.
+    ph.menu(hLinks[1], gh);
+    const rows2 = opened[opened.length - 1];
+    rows2.filter((r) => ('' + r.label).trim() === 'Remove')[0].click();
+    ok(ph.links.length === 1 && ph.links[0] === hLinks[0], 'Remove drops that line only');
+    ok((gh.__linkPainters || []).indexOf(ph) >= 0, 'and the layer stays while it has a line left');
+
+    // REMOVE GRAPH LAYER drops the painter itself, so nothing is asked for every frame.
+    ph.menu(hLinks[0], gh);
+    const rows3 = opened[opened.length - 1];
+    rows3.filter((r) => /^Remove Graph Layer/.test(('' + r.label).trim()))[0].click();
+    ok(ph.links.length === 0 && (gh.__linkPainters || []).indexOf(ph) < 0,
+       'Remove Graph Layer takes the whole set off the canvas');
+
+    // The last line removed takes the painter with it: an empty painter is an invisible
+    // thing still being drawn on every frame.
+    const gh2 = mkGraph([H1, H2]);
+    gh2.openMenuAtPointer = (r) => { opened.push(r); return true; };
+    gh2.showSideMenu = () => { };
+    const one = [{ from: { track: H1, start: 1, end: 2 }, to: { track: H2, start: 3, end: 4 } }];
+    const ph2 = await load('baja/bio/compare/track-link-layer.js', gh2, one, { id: 'one' });
+    ph2.menu(one[0], gh2);
+    opened[opened.length - 1].filter((r) => ('' + r.label).trim() === 'Remove')[0].click();
+    ok((gh2.__linkPainters || []).length === 0, 'removing the last line removes the layer with it');
+
+    // The press reaches the painters from gene.js, before anything else claims it.
+    const geneSrc = fs.readFileSync('flexigraph/gene.js', 'utf8');
+    ok(/A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS/.test(geneSrc)
+       && /lp\.hit\(xs, ys, this\.graph\)/.test(geneSrc),
+       'gene.js offers the press to the link painters');
+    ok(/if \(lp\.menu\) lp\.menu\(L, this\.graph\)/.test(geneSrc),
+       'and opens the line\u2019s own menu where it was pressed');
+
     // A LINK TO A TRACK THAT HAS GONE is a line drawn to where it used to be.
     ok(painter.dead(g) === false, 'while both tracks are on the canvas it stays');
     ok(painter.dead({ track: [A] }) === true, 'and it is dropped once one of them is removed');
