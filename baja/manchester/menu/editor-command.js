@@ -1033,10 +1033,64 @@ function (graph, genegraph_panel_layout, options) {
                 }
             };
 
+            // ONE MISSING FACT IS A QUESTION, NOT A REFUSAL. "What motifs are created from
+            // the variants on the screen" was answered with a paragraph explaining that the
+            // question did not really apply, which is both wrong and the least useful thing
+            // to do with a reasonable request: it is a good question with two good answers,
+            // peptide motifs or sequence elements, and which one is meant is one press away.
+            // Asked here, before the planner, and only when the sentence is short of
+            // exactly that fact.
+            const renderChoice = (c, ask) => {
+                const out = q('#ec-out');
+                out.innerHTML = card(
+                    '<div style="font:700 13px Arial;color:#7fb0e8;">' + H(c.title) + '</div>'
+                    + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:5px;">from \u201c'
+                    + H(ask) + '\u201d \u00b7 ' + H(c.subtitle || '') + '</div>'
+                    + c.options.map((o2, i) => '<div style="display:flex;align-items:center;gap:12px;'
+                        + 'padding:10px 0;border-top:1px solid rgba(255,255,255,0.08);">'
+                        + '<div style="min-width:0;flex:1 1 auto;">'
+                        + '<div style="font:700 12.5px Arial;color:#e8f0fb;">' + H(o2.label) + '</div>'
+                        + (o2.detail ? ('<div style="font:11px Arial;color:#6b8299;margin-top:3px;">'
+                            + H(o2.detail) + '</div>') : '')
+                        + '</div>'
+                        + '<button id="ec-k' + i + '" style="cursor:pointer;border-radius:8px;'
+                        + 'padding:8px 16px;font:700 12.5px Arial;border:1px solid #22c55e;'
+                        + 'background:#22c55e;color:#04210f;flex:0 0 auto;">GO</button></div>').join('')
+                    + '<div style="display:flex;gap:10px;margin-top:13px;">'
+                    + '<button id="ec-kno" style="' + btn + '">Ask something else</button></div>');
+                const no = q('#ec-kno');
+                if (no) no.onclick = () => {
+                    if (HOST) { done(0); return; }
+                    out.innerHTML = ''; try { q('#ec-q').value = ''; q('#ec-q').focus(); } catch (e) { }
+                };
+                c.options.forEach((o2, i) => {
+                    const b = q('#ec-k' + i);
+                    if (!b) return;
+                    b.onclick = async () => {
+                        b.disabled = true;
+                        // The choice is part of the request, so it is what the log keeps:
+                        // "the peptide half of this sentence" is what would be run again.
+                        logged({ ask: ask, status: 'OK',
+                                 steps: [{ capability: o2.capability.name, args: o2.args || {} }] });
+                        close();
+                        try { await o2.capability.run(o2.args || {}); loggedRan(1); done(1); }
+                        catch (e) {
+                            result(o2.capability.name + ': ' + (e && e.message ? e.message : e));
+                            done(0);
+                        }
+                    };
+                });
+            };
+
             const run = async () => {
                 if (busy) return;
                 const ask = ('' + q('#ec-q').value).trim();
                 if (!ask) { try { q('#ec-q').focus(); } catch (e) { } return; }
+                {
+                    let c = null;
+                    try { c = CAP.clarify ? CAP.clarify(ask) : null; } catch (e) { c = null; }
+                    if (c && c.options && c.options.length > 1) { renderChoice(c, ask); return; }
+                }
                 // ONE REQUEST AT A TIME, ACROSS INSTANCES.
                 //
                 // `busy` only guards this one. The toolbar's input execs a fresh copy of this

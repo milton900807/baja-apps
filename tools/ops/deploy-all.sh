@@ -1822,6 +1822,12 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"
+  install_group "peptide or nucleotide, asked and then answered" \
+    "baja/bio/rna/nucleotide-motif-catalog.js:A SMALL, NAMED CATALOGUE OF RNA SEQUENCE ELEMENTS" \
+    "baja/bio/rna/nucleotide-motif-impact.js:WHAT THE VARIANTS DO TO THE SEQUENCE ELEMENTS AROUND THEM" \
+    "baja/bio/protein/motif-impact-view.js:THE SAME WINDOW SERVES BOTH ALPHABETS" \
+    "baja/manchester/menu/editor-capabilities.js:WHEN THE RIGHT ANSWER IS A QUESTION" \
+    "baja/manchester/menu/editor-command.js:ONE MISSING FACT IS A QUESTION, NOT A REFUSAL"
   install_group "a log of what has been asked for" \
     "baja/lib/prompt-log.js:WHAT HAS BEEN ASKED OF THE EDITOR" \
     "baja/manchester/menu/editor-command.js:EVERY REQUEST IS KEPT" \

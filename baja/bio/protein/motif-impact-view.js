@@ -181,6 +181,17 @@ function (graph, track, options) {
         if (meta.variants && meta.variants.length) vars = meta.variants;
         const plen = +meta.length || protein.length || 0;
 
+        // THE SAME WINDOW SERVES BOTH ALPHABETS. The protein question (what do these
+        // substitutions do to the ELM motifs of the translation) and the nucleotide one
+        // (what do they do to the elements of the message) have the same shape: gained,
+        // lost, already there, over a sequence, per variant. Two windows for that would be
+        // two sets of downloads and two places for the caveats to go stale, so the units
+        // are a parameter and nothing else differs.
+        const UNIT = (('' + (o.units || meta.units || 'aa')).toLowerCase() === 'nt') ? 'nt' : 'aa';
+        const NT = (UNIT === 'nt');
+        const ORIGIN = isFinite(+meta.origin) ? +meta.origin : 1;   // the coordinate of position 1
+        const SEQCOL = NT ? 'Sequence' : 'Peptide';
+
         // One row per record, with which claim it is. The effect is carried on the row and
         // not worked out again later: a row that loses track of whether it is a gain or a
         // loss is a row that says the opposite of what the scan found.
@@ -248,7 +259,7 @@ function (graph, track, options) {
             };
             const out = [];
             out.push('# motif impact · ' + label + (meta.accession ? (' · ' + meta.accession) : ''));
-            out.push('# protein ' + plen + ' aa · variants ' + (vars.join(' ') || 'none')
+            out.push('# ' + (NT ? 'sequence ' : 'protein ') + plen + ' ' + UNIT + ' · variants ' + (vars.join(' ') || 'none')
                 + ' · min score ' + (meta.min_score == null ? minScore : meta.min_score)
                 + ' · scoring ' + (meta.scoring || 'unknown')
                 + ' · conservation ' + (meta.conservation ? 'yes' : 'no'));
@@ -258,7 +269,7 @@ function (graph, track, options) {
             return out.join('\n') + '\n';
         };
         const jsonOf = () => JSON.stringify({
-            track: label, protein_length: plen, variants: vars,
+            track: label, units: UNIT, length: plen, origin: ORIGIN, variants: vars,
             min_score: (meta.min_score == null ? minScore : meta.min_score),
             scoring: meta.scoring || null, conservation: !!meta.conservation,
             accession: meta.accession || null,
@@ -297,7 +308,7 @@ function (graph, track, options) {
         head.style.cssText = 'margin-bottom:10px;line-height:1.6;';
         head.innerHTML =
             '<div style="color:' + C.dim + '">' + esc(label) + ' · ' + plen.toLocaleString()
-            + ' aa · ' + (vars.length ? esc(vars.join(', ')) : 'no variants')
+            + ' ' + UNIT + ' · ' + (vars.length ? esc(vars.join(', ')) : 'no variants')
             + ' · scored by ' + esc(meta.scoring || 'unknown')
             + ' · cutoff ' + esc(meta.cutoff_rule || ('min ' + minScore))
             + ' · conservation ' + (meta.conservation ? 'cached' : 'none') + '</div>'
@@ -333,7 +344,7 @@ function (graph, track, options) {
                 + 'border:1px solid ' + C.line + ';border-radius:4px;overflow:hidden;';
             for (const r of got) {
                 const b = document.createElement('div');
-                const x = plen ? (100 * (r.start - 1) / plen) : 0;
+                const x = plen ? (100 * (r.start - ORIGIN) / plen) : 0;
                 const w = plen ? Math.max(0.35, 100 * (r.end - r.start + 1) / plen) : 0;
                 b.style.cssText = 'position:absolute;top:2px;bottom:2px;left:' + x + '%;width:' + w
                     + '%;background:' + COLOR[effect] + ';border-radius:2px;cursor:pointer;';
@@ -355,8 +366,8 @@ function (graph, track, options) {
         const ruler = document.createElement('div');
         ruler.style.cssText = 'display:flex;justify-content:space-between;font-size:11px;color:'
             + C.dim + ';margin-top:2px;';
-        ruler.innerHTML = '<span>1</span><span>' + Math.round(plen / 2) + '</span><span>'
-            + plen + '</span>';
+        ruler.innerHTML = '<span>' + ORIGIN + '</span><span>'
+            + Math.round(ORIGIN + plen / 2) + '</span><span>' + (ORIGIN + plen - 1) + '</span>';
         map.appendChild(ruler);
         body.appendChild(map);
 
@@ -409,8 +420,9 @@ function (graph, track, options) {
         body.appendChild(table);
 
         let sortBy = 'start', sortDesc = false;
-        const HEADS = [['effect', 'Effect'], ['variant', 'Change'], ['elm', 'ELM class'],
-            ['site', 'Site'], ['start', 'Residues'], ['peptide', 'Peptide'], ['score', 'Score']];
+        const HEADS = [['effect', 'Effect'], ['variant', 'Change'],
+            ['elm', NT ? 'Element' : 'ELM class'], ['site', 'Site'],
+            ['start', NT ? 'Position' : 'Residues'], ['peptide', SEQCOL], ['score', 'Score']];
 
         const describe = async (r) => {
             // The description of one motif, in the window the rest of the editor uses for
@@ -461,7 +473,7 @@ function (graph, track, options) {
                     + '<span style="color:' + C.dim + '">' + esc(r.site || '—') + '</span>'
                     + '<span>' + r.start + '–' + r.end + '</span>'
                     + '<span style="font-family:monospace">' + esc(r.peptide) + '</span>'
-                    + '<span>' + (r.score == null ? '—' : r.score.toFixed(3))
+                    + '<span>' + (r.score == null ? (NT ? 'not scored' : '—') : r.score.toFixed(3))
                     + (r.upper ? '<sup title="upper bound: conservation belongs to the residue '
                         + 'that was replaced" style="color:' + C.warm + '">↑</sup>' : '')
                     + (r.below ? '<sup title="below the display cutoff; shown because a variant '
@@ -488,8 +500,8 @@ function (graph, track, options) {
         paint();
 
         const panel = OV.open({
-            id: 'motif-impact-view',
-            title: 'Motif impact · ' + label,
+            id: NT ? 'nucleotide-motif-view' : 'motif-impact-view',
+            title: (o.title || ((NT ? 'Sequence element impact · ' : 'Motif impact · ') + label)),
             body: body,
             maximized: true
         });

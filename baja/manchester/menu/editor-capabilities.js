@@ -2625,6 +2625,56 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // THE OTHER HALF OF THE SAME QUESTION. A variant in a UTR has no protein
+                // motifs to change, and UTR variants are most of what gets loaded here, so
+                // a motif question answered only in protein space is answered for a
+                // minority of the variants on screen.
+                name: 'nucleotide_motif_impact',
+                summary: 'WHAT THE VARIANTS DO TO THE SEQUENCE ELEMENTS IN THE MESSAGE: a '
+                    + 'polyadenylation signal, an AU-rich element, a Pumilio site, a CPE, a '
+                    + 'cryptic splice donor, a Kozak context, each compared before and after '
+                    + 'the substitution and reported as gained, lost or already there. The '
+                    + 'answer to "what nucleotide motifs do these variants create", "does '
+                    + 'this variant make a new polyA signal", "what RNA elements does this '
+                    + 'change", "does it break the AU-rich element". THIS IS THE NUCLEOTIDE '
+                    + 'HALF; motif_impact_report is the protein half (ELM motifs of the '
+                    + 'translation). A variant in a UTR or an intron has only this one. '
+                    + 'These are PATTERN MATCHES from a small named catalogue and nothing '
+                    + 'here is scored, which the report says on every row.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    },
+                    window: {
+                        type: 'number', default: 30,
+                        about: 'how many bases either side of each variant to compare, 8 to 200'
+                    }
+                },
+                run: async (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const r = await exec('baja/bio/rna/nucleotide-motif-impact.js', graph, t,
+                        { window: a.window });
+                    if (!r || !r.ok) return r;
+                    return exec('baja/bio/protein/motif-impact-view.js', graph, t, {
+                        result: r, units: 'nt',
+                        title: 'Sequence element impact \u00b7 ' + ((t && t.name) || 'track')
+                    });
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    let n = 0;
+                    try { n = ((t && t.snpindels) || []).length; } catch (e) { n = 0; }
+                    return 'Compare the sequence around ' + (n || 'the') + ' variant'
+                        + (n === 1 ? '' : 's') + ' on ' + ((t && t.name) || 'the selected track')
+                        + ', before and after';
+                }
+            },
+
+            {
                 // THE REPORT IS NOT THE LAYER. The layer answers "where on this protein";
                 // a request about a SET of variants wants the rows themselves, ordered,
                 // searched and taken away as a file. Asked for by name here so that
@@ -4927,6 +4977,54 @@ function (graph, genegraph_panel_layout) {
         // names a variant DATABASE or a clinical SIGNIFICANCE, so an unrelated sentence that
         // happens to share a word gets the suggestion list instead of a plan. Everything
         // else stays the planner's job, where a model reading a whole sentence belongs.
+        // ---- WHEN THE RIGHT ANSWER IS A QUESTION ---------------------------------------
+        // "What motifs are created from the variants on the screen" is a good question
+        // with two good answers, and the planner picked neither: it wrote a paragraph
+        // explaining that the question did not really apply, which is both wrong and the
+        // least useful thing to do with a reasonable request. A motif is a peptide motif
+        // or a sequence element depending on which alphabet you mean, the editor can do
+        // both, and which one is meant is one press away.
+        //
+        // ASKED BEFORE PLANNING, and only where the sentence is genuinely short of that
+        // one fact: a request that names its alphabet goes straight on to the planner, as
+        // does anything that is not about motifs.
+        const clarify = (text) => {
+            const raw = ('' + (text || '')).toLowerCase();
+            if (!raw) return null;
+            if (!/\bmotif|\belement\b/.test(raw)) return null;
+            // Already said which: nothing to ask.
+            if (/\b(peptide|protein|amino|residue|elm|slim|translation)\b/.test(raw)) return null;
+            if (/\b(nucleotide|sequence element|rna|dna|utr|polya|poly-a|splice|kozak|seed|rbp|mirna|micro ?rna)\b/.test(raw)) return null;
+            // About a CHANGE. "show the motifs on this track" is a layer and the planner
+            // has had that for a while; this is only for the question that compares.
+            if (!/\b(variant|variants|mutation|mutations|snp|snps|allele|alleles|change|changes|created|create|creates|gained|gain|lost|lose|destroy|destroys|break|breaks)\b/.test(raw)) return null;
+            const find = (n) => LIST.find((c) => c.name === n);
+            const pep = find('motif_impact_report'), nuc = find('nucleotide_motif_impact');
+            if (!pep || !nuc) return null;
+            return {
+                title: 'Peptide motifs, or sequence elements?',
+                subtitle: 'Both are motifs and the editor does both. They are different '
+                    + 'questions about the same variants, so this one is worth a press.',
+                options: [
+                    {
+                        label: 'Peptide motifs (ELM)',
+                        detail: 'What each substitution creates or destroys in the TRANSLATION: '
+                            + 'phosphorylation sites, docking and binding motifs, degrons. Only '
+                            + 'for variants that change a codon.',
+                        capability: pep, args: {}
+                    },
+                    {
+                        label: 'Sequence elements in the message',
+                        detail: 'What each one creates or destroys in the RNA ITSELF: '
+                            + 'polyadenylation signals, AU-rich elements, Pumilio and CPE sites, '
+                            + 'cryptic splice donors, Kozak context. The only half that exists '
+                            + 'for a variant in a UTR or an intron.',
+                        capability: nuc, args: {}
+                    }
+                ]
+            };
+        };
+
         const localPlan = (text) => {
             const raw = ('' + (text || '')).toLowerCase();
             if (!raw) return null;
@@ -5041,6 +5139,7 @@ function (graph, genegraph_panel_layout) {
             list: LIST, byName: byName, validate: validate, preview: preview,
             regionInfo: regionInfo, regionsOf: regionsOf, selCountOf: selCountOf,
             blocker: blocker, catalogue: catalogue, suggest: suggest, localPlan: localPlan,
+            clarify: clarify,
             vhits: vhits, vrows: vrows, crows: crows, selectVariants: selectVariants,
             selTracks: selTracks, oneSelTrack: oneSelTrack, tracks: tracks, rangeOf: rangeOf,
             VS: VS, F: F
