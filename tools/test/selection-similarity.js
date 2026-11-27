@@ -94,9 +94,23 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
     const L = out.layer;
     ok(!!L && L.intervals.length === hits.length, 'one band per place: ' + L.intervals.length);
     const band = L.intervals.filter((iv) => iv.x1 === BASE + 400)[0];
-    ok(/^100%/.test('' + band.t), 'labelled with the similarity: ' + band.t);
-    ok(/exon 4/.test('' + band.t), 'and with what it lands in, so the number has somewhere to be: ' + band.t);
-    ok(/ rc/.test('' + L.intervals.filter((iv) => iv.x1 === BASE + 1600)[0].t), 'an inverted band says rc');
+    // NO TEXT ON THE BANDS. One label per match overprinted every other into a black
+    // smear across the track and hid the track under it. The numbers are in the help rows
+    // and on the line that joins each match to where it came from, so nothing is lost.
+    ok(L.intervals.every((iv) => !('' + (iv.t || '')).trim()), 'the bands carry no text');
+    const helpRows = (L.decor.help.rows || []).map((r) => r.join(' '));
+    ok(helpRows.some((r) => /^100%/.test(r)), 'the identity is in the rows instead: '
+       + (helpRows[0] || ''));
+    ok(helpRows.some((r) => /exon 4/.test(r)),
+       'with what it lands in, so the number still has somewhere to be');
+    ok(helpRows.some((r) => /reverse complement/.test(r)), 'and an inverted match says so');
+    ok(/bands carry no text/.test('' + L.decor.help.note),
+       'and the layer says where the numbers went');
+    // Asked for, they come back: nothing is removed from the layer, only from the picture.
+    const withText = await run(mkTrack(), { start: BASE, end: BASE + 100 },
+        { min: 0.5, bandLabels: true });
+    ok(withText.layer.intervals.some((iv) => /^100%/.test('' + iv.t)),
+       'bandLabels: true puts them back on the bands');
     ok(L.intervals.filter((iv) => iv.x1 === BASE + 400)[0].color
        !== L.intervals.filter((iv) => iv.x1 === BASE + 1000)[0].color,
        'colour runs with identity, so the layer sorts itself before the labels are read');
@@ -169,8 +183,8 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
     ok(/100%/.test(painter.links[0].label), 'labelled with the identity: ' + painter.links[0].label);
     ok(across.hits.some((h) => h.start === 9500 && h.identity === 1),
        'the copy over there is found at its own coordinates: ' + JSON.stringify(across.hits[0] || {}));
-    ok(/exon 2/.test('' + other.track_layers[0].intervals[0].t),
-       'labelled with the scanned track\u2019s annotation: ' + other.track_layers[0].intervals[0].t);
+    ok((other.track_layers[0].decor.help.rows || []).some((r) => /exon 2/.test(r.join(' '))),
+       'the scanned track\u2019s annotation is in the rows under the layer');
     ok(/KRAS/.test(other.track_layers[0].decor.help.title)
        && /KRAS/.test(other.track_layers[0].decor.help.note),
        'and the layer says where the selection came from: ' + other.track_layers[0].decor.help.title);
@@ -247,8 +261,8 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
        + 'the best one: ' + nAtPatch + ' band there');
     const simLayer = far2.track_layers[far2.track_layers.length - 1];
     ok(/W60/.test(simLayer.name || ''), 'the layer name says the window it was run in: ' + simLayer.name);
-    ok(simLayer.intervals.some((iv) => new RegExp('' + (SB + 120)).test('' + iv.t)),
-       'and the band is labelled with the part of the selection it came from');
+    ok((simLayer.decor.help.rows || []).some((r) => new RegExp('' + (SB + 120)).test(r.join(' '))),
+       'the part of the selection a band came from is in the rows under the layer');
     // The band on the track the selection came from is the WINDOW that matched, not the
     // whole selection: the parts with no band are the parts that matched nothing.
     const fromLayer = sel2.track_layers[sel2.track_layers.length - 1];

@@ -5239,23 +5239,47 @@ function (progress, options) {
                         // up: a line could be looked at and not touched, and a set of them
                         // was all or nothing. The painters are asked in the order they are
                         // drawn, last one first, so the press picks the line on top.
+                        //
+                        // WHICH OBJECT HOLDS THE PAINTERS. redraw() reads them off THIS
+                        // object, and that is where a module given this object as its
+                        // "graph" puts them -- but the FlexiGraph underneath is also handed
+                        // to callers as a graph, so both are asked, and each painter is
+                        // given back the object it was registered on. Looking on one of
+                        // them only is how this first shipped: the lines drew, every press
+                        // missed, and nothing said why.
                         {
                             let __hitLink = false;
+                            const __owners = [];
+                            if (this.__linkPainters && this.__linkPainters.length) __owners.push(this);
                             try {
-                                const __lps = (this.graph.__linkPainters || []).slice().reverse();
-                                for (const lp of __lps) {
-                                    if (!lp || typeof lp.hit !== 'function') continue;
-                                    const L = lp.hit(xs, ys, this.graph);
+                                if (this.graph && this.graph !== this
+                                    && this.graph.__linkPainters && this.graph.__linkPainters.length) {
+                                    __owners.push(this.graph);
+                                }
+                            } catch (e) { }
+                            const __all = [];
+                            for (const own of __owners) {
+                                for (const lp of (own.__linkPainters || [])) __all.push({ lp: lp, g: own });
+                            }
+                            __all.reverse();                  // the line drawn last is on top
+                            try {
+                                for (const it of __all) {
+                                    if (!it.lp || typeof it.lp.hit !== 'function') continue;
+                                    const L = it.lp.hit(xs, ys, it.g);
                                     if (!L) continue;
                                     __hitLink = true;
                                     this.__downMenuHandled = true;
-                                    try { if (lp.menu) lp.menu(L, this.graph); } catch (e) { }
+                                    // The menu was opened on THIS press. Without this the
+                                    // mouse-up that ends the same click clears side_menu and
+                                    // the menu is gone before it can be read.
+                                    this.__keepSideMenu = true;
+                                    try { if (it.lp.menu) it.lp.menu(L, it.g); } catch (e) { }
                                     break;
                                 }
                                 if (!__hitLink) {
                                     // A press anywhere else puts the highlight down again.
-                                    for (const lp of __lps) {
-                                        try { if (lp && lp.clearChoice) lp.clearChoice(); } catch (e) { }
+                                    for (const it of __all) {
+                                        try { if (it.lp && it.lp.clearChoice) it.lp.clearChoice(); } catch (e) { }
                                     }
                                 }
                             } catch (e) { }

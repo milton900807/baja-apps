@@ -241,10 +241,19 @@ function (graph, track, range, opts) {
             const a = base + h.s, b = base + h.s + h.len - 1;
             const pct = Math.round(h.id * 100);
             const where = annAt(a, b);
+            // NO TEXT ON THE BANDS. Every band carried its identity, its window and the
+            // annotation it landed in, and with a band per match they overprinted each
+            // other into a black smear across the whole track: unreadable, and hiding the
+            // track underneath, which is the thing being looked at. The numbers have two
+            // better homes already: the label on the line that joins each match to where
+            // it came from, and the help rows under the layer, which lose nothing. Pass
+            // bandLabels: true to put them back on the bands.
             L2.addInterval(a, b, lanes[i % lanes.length],
-                pct + '%' + (h.rc ? ' rc' : '')
-                + (WIN ? (' · ' + h.srcStart + '–' + h.srcEnd) : '')
-                + (where.length ? (' · ' + where[0]) : ''),
+                (o.bandLabels === true)
+                    ? (pct + '%' + (h.rc ? ' rc' : '')
+                        + (WIN ? (' · ' + h.srcStart + '–' + h.srcEnd) : '')
+                        + (where.length ? (' · ' + where[0]) : ''))
+                    : '',
                 colorFor(h.id));
             i++;
             rows.push([pct + '%' + (h.rc ? ' (reverse complement)' : '') + ' at ' + a + '–' + b,
@@ -270,7 +279,10 @@ function (graph, track, range, opts) {
                     + 'deletion reads as two shorter matches rather than one, and would be found '
                     + 'by an aligner that this is not. Bands marked rc match the reverse '
                     + 'complement. Overlapping matches are collapsed to the best one, so a band is '
-                    + 'a place rather than every offset that passed.'
+                    + 'a place rather than every offset that passed. The bands carry no text: '
+                    + 'with one per match the labels overprinted each other and hid the track '
+                    + 'under them, so each identity is on the line that joins the match to where '
+                    + 'it came from, and every one of them is in the rows above.'
                     + windowNote
                     + ((step > 1) ? (' This scan stepped ' + step + ' bases at a time because the '
                         + 'track is long: a match offset from the ones looked at may have been '
@@ -312,12 +324,17 @@ function (graph, track, range, opts) {
                 let j = 0;
                 for (const w of wins) {
                     A.addInterval(w.a, w.b, lanes[j % lanes.length],
-                        Math.round(w.best * 100) + '% · ' + w.n + ' match'
-                        + (w.n === 1 ? '' : 'es') + ' on ' + (tgt.name || 'the other track'),
+                        (o.bandLabels === true)
+                            ? (Math.round(w.best * 100) + '% · ' + w.n + ' match'
+                                + (w.n === 1 ? '' : 'es') + ' on ' + (tgt.name || 'the other track'))
+                            : '',
                         'rgba(79,208,230,0.55)');
                     j++;
                 }
             } else {
+                // The one band over the whole selection keeps its text: there is only ever
+                // one of it, so it has nothing to overprint, and it is what says the mark
+                // was compared at all once the selection itself has been cleared.
                 A.addInterval(lo, hi, 0.5,
                     'compared · ' + L.toLocaleString() + ' nt · ' + kept.length + ' match'
                     + (kept.length === 1 ? '' : 'es') + ' on ' + (tgt.name || 'the other track'),

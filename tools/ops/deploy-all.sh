@@ -1822,6 +1822,11 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"
+  install_group "no text on the similarity bands" \
+    "baja/bio/compare/selection-similarity.js:NO TEXT ON THE BANDS"
+  install_group "the press finds the painters where they actually live" \
+    "flexigraph/gene.js:WHICH OBJECT HOLDS THE PAINTERS" \
+    "baja/bio/compare/track-link-layer.js:a dozen pixels is close enough to mean that line"
   install_group "compare the selection in a window slid along it" \
     "baja/bio/compare/selection-similarity.js:WHAT IS LAID OVER THE TRACK: THE WHOLE SELECTION, OR A WINDOW SLID ALONG IT" \
     "baja/manchester/menu/selected-sequence-menu.js:AND HOW MUCH OF IT AT A TIME"

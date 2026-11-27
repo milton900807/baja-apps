@@ -187,7 +187,10 @@ function (graph, links, opts) {
                     const qx = ax + vx * t, qy = ay + vy * t;
                     return Math.hypot(px - qx, py - qy);
                 };
-                const NEAR = 9;                       // pixels, about the width of the line
+                // A line is 1.6 px wide and a curve is a poor target, so the press is
+                // given room: a dozen pixels is close enough to mean that line and far
+                // enough from the next to not be ambiguous.
+                const NEAR = 12;
                 let best = null, bestD = NEAR;
                 for (const L of list) {
                     const G = L.__geom;

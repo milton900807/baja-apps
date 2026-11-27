@@ -255,10 +255,19 @@ const mkGraph = (tracks) => ({ track: tracks, X: (v) => v / 10, Y: (v) => v, wak
     // The press reaches the painters from gene.js, before anything else claims it.
     const geneSrc = fs.readFileSync('flexigraph/gene.js', 'utf8');
     ok(/A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS/.test(geneSrc)
-       && /lp\.hit\(xs, ys, this\.graph\)/.test(geneSrc),
+       && /it\.lp\.hit\(xs, ys, it\.g\)/.test(geneSrc),
        'gene.js offers the press to the link painters');
-    ok(/if \(lp\.menu\) lp\.menu\(L, this\.graph\)/.test(geneSrc),
+    ok(/if \(it\.lp\.menu\) it\.lp\.menu\(L, it\.g\)/.test(geneSrc),
        'and opens the line\u2019s own menu where it was pressed');
+    // WHICH OBJECT HOLDS THE PAINTERS. redraw() reads them off the gene object, which is
+    // what a module handed that object as its "graph" writes to; the FlexiGraph under it
+    // is also passed around as a graph. Asking only one is how the first version shipped:
+    // every line drew and every press missed.
+    ok(/this\.__linkPainters && this\.__linkPainters\.length\) __owners\.push\(this\)/.test(geneSrc)
+       && /this\.graph\.__linkPainters && this\.graph\.__linkPainters\.length/.test(geneSrc),
+       'and looks for them on both objects that are handed out as the graph');
+    ok(/redraw\(\)[\s\S]{0,400000}this\.__linkPainters/.test(geneSrc),
+       'the same place redraw() draws them from');
 
     // A LINK TO A TRACK THAT HAS GONE is a line drawn to where it used to be.
     ok(painter.dead(g) === false, 'while both tracks are on the canvas it stays');
