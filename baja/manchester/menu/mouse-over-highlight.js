@@ -5599,6 +5599,26 @@ function (graph, genegraph_panel_layout) {
                                     });
                                 }
                                 items.push({ type: 'separator' });
+                                // THE REPORT, not a layer. The layers answer "where on this
+                                // protein"; a reader asking what a set of variants does needs
+                                // the rows themselves: sortable, searchable, and leaving the
+                                // screen as a file rather than as a screenshot.
+                                items.push({
+                                    label: 'Motif impact report\u2026',
+                                    move: () => { },
+                                    click: async () => {
+                                        try {
+                                            await exec('baja/bio/protein/motif-impact-view.js',
+                                                graph, st, {});
+                                        } catch (e) {
+                                            try {
+                                                graph.setResultMessage(' The motif impact report failed: '
+                                                    + (e && e.message ? e.message : e) + ' ');
+                                            } catch (e2) { }
+                                        }
+                                    }
+                                });
+                                items.push({ type: 'separator' });
                                 items.push({
                                     label: 'With a variant\u2026',
                                     move: () => { },

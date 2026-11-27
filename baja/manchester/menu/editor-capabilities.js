@@ -2370,6 +2370,67 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // THE REPORT IS NOT THE LAYER. The layer answers "where on this protein";
+                // a request about a SET of variants wants the rows themselves, ordered,
+                // searched and taken away as a file. Asked for by name here so that
+                // "motif impact report for the pathogenic variants" does not come back as
+                // the motif layer with everything on it.
+                name: 'motif_impact_report',
+                summary: 'A MOTIF IMPACT REPORT for the variants on a track: a window of '
+                    + 'rows saying which short linear motifs each substitution CREATES, '
+                    + 'which it DESTROYS, and which the protein already carries, with the '
+                    + 'whole set downloadable as CSV or JSON. This is the answer to "motif '
+                    + 'impact report", "what motifs do these mutations create", "which '
+                    + 'variants make a new motif", "report on the motifs these variants '
+                    + 'change". WITH NO VARIANTS NAMED it asks which of the track’s '
+                    + 'coding variants to test rather than running all of them. A gained '
+                    + 'motif is a regex match on a sequence that does not occur in nature '
+                    + 'and its score is an upper bound, which the report says on every row '
+                    + 'that carries one.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    },
+                    variants: {
+                        type: 'string',
+                        about: 'protein-space substitutions to test, comma separated '
+                            + '("A315T,M337V"), as the request writes them. Omit to be asked '
+                            + 'which of the track’s own variants to use'
+                    },
+                    min_score: {
+                        type: 'number', default: 0.5,
+                        about: 'the lowest wild-type motif score to list, 0 to 1. Gained and '
+                            + 'lost motifs are listed whatever they score'
+                    }
+                },
+                run: async (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    const vars = ('' + (a.variants || '')).split(/[,;\s]+/)
+                        .map((x) => x.trim()).filter(Boolean);
+                    const r = await exec('baja/bio/protein/motif-impact-view.js', graph, t, {
+                        variants: vars,
+                        minScore: (a.min_score == null ? 0.5 : a.min_score)
+                    });
+                    if (r && !r.ok && r.why) {
+                        // The reason is the answer here: "no protein" and "none chosen" are
+                        // different things to do next, and an empty window says neither.
+                        result((t.name || 'That track') + ': no motif impact report \u2014 ' + r.why + '.');
+                    }
+                    return r;
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    const vars = ('' + (a.variants || '')).split(/[,;\s]+/).filter(Boolean);
+                    return 'Motif impact report on ' + ((t && t.name) || 'the selected track')
+                        + (vars.length ? (' for ' + vars.join(', ')) : ' for variants you choose');
+                }
+            },
+
+            {
                 // PROTEIN MOTIFS ARE A LAYER THE EDITOR ALREADY DRAWS, and "load protein
                 // motifs" was answered with "nothing in the editor does that" because the
                 // catalogue is the only thing a typed request can reach.

@@ -1822,6 +1822,11 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"
+  install_group "the motif impact result set" \
+    "baja/bio/protein/motif-impact-view.js:THE MOTIF IMPACT RESULT SET" \
+    "baja/lib/pick-list.js:MANY AT ONCE, with multi: true" \
+    "baja/manchester/menu/mouse-over-highlight.js:THE REPORT, not a layer" \
+    "baja/manchester/menu/editor-capabilities.js:THE REPORT IS NOT THE LAYER"
   install_group "keep one line and drop the rest" \
     "baja/bio/compare/track-link-layer.js:KEEP THIS ONE, DROP THE REST"
   install_group "no text on the similarity bands" \
