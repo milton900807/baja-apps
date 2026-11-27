@@ -1795,6 +1795,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/expression/ratio-shift-view.js:DESIGN THE BLOCKERS THIS PAGE DESCRIBES" \
     "baja/manchester/menu/track-design-menu.js:WINDOWS HANDED IN FROM SOMEWHERE ELSE" \
     "baja/bio/expression/ratio-shift-picker.js:The layout travels with it"
+  install_group "grey out this track layers from the track menu" \
+    "baja/manchester/menu/mouse-over-highlight.js:GREYING FROM THE TRACK MENU" \
+    "baja/manchester/menu/track-layer-popup.js:THIS TRACK, because this menu belongs to one" \
+    "baja/bio/layers/focus-layer.js:The track given by the caller wins over the search"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

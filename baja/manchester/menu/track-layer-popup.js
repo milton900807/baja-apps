@@ -159,7 +159,13 @@ function (track, layer, graph, genegraph_panel_layout, screenX, screenY) {
             // No history push: greying is a way of LOOKING at the canvas, not a change to
             // it, and putting it on the undo stack would make Undo step back through how
             // somebody read their data before it reached the edit they wanted undone.
-            focus: () => exec('baja/bio/layers/focus-layer.js', graph, isFocused ? null : layer),
+            // THIS TRACK, because this menu belongs to one. The popup is opened from a label
+            // row under a track's name and everything else in it acts on that track's
+            // layers; greying a neighbouring track's layers from it would be an answer to a
+            // question nobody asked, and on a canvas of four tracks it looks like the editor
+            // has dimmed itself.
+            focus: () => exec('baja/bio/layers/focus-layer.js', graph,
+                isFocused ? null : layer, { scope: 'track', track: track }),
             rename: async () => {
                 let va = null;
                 try { va = await prompt('Rename layer', ['Name'], { 'Name': nameOf(layer) }, 380, 200); } catch (e) { va = null; }

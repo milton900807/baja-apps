@@ -113,11 +113,22 @@ function (graph, layer, opts) {
             return { focused: null, muted: 0, cleared: n };
         }
 
-        const home = tracks.find((t) => layersOf(t).indexOf(layer) >= 0) || null;
+        // The track given by the caller wins over the search: a menu that belongs to a track
+        // knows which one it is, and the same layer object can be mirrored onto a child
+        // track, where the search would find the wrong home.
+        const home = (o.track && tracks.indexOf(o.track) >= 0)
+            ? o.track
+            : (tracks.find((t) => layersOf(t).indexOf(layer) >= 0) || null);
         const scope = ('' + (o.scope || 'canvas')).toLowerCase();
         const inScope = (scope === 'track' && home) ? [home] : tracks;
 
-        clear();
+        // Clearing is scoped the same way the greying is, so focusing a layer on one track
+        // does not quietly put back a neighbouring track that was greyed on purpose.
+        if (inScope.length === tracks.length) clear();
+        else {
+            for (const l of layersOf(inScope[0])) { l.muted = false; if (l.pop) l.pop = false; }
+            try { if (graph.focusedLayer && layersOf(inScope[0]).indexOf(graph.focusedLayer) >= 0) graph.focusedLayer = null; } catch (e) { }
+        }
         let muted = 0, visibleOthers = 0;
         for (const t of inScope) {
             for (const l of layersOf(t)) {

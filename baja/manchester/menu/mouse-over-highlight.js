@@ -5032,6 +5032,36 @@ function (graph, genegraph_panel_layout) {
                                     }
                                 },
                                 {
+                                    // GREYING FROM THE TRACK MENU, which is where somebody is
+                                    // standing when a track has four layers drawn over each
+                                    // other and they want to read what is underneath. It was
+                                    // only inside Edit..., which is a menu about editing
+                                    // layers one at a time; this is about the track as a
+                                    // whole, so it sits beside the other whole-track actions.
+                                    //
+                                    // THIS track only, and the same row takes it back. Nothing
+                                    // is hidden or removed: the layers stay drawn, in grey at
+                                    // low opacity, so what was covering the track is still
+                                    // there to be read against.
+                                    label: (((selectedTrack && selectedTrack.track_layers) || [])
+                                        .some((l) => l && l.muted))
+                                        ? 'Layers back to colour'
+                                        : 'Grey out all layers on this track',
+                                    move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        if (!selectedTrack) {
+                                            try { graph.setResultMessage(' No track to grey layers on. '); } catch (e) { }
+                                            return;
+                                        }
+                                        const greyed = ((selectedTrack.track_layers || [])
+                                            .some((l) => l && l.muted));
+                                        await exec('baja/bio/layers/focus-layer.js', graph, null,
+                                            greyed ? { track: selectedTrack }
+                                                : { all: true, track: selectedTrack });
+                                    }
+                                },
+                                {
                                     // Pick a layer by NAME and remove it. The layers on a track
                                     // are what the data and model runs left behind, and until now
                                     // the only way to take one off was the layer editor.

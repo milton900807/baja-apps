@@ -159,6 +159,48 @@ const muted = (g) => g.track.reduce((s, t) => s.concat(t.track_layers.filter((l)
     ok(menuSrc.indexOf('Grey out all layers') > menuSrc.indexOf("label: 'Hide all'"),
        'placed beside Hide all, which is what people pressed when they wanted this');
 
+    // ---- A MENU THAT BELONGS TO A TRACK GREYS THAT TRACK ------------------------------
+    // Focusing from the layer popup used to grey every track on the canvas, which from a
+    // menu opened on one track's label row looks like the editor dimming itself.
+    g = mkGraph();
+    r = await load('baja/bio/layers/focus-layer.js', g, g.A.track_layers[0],
+        { scope: 'track', track: g.A });
+    ok(muted(g).join(',') === 'ACC,CDD_domains', 'only its own track is greyed: ' + muted(g).join(','));
+    ok(g.B.track_layers[0].muted !== true, 'the neighbouring track keeps its colour');
+    ok(g.A.track_layers[0].pop === true, 'and the focused layer is still raised');
+
+    // A track greyed on purpose is not put back by a focus on another track.
+    await load('baja/bio/layers/focus-layer.js', g, null, { all: true, track: g.B });
+    await load('baja/bio/layers/focus-layer.js', g, g.A.track_layers[1], { scope: 'track', track: g.A });
+    ok(g.B.track_layers[0].muted === true, 'the other track stays as it was left');
+    ok(g.A.track_layers[1].muted === false && g.A.track_layers[0].muted === true,
+       'while the focus moved within its own track');
+
+    // The caller's track wins over searching for the layer, which matters where a child
+    // track mirrors its parent's layers and the search would find the wrong home.
+    const shared = mkLayer('mirrored');
+    g = mkGraph();
+    g.A.track_layers.push(shared);
+    g.B.track_layers.push(shared);
+    await load('baja/bio/layers/focus-layer.js', g, shared, { scope: 'track', track: g.B });
+    ok(g.B.track_layers[0].muted === true && g.A.track_layers[0].muted !== true,
+       'the track the menu named is the one greyed: ' + muted(g).join(','));
+
+    // The popup passes both, so pressing it twice greys and un-greys one track.
+    const popupSrc = fs.readFileSync('baja/manchester/menu/track-layer-popup.js', 'utf8');
+    ok(/\{ scope: 'track', track: track \}/.test(popupSrc),
+       'the layer popup greys the track it was opened on');
+
+    // ---- and from the track menu itself --------------------------------------------------
+    // Where somebody stands when a track has four layers drawn over each other: the layer
+    // editor is a menu about editing layers one at a time, and this is about the track.
+    const trackMenu = fs.readFileSync('baja/manchester/menu/mouse-over-highlight.js', 'utf8');
+    ok(/Grey out all layers on this track/.test(trackMenu), 'the track menu offers it');
+    ok(/'Layers back to colour'/.test(trackMenu), 'and the same row takes it back');
+    ok(/\{ all: true, track: selectedTrack \}/.test(trackMenu), 'for the track the menu belongs to');
+    ok(trackMenu.indexOf('Grey out all layers on this track') < trackMenu.indexOf("label: 'Delete layer"),
+       'among the whole-track actions, above deleting a layer');
+
     // ---- the focused layer is raised off the track -------------------------------------------
     // Grey neighbours say WHICH layer to read; the shadow says it sits on top of the track
     // rather than in it, which is what makes a band findable on a crowded one.
