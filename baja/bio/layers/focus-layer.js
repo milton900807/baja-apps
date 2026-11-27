@@ -40,7 +40,12 @@ function (graph, layer, opts) {
 
         const clear = () => {
             let n = 0;
-            for (const t of tracks) for (const l of layersOf(t)) { if (l.muted) { l.muted = false; n++; } }
+            for (const t of tracks) for (const l of layersOf(t)) {
+                if (l.muted) { l.muted = false; n++; }
+                // The raised look goes with the greying: a layer still standing proud of a
+                // canvas where everything is in colour again is a leftover, not a cue.
+                if (l.pop) l.pop = false;
+            }
             try { if (graph.focusedLayer) graph.focusedLayer = null; } catch (e) { }
             return n;
         };
@@ -104,6 +109,10 @@ function (graph, layer, opts) {
             }
         }
         layer.muted = false;
+        // RAISED AS WELL AS COLOURED. Grey neighbours say which layer to read; the shadow
+        // says it sits on top of the track rather than in it, which is what makes a band
+        // findable on a crowded one.
+        try { layer.pop = true; } catch (e) { }
         try { graph.focusedLayer = layer; } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
 

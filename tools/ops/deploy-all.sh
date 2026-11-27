@@ -1782,6 +1782,10 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/layers/present-new-layer.js:SHOWING A LAYER THAT HAS JUST ARRIVED" \
     "baja/bio/track-flexi.js:A LAYER THAT HAS JUST ARRIVED IS SHOWN, not left for the user to find" \
     "baja/bio/layers/focus-layer.js:QUIET IS FOR THE AUTOMATIC CASE"
+  install_group "a raised layer and keys that link its bands across tracks" \
+    "baja/bio/track-flexi.js:A SHADOW LIFTS A LAYER OFF THE TRACK" \
+    "baja/bio/layers/focus-layer.js:RAISED AS WELL AS COLOURED" \
+    "baja/bio/expression/ratio-shift-view.js:A KEY PER CANDIDATE, THE SAME ON BOTH TRACKS AND IN THE WINDOW"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

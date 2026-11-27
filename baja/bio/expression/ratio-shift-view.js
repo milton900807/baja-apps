@@ -23,6 +23,21 @@ function (graph, model, opts) {
 
         const COLOR = { mirna: 'rgba(74,222,128,0.60)', rbp: 'rgba(167,139,250,0.60)' };
 
+        // A KEY PER CANDIDATE, THE SAME ON BOTH TRACKS AND IN THE WINDOW. Every band used
+        // to be labelled with what it is -- "FUS", "miR-122-5p" -- which names the site and
+        // not the proposal, so a band on one track and the red band it explains on the
+        // other had nothing joining them but the reader's memory. R is the raising arm, L
+        // the lowering one, D a sequence that does both; D1 is one stretch drawn twice,
+        // once on each track, under one name.
+        const KEY = [];
+        const keyOf = (r) => {
+            for (const e of KEY) if (e.r === r) return e.k;
+            return '';
+        };
+        (m.up.candidates || []).forEach((r, i) => KEY.push({ r: r, k: 'R' + (i + 1) }));
+        (m.down.candidates || []).forEach((r, i) => KEY.push({ r: r, k: 'L' + (i + 1) }));
+        (m.dual || []).forEach((d, i) => KEY.push({ r: d, k: 'D' + (i + 1) }));
+
         const column = (arm, side) => {
             const head = (side === 'up')
                 ? ('Raise ' + esc(arm.track) + ': relieve repression')
@@ -35,6 +50,9 @@ function (graph, model, opts) {
                         + 'the other transcript, so a blocker here would probably hit both</span>');
                 return '<tr>'
                     + '<td style="padding:7px 10px;vertical-align:top;white-space:nowrap;color:' + C.title + ';font-weight:600">'
+                    + '<span style="display:inline-block;min-width:26px;margin-right:7px;padding:1px 5px;'
+                    + 'border:1px solid ' + C.outline + ';border-radius:5px;font:700 11px ' + C.font + ';'
+                    + 'color:' + C.accent + ';text-align:center">' + esc(keyOf(r)) + '</span>'
                     + esc(r.label) + (r.ambiguous ? ' <span style="color:' + C.warm + ';font-weight:400">(cuts both ways)</span>' : '')
                     + '</td>'
                     + '<td style="padding:7px 10px;vertical-align:top;white-space:nowrap;color:' + C.dim + '">'
@@ -93,7 +111,10 @@ function (graph, model, opts) {
             const rows = list.map((d) => ''
                 + '<tr>'
                 + '<td style="padding:8px 10px;vertical-align:top;font-family:ui-monospace,Menlo,monospace;'
-                + 'font-size:13px;color:' + C.accent + ';white-space:nowrap">' + esc(d.footprint)
+                + 'font-size:13px;color:' + C.accent + ';white-space:nowrap">'
+                + '<span style="display:inline-block;min-width:26px;margin-right:7px;padding:1px 5px;'
+                + 'border:1px solid ' + C.outline + ';border-radius:5px;font:700 11px ' + C.font + ';'
+                + 'text-align:center">' + esc(keyOf(d)) + '</span>' + esc(d.footprint)
                 + '<div style="font-size:11px;color:' + C.dim + ';font-family:' + C.font + '">read off '
                 + esc(d.writtenFor === 'up' ? m.up.track : m.down.track) + ', '
                 + (d.mismatches === 0
@@ -110,7 +131,9 @@ function (graph, model, opts) {
                 + '</td></tr>').join('');
             return '<div style="border:1px solid ' + C.outline + ';border-radius:10px;padding:12px 14px;margin:0 0 14px">'
                 + '<div style="font:700 13px ' + C.font + ';color:' + C.accent + ';letter-spacing:.04em;margin-bottom:6px">ONE SEQUENCE THAT DOES BOTH</div>'
-                + '<div style="font-size:12px;color:' + C.dim + ';margin-bottom:8px">Shared by both messages, '
+                + '<div style="font-size:12px;color:' + C.dim + ';margin-bottom:8px">Each key is drawn on '
+                + 'both tracks, so D1 here is the same stretch marked on ' + esc(m.up.track) + ' and on '
+                + esc(m.down.track) + '. Shared by both messages, '
                 + 'repressive on ' + esc(m.up.track) + ' and transport or local initiation on '
                 + esc(m.down.track) + '. One blocker raises the first and strands the second, so the '
                 + 'two effects arrive together and cannot be dosed apart.</div>'
@@ -182,6 +205,10 @@ function (graph, model, opts) {
                 Math.min.apply(null, pts) - MIN, 0, Math.max.apply(null, pts) + MIN, 1);
             L.type = 'RatioShift';
             L.labelColor = '#eaf6f9';
+            // Raised off the track: these bands are a proposal laid over the picture rather
+            // than part of it, and on a track already carrying four layers a flat band of
+            // the same weight as everything else is not findable.
+            L.pop = true;
             L.fixedIntervalDepth = 12;
             L.allowStackedIntervals = true;
             const lanes = [0.7, 0.45, 0.2];
@@ -191,10 +218,11 @@ function (graph, model, opts) {
                 const a = Math.min(r.footprintStart, r.footprintEnd), b = Math.max(r.footprintStart, r.footprintEnd);
                 const d = widen(a, b);
                 L.addInterval(d[0], d[1], lanes[i % lanes.length],
-                    r.label + ' \u00b7 ' + (b - a + 1) + ' nt' + (r.selective ? '' : ' \u00b7 hits both'),
+                    keyOf(r) + ' \u00b7 ' + r.label + ' \u00b7 ' + (b - a + 1) + ' nt'
+                    + (r.selective ? '' : ' \u00b7 hits both'),
                     r.selective ? COLOR[r.kind] : 'rgba(159,196,212,0.35)');
                 i++;
-                rowsHelp.push([r.label + ' ' + a + '\u2013' + b,
+                rowsHelp.push([keyOf(r) + ' \u00b7 ' + r.label + ' ' + a + '\u2013' + b,
                     (r.detail || '') + ' \u00b7 ' + r.mismatches + ' mismatches from the other transcript \u00b7 '
                     + r.footprint]);
             }
@@ -208,10 +236,11 @@ function (graph, model, opts) {
                 const a = Math.min(a0, b0), b = Math.max(a0, b0);
                 const dd = widen(a, b);
                 L.addInterval(dd[0], dd[1], lanes[i % lanes.length],
-                    'one sequence: raises ' + d.raises.label + ', lowers ' + d.lowers.label,
+                    keyOf(d) + ' \u00b7 one sequence: raises ' + d.raises.label
+                    + ', lowers ' + d.lowers.label,
                     'rgba(79,208,230,0.65)');
                 i++;
-                rowsHelp.push(['one sequence, ' + a + '\u2013' + b,
+                rowsHelp.push([keyOf(d) + ' \u00b7 one sequence, ' + a + '\u2013' + b,
                     'the same blocker over ' + d.raises.label + ' on ' + m.up.track + ' and '
                     + d.lowers.label + ' on ' + m.down.track + ' \u00b7 ' + d.footprint
                     + ' \u00b7 ' + (d.mismatches === 0 ? 'identical in both'
@@ -224,10 +253,12 @@ function (graph, model, opts) {
             for (const r of strays) {
                 const a = Math.min(r.otherStart, r.otherEnd), b = Math.max(r.otherStart, r.otherEnd);
                 const d = widen(a, b);
+                // The stray keeps the key of the candidate it belongs to, which lives on
+                // the other track: that is the link, read off the two labels.
                 L.addInterval(d[0], d[1], lanes[i % lanes.length],
-                    r.label + ' blocker would also bind here', 'rgba(248,113,113,0.45)');
+                    keyOf(r) + ' would also bind here', 'rgba(248,113,113,0.45)');
                 i++;
-                rowsHelp.push(['a blocker aimed at ' + r.label + ' on ' + (r.otherTrack || 'the other track')
+                rowsHelp.push([keyOf(r) + ' \u00b7 a blocker aimed at ' + r.label + ' on ' + (r.otherTrack || 'the other track')
                     + ' would also bind ' + a + '\u2013' + b,
                     'only ' + r.mismatches + ' mismatches from its ' + ('' + r.footprint).length
                     + '-mer, which is why that site is not offered as selective']);

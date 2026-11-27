@@ -99,7 +99,9 @@ const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [
     ok(/_RATIO_raise$/.test(L.name) && /_RATIO_lower$/.test(down.track_layers[0].name),
        'named for the direction they are for: ' + L.name);
     ok(L.intervals.filter((iv) => !/one sequence/.test('' + iv.t)).length === 2, 'a band per candidate');
-    const bands = {}; for (const iv of L.intervals) bands[('' + iv.t).split(' ')[0]] = iv;
+    // Bands are looked up by what they are ABOUT, since the label now leads with the key.
+    const bandFor = (layer, what) => layer.intervals.filter((iv) => ('' + iv.t).indexOf(what) >= 0)[0];
+    const bands = { 'miR-122-5p': bandFor(L, 'miR-122-5p'), FMR1: bandFor(L, 'FMR1') };
     ok(bands['miR-122-5p'].x1 === 1394 && bands['miR-122-5p'].x2 === 1413,
        'drawn over the blocker footprint, not over the seed: '
        + bands['miR-122-5p'].x1 + '-' + bands['miR-122-5p'].x2);
@@ -109,11 +111,31 @@ const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [
     // the place it refers to is on the other track, and that is where it is drawn.
     const strays = down.track_layers[0].intervals.filter((iv) => /would also bind here/.test('' + iv.t));
     ok(strays.length === 1, 'the other track is marked where that blocker would also land');
-    ok(/FMR1 blocker/.test(strays[0].t), 'named for the blocker it belongs to: ' + strays[0].t);
+
+    // THE LABELS LINK THE TWO TRACKS. A band labelled by what it is -- "FUS", "FMR1" --
+    // names the site and not the proposal, so a band on one track and the red band it
+    // explains on the other had nothing joining them but the reader's memory. The key does
+    // that joining, and it is the same key in the window.
+    const keyOfBand = (iv) => ('' + iv.t).split(' ')[0];
+    ok(/^R2$/.test(keyOfBand(bands.FMR1)), 'each band leads with a key: ' + keyOfBand(bands.FMR1));
+    ok(keyOfBand(strays[0]) === keyOfBand(bands.FMR1),
+       'and the band on the other track carries the SAME key: ' + strays[0].t);
+    ok(/^R1 /.test(bands['miR-122-5p'].t), 'the raising arm is keyed R: ' + bands['miR-122-5p'].t);
+    ok(/^L1 /.test(('' + bandFor(down.track_layers[0], 'TARDBP').t)), 'the lowering arm L');
+    const dualBand = bandFor(L, 'one sequence');
+    ok(/^D1 /.test('' + dualBand.t), 'and a sequence that does both is D: ' + dualBand.t);
+    ok(keyOfBand(dualBand) === keyOfBand(bandFor(down.track_layers[0], 'one sequence')),
+       'with the same D key on both tracks, which is the whole point of it');
+    // The key is its own chip beside the name, so in flat text it runs into it.
+    ok(/R1miR-122-5p/.test(t.replace(/\s+/g, '')) && /D1TTTT/.test(t.replace(/\s+/g, '')),
+       'the window shows the same keys, beside what they name');
+    ok(/Each key is drawn on both tracks/.test(t), 'and says what they are for');
     ok(/would also bind/.test((down.track_layers[0].decor.help.rows || []).map((r) => r.join(' ')).join(' ')),
        'with the reason in the help rows');
     ok(bands['FMR1'].color !== bands['miR-122-5p'].color, 'and is drawn differently');
     ok(/not a measurement/.test(L.decor.help.note), 'the help note keeps the caveat beside the sequence');
+    ok(L.pop === true && down.track_layers[0].pop === true,
+       'both layers are raised off their track, so a band is findable among four others');
 
     // A 20-MER ON A WHOLE GENE IS NOTHING TO LOOK AT. The band is widened so the layer says
     // WHERE, and the note says that is what happened.

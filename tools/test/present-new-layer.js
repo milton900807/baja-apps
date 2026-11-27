@@ -48,6 +48,7 @@ const glowing = (g) => g.track.reduce((s, t) => s.concat(t.track_layers.filter((
     ok(muted(g).join(',') === 'PSI,ACC,CDD', 'then every other layer goes grey: ' + muted(g).join(','));
     ok(!fresh.muted, 'and the new one does not');
     ok(glowing(g).join(',') === 'ACC_candidates', 'which is the one that glows: ' + glowing(g).join(','));
+    ok(fresh.pop === true, 'and is raised off the track with a shadow');
     ok(g.woke > 0, 'the canvas is redrawn');
 
     // THE TOOL'S OWN MESSAGE SURVIVES. The sentence a model writes when it finishes is
@@ -119,6 +120,11 @@ const glowing = (g) => g.track.reduce((s, t) => s.concat(t.track_layers.filter((
     // A HEAVY LAYER DOES NOT GET A HALO. The glow is a second pass over the layer every
     // frame, and on a coverage track that is a stutter right after the thing it is showing
     // off; a layer with tens of thousands of points is findable without one.
+    ok(/const __popping = \(l\)/.test(flexi), 'the renderer knows what raised means');
+    ok(/ctx\.filter = 'blur\(3px\) brightness\(0\) saturate\(0\)'/.test(flexi),
+       'and draws the shadow as a blackened blur of the layer\u2019s own shapes, not a box');
+    ok(/ctx\.translate\(2, 3\)/.test(flexi), 'offset, so it reads as a shadow');
+    ok(/const pop = !mute && __popping\(l\)/.test(flexi), 'a greyed layer is never raised');
     ok(/const __tooBigToGlow = \(l\)/.test(flexi), 'the renderer checks how heavy a layer is');
     ok(/if \(n > 4000\) return true;/.test(flexi), 'with a limit on how much it will redraw');
     ok(/__glowing\(l\) && !__tooBigToGlow\(l\)/.test(flexi), 'and skips the halo past it');

@@ -54,7 +54,9 @@ function (graph, track, layer, opts) {
             try {
                 exec('baja/bio/layers/focus-layer.js', G, arrived[0], { scope: 'canvas', quiet: true })
                     .then(() => {
-                        for (const l of arrived) { try { l.muted = false; } catch (e) { } }
+                        for (const l of arrived) {
+                            try { l.muted = false; l.pop = true; } catch (e) { }
+                        }
                         wake();
                     }).catch(() => { });
             } catch (e) { }

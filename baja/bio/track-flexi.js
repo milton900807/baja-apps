@@ -4870,11 +4870,32 @@ return new Promise(async (resolve, reject) => {
                     return false;
                 } catch (e) { return false; }
             };
+            // A SHADOW LIFTS A LAYER OFF THE TRACK. Greying the others says which layer to
+            // read; this says the thing is ON TOP of the picture rather than part of it,
+            // which is what makes a band on a crowded track findable at a glance. Drawn the
+            // same way as the halo and for the same reason: an offset, blurred, blackened
+            // pass of the layer's OWN shapes, so the shadow is the shape of the items and
+            // not a rectangle behind the layer.
+            const __popping = (l) => {
+                try { return !!(l && l.pop) && !__tooBigToGlow(l); } catch (e) { return false; }
+            };
             const __drawLayer = async (l) => {
                 const mute = !!(l && l.muted);
                 const glow = __glowing(l) && !__tooBigToGlow(l);
+                const pop = !mute && __popping(l);
                 let had = 'none';
                 try { had = ctx.filter || 'none'; } catch (e) { had = 'none'; }
+                if (pop) {
+                    const a0 = ctx.globalAlpha;
+                    try {
+                        ctx.save();
+                        ctx.translate(2, 3);
+                        ctx.filter = 'blur(3px) brightness(0) saturate(0)';
+                        ctx.globalAlpha = 0.38;
+                        await l.drawPlot(plateTrack, this, ctx);
+                    } catch (e) { }
+                    try { ctx.restore(); ctx.filter = had; ctx.globalAlpha = a0; } catch (e) { }
+                }
                 if (glow) {
                     // Breathing rather than steady, because a static halo reads as part of
                     // the drawing and a moving one reads as "look here". One cycle a second.
