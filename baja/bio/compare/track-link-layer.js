@@ -69,6 +69,7 @@ function (graph, links, opts) {
                 ctx.font = '600 11px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
+                const labels = [];
                 for (const L of list) {
                     let x1, x2, y1, y2, a1, b1, a2, b2;
                     try {
@@ -111,22 +112,60 @@ function (graph, links, opts) {
                     L.__geom = { x1: x1, y1: y1, x2: x2, y2: y2, my: my,
                         a1: a1, b1: b1, a2: a2, b2: b2 };
 
+                    // The label is not drawn yet: every line bows through the same
+                    // midpoint band, so they have to be placed against each other.
                     const label = ('' + (L.label == null ? '' : L.label));
                     if (label) {
-                        const lx = (x1 + x2) / 2, ly = my;
-                        const w = Math.max(26, ctx.measureText(label).width + 10);
-                        ctx.globalAlpha = 0.95;
-                        ctx.fillStyle = 'rgba(10,37,64,0.92)';
-                        ctx.beginPath();
-                        if (ctx.roundRect) ctx.roundRect(lx - w / 2, ly - 9, w, 18, 6);
-                        else ctx.rect(lx - w / 2, ly - 9, w, 18);
-                        ctx.fill();
-                        ctx.strokeStyle = col;
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-                        ctx.fillStyle = ink;
-                        ctx.fillText(label, lx, ly);
+                        labels.push({ L: L, text: label, x: (x1 + x2) / 2, y: my, col: col });
                     }
+                }
+
+                // ---- THE LABELS, PLACED AGAINST EACH OTHER -------------------------
+                // Each line bows through the midpoint between its two tracks, so with a
+                // line per match the labels land on top of one another and read as one
+                // smear: "70% 65% 65 65% 6 70% rc" in place of six numbers. Each label now
+                // takes the nearest free row to where its line passes, with a leader back
+                // to the line when it had to move, so the number stays attached to the
+                // line it is about. Nothing is dropped to make room: a label that cannot
+                // find a clear row is drawn where it belongs rather than left out, because
+                // a missing number reads as a match that is not there.
+                const placed = [];
+                const clear = (x, y, w) => {
+                    for (const r of placed) {
+                        if (Math.abs(y - r.y) < 19 && (Math.abs(x - r.x) * 2) < (w + r.w + 8)) return false;
+                    }
+                    return true;
+                };
+                labels.sort((p, q) => p.x - q.x);
+                for (const it of labels) {
+                    const w = Math.max(26, ctx.measureText(it.text).width + 10);
+                    let ly = it.y;
+                    for (let k = 1; k <= 14 && !clear(it.x, ly, w); k++) {
+                        ly = it.y + ((k % 2) ? 1 : -1) * Math.ceil(k / 2) * 20;
+                    }
+                    placed.push({ x: it.x, y: ly, w: w });
+                    it.L.__geom.lx = it.x; it.L.__geom.ly = ly; it.L.__geom.lw = w;
+
+                    if (Math.abs(ly - it.y) > 1) {
+                        ctx.globalAlpha = 0.5;
+                        ctx.strokeStyle = it.col;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(it.x, it.y);
+                        ctx.lineTo(it.x, ly);
+                        ctx.stroke();
+                    }
+                    ctx.globalAlpha = 0.95;
+                    ctx.fillStyle = 'rgba(10,37,64,0.92)';
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(it.x - w / 2, ly - 9, w, 18, 6);
+                    else ctx.rect(it.x - w / 2, ly - 9, w, 18);
+                    ctx.fill();
+                    ctx.strokeStyle = it.col;
+                    ctx.lineWidth = (it.L === painter.chosen) ? 2 : 1;
+                    ctx.stroke();
+                    ctx.fillStyle = ink;
+                    ctx.fillText(it.text, it.x, ly);
                 }
                 ctx.restore();
             },
@@ -163,6 +202,10 @@ function (graph, links, opts) {
                         const qy = u * u * u * G.y1 + 3 * u * u * t * G.my + 3 * u * t * t * G.my + t * t * t * G.y2;
                         d = Math.min(d, dSeg(sx, sy, px, py, qx, qy));
                         px = qx; py = qy;
+                    }
+                    if (isFinite(G.lx) && isFinite(G.ly)
+                        && Math.abs(sx - G.lx) <= (G.lw / 2 + 2) && Math.abs(sy - G.ly) <= 11) {
+                        d = 0;                        // the label is part of its line
                     }
                     if (d < bestD) { bestD = d; best = L; }
                 }

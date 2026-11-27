@@ -342,15 +342,19 @@ function (graph, track, range, opts) {
         // ---- THE LINE BETWEEN THE TWO TRACKS -------------------------------------------
         // A match on another track is a statement about a PAIR of places, and a layer can
         // only draw one of them. Said in a sentence it reads as a fact with no location;
-        // drawn as a line from the selection to each match it is the answer itself. In a
-        // window run each line leaves the window it came from, not the whole selection, so
+        // drawn as a line from the selection to each match it is the answer itself. EVERY
+        // match gets one, duplicates and all: the lines used to stop at twelve, so a run
+        // that found thirty places drew eighteen matches that were in the layer, in the
+        // help rows and in the message, and nowhere in the picture. A line missing from a
+        // picture does not read as "there are more", it reads as "there are none here".
+        // In a window run each line leaves the window it came from, not the whole selection, so
         // the picture says which part of the selection went where. Only across tracks: on
         // one track the selection and its matches are already in the same picture, and a
         // line looping back would be noise.
         if (!sameTrack) {
             try {
                 await exec('baja/bio/compare/track-link-layer.js', graph,
-                    kept.slice(0, Math.min(kept.length, 12)).map((h) => ({
+                    kept.map((h) => ({
                         from: { track: src, start: h.srcStart, end: h.srcEnd },
                         to: { track: tgt, start: base + h.s, end: base + h.s + h.len - 1 },
                         label: Math.round(h.id * 100) + '%' + (h.rc ? ' rc' : '')

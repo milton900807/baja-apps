@@ -1816,6 +1816,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/compare/selection-similarity.js:THE OTHER END, ON THE TRACK THE SELECTION CAME FROM"
   install_group "a cross-track line leaves the middle of the track" \
     "baja/bio/compare/track-link-layer.js:WHERE THE LINE LEAVES A TRACK: THE MIDDLE OF IT, NOT ITS TOP EDGE"
+  install_group "a line and a readable label for every match" \
+    "baja/bio/compare/track-link-layer.js:THE LABELS, PLACED AGAINST EACH OTHER" \
+    "baja/bio/compare/selection-similarity.js:match gets one, duplicates and all"
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"

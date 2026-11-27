@@ -132,6 +132,54 @@ const mkGraph = (tracks) => ({ track: tracks, X: (v) => v / 10, Y: (v) => v, wak
     ok(cv3 && cv3[6] === 500, 'a grid without a Y of its own falls back to its top edge: '
        + (cv3 && cv3[6]));
 
+    // ---- EVERY LINE, AND EVERY LABEL --------------------------------------------------
+    // All the lines bow through the same midpoint band, so a label per line landed on top
+    // of the one before it and six numbers read as one smear. Nothing is dropped to make
+    // room: a missing number reads as a match that is not there.
+    const L1 = mkMidTrack('A', 100, 40), L2t = mkMidTrack('B', 300, 60);
+    const gl = mkGraph([L1, L2t]);
+    const many = [];
+    for (let k = 0; k < 9; k++) {
+        many.push({ from: { track: L1, start: 1000 + k, end: 1010 + k },
+                    to: { track: L2t, start: 5000 + k, end: 5010 + k }, label: (70 - k) + '%' });
+    }
+    const pl = await load('baja/bio/compare/track-link-layer.js', gl, many, { id: 'many' });
+    const cl = mkCtx();
+    pl.draw(cl, gl);
+    ok(cl.ops.filter((o) => o[0] === 'curve').length === 9,
+       'a line is drawn for every match, duplicates and all: '
+       + cl.ops.filter((o) => o[0] === 'curve').length + ' of 9');
+    const texts = cl.ops.filter((o) => o[0] === 'text');
+    ok(texts.length === 9, 'and a label for every line: ' + texts.length);
+    ok(many.every((L) => L.label === ('' + texts.filter((t) => t[1] === L.label).map(() => L.label)[0])),
+       'each label is the one its line carries');
+    // No two labels share a row unless they are far enough apart to be read.
+    let clash = 0;
+    for (let i = 0; i < texts.length; i++) {
+        for (let j = i + 1; j < texts.length; j++) {
+            const dy = Math.abs(texts[i][3] - texts[j][3]);
+            const dx = Math.abs(texts[i][2] - texts[j][2]);
+            if (dy < 19 && dx < 30) clash++;
+        }
+    }
+    ok(clash === 0, 'and no label is drawn on top of another: ' + clash + ' overlapping pairs');
+    ok(texts.some((t) => Math.abs(t[3] - 225) > 15),
+       'the ones that could not stay on the midline moved off it rather than being dropped');
+    // A label that moved keeps a leader back to its line, so the number stays attached.
+    ok(cl.ops.filter((o) => o[0] === 'move').length > cl.ops.filter((o) => o[0] === 'curve').length * 2,
+       'with a leader drawn back to the line it belongs to');
+    // Pressing the label is pressing the line.
+    const lab = texts[texts.length - 1];
+    ok(pl.hit(lab[2], lab[3]) !== null, 'and a press on a label picks its line');
+
+    // The comparison asks for a line per match rather than the first twelve.
+    const sim = fs.readFileSync('baja/bio/compare/selection-similarity.js', 'utf8');
+    ok(/EVERY\s+\/\/ match gets one, duplicates and all/.test(sim.replace(/\n\s*/g, '\n        // '))
+       || /match gets one, duplicates and all/.test(sim),
+       'selection-similarity hands over every match');
+    ok(!/slice\(0, Math\.min\(kept\.length, 12\)\)/.test(sim),
+       'and no longer stops at twelve');
+
     // ---- A LINE IS SOMETHING YOU CAN PRESS ----------------------------------------------
     // Drawn over the tracks and belonging to neither, a line could be looked at and not
     // touched: no colour of its own, no way to drop one without dropping all twelve.
