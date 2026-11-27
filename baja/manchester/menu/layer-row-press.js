@@ -72,10 +72,23 @@ function (graph, genegraph_panel_layout) {
         // model menus...) and the centre menu are painted onto this same canvas, so the element
         // test below sees only the canvas; a menu item lying over a layer row or a label's "?"
         // was taken here first and never acted. (HTML menus are left alone by that test already.)
+        // A MENU THAT IS NOT ON SCREEN DOES NOT OWN PRESSES. The side menu is faded in and
+        // out by rewriting the alpha of its own background (gene.js _applySideMenuBgAlpha),
+        // and a menu faded to nothing is still an object with full bounds: it kept every
+        // press over the top-left of the canvas, which is exactly where the layer rows under
+        // the first track's name are drawn. Nothing was visible and nothing happened.
+        const menuShowing = (m) => {
+            try {
+                const mm = ('' + (m.bg || '')).match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)/);
+                if (mm && +mm[1] < 0.12) return false;
+            } catch (e) { }
+            return true;
+        };
         const overCanvasMenu = (g, p) => {
             try { if (g.menuVisible && g.menuVisible()) return true; } catch (e) { }
             try {
                 const m = g.side_menu;
+                if (m && !menuShowing(m)) return false;
                 if (m && m.__bounds) {
                     const b = m.__bounds(g.graph || g);
                     const x = p.x + (m.xoffset || 0), y = p.y + (m.yoffset || 0);
@@ -107,21 +120,42 @@ function (graph, genegraph_panel_layout) {
                 const p = toCanvas(e, el);
                 rec.at_canvas_px = { x: Math.round(p.x), y: Math.round(p.y) };
                 if (overCanvasMenu(g, p)) {
-                    rec.menu = true;
+                    // A MENU NOBODY REACHED FOR DOES NOT OUTRANK A ROW THEY DID. A side menu
+                    // opened by a click stays expanded until the pointer visits it, which is
+                    // right for someone heading towards it and wrong for someone heading past
+                    // it to a layer row underneath: the panel sits over the top-left of the
+                    // canvas, where those rows are. Pressing the row is as plain a statement
+                    // that the menu is not wanted as moving away from it, so the menu goes
+                    // and the row is served.
+                    try {
+                        const m = g.side_menu;
+                        const over = rowAt(g, p);
+                        if (over && m && m.__openOnArrival && !m.__touched && !m.collapsed) {
+                            m.collapsed = true;
+                            m.__openOnArrival = false;
+                            m.highlight = -1;
+                            try { if (g.wake) g.wake(); } catch (e2) { }
+                            rec.menuDismissed = true;
+                        } else if (over) {
+                            rec.menu = true;
+                        } else { rec.menu = true; return; }
+                    } catch (err) { rec.menu = true; return; }
+                    if (rec.menu) {
                     // A PRESS SWALLOWED IN SILENCE IS WHAT A BROKEN BUTTON LOOKS LIKE. A menu
                     // painted on the canvas owns presses inside its own bounds, which is
                     // right, but when one of those presses was aimed at a layer row the user
                     // sees a row that highlights, a chevron that says there is a menu here,
                     // and nothing happening. Say which menu is in the way.
-                    try {
-                        const over = rowAt(g, p);
-                        if (over) {
-                            rec.row = (over.row.layer && (over.row.layer.name || over.row.layer.data_type)) || '(more)';
-                            g.setMessage(' A menu is open over that layer row \u2014 close it, or move the'
-                                + ' pointer away from it, and press the row again. ');
-                        }
-                    } catch (err) { }
-                    return;
+                        try {
+                            const over2 = rowAt(g, p);
+                            if (over2) {
+                                rec.row = (over2.row.layer && (over2.row.layer.name || over2.row.layer.data_type)) || '(more)';
+                                g.setMessage(' A menu is open over that layer row \u2014 close it, or move the'
+                                    + ' pointer away from it, and press the row again. ');
+                            }
+                        } catch (err) { }
+                        return;
+                    }
                 }
                 // The "?" after a layer's label: its explanation (baja/bio/decor-help.js).
                 const helpLayer = helpAt(g, p);

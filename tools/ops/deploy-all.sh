@@ -1804,6 +1804,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/selected-sequence-menu.js:WHERE ELSE DOES THIS STRETCH OCCUR"
   install_group "a row press swallowed by a menu says so" \
     "baja/manchester/menu/layer-row-press.js:A PRESS SWALLOWED IN SILENCE IS WHAT A BROKEN BUTTON LOOKS LIKE"
+  install_group "a faded or unvisited menu does not own a layer row press" \
+    "baja/manchester/menu/layer-row-press.js:A MENU THAT IS NOT ON SCREEN DOES NOT OWN PRESSES" \
+    "baja/manchester/menu/mouse-over-highlight.js:Track theme was here"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

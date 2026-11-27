@@ -84,6 +84,43 @@ const mkGraph = () => {
        'and said, rather than leaving a button that looks broken: ' + g.said.join(' '));
     g.side_menu = null;
 
+    // A MENU FADED TO NOTHING OWNS NOTHING. The side menu is faded by rewriting the alpha of
+    // its own background, and a menu faded out is still an object with full bounds. It kept
+    // every press over the top-left of the canvas, which is where the layer rows under the
+    // first track's name are drawn: nothing visible, nothing happening.
+    await new Promise((r) => setTimeout(r, 300));
+    g.said.length = 0;
+    g.side_menu = { xoffset: 0, yoffset: 0, bg: 'rgba(11,37,69,0.02)',
+        __bounds: () => ({ x: 0, y: 0, w: 400, h: 400 }) };
+    await press(100, 126);
+    ok(!!popup(), 'a press under a menu that is faded out still opens the row\u2019s menu');
+    close();
+    g.side_menu = null;
+
+    // AND A MENU NOBODY REACHED FOR DOES NOT OUTRANK A ROW THEY DID. A side menu opened by
+    // a click stays expanded until the pointer visits it; pressing a row underneath is as
+    // plain a statement that it is not wanted as moving away from it.
+    await new Promise((r) => setTimeout(r, 300));
+    const menu = { xoffset: 0, yoffset: 0, bg: 'rgba(11,37,69,0.985)', collapsed: false,
+        __openOnArrival: true, __touched: false,
+        __bounds: () => ({ x: 0, y: 0, w: 400, h: 400 }) };
+    g.side_menu = menu;
+    await press(100, 126);
+    ok(menu.collapsed === true, 'the menu tucks itself away');
+    ok(!!popup(), 'and the row it was covering opens: ' + (window.__bajaLayerRow.last.opened || '(nothing)'));
+    close();
+
+    // A menu the user DID reach for keeps the press, and says so.
+    await new Promise((r) => setTimeout(r, 300));
+    g.said.length = 0;
+    g.side_menu = { xoffset: 0, yoffset: 0, bg: 'rgba(11,37,69,0.985)', collapsed: false,
+        __openOnArrival: true, __touched: true,
+        __bounds: () => ({ x: 0, y: 0, w: 400, h: 400 }) };
+    await press(100, 126);
+    ok(!popup(), 'a menu that was reached for keeps it');
+    ok(/A menu is open over that layer row/.test(g.said.join(' ')), 'and says so');
+    g.side_menu = null;
+
     // The same press arriving twice (pointerdown, then the compatibility mousedown) is one
     // press: the second must not re-open the menu it just opened.
     close();

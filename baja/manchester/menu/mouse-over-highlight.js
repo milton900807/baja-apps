@@ -4017,40 +4017,11 @@ function (graph, genegraph_panel_layout) {
                             graph.showSideMenu(items, null, 'Track display ▸');
                         }
                     },
-                    {
-                        label: 'Track theme ▸',
-                        move: () => { },
-                        click: () => {
-                            const t = selectedTrack;
-                            if (!t) { try { graph.setResultMessage(' No track to theme. '); } catch (e) { } return; }
-                            let THEMES = {};
-                            try { THEMES = (t.constructor && t.constructor.THEMES) || {}; } catch (e) { THEMES = {}; }
-                            const keys = Object.keys(THEMES);
-                            if (!keys.length) {
-                                try { graph.setResultMessage(' This track type has no themes. '); } catch (e) { }
-                                return;
-                            }
-                            const current = ('' + (t.theme || 'classic'));
-                            const items = keys.map((k) => ({
-                                // A tick on the one in use, so the menu says where you are as
-                                // well as where you can go.
-                                label: (k === current ? '• ' : '') + ((THEMES[k] && THEMES[k].label) || k),
-                                move: () => { },
-                                click: () => {
-                                    graph.showSideMenu(null);
-                                    try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
-                                    t.theme = k;
-                                    try { if (graph.wake) graph.wake(); } catch (e) { }
-                                    try { graph.setResultMessage(' ' + ((t.name || 'Track')) + ' — ' + ((THEMES[k] && THEMES[k].label) || k) + ' theme. '); } catch (e) { }
-                                }
-                            }));
-                            items.push({
-                                label: '‹ Back', move: () => { },
-                                click: () => { showSideMenuDelayed(track_list, undefined, undefined, 'Track ▸'); }
-                            });
-                            graph.showSideMenu(items, null, 'Track theme ▸');
-                        }
-                    },
+                    // Track theme was here. It offered a per-track palette out of
+                    // Track.THEMES, which is decoration: the track menu is where real work
+                    // is started, and a row that only repaints one track cost a reading of
+                    // every other row. The themes themselves are untouched in
+                    // baja/bio/track.js, so a theme already set on a track still draws.
                     {
                         // Rename the track. The name is not decoration: the layer menus, the
                         // export filenames, the selection window and the mRNA suffix all
@@ -5905,7 +5876,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1, 'Machine Learning Models': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Modify\u2026', 'Machine Learning Models \u25b8', 'Protein domains (CDD) \u25b8', 'Fold protein', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track display ▸', 'Move track', 'Modify\u2026', 'Machine Learning Models \u25b8', 'Protein domains (CDD) \u25b8', 'Fold protein', 'Convert to mRNA', 'Convert to protein', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 // An item whose LABEL is computed -- "Fold protein (AlphaFold, 110 aa)..." --
