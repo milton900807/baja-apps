@@ -2370,6 +2370,239 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // THE PLAIN THINGS YOU DO TO A LAYER. Greying one was promptable and
+                // hiding one was not, which left "hide the RBP layers" answered with
+                // "nothing in the editor does that" while the layer menu has had a Hide
+                // row all along. Three distinct things live here and the summary keeps
+                // them apart, because a user who asks to hide a layer and gets it removed
+                // has lost a computation.
+                name: 'layer_visibility',
+                summary: 'HIDE OR SHOW LAYERS: stop drawing them, or draw them again. This '
+                    + 'is the answer to "hide the RBP layers", "turn off the conservation '
+                    + 'layer", "show that layer again", "hide every layer on DNM3", "bring '
+                    + 'the layers back". A hidden layer stays on the track and stays in the '
+                    + 'list; nothing is recomputed when it comes back. THIS IS NOT GREYING '
+                    + '(focus_layer keeps a layer drawn but faint so something can be read '
+                    + 'over it) AND NOT REMOVING (remove_layers takes it off the track and '
+                    + 'it has to be computed again). A request to fade, mute or grey is '
+                    + 'focus_layer; a request to delete or get rid of is remove_layers.',
+                needs: 'track',
+                params: {
+                    action: {
+                        type: 'enum', values: ['hide', 'show', 'hide_all', 'show_all'],
+                        default: 'hide',
+                        about: 'hide or show the layers named in match; hide_all or show_all '
+                            + 'for every layer in scope, which is what "hide all the layers" '
+                            + 'means'
+                    },
+                    match: {
+                        type: 'string',
+                        about: 'the layer, by name or part of one, as canvas_now lists it. '
+                            + 'Not needed for hide_all or show_all'
+                    },
+                    track: {
+                        type: 'string',
+                        about: 'limit it to one track, by name. Omit for every open track'
+                    }
+                },
+                run: async (a) => exec('baja/bio/layers/layer-ops.js', graph, {
+                    action: a.action || 'hide', match: a.match, track: a.track
+                }),
+                preview: (a) => ((a.action === 'show' || a.action === 'show_all') ? 'Show ' : 'Hide ')
+                    + (a.match ? ('layers matching ' + a.match) : 'every layer')
+                    + (a.track ? (' on ' + a.track) : '')
+            },
+
+            {
+                // A LAYER'S COLOUR IS HOW IT IS TOLD APART, and with a dozen on a track the
+                // palette runs out. Promptable because the alternative is a menu press per
+                // layer, and the request is usually about several at once ("make all the
+                // RBP layers grey-blue").
+                name: 'color_layer',
+                summary: 'RECOLOUR LAYERS. The answer to "make the PSI layer orange", '
+                    + '"colour the RBP layers blue", "change that layer\u2019s colour", '
+                    + '"make the similarity layer red". Takes a CSS colour: a name (orange, '
+                    + 'teal) or #rrggbb. Every layer whose name matches is recoloured, so a '
+                    + 'partial name is how several are done at once.',
+                needs: 'track',
+                params: {
+                    match: { type: 'string', about: 'the layer, by name or part of one' },
+                    color: { type: 'string', about: 'the colour, as a CSS name or #rrggbb' },
+                    track: { type: 'string', about: 'limit it to one track, by name' }
+                },
+                run: async (a) => exec('baja/bio/layers/layer-ops.js', graph, {
+                    action: 'color', match: a.match, color: a.color, track: a.track
+                }),
+                preview: (a) => 'Colour ' + (a.match || 'layers') + ' ' + (a.color || '')
+            },
+
+            {
+                // THE NAME IS THE HANDLE. Every other layer command matches on it, and the
+                // generated ones (DNM3_3utr_SIM70_W12_60_vs_DNM1_3utr) say what they are
+                // but are not what anyone would call them.
+                name: 'rename_layer',
+                summary: 'RENAME A LAYER. The answer to "call that layer the FUS sites", '
+                    + '"rename the similarity layer", "give this layer a better name". One '
+                    + 'layer at a time: two layers sharing a name make a list nobody can '
+                    + 'read and every later command ambiguous, so a match that hits several '
+                    + 'is refused and says which ones it hit.',
+                needs: 'track',
+                params: {
+                    match: { type: 'string', about: 'the layer to rename, by name or part of one' },
+                    name: { type: 'string', about: 'what it should be called' },
+                    track: { type: 'string', about: 'limit it to one track, by name' }
+                },
+                run: async (a) => exec('baja/bio/layers/layer-ops.js', graph, {
+                    action: 'rename', match: a.match, name: a.name, track: a.track
+                }),
+                preview: (a) => 'Rename ' + (a.match || 'a layer') + ' to ' + (a.name || '?')
+            },
+
+            {
+                // DRAW ORDER DECIDES WHAT IS READABLE when layers overlap, and on a busy
+                // track that is most of them.
+                name: 'layer_draw_order',
+                summary: 'MOVE A LAYER IN THE DRAW ORDER, so it is drawn over or under the '
+                    + 'others. The answer to "bring the sites layer to the front", "put that '
+                    + 'layer behind the others", "move the domains layer forward", "send the '
+                    + 'conservation layer to the back". The front layer is drawn last and is '
+                    + 'the one on top; the rows under a track name list the front one first.',
+                needs: 'track',
+                params: {
+                    match: { type: 'string', about: 'the layer, by name or part of one' },
+                    action: {
+                        type: 'enum', values: ['front', 'back', 'forward', 'backward'],
+                        default: 'front',
+                        about: 'front and back go all the way; forward and backward move it '
+                            + 'one place'
+                    },
+                    track: { type: 'string', about: 'limit it to one track, by name' }
+                },
+                run: async (a) => exec('baja/bio/layers/layer-ops.js', graph, {
+                    action: a.action || 'front', match: a.match, track: a.track
+                }),
+                preview: (a) => 'Move ' + (a.match || 'a layer') + ' ' + (a.action || 'front')
+            },
+
+            {
+                // WHAT IS ACTUALLY ON THIS TRACK. Every other layer command matches by
+                // name, so a user who cannot see the names cannot use any of them, and the
+                // rows under a track name are truncated on a busy track.
+                name: 'list_layers',
+                summary: 'LIST THE LAYERS on a track or on every track, in draw order, '
+                    + 'saying which are hidden and which are greyed. The answer to "what '
+                    + 'layers are on this track", "which layers do I have", "list the '
+                    + 'layers", "what is on DNM3". Useful before any other layer command, '
+                    + 'because those match on the name.',
+                needs: 'track',
+                params: {
+                    track: { type: 'string', about: 'one track by name; omit for all of them' }
+                },
+                run: async (a) => exec('baja/bio/layers/layer-ops.js', graph, {
+                    action: 'list', track: a.track
+                }),
+                preview: (a) => 'List the layers on ' + (a.track || 'every track')
+            },
+
+            {
+                // WHERE ELSE DOES THIS STRETCH OCCUR. The comparison has been on the
+                // selection menu for a while and was not promptable, so the typed form of
+                // the same question came back as nothing in the editor doing it.
+                name: 'compare_selection_across_track',
+                summary: 'TAKE THE SELECTED STRETCH AND FIND WHERE ELSE IT OCCURS, base '
+                    + 'against base, on this track or on another one, drawing the matches '
+                    + 'as a layer and joining each to where it came from with a line. The '
+                    + 'answer to "where else does this sequence occur", "find this stretch '
+                    + 'on DNM3", "compare this selection across the track", "is this '
+                    + 'repeated anywhere", "does DNM3 carry this sequence". NEEDS A '
+                    + 'SELECTION: it compares what is selected, not a named region. The '
+                    + 'comparison is UNGAPPED, so a copy carrying an insertion or deletion '
+                    + 'reads as two shorter matches. IN A WINDOW (window=<nt>) a stretch of '
+                    + 'that size is slid along the selection instead of laying the whole of '
+                    + 'it down at once, which is what finds a short conserved patch inside '
+                    + 'a long selection: as one block it is averaged away and comes back as '
+                    + 'no match at all. Different from compare_sequences, which aligns two '
+                    + 'whole tracks and reports one identity.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'the track the SELECTION is on. Omit for the selected one'
+                    },
+                    against: {
+                        type: 'string',
+                        about: 'the track to scan, by name. Omit to scan the same track the '
+                            + 'selection is on'
+                    },
+                    min_identity: {
+                        type: 'number', default: 0.5,
+                        about: 'the lowest identity to keep, 0 to 1. 0.7 for "70% or better"'
+                    },
+                    window: {
+                        type: 'number',
+                        about: 'compare in a window of this many bases slid along the '
+                            + 'selection, rather than the whole selection at once. Only when '
+                            + 'the request asks for it ("in 60 nt windows", "find short '
+                            + 'conserved patches")'
+                    }
+                },
+                run: async (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('Which track is the selection on? Name it, or click one first.'); return; }
+                    let range = null;
+                    try { range = hasSel(t) ? rangeOf(t) : null; } catch (e) { range = null; }
+                    if (!range) {
+                        result('Nothing is selected on ' + ((t && t.name) || 'that track') + '. '
+                            + 'This compares the SELECTED stretch, so select one first.');
+                        return;
+                    }
+                    const other = a.against ? matchTrack(a.against) : null;
+                    if (a.against && !other) {
+                        result('No track here is called ' + a.against + '.');
+                        return;
+                    }
+                    return exec('baja/bio/compare/selection-similarity.js', graph, t, range, {
+                        min: (a.min_identity == null ? 0.5 : a.min_identity),
+                        against: other || undefined,
+                        window: (a.window == null ? null : a.window)
+                    });
+                },
+                preview: (a) => 'Find the selected stretch'
+                    + (a.against ? (' on ' + a.against) : ' elsewhere on the same track')
+                    + (a.window ? (', in ' + a.window + ' nt windows') : '')
+            },
+
+            {
+                // THE LINES ARE NOT A LAYER and nothing in the layer list reaches them, so
+                // without this the only way to be rid of a set of them is to press one and
+                // use its own menu.
+                name: 'remove_track_links',
+                summary: 'TAKE THE LINES BETWEEN TRACKS OFF THE CANVAS: the curves joining a '
+                    + 'match on one track to where it came from on another. The answer to '
+                    + '"remove the lines", "clear the connections between the tracks", "get '
+                    + 'rid of the links", "take the comparison lines off". They are drawn '
+                    + 'over the tracks and belong to no layer, so no layer command reaches '
+                    + 'them. The layers the lines were drawn for are left alone; removing '
+                    + 'those is remove_layers.',
+                needs: 'track',
+                run: async () => {
+                    let n = 0;
+                    for (const owner of [graph, graph && graph.graph]) {
+                        try {
+                            const lp = owner && owner.__linkPainters;
+                            if (lp && lp.length) { n += lp.length; owner.__linkPainters = []; }
+                        } catch (e) { }
+                    }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    result(n ? ('Removed ' + n + ' set' + (n === 1 ? '' : 's') + ' of lines between '
+                        + 'tracks. The layers they were drawn for are still there.')
+                        : 'There are no lines between tracks on the canvas.');
+                    return { ok: true, removed: n };
+                },
+                preview: () => 'Remove the lines drawn between tracks'
+            },
+
+            {
                 // THE REPORT IS NOT THE LAYER. The layer answers "where on this protein";
                 // a request about a SET of variants wants the rows themselves, ordered,
                 // searched and taken away as a file. Asked for by name here so that
