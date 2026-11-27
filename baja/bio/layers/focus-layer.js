@@ -25,7 +25,15 @@ function (graph, layer, opts) {
 
     return (async () => {
         const o = opts || {};
-        const say = (m) => { try { graph.setResultMessage(' ' + m + ' '); } catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } } };
+        // QUIET IS FOR THE AUTOMATIC CASE. When a tool adds a layer, the tool has already
+        // said what it found -- often the only place its caveats are written down -- and
+        // announcing the greying over the top of that would replace the result with a note
+        // about how the canvas is drawn.
+        const say = (m) => {
+            if (o.quiet) return;
+            try { graph.setResultMessage(' ' + m + ' '); }
+            catch (e) { try { graph.setMessage(' ' + m + ' '); } catch (e2) { } }
+        };
         const tracks = ((graph && graph.track) || []).filter(Boolean);
         const layersOf = (t) => ((t && t.track_layers) || []).filter(Boolean);
         const nameOf = (l) => ('' + ((l && (l.name || l.data_type || l.attribution_type)) || 'layer'));

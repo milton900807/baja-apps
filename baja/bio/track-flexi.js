@@ -1520,8 +1520,26 @@ return new Promise(async (resolve, reject) => {
             }
         }
 
-        addLayer(t) {
+        // A LAYER THAT HAS JUST ARRIVED IS SHOWN, not left for the user to find. Everything
+        // that puts a layer on a track comes through here -- every dialog's OK, every model
+        // on the shelf, every prompt -- so this is the one place that can say "the thing you
+        // just asked for is this one": the other layers go grey and the new one glows for a
+        // few seconds. Both wear off, and neither changes any data.
+        //
+        // quiet: true for a layer that is not news. The child-track mirror below rebuilds its
+        // parent's layers on EVERY redraw, and presenting those would mean a canvas that
+        // never stops flashing.
+        addLayer(t, opts) {
             this.track_layers.push(t)
+            if (!(opts && opts.quiet)) {
+                try {
+                    const g = (typeof graph !== 'undefined') ? graph : null;
+                    if (g) {
+                        const p = exec('baja/bio/layers/present-new-layer.js', g, this, t);
+                        if (p && p.catch) p.catch(() => { });
+                    }
+                } catch (e) { }
+            }
         }
 
         getIntrons(offset) {
@@ -4038,7 +4056,7 @@ return new Promise(async (resolve, reject) => {
                             }
                         }
                         ttl.intervals = interval;
-                        this.addLayer(ttl)
+                        this.addLayer(ttl, { quiet: true })
                     }
                 }
             }
@@ -4827,11 +4845,53 @@ return new Promise(async (resolve, reject) => {
             // alpha all the time and would overwrite it; none of them set ctx.filter. It is
             // put on around the layer's own draw and taken off after, so a painter that
             // saves and restores internally cannot leak it onto whatever is drawn next.
+            //
+            // A GLOW IS THE LAYER DRAWN TWICE: once blurred underneath as a halo, then
+            // normally on top. Done that way because the painters are not ours to change --
+            // a shadow set here is cleared by the first painter that sets its own -- and
+            // because a halo of the layer's own shape glows the BLOCKS, which is what is
+            // being pointed at, rather than putting a box around the track.
+            const __glowing = (l) => {
+                try { return !!(l && l.glowUntil && Date.now() < l.glowUntil); } catch (e) { return false; }
+            };
+            // A HALO COSTS A SECOND PASS OVER THE LAYER, every frame, for as long as it
+            // breathes. On a layer of a few bands that is nothing; on a coverage track of
+            // tens of thousands of points it is a canvas that stutters for six seconds
+            // right after the thing it is meant to be showing off. Past the limit the glow
+            // is simply skipped: a heavy layer is big enough to find without one.
+            const __tooBigToGlow = (l) => {
+                try {
+                    let n = 0;
+                    for (const k of ['intervals', 'junctions', 'points', 'plots', 'polygonpts']) {
+                        const v = l[k];
+                        if (Array.isArray(v)) n += v.length;
+                        if (n > 4000) return true;
+                    }
+                    return false;
+                } catch (e) { return false; }
+            };
             const __drawLayer = async (l) => {
                 const mute = !!(l && l.muted);
-                if (!mute) { await l.drawPlot(plateTrack, this, ctx); return; }
+                const glow = __glowing(l) && !__tooBigToGlow(l);
                 let had = 'none';
                 try { had = ctx.filter || 'none'; } catch (e) { had = 'none'; }
+                if (glow) {
+                    // Breathing rather than steady, because a static halo reads as part of
+                    // the drawing and a moving one reads as "look here". One cycle a second.
+                    const phase = (Date.now() % 1000) / 1000;
+                    const pulse = 0.45 + 0.35 * Math.sin(phase * 2 * Math.PI);
+                    const a0 = ctx.globalAlpha;
+                    try {
+                        ctx.filter = 'blur(5px) saturate(1.6)';
+                        ctx.globalAlpha = pulse;
+                        await l.drawPlot(plateTrack, this, ctx);
+                    } catch (e) { }
+                    try { ctx.filter = had; ctx.globalAlpha = a0; } catch (e) { }
+                    // Keep the canvas coming back while it breathes; it stops when the
+                    // layer stops glowing, so an idle canvas stays idle.
+                    try { setTimeout(() => { try { if (graph && graph.wake) graph.wake(); } catch (e) { } }, 50); } catch (e) { }
+                }
+                if (!mute) { await l.drawPlot(plateTrack, this, ctx); return; }
                 try { ctx.filter = 'grayscale(1) opacity(0.3)'; } catch (e) { }
                 try { await l.drawPlot(plateTrack, this, ctx); }
                 finally { try { ctx.filter = had; } catch (e) { } }

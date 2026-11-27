@@ -1778,6 +1778,10 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "grey every layer is its own request, not a way of saying none" \
     "baja/bio/layers/focus-layer.js:GREY EVERYTHING, WITH NOTHING IN COLOUR" \
     "baja/manchester/menu/editor-capabilities.js:NO LAYER NAMED AND NO ACTION IS A REQUEST TO PUT THINGS BACK"
+  install_group "a layer that has just arrived is shown: others grey, its blocks glow" \
+    "baja/bio/layers/present-new-layer.js:SHOWING A LAYER THAT HAS JUST ARRIVED" \
+    "baja/bio/track-flexi.js:A LAYER THAT HAS JUST ARRIVED IS SHOWN, not left for the user to find" \
+    "baja/bio/layers/focus-layer.js:QUIET IS FOR THE AUTOMATIC CASE"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
