@@ -1810,6 +1810,10 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "compare a selection against a track you choose" \
     "baja/bio/compare/selection-similarity.js:THE TRACK SCANNED IS NOT NECESSARILY THE TRACK SELECTED ON" \
     "baja/manchester/menu/selected-sequence-menu.js:WHICH TRACK TO SCAN"
+  install_group "a match on another track is drawn and joined to where it came from" \
+    "baja/bio/compare/track-link-layer.js:A LINE FROM A PLACE ON ONE TRACK TO A PLACE ON ANOTHER" \
+    "flexigraph/gene.js:THINGS THAT BELONG TO TWO TRACKS AT ONCE" \
+    "baja/bio/compare/selection-similarity.js:THE OTHER END, ON THE TRACK THE SELECTION CAME FROM"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

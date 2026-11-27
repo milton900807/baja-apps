@@ -143,12 +143,30 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
         track_layers: [], addLayer(l) { this.track_layers.push(l); }
     };
     const said2 = [];
-    const g2 = { track: [home, other], setResultMessage: (m) => said2.push(m), wake: () => { } };
+    const g2 = { track: [home, other], setResultMessage: (m) => said2.push(m), wake: () => { },
+        X: (v) => v, Y: (v) => v };
     const across = await load('baja/bio/compare/selection-similarity.js', g2, home,
         { start: BASE, end: BASE + 100 }, { min: 0.5, against: other });
     ok(across.ok && across.sameTrack === false, 'it runs against another track');
-    ok(other.track_layers.length === 1 && home.track_layers.length === 0,
-       'and the layer lands on the track that was scanned, not the one selected on');
+    ok(other.track_layers.length === 1, 'the matches land on the track that was scanned');
+    // THE OTHER END IS MARKED TOO. The selection mark is cleared the moment the user clicks
+    // anywhere, and then a layer of percentages on the far track has nothing to be
+    // percentages OF.
+    ok(home.track_layers.length === 1 && /_SIMFROM_/.test(home.track_layers[0].name),
+       'and the stretch that was compared is marked where it came from: '
+       + (home.track_layers[0] || {}).name);
+    ok(/compared \u00b7 529|compared/.test('' + home.track_layers[0].intervals[0].t)
+       && /match/.test('' + home.track_layers[0].intervals[0].t),
+       'saying what it is and how many places took it: ' + home.track_layers[0].intervals[0].t);
+
+    // AND THE TWO ENDS ARE JOINED. A match on another track is a statement about a pair of
+    // places, and a layer can only draw one of them.
+    ok((g2.__linkPainters || []).length === 1, 'a line is drawn between the two tracks');
+    const painter = g2.__linkPainters[0];
+    ok(painter.links.length === across.hits.length, 'one per match: ' + painter.links.length);
+    ok(painter.links[0].from.track === home && painter.links[0].to.track === other,
+       'from the selection to the match');
+    ok(/100%/.test(painter.links[0].label), 'labelled with the identity: ' + painter.links[0].label);
     ok(across.hits.some((h) => h.start === 9500 && h.identity === 1),
        'the copy over there is found at its own coordinates: ' + JSON.stringify(across.hits[0] || {}));
     ok(/exon 2/.test('' + other.track_layers[0].intervals[0].t),

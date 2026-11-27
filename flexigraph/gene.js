@@ -13746,6 +13746,29 @@ pattern, GGGG | Required`
                     if (this.highlightObject && this.highlightObject.draw) {
                         this.highlightObject.draw(ctx, this);
                     }
+                    // THINGS THAT BELONG TO TWO TRACKS AT ONCE. A layer is drawn by its own
+                    // track and cannot reach the one above it, so anything joining a place on
+                    // one track to a place on another -- a sequence match found over there, a
+                    // compound and its off-target -- had nowhere to be drawn at all and was
+                    // reported in a sentence instead.
+                    //
+                    // Painted last, over the tracks, in screen coordinates: each painter is
+                    // handed the ctx and this graph, and works out its own ends from the
+                    // tracks it holds. A painter that throws is dropped rather than taking
+                    // the frame with it, since half a drawn canvas is worse than a missing
+                    // line.
+                    if (this.__linkPainters && this.__linkPainters.length) {
+                        const __keep = [];
+                        for (const lp of this.__linkPainters) {
+                            try {
+                                if (!lp || typeof lp.draw !== 'function') continue;
+                                if (lp.dead && lp.dead(this)) continue;   // its tracks have gone
+                                lp.draw(ctx, this);
+                                __keep.push(lp);
+                            } catch (e) { }
+                        }
+                        this.__linkPainters = __keep;
+                    }
                     if (this.error) {
                         ctx.shadowBlur = 2;
                         ctx.shadowColor = 'black';

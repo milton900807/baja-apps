@@ -208,7 +208,52 @@ function (graph, track, range, opts) {
 
         // ONTO THE TRACK THAT WAS SCANNED, because that is whose coordinates these are.
         try { tgt.addLayer(L2); } catch (e) { try { (tgt.track_layers || []).push(L2); } catch (e2) { } }
+
+        // THE OTHER END, ON THE TRACK THE SELECTION CAME FROM. The selection mark is cleared
+        // the moment the user clicks anywhere, and then the layer on the other track is a
+        // set of percentages with nothing to be percentages OF. One band, named for what was
+        // compared and how many places took it.
+        if (!sameTrack) {
+            const A = new TrackLayer((src.name || 'track') + '_SIMFROM_' + kept.length,
+                Math.min(lo, hi), 0, Math.max(lo, hi), 1);
+            A.type = 'SelectionSimilaritySource';
+            A.labelColor = '#eaf6f9';
+            A.fixedIntervalDepth = 12;
+            A.pop = true;
+            A.addInterval(lo, hi, 0.5,
+                'compared \u00b7 ' + L.toLocaleString() + ' nt \u00b7 ' + kept.length + ' match'
+                + (kept.length === 1 ? '' : 'es') + ' on ' + (tgt.name || 'the other track'),
+                'rgba(79,208,230,0.55)');
+            A.decor = {
+                help: {
+                    title: 'Compared against ' + (tgt.name || 'another track'),
+                    rows: rows,
+                    note: 'This is the stretch that was compared, and the matches themselves are '
+                        + 'drawn on ' + (tgt.name || 'the other track') + ', joined to it by a line. '
+                        + 'The comparison is ungapped and at ' + Math.round(MIN * 100) + '% or better.'
+                }
+            };
+            try { src.addLayer(A); } catch (e) { try { (src.track_layers || []).push(A); } catch (e2) { } }
+        }
         try { if (graph.wake) graph.wake(); } catch (e) { }
+
+        // ---- THE LINE BETWEEN THE TWO TRACKS -------------------------------------------
+        // A match on another track is a statement about a PAIR of places, and a layer can
+        // only draw one of them. Said in a sentence it reads as a fact with no location;
+        // drawn as a line from the selection to each match it is the answer itself. Only
+        // across tracks: on one track the selection and its matches are already in the
+        // same picture, and a line looping back would be noise.
+        if (!sameTrack) {
+            try {
+                await exec('baja/bio/compare/track-link-layer.js', graph,
+                    kept.slice(0, Math.min(kept.length, 12)).map((h) => ({
+                        from: { track: src, start: lo, end: hi },
+                        to: { track: tgt, start: base + h.s, end: base + h.s + L - 1 },
+                        label: Math.round(h.id * 100) + '%' + (h.rc ? ' rc' : '')
+                    })),
+                    { id: 'selection-similarity', color: 'rgba(79,208,230,0.95)' });
+            } catch (e) { }
+        }
 
         const best = kept.slice().sort((a, b) => b.id - a.id)[0];
         say((tgt.name || 'Track') + ': ' + kept.length + ' place'
