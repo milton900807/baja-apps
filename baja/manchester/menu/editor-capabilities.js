@@ -2370,6 +2370,28 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // THE LOG IS ASKED FOR IN THE SAME BOX IT RECORDS, which is the only
+                // place someone trying to remember a sentence is already looking. The
+                // link under the input opens the same window.
+                name: 'prompt_log',
+                summary: 'SHOW WHAT HAS BEEN ASKED OF THE EDITOR: every request typed into '
+                    + 'this box on this machine, when it was asked, what it was read as, '
+                    + 'and how much of it ran, with a Run again button on each and the whole '
+                    + 'list downloadable. The answer to "what have I asked for", "show the '
+                    + 'prompt log", "show my history", "what did I run earlier", "repeat '
+                    + 'that last command", "run that again". RUNNING ONE AGAIN RE-READS the '
+                    + 'sentence against the canvas as it is now rather than replaying the '
+                    + 'old steps, so a repeat cannot quietly act on tracks or a selection '
+                    + 'that have since changed. The log is a record of REQUESTS, not of what '
+                    + 'they did to the data: it is not an undo history.',
+                run: async () => {
+                    const L = await exec('baja/lib/prompt-log.js');
+                    return L.open(graph, genegraph_panel_layout);
+                },
+                preview: () => 'Show the log of what you have asked for'
+            },
+
+            {
                 // THE PLAIN THINGS YOU DO TO A LAYER. Greying one was promptable and
                 // hiding one was not, which left "hide the RBP layers" answered with
                 // "nothing in the editor does that" while the layer menu has had a Hide

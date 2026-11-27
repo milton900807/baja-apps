@@ -41,6 +41,19 @@ function (graph, genegraph_panel_layout, options) {
         const say = (m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } };
 
         const CAP = await exec('baja/manchester/menu/editor-capabilities.js', graph, genegraph_panel_layout);
+
+        // EVERY REQUEST IS KEPT. A sentence that took a minute to get right used to exist
+        // only in the box it was typed into, so the way to repeat it was to remember it,
+        // and a remembered sentence is a slightly different sentence with a slightly
+        // different plan. The log is a browser-local list of what was asked, what it was
+        // read as, and how much of it ran; baja/lib/prompt-log.js holds it. A log that
+        // cannot be written is never a reason for a request to fail, so every call to it
+        // is guarded and the request goes on regardless.
+        let LOG = null;
+        try { LOG = await exec('baja/lib/prompt-log.js'); } catch (e) { LOG = null; }
+        let askId = null;
+        const logged = (e) => { try { if (LOG) askId = LOG.add(e); } catch (er) { } };
+        const loggedRan = (n) => { try { if (LOG && askId) LOG.ran(askId, n); } catch (er) { } };
         const VS = CAP.VS, F = CAP.F;
 
         // NO TRACK IS NOT A REASON TO REFUSE TO OPEN. Loading one is itself an operation
@@ -226,12 +239,29 @@ function (graph, genegraph_panel_layout, options) {
                 // of the answers, which appear directly below. The placeholder carries one
                 // example, and the full list of operations is a request away.
                 + '<div id="ec-busy" style="min-height:18px;margin-top:12px;"></div>'
+                // THE WAY BACK TO WHAT WAS ASKED BEFORE. One line, under the box, where
+                // somebody staring at an empty field trying to remember last week's
+                // sentence is already looking.
+                + '<div style="margin-top:10px;font:12px Arial;color:#6b8299;">'
+                + '<a id="ec-log" href="#" style="color:#7fb0e8;text-decoration:none;">'
+                + 'What you have asked for before</a></div>'
                 + '<div id="ec-out" style="margin-top:16px;"></div>'
                 + '</div></div>';
             document.body.appendChild(panel);
             }
 
             const q = (s) => panel.querySelector(s);
+            try {
+                const lg = panel.querySelector('#ec-log');
+                if (lg) lg.onclick = async (e) => {
+                    try { e.preventDefault(); } catch (e2) { }
+                    try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e2) { }
+                    try {
+                        const L = LOG || await exec('baja/lib/prompt-log.js');
+                        await L.open(graph, genegraph_panel_layout);
+                    } catch (e2) { }
+                };
+            } catch (e) { }
             const close = () => {
                 if (HOST) { try { HOST.innerHTML = ''; } catch (e) { } return; }
                 try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
@@ -553,7 +583,7 @@ function (graph, genegraph_panel_layout, options) {
                             const all0 = q('#ec-all');
                             if (all0) all0.onclick = (e) => { try { e.preventDefault(); } catch (e2) { } showAll(); };
                             (async () => {
-                                try { await p.capability.run(p.args); }
+                                try { await p.capability.run(p.args); loggedRan(1); }
                                 catch (e) { try { result('Could not open the library: ' + ((e && e.message) || e)); } catch (e2) { } }
                             })();
                             return;
@@ -665,7 +695,7 @@ function (graph, genegraph_panel_layout, options) {
                             // The per-track GO is a run like any other, so it gets the same
                             // strip. It used to be the one path that closed the card and then
                             // went quiet.
-                            try { await withSpinner(p0, () => p0.capability.run(o.args)); done(1); }
+                            try { await withSpinner(p0, () => p0.capability.run(o.args)); loggedRan(1); done(1); }
                             catch (e) { result(p0.capability.name + ': ' + (e && e.message ? e.message : e)); done(0); }
                         };
                     });
@@ -945,6 +975,7 @@ function (graph, genegraph_panel_layout, options) {
                     }
                     // Operations report their own outcome; only a multi-step plan or a
                     // failure needs a line of its own, or the roll-up buries what they said.
+                    loggedRan(ran);
                     if (failed) result('Stopped after ' + ran + ' of ' + picked.length + ': ' + failed);
                     else if (picked.length > 1) result('Ran ' + ran + ' steps.');
                     else if (picked.length < good.length) result('Ran the one step you picked.');
@@ -1031,9 +1062,15 @@ function (graph, genegraph_panel_layout, options) {
                 }
                 busy = false; try { graph.__ecInFlight = false; } catch (e) { } setBusy(false);
                 if (!r || r.status !== 'OK') {
+                    // A request that found no plan is kept too: "it did not understand this"
+                    // is the thing worth looking back at, and losing it leaves the log
+                    // reading as though the editor always knew what was meant.
+                    logged({ ask: ask, status: (r && r.status) || 'NO PLAN',
+                             error: (r && r.error) || '', steps: [] });
                     planFailed(r && r.error ? r.error : '');
                     return;
                 }
+                logged({ ask: ask, status: 'OK', steps: (r.steps || []) });
                 render(r, ask);
             };
 

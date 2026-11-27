@@ -1822,6 +1822,10 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"
+  install_group "a log of what has been asked for" \
+    "baja/lib/prompt-log.js:WHAT HAS BEEN ASKED OF THE EDITOR" \
+    "baja/manchester/menu/editor-command.js:EVERY REQUEST IS KEPT" \
+    "baja/manchester/menu/editor-capabilities.js:THE LOG IS ASKED FOR IN THE SAME BOX IT RECORDS"
   install_group "layer actions you can ask for in words" \
     "baja/bio/layers/layer-ops.js:THE PLAIN THINGS YOU DO TO A LAYER" \
     "baja/manchester/menu/editor-capabilities.js:THE PLAIN THINGS YOU DO TO A LAYER"
