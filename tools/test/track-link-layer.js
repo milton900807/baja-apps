@@ -80,6 +80,58 @@ const mkGraph = (tracks) => ({ track: tracks, X: (v) => v / 10, Y: (v) => v, wak
     ok(c2.ops.filter((o) => o[0] === 'move').some((m) => m[2] === 150),
        'a track that moved takes its end of the line with it');
 
+    // ---- WHERE THE LINE LEAVES THE TRACK ------------------------------------------------
+    // The middle of the track, not its top edge. From the top it reads as belonging to
+    // whatever is above the track and crosses everything drawn on it on the way out, which
+    // is what it looked like on screen. tgraph.Y maps 0 at the bottom of the track to 1 at
+    // the top, the same scale the layers are placed on.
+    const mkMidTrack = (name, top, h) => ({
+        name: name, tgraph: { yi: top, X: (v) => v, Y: (f) => top + h * (1 - f) }
+    });
+    const M1 = mkMidTrack('DNM1_3utr', 100, 40), M2 = mkMidTrack('DNM3_3utr', 300, 60);
+    const gm = mkGraph([M1, M2]);
+    const pm = await load('baja/bio/compare/track-link-layer.js', gm,
+        [{ from: { track: M1, start: 1000, end: 1100 }, to: { track: M2, start: 5000, end: 5100 },
+           label: '94%' }], { id: 'mid' });
+    const cm = mkCtx();
+    pm.draw(cm, gm);
+    // The curve op records its control points and its end; where it STARTS is the moveTo
+    // just before it, so that is what is read here.
+    const startOf = (ops) => {
+        const i = ops.findIndex((o) => o[0] === 'curve');
+        for (let k = i - 1; k >= 0; k--) if (ops[k][0] === 'move') return ops[k];
+        return null;
+    };
+    const cv = cm.ops.filter((o) => o[0] === 'curve')[0];
+    const st = startOf(cm.ops);
+    ok(st && st[2] === 120, 'the line leaves the middle of the first track, not its top: '
+       + (st && st[2]) + ' with the track from 100 to 140');
+    ok(cv && cv[6] === 330, 'and lands in the middle of the second: ' + (cv && cv[6]));
+    ok(cm.ops.filter((o) => o[0] === 'move').some((m) => m[2] === 120),
+       'the span at each end is drawn on the same midline');
+
+    // An end may ask for another height, which is what a layer sitting in a lane needs.
+    const pm2 = await load('baja/bio/compare/track-link-layer.js', gm,
+        [{ from: { track: M1, start: 1000, end: 1100, y: 0.25 },
+           to: { track: M2, start: 5000, end: 5100 } }], { id: 'mid2' });
+    const cm2 = mkCtx();
+    pm2.draw(cm2, gm);
+    const st2 = startOf(cm2.ops);
+    ok(st2 && st2[2] === 130, 'a lane given by the caller is used: ' + (st2 && st2[2]));
+
+    // A grid with no Y of its own still gets a line, at the top as before, rather than a
+    // NaN that silently drops the link.
+    const plain = mkTrack('PLAIN', 500);
+    const gp = mkGraph([M1, plain]);
+    const pp = await load('baja/bio/compare/track-link-layer.js', gp,
+        [{ from: { track: M1, start: 1000, end: 1100 }, to: { track: plain, start: 5000, end: 5100 } }],
+        { id: 'plain' });
+    const cp = mkCtx();
+    pp.draw(cp, gp);
+    const cv3 = cp.ops.filter((o) => o[0] === 'curve')[0];
+    ok(cv3 && cv3[6] === 500, 'a grid without a Y of its own falls back to its top edge: '
+       + (cv3 && cv3[6]));
+
     // A LINK TO A TRACK THAT HAS GONE is a line drawn to where it used to be.
     ok(painter.dead(g) === false, 'while both tracks are on the canvas it stays');
     ok(painter.dead({ track: [A] }) === true, 'and it is dropped once one of them is removed');

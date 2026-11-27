@@ -47,7 +47,21 @@ function (graph, links, opts) {
             },
             draw: (ctx, g) => {
                 const sx = (t, v) => g.X(t.tgraph.X(v));
-                const sy = (t) => g.Y(t.tgraph.yi);
+                // WHERE THE LINE LEAVES A TRACK: THE MIDDLE OF IT, NOT ITS TOP EDGE.
+                // tgraph.yi is the track's top, and a line that leaves from there reads as
+                // belonging to whatever sits above the track rather than to the track
+                // itself, and crosses everything drawn on it on the way out. The middle is
+                // where the band it is about is, so the line starts on the thing it names.
+                // An end may ask for another height as a fraction of the track, 0 at the
+                // bottom and 1 at the top, which is the same scale the layers use.
+                const sy = (t, frac) => {
+                    const f = isFinite(frac) ? +frac : 0.5;
+                    try {
+                        const y = g.Y(t.tgraph.Y(f));
+                        if (isFinite(y)) return y;
+                    } catch (e) { }
+                    return g.Y(t.tgraph.yi);        // a grid without a Y of its own
+                };
                 ctx.save();
                 try { ctx.filter = 'none'; } catch (e) { }
                 ctx.lineCap = 'round';
@@ -60,7 +74,7 @@ function (graph, links, opts) {
                     try {
                         a1 = sx(L.from.track, L.from.start); b1 = sx(L.from.track, L.from.end);
                         a2 = sx(L.to.track, L.to.start); b2 = sx(L.to.track, L.to.end);
-                        y1 = sy(L.from.track); y2 = sy(L.to.track);
+                        y1 = sy(L.from.track, L.from.y); y2 = sy(L.to.track, L.to.y);
                     } catch (e) { continue; }
                     if (![a1, b1, a2, b2, y1, y2].every((v) => isFinite(v))) continue;
                     x1 = (a1 + b1) / 2; x2 = (a2 + b2) / 2;
