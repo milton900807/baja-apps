@@ -1814,6 +1814,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/compare/track-link-layer.js:A LINE FROM A PLACE ON ONE TRACK TO A PLACE ON ANOTHER" \
     "flexigraph/gene.js:THINGS THAT BELONG TO TWO TRACKS AT ONCE" \
     "baja/bio/compare/selection-similarity.js:THE OTHER END, ON THE TRACK THE SELECTION CAME FROM"
+  install_group "compare the selection in a window slid along it" \
+    "baja/bio/compare/selection-similarity.js:WHAT IS LAID OVER THE TRACK: THE WHOLE SELECTION, OR A WINDOW SLID ALONG IT" \
+    "baja/manchester/menu/selected-sequence-menu.js:AND HOW MUCH OF IT AT A TIME"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

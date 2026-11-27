@@ -2,7 +2,7 @@ function (graph, track, range, opts) {
 
     // WHERE ELSE DOES THE SELECTED STRETCH OCCUR?
     //   exec('baja/bio/compare/selection-similarity.js', graph, track, {start, end},
-    //        { min: 0.5, against: otherTrack })
+    //        { min: 0.5, against: otherTrack, window: 60 })
     //
     // The selection is compared with every stretch of the same length on a track -- one
     // comparison per offset, both strands -- and the places that match it better than the
@@ -26,6 +26,12 @@ function (graph, track, range, opts) {
     //
     // BOTH STRANDS, because an inverted copy is a copy. A hit found on the reverse
     // complement is marked as such rather than quietly listed beside the forward ones.
+    //
+    // IN ONE BLOCK OR IN A WINDOW. By default the whole selection is laid over the track
+    // as one block. Pass window: <nt> and a stretch of that size is slid along the
+    // selection instead and each position scanned separately, which is what finds a short
+    // conserved patch inside a long selection: as one block it is averaged away against
+    // everything either side of it, and the answer comes back as no match.
     //
     // THE SELECTION ITSELF IS NOT A HIT. It matches itself at 100% and would head every
     // list; it is reported as the anchor instead, and anything overlapping it by more than
@@ -69,7 +75,44 @@ function (graph, track, range, opts) {
         }
 
         const RC = { A: 'T', T: 'A', G: 'C', C: 'G', N: 'N' };
-        const qrc = q.split('').reverse().map((b) => RC[b] || 'N').join('');
+        const rcOf = (s) => s.split('').reverse().map((b) => RC[b] || 'N').join('');
+
+        // ---- WHAT IS LAID OVER THE TRACK: THE WHOLE SELECTION, OR A WINDOW SLID ALONG IT
+        // The default is the whole selection as one block, which is the right question for
+        // "where else is THIS". It is the wrong question for a long selection carrying one
+        // short conserved patch: a 3 kb UTR that shares 60 nt with another gene agrees at
+        // 25% as a block, falls under every threshold, and is reported as no match at all.
+        //
+        // So the comparison can run in a WINDOW. A stretch of the chosen size is slid along
+        // the selection, by default in steps of half its length, and every window is
+        // scanned in its own right. Each hit then says WHICH PART of the selection matched
+        // and how well, rather than averaging a conserved patch away against the sequence
+        // either side of it. The cost is one scan per window, which is why the step guard
+        // below counts the whole job rather than one pass.
+        //
+        // The whole selection is simply the single-window case, spelled window: null, and a
+        // window at least as long as the selection is that same case rather than an error.
+        const WANT = (o.window == null || o.window === 'all' || o.window === 0) ? 0
+            : Math.max(8, Math.floor(+o.window) || 0);
+        const WIN = (WANT && WANT < L) ? WANT : 0;          // 0 means the whole selection
+        const WSTEP = WIN
+            ? Math.max(1, Math.floor(+o.windowStep || Math.max(1, Math.floor(WIN / 2))))
+            : 0;
+
+        // The last window is pulled back to end on the selection rather than overrunning
+        // it, so the end of the selection is looked at even when its length is not a whole
+        // number of steps.
+        const queries = [];
+        if (!WIN) {
+            queries.push({ seq: q, i: 0, len: L });
+        } else {
+            for (let w = 0; ; w += WSTEP) {
+                if (w + WIN > L) w = L - WIN;
+                queries.push({ seq: q.slice(w, w + WIN), i: w, len: WIN });
+                if (w + WIN >= L) break;
+            }
+        }
+        const QL = WIN || L;
 
         // ONE PASS PER OFFSET, WITH EARLY ABANDON: counting stops as soon as enough
         // mismatches have piled up that the threshold cannot be reached. That is what makes
@@ -80,53 +123,75 @@ function (graph, track, range, opts) {
         // at every third position is not the same answer as one that looked at all of them,
         // and the difference must not be silent.
         const n = whole.length;
-        const need = Math.ceil(MIN * L);
-        const maxMiss = L - need;
-        const work = (n - L) * L * 2;
+        const work = Math.max(1, n - QL) * QL * 2 * queries.length;
         const step = (work > 2e8) ? Math.ceil(work / 2e8) : 1;
 
-        // The selection is excluded only on its OWN track. On another one there is nothing
-        // to exclude, and excluding the same offsets there would blank out a stretch of a
-        // different gene for no reason.
+        // The selection is excluded only on its OWN track, and the whole of it is excluded
+        // rather than the window being scanned: a window that lands back inside the
+        // selection is the selection looking at itself, whichever part of it. On another
+        // track there is nothing to exclude, and excluding the same offsets there would
+        // blank out a stretch of a different gene for no reason.
         const selfLo = qi, selfHi = qj;
-        const overlapsSelf = (s) => sameTrack && ((Math.min(s + L, selfHi) - Math.max(s, selfLo)) > (L / 2));
 
-        const scan = (pat, strandMark) => {
+        const scan = (pat, qi0, len, strandMark) => {
+            const need = Math.ceil(MIN * len);
+            const maxMiss = len - need;
             const out = [];
-            for (let s = 0; s + L <= n; s += step) {
-                if (overlapsSelf(s)) continue;
+            for (let s = 0; s + len <= n; s += step) {
+                if (sameTrack && (Math.min(s + len, selfHi) - Math.max(s, selfLo)) > (len / 2)) continue;
                 let miss = 0, k = 0;
-                for (; k < L; k++) {
+                for (; k < len; k++) {
                     if (whole.charCodeAt(s + k) !== pat.charCodeAt(k)) {
                         if (++miss > maxMiss) break;
                     }
                 }
-                if (k < L) continue;                    // abandoned
-                out.push({ s: s, id: (L - miss) / L, rc: strandMark });
+                if (k < len) continue;                    // abandoned
+                out.push({
+                    s: s, id: (len - miss) / len, rc: strandMark, len: len,
+                    srcStart: lo + qi0, srcEnd: lo + qi0 + len - 1
+                });
             }
             return out;
         };
 
-        let hits = scan(q, false);
-        if (o.bothStrands !== false) hits = hits.concat(scan(qrc, true));
+        let hits = [];
+        for (const Q of queries) {
+            hits = hits.concat(scan(Q.seq, Q.i, Q.len, false));
+            if (o.bothStrands !== false) hits = hits.concat(scan(rcOf(Q.seq), Q.i, Q.len, true));
+        }
+        const windowNote = WIN
+            ? (' Compared in ' + WIN + ' nt windows slid along the selection in steps of '
+                + WSTEP + ', so a hit covers the part of the selection its label names rather '
+                + 'than all ' + L.toLocaleString() + ' nt of it.')
+            : '';
         if (!hits.length) {
             say('Nothing on ' + (tgt.name || 'the track') + ' matches the selected '
                 + L.toLocaleString() + ' nt at ' + Math.round(MIN * 100) + '% or better, on either '
                 + 'strand. The comparison is ungapped, so a copy carrying an insertion or a '
-                + 'deletion would not be found as one piece.');
+                + 'deletion would not be found as one piece.'
+                + (WIN ? windowNote
+                    : (' The whole selection was laid over the track as one block: a short '
+                        + 'conserved patch inside a long selection is averaged away that way, '
+                        + 'and comparing in a window would find it.')));
             return { ok: true, hits: [], anchor: { start: lo, end: hi }, length: L, step: step,
+                window: WIN || null, windowStep: WSTEP || null,
                 on: (tgt.name || ''), from: (src.name || ''), sameTrack: sameTrack };
         }
 
         // NON-MAXIMUM SUPPRESSION. A good match is a good match at the offsets either side
         // of it too, so without this a single copy arrives as a run of fifty bands one base
-        // apart and the layer is unreadable.
-        hits.sort((a, b) => (b.id - a.id) || (a.s - b.s));
+        // apart and the layer is unreadable. In a window run the same patch is also found by
+        // each window that covers it, half-shifted: those land a half-window apart on the
+        // target, which is why the overlap that counts as the same place is a THIRD of the
+        // shorter band rather than a half. At a half they survived, and one conserved patch
+        // arrived as three bands at three identities, which reads as three findings.
+        hits.sort((a, b) => (b.id - a.id) || (b.len - a.len) || (a.s - b.s));
         const kept = [];
         for (const h of hits) {
             let clash = false;
             for (const k of kept) {
-                if (Math.min(h.s + L, k.s + L) - Math.max(h.s, k.s) > L / 2) { clash = true; break; }
+                const ov = Math.min(h.s + h.len, k.s + k.len) - Math.max(h.s, k.s);
+                if (ov > Math.min(h.len, k.len) / 3) { clash = true; break; }
             }
             if (clash) continue;
             kept.push(h);
@@ -152,7 +217,8 @@ function (graph, track, range, opts) {
 
         const TrackLayer = await exec('baja/bio/track-layer.js');
         const axis = { lo: base, hi: base + n - 1 };
-        const name = (tgt.name || 'track') + '_SIM' + Math.round(MIN * 100) + '_' + kept.length
+        const name = (tgt.name || 'track') + '_SIM' + Math.round(MIN * 100)
+            + (WIN ? ('_W' + WIN) : '') + '_' + kept.length
             + (sameTrack ? '' : ('_vs_' + (src.name || 'sel')));
         const L2 = new TrackLayer(name, axis.lo, 0, axis.hi, 1);
         L2.type = 'SelectionSimilarity';
@@ -172,39 +238,50 @@ function (graph, track, range, opts) {
         kept.sort((a, b) => a.s - b.s);
         let i = 0;
         for (const h of kept) {
-            const a = base + h.s, b = base + h.s + L - 1;
+            const a = base + h.s, b = base + h.s + h.len - 1;
             const pct = Math.round(h.id * 100);
             const where = annAt(a, b);
             L2.addInterval(a, b, lanes[i % lanes.length],
-                pct + '%' + (h.rc ? ' rc' : '') + (where.length ? (' · ' + where[0]) : ''),
+                pct + '%' + (h.rc ? ' rc' : '')
+                + (WIN ? (' · ' + h.srcStart + '–' + h.srcEnd) : '')
+                + (where.length ? (' · ' + where[0]) : ''),
                 colorFor(h.id));
             i++;
             rows.push([pct + '%' + (h.rc ? ' (reverse complement)' : '') + ' at ' + a + '–' + b,
-                (L - Math.round(h.id * L)) + ' mismatches over ' + L + ' nt'
+                (h.len - Math.round(h.id * h.len)) + ' mismatches over ' + h.len + ' nt'
+                + (WIN ? (' · from selection ' + h.srcStart + '–' + h.srcEnd) : '')
                 + (where.length ? (' · inside ' + where.join(', ')) : '')]);
         }
 
         L2.decor = {
             help: {
                 title: 'Matches to ' + (sameTrack ? '' : ((src.name || 'another track') + ' '))
-                    + lo + '–' + hi + ' (' + L + ' nt)',
+                    + lo + '–' + hi + ' (' + L + ' nt'
+                    + (WIN ? (', in ' + WIN + ' nt windows') : '') + ')',
                 rows: rows,
-                note: 'Each band is a stretch of this track laid base against base with the '
-                    + (sameTrack ? 'selection'
-                        : ('selected ' + L + ' nt of ' + (src.name || 'another track')))
+                note: 'Each band is a stretch of this track laid base against base with '
+                    + (WIN ? ('a ' + WIN + ' nt window of the '
+                        + (sameTrack ? 'selection' : ('selected ' + L + ' nt of ' + (src.name || 'another track'))))
+                        : ('the '
+                            + (sameTrack ? 'selection'
+                                : ('selected ' + L + ' nt of ' + (src.name || 'another track')))))
                     + ', kept when at least ' + Math.round(MIN * 100) + '% of the positions '
                     + 'agree. The comparison is UNGAPPED: a copy carrying an insertion or a '
                     + 'deletion reads as two shorter matches rather than one, and would be found '
                     + 'by an aligner that this is not. Bands marked rc match the reverse '
                     + 'complement. Overlapping matches are collapsed to the best one, so a band is '
                     + 'a place rather than every offset that passed.'
+                    + windowNote
                     + ((step > 1) ? (' This scan stepped ' + step + ' bases at a time because the '
                         + 'track is long: a match offset from the ones looked at may have been '
                         + 'missed.') : '')
                     + (sameTrack ? ' The selection itself is not drawn.' : '')
             }
         };
-        L2.similarityHits = kept.map((h) => ({ start: base + h.s, end: base + h.s + L - 1, identity: h.id, rc: h.rc }));
+        L2.similarityHits = kept.map((h) => ({
+            start: base + h.s, end: base + h.s + h.len - 1, identity: h.id, rc: h.rc,
+            length: h.len, srcStart: h.srcStart, srcEnd: h.srcEnd
+        }));
 
         // ONTO THE TRACK THAT WAS SCANNED, because that is whose coordinates these are.
         try { tgt.addLayer(L2); } catch (e) { try { (tgt.track_layers || []).push(L2); } catch (e2) { } }
@@ -212,18 +289,40 @@ function (graph, track, range, opts) {
         // THE OTHER END, ON THE TRACK THE SELECTION CAME FROM. The selection mark is cleared
         // the moment the user clicks anywhere, and then the layer on the other track is a
         // set of percentages with nothing to be percentages OF. One band, named for what was
-        // compared and how many places took it.
+        // compared and how many places took it -- and in a window run, one band per window
+        // that matched, because WHICH PART of the selection carried the match is then the
+        // point rather than a detail.
         if (!sameTrack) {
             const A = new TrackLayer((src.name || 'track') + '_SIMFROM_' + kept.length,
                 Math.min(lo, hi), 0, Math.max(lo, hi), 1);
             A.type = 'SelectionSimilaritySource';
             A.labelColor = '#eaf6f9';
             A.fixedIntervalDepth = 12;
+            A.allowStackedIntervals = true;
             A.pop = true;
-            A.addInterval(lo, hi, 0.5,
-                'compared \u00b7 ' + L.toLocaleString() + ' nt \u00b7 ' + kept.length + ' match'
-                + (kept.length === 1 ? '' : 'es') + ' on ' + (tgt.name || 'the other track'),
-                'rgba(79,208,230,0.55)');
+            if (WIN) {
+                const byWin = new Map();
+                for (const h of kept) {
+                    const k = h.srcStart + ':' + h.srcEnd;
+                    const e = byWin.get(k);
+                    if (!e) byWin.set(k, { a: h.srcStart, b: h.srcEnd, n: 1, best: h.id });
+                    else { e.n++; if (h.id > e.best) e.best = h.id; }
+                }
+                const wins = Array.from(byWin.values()).sort((x, y) => x.a - y.a);
+                let j = 0;
+                for (const w of wins) {
+                    A.addInterval(w.a, w.b, lanes[j % lanes.length],
+                        Math.round(w.best * 100) + '% · ' + w.n + ' match'
+                        + (w.n === 1 ? '' : 'es') + ' on ' + (tgt.name || 'the other track'),
+                        'rgba(79,208,230,0.55)');
+                    j++;
+                }
+            } else {
+                A.addInterval(lo, hi, 0.5,
+                    'compared · ' + L.toLocaleString() + ' nt · ' + kept.length + ' match'
+                    + (kept.length === 1 ? '' : 'es') + ' on ' + (tgt.name || 'the other track'),
+                    'rgba(79,208,230,0.55)');
+            }
             A.decor = {
                 help: {
                     title: 'Compared against ' + (tgt.name || 'another track'),
@@ -231,6 +330,9 @@ function (graph, track, range, opts) {
                     note: 'This is the stretch that was compared, and the matches themselves are '
                         + 'drawn on ' + (tgt.name || 'the other track') + ', joined to it by a line. '
                         + 'The comparison is ungapped and at ' + Math.round(MIN * 100) + '% or better.'
+                        + (WIN ? (' Each band here is a ' + WIN + ' nt window of the selection that '
+                            + 'matched; the parts of the selection with no band matched nothing at '
+                            + 'this threshold.') : '')
                 }
             };
             try { src.addLayer(A); } catch (e) { try { (src.track_layers || []).push(A); } catch (e2) { } }
@@ -240,15 +342,17 @@ function (graph, track, range, opts) {
         // ---- THE LINE BETWEEN THE TWO TRACKS -------------------------------------------
         // A match on another track is a statement about a PAIR of places, and a layer can
         // only draw one of them. Said in a sentence it reads as a fact with no location;
-        // drawn as a line from the selection to each match it is the answer itself. Only
-        // across tracks: on one track the selection and its matches are already in the
-        // same picture, and a line looping back would be noise.
+        // drawn as a line from the selection to each match it is the answer itself. In a
+        // window run each line leaves the window it came from, not the whole selection, so
+        // the picture says which part of the selection went where. Only across tracks: on
+        // one track the selection and its matches are already in the same picture, and a
+        // line looping back would be noise.
         if (!sameTrack) {
             try {
                 await exec('baja/bio/compare/track-link-layer.js', graph,
                     kept.slice(0, Math.min(kept.length, 12)).map((h) => ({
-                        from: { track: src, start: lo, end: hi },
-                        to: { track: tgt, start: base + h.s, end: base + h.s + L - 1 },
+                        from: { track: src, start: h.srcStart, end: h.srcEnd },
+                        to: { track: tgt, start: base + h.s, end: base + h.s + h.len - 1 },
                         label: Math.round(h.id * 100) + '%' + (h.rc ? ' rc' : '')
                     })),
                     { id: 'selection-similarity', color: 'rgba(79,208,230,0.95)' });
@@ -261,11 +365,13 @@ function (graph, track, range, opts) {
             + ' nt of ' + (sameTrack ? 'it' : (src.name || 'the other track'))
             + ' at ' + Math.round(MIN * 100) + '% or better, best ' + Math.round(best.id * 100)
             + '% at ' + (base + best.s) + (best.rc ? ' on the reverse complement' : '')
+            + (WIN ? (' from selection ' + best.srcStart + '–' + best.srcEnd) : '')
             + '. The comparison is ungapped, so a copy with an insertion or deletion would show '
             + 'as two shorter matches rather than one'
             + ((step > 1) ? (', and this scan stepped ' + step + ' bases at a time because the track is long')
-                : '') + '.');
+                : '') + '.' + windowNote);
         return { ok: true, hits: L2.similarityHits, layer: L2, length: L, step: step,
+            window: WIN || null, windowStep: WSTEP || null, windows: queries.length,
             anchor: { start: lo, end: hi }, on: (tgt.name || ''), from: (src.name || ''),
             sameTrack: sameTrack };
     })();

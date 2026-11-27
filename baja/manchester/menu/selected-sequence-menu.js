@@ -222,13 +222,54 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         // another it is the one people actually have with two genes on the canvas -- does my
         // site exist over there, did the paralogue keep it. Asked only when there is more
         // than one track with sequence, so the common case is still one press.
+        //
+        // AND HOW MUCH OF IT AT A TIME. The whole selection laid over the track in one
+        // block is the default and the right question for a short selection. For a long
+        // one it is the wrong question: a 3 kb UTR sharing one conserved 60 nt patch with
+        // another gene agrees at 25% as a block and comes back as nothing, while the same
+        // comparison run in a 60 nt window finds the patch at its real identity. So the
+        // size is asked for, with the whole selection first and already the answer, and
+        // only sizes shorter than the selection offered -- a window as long as what it
+        // slides along is the block case under another name.
+        const pickWindow = async () => {
+            if (len < 24) return 0;                       // nothing to slide along
+            const sizes = [500, 200, 100, 60, 30].filter((w) => w < len && w >= 8).slice(0, 4);
+            if (!sizes.length) return 0;
+            const chosen = await new Promise((resolve) => {
+                let done = false;
+                const once = (v) => { if (!done) { done = true; resolve(v); } };
+                exec('baja/lib/pick-list.js', {
+                    title: 'How much of the ' + len.toLocaleString() + ' nt at a time',
+                    subtitle: 'the whole selection is one comparison · a window is slid along it '
+                        + 'in steps of half its length and every position compared, which finds a '
+                        + 'short conserved patch that the whole selection averages away',
+                    items: [{
+                        label: 'The whole selection  (' + len.toLocaleString() + ' nt)',
+                        sub: 'one block, laid over the track at every offset',
+                        ref: 0
+                    }].concat(sizes.map((w) => ({
+                        label: w + ' nt windows',
+                        sub: Math.ceil(Math.max(0, len - w) / Math.max(1, Math.floor(w / 2))) + 1
+                            + ' windows · each hit says which part of the selection matched',
+                        ref: w
+                    }))),
+                    onPick: (it) => once(it ? it.ref : null),
+                    onClose: () => once(null)
+                }).then((x) => { if (x === null) once(null); });
+            });
+            return chosen;                                // null means they closed it
+        };
+
         const compareAcross = async (min) => {
             const usable = ((graph && graph.track) || []).filter((x) => {
                 try { return !!x && ('' + (x.sequence || '')).length >= 20; } catch (e) { return false; }
             });
             const others = usable.filter((x) => x !== t);
             if (!others.length) {
-                return exec('baja/bio/compare/selection-similarity.js', graph, t, range, { min: min });
+                const w0 = await pickWindow();
+                if (w0 === null) { say(' Nothing was compared. '); return; }
+                return exec('baja/bio/compare/selection-similarity.js', graph, t, range,
+                    { min: min, window: w0 || null });
             }
             const pick = await new Promise((resolve) => {
                 let done = false;
@@ -253,8 +294,10 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                 }).then((x) => { if (x === null) once(null); });
             });
             if (!pick) { say(' Nothing to compare against was chosen. '); return; }
+            const win = await pickWindow();
+            if (win === null) { say(' Nothing was compared. '); return; }
             return exec('baja/bio/compare/selection-similarity.js', graph, t, range,
-                { min: min, against: pick });
+                { min: min, against: pick, window: win || null });
         };
 
         const seqItems = [

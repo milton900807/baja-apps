@@ -195,14 +195,104 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
         { start: BASE, end: BASE + 100 }, { min: 0.5, against: shortTrack });
     ok(/nowhere on it long enough/.test(tooBig.reason || ''), 'with the reason: ' + (tooBig.reason || ''));
 
+
+    // ---- A WINDOW SLID ALONG THE SELECTION ---------------------------------------------
+    // THE CASE THE BLOCK COMPARISON CANNOT ANSWER. A long selection carrying one short
+    // conserved patch agrees with the copy of that patch at the patch's length over the
+    // selection's -- 60 nt in 400 is 15% -- so as one block it falls under every threshold
+    // and comes back as nothing. Run in a window the same patch is a 100% hit. Both halves
+    // are checked here, because the feature is the difference between them.
+    const SB = 5000;
+    const SEL = bg(400, 77);                              // the selection, 400 nt
+    const PATCH = SEL.slice(120, 180);                    // 60 nt of it, and only that
+    const FAR = bg(300, 78) + PATCH + bg(300, 79);        // the other track: patch at 300
+    const mkSel = () => ({
+        name: 'UTRLONG', xi: SB, xf: SB + SEL.length - 1, strand: 1, sequence: SEL,
+        annotations: [], track_layers: [], addLayer(l) { this.track_layers.push(l); }
+    });
+    const mkFar = () => ({
+        name: 'OTHER', xi: 0, xf: FAR.length - 1, strand: 1, sequence: FAR,
+        annotations: [], track_layers: [], addLayer(l) { this.track_layers.push(l); }
+    });
+
+    const sel1 = mkSel(), far1 = mkFar();
+    const gW1 = { track: [sel1, far1], setResultMessage: () => { }, wake: () => { } };
+    const blockRun = await load('baja/bio/compare/selection-similarity.js', gW1, sel1,
+        { start: SB, end: SB + 400 }, { min: 0.5, against: far1 });
+    ok(blockRun.ok && blockRun.hits.length === 0 && blockRun.window === null,
+       'the whole selection over the other track finds the conserved patch nowhere: '
+       + blockRun.hits.length + ' hits');
+
+    const sel2 = mkSel(), far2 = mkFar();
+    const gW2 = { track: [sel2, far2], setResultMessage: () => { }, wake: () => { } };
+    const winRun = await load('baja/bio/compare/selection-similarity.js', gW2, sel2,
+        { start: SB, end: SB + 400 }, { min: 0.5, against: far2, window: 60 });
+    const hit = (winRun.hits || []).filter((h) => h.identity === 1)[0];
+    ok(!!hit, 'in 60 nt windows the same comparison finds it: '
+       + (winRun.hits || []).length + ' hits, best '
+       + Math.round(Math.max(0, ...(winRun.hits || []).map((h) => h.identity)) * 100) + '%');
+    ok(!!hit && hit.start === 300 && hit.end === 359 && hit.length === 60,
+       'at the patch, in the scanned track’s own coordinates: '
+       + (hit ? (hit.start + '–' + hit.end) : 'no hit'));
+    // WHICH PART OF THE SELECTION MATCHED is the thing a window run knows and a block run
+    // does not, so every hit carries it and the label says it.
+    ok(!!hit && hit.srcStart === SB + 120 && hit.srcEnd === SB + 179,
+       'and says which 60 nt of the selection matched: '
+       + (hit ? (hit.srcStart + '–' + hit.srcEnd) : 'no hit'));
+    ok(winRun.window === 60 && winRun.windowStep === 30 && winRun.windows === 13,
+       'slid in steps of half the window: ' + winRun.windows + ' windows of '
+       + winRun.window + ' at ' + winRun.windowStep);
+    const nAtPatch = (winRun.hits || []).filter((h) => Math.abs(h.start - 300) < 60).length;
+    ok(nAtPatch === 1, 'the windows either side of it land in the same place and collapse to '
+       + 'the best one: ' + nAtPatch + ' band there');
+    const simLayer = far2.track_layers[far2.track_layers.length - 1];
+    ok(/W60/.test(simLayer.name || ''), 'the layer name says the window it was run in: ' + simLayer.name);
+    ok(simLayer.intervals.some((iv) => new RegExp('' + (SB + 120)).test('' + iv.t)),
+       'and the band is labelled with the part of the selection it came from');
+    // The band on the track the selection came from is the WINDOW that matched, not the
+    // whole selection: the parts with no band are the parts that matched nothing.
+    const fromLayer = sel2.track_layers[sel2.track_layers.length - 1];
+    const fiv = fromLayer.intervals.filter((iv) => iv.x1 === SB + 120)[0];
+    ok(!!fiv && fiv.x2 === SB + 179
+       && fromLayer.intervals.every((iv) => (iv.x2 - iv.x1 + 1) === 60),
+       'the bands on the selection\u2019s own track are the windows that matched, not the whole selection: ' + fromLayer.intervals.map((iv) => iv.x1 + '\u2013' + iv.x2).join(', '));
+
+    // A window at least as long as the selection is the block case under another name, not
+    // an error and not a one-window scan reported as something else.
+    const sel3 = mkSel(), far3 = mkFar();
+    const gW3 = { track: [sel3, far3], setResultMessage: () => { }, wake: () => { } };
+    const tooWide = await load('baja/bio/compare/selection-similarity.js', gW3, sel3,
+        { start: SB, end: SB + 400 }, { min: 0.5, against: far3, window: 4000 });
+    ok(tooWide.ok && tooWide.window === null && tooWide.hits.length === 0,
+       'a window longer than the selection runs as the whole selection');
+
+    // ON ITS OWN TRACK a window must still not match the selection it came from, whichever
+    // part of it: every window lies inside the selection, and without the exclusion the
+    // layer would be a row of 100% bands on top of the selection itself.
+    const selfSeq = SEL + bg(400, 81) + PATCH + bg(200, 82);
+    const selfTrack = { name: 'SELF', xi: SB, xf: SB + selfSeq.length - 1, strand: 1,
+        sequence: selfSeq, annotations: [], track_layers: [],
+        addLayer(l) { this.track_layers.push(l); } };
+    const gW4 = { track: [selfTrack], setResultMessage: () => { }, wake: () => { } };
+    const onSelf = await load('baja/bio/compare/selection-similarity.js', gW4, selfTrack,
+        { start: SB, end: SB + 400 }, { min: 0.5, window: 60 });
+    ok((onSelf.hits || []).every((h) =>
+        (Math.min(h.end + 1, SB + 400) - Math.max(h.start, SB)) <= h.length / 2),
+       'no window is reported as a match on the selection it came from');
+    ok((onSelf.hits || []).some((h) => h.identity === 1 && h.start === SB + 800),
+       'and the copy of the patch further down the same track is found at 100%');
+
     // ---- the menu offers it ------------------------------------------------------------------
     const menu = fs.readFileSync('baja/manchester/menu/selected-sequence-menu.js', 'utf8');
     ok(/Compare across a track \(\\u226550%\)/.test(menu), 'the selected-sequence menu offers it');
     ok(/compareAcross\(0\.7\)/.test(menu),
        'at a second threshold, because 50% on a 20-mer and 50% on a 500-mer are different questions');
     // It asks which track only when there IS another one, so the common case stays one press.
-    ok(/if \(!others\.length\) \{\n\s+return exec\('baja\/bio\/compare\/selection-similarity\.js'/.test(menu),
-       'with one track open it runs without asking');
+    ok(/if \(!others\.length\) \{\n\s+const w0 = await pickWindow\(\);/.test(menu),
+       'with one track open it does not ask which track');
+    ok(/The whole selection/.test(menu) && /nt windows/.test(menu),
+       'and the window question has the whole selection as its first answer');
+    ok(/window: win \|\| null/.test(menu), 'the chosen window is what gets run');
     ok(/\(itself\)/.test(menu), 'and the track selected on is one of the choices');
     ok(/against: pick/.test(menu), 'the chosen track is what gets scanned');
 
