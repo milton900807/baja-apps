@@ -56,26 +56,45 @@ function (graph, layer, opts) {
         // its exons, its sequence, its compounds -- can be read without four pictures
         // competing over it.
         if (!layer && o.all) {
-            clear();
             let n = 0;
-            for (const t of tracks) {
+            // One track or all of them. The layer menu on a track asks about ITS layers --
+            // greying a neighbouring track from a menu that belongs to this one would be an
+            // answer to a question nobody asked.
+            const where = (o.track && tracks.indexOf(o.track) >= 0) ? [o.track] : tracks;
+            // Clearing is scoped the same way, or greying a second track would un-grey the
+            // first and the two menus would fight over one canvas.
+            if (where.length === tracks.length) clear();
+            else {
+                for (const l of layersOf(where[0])) { l.muted = false; if (l.pop) l.pop = false; }
+                try { if (graph.focusedLayer && layersOf(where[0]).indexOf(graph.focusedLayer) >= 0) graph.focusedLayer = null; } catch (e) { }
+            }
+            for (const t of where) {
                 for (const l of layersOf(t)) {
                     if (l.visible === false) continue;
                     l.muted = true; n++;
                 }
             }
             try { if (graph.wake) graph.wake(); } catch (e) { }
-            say(n ? (n + ' layer' + (n === 1 ? '' : 's') + ' greyed, none in colour. They are '
-                    + 'still drawn and nothing has been removed: ask for any one of them to be '
-                    + 'focused, or for the layers to be shown in colour again.')
+            say(n ? (n + ' layer' + (n === 1 ? '' : 's') + ' greyed'
+                    + ((where.length === 1) ? (' on ' + (where[0].name || 'this track')) : '')
+                    + ', none in colour. They are still drawn and nothing has been removed: '
+                    + 'ask for any one of them to be focused, or for the layers to be shown in '
+                    + 'colour again.')
                 : 'There are no visible layers to grey.');
-            return { focused: null, muted: n, all: true };
+            return { focused: null, muted: n, all: true, scope: (where.length === 1) ? 'track' : 'canvas' };
         }
 
         // Nothing to focus: put everything back. This is also what the menu's second press
-        // and "show all layers" both come through.
+        // and "show all layers" both come through. A track given with it clears only that
+        // track, so the menu that greyed one track is the menu that un-greys it.
         if (!layer) {
-            const n = clear();
+            let n = 0;
+            if (o.track && tracks.indexOf(o.track) >= 0) {
+                for (const l of layersOf(o.track)) {
+                    if (l.muted) { l.muted = false; n++; }
+                    if (l.pop) l.pop = false;
+                }
+            } else { n = clear(); }
             try { if (graph.wake) graph.wake(); } catch (e) { }
             say(n ? ('All layers are back in colour: ' + n + ' were greyed.')
                 : 'No layers were greyed.');

@@ -1827,8 +1827,25 @@ return new Promise(async (resolve, reject) => {
       }
     }
 
-    addLayer(t) {
+    // A LAYER THAT HAS JUST ARRIVED IS SHOWN, not left for the user to find. Everything
+    // that puts a layer on a track comes through here -- every dialog's OK, every model on
+    // the shelf, every prompt -- so this is the one place that can say "the thing you just
+    // asked for is this one": the other layers go grey and the new one glows for a few
+    // seconds. Both wear off, and neither changes any data.
+    //
+    // quiet: true for a layer that is not news, such as the child-track mirror below, which
+    // rebuilds its parent's layers and would otherwise present them as arrivals.
+    addLayer(t, opts) {
       this.track_layers.push(t);
+      if (!(opts && opts.quiet)) {
+        try {
+          const g = (typeof graph !== 'undefined') ? graph : null;
+          if (g) {
+            const p = exec('baja/bio/layers/present-new-layer.js', g, this, t);
+            if (p && p.catch) p.catch(() => { });
+          }
+        } catch (e) { }
+      }
     }
 
     containsIntrons() {
@@ -5368,7 +5385,7 @@ return new Promise(async (resolve, reject) => {
           ttl.tgraph.setymin(src.ymin != null ? src.ymin : 0);
           if (ttl.tgraph.setInset) ttl.tgraph.setInset(0, 0);
           ttl.tgraph.rescale();
-          if (ivs.length || pts.length) this.addLayer(ttl);
+          if (ivs.length || pts.length) this.addLayer(ttl, { quiet: true });
         } catch (e) { }
       }
     }
@@ -6828,6 +6845,70 @@ return new Promise(async (resolve, reject) => {
             l.setHeight(graph.screenHeight(this.tgraph.height));
             l.setWidth(graph.screenWidth(this.tgraph.width));
           }
+          // GREYING, GLOWING AND A SHADOW: three ways of saying WHICH layer to look at on a
+          // track that carries four. All three are one wrapper around the layer's own draw,
+          // and all three work by drawing that draw again rather than by asking the painters
+          // for anything: a filter set here survives into the painter, where a shadow or an
+          // alpha would be overwritten by the first painter that sets its own.
+          //
+          //   muted      grey at low opacity, so a focused layer is the only colour
+          //   glowUntil  a blurred pass underneath, breathing, for a few seconds after it
+          //              arrives, so the eye lands on the blocks rather than the track
+          //   pop        an offset, blackened blur underneath: the items stand off the track
+          //
+          // The halo and the shadow are a second pass over the layer, every frame, so past
+          // a few thousand drawn items they are skipped: a coverage track is big enough to
+          // find without them, and a stutter right after the thing that was asked for is
+          // worse than a flat band.
+          const __ctx = (() => { try { return graph.canvas.getCTX(); } catch (e) { return null; } })();
+          const __heavy = (l) => {
+            try {
+              let n = 0;
+              for (const k of ['intervals', 'junctions', 'points', 'plots', 'polygonpts']) {
+                const v = l[k];
+                if (Array.isArray(v)) n += v.length;
+                if (n > 4000) return true;
+              }
+              return false;
+            } catch (e) { return false; }
+          };
+          const __drawLayer = async (l) => {
+            const mute = !!(l && l.muted);
+            const big = __heavy(l);
+            const glow = !!(l && l.glowUntil && Date.now() < l.glowUntil) && !big;
+            const pop = !mute && !!(l && l.pop) && !big;
+            if (!__ctx || (!mute && !glow && !pop)) { await l.draw(this.tgraph, graph, this); return; }
+            let had = 'none';
+            try { had = __ctx.filter || 'none'; } catch (e) { had = 'none'; }
+            if (pop) {
+              const a0 = __ctx.globalAlpha;
+              try {
+                __ctx.save();
+                __ctx.translate(2, 3);
+                __ctx.filter = 'blur(3px) brightness(0) saturate(0)';
+                __ctx.globalAlpha = 0.38;
+                await l.draw(this.tgraph, graph, this);
+              } catch (e) { }
+              try { __ctx.restore(); __ctx.filter = had; __ctx.globalAlpha = a0; } catch (e) { }
+            }
+            if (glow) {
+              // Breathing rather than steady: a static halo reads as part of the drawing.
+              const pulse = 0.45 + 0.35 * Math.sin(((Date.now() % 1000) / 1000) * 2 * Math.PI);
+              const a0 = __ctx.globalAlpha;
+              try {
+                __ctx.filter = 'blur(5px) saturate(1.6)';
+                __ctx.globalAlpha = pulse;
+                await l.draw(this.tgraph, graph, this);
+              } catch (e) { }
+              try { __ctx.filter = had; __ctx.globalAlpha = a0; } catch (e) { }
+              // Keep the canvas coming back while it breathes, and only while it does.
+              try { setTimeout(() => { try { if (graph && graph.wake) graph.wake(); } catch (e) { } }, 50); } catch (e) { }
+            }
+            if (!mute) { await l.draw(this.tgraph, graph, this); return; }
+            try { __ctx.filter = 'grayscale(1) opacity(0.3)'; } catch (e) { }
+            try { await l.draw(this.tgraph, graph, this); }
+            finally { try { __ctx.filter = had; } catch (e) { } }
+          };
           let highlighted = null;
           for (let l of this.track_layers) {
             let xi = l.getXi();
@@ -6837,7 +6918,7 @@ return new Promise(async (resolve, reject) => {
             if ((xi > 0 && xi < graph.grid.width) || (xi + w > 0 && xi + w < graph.grid.width) || (xi < 0 && xi + w > graph.grid.width) || (xi > 0 && xi + w < graph.grid.width) || (yi > 0 && yi < graph.grid.height) || (yi + h > 0 && yi + h < graph.grid.height) || (yi < 0 && yi + h > graph.grid.height) || (yi > 0 && yi + h < graph.grid.height)) {
               // Guard each layer's draw so one bad layer can't abort the rest of the loop.
               try {
-                if (!l.highlight) await l.draw(this.tgraph, graph, this);
+                if (!l.highlight) await __drawLayer(l);
                 else {
                   highlighted = l;
                 }
@@ -6845,7 +6926,7 @@ return new Promise(async (resolve, reject) => {
             }
           }
           if (highlighted != null) {
-            try { await highlighted.draw(this.tgraph, graph, this); } catch (e) { }
+            try { await __drawLayer(highlighted); } catch (e) { }
           }
         }
 

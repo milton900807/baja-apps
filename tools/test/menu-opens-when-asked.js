@@ -36,14 +36,27 @@ const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) fails++
 
     const asked = mk(true);
     ok(asked.collapsed === false, 'a menu opened from a click starts expanded');
-    asked.mouseMove(graph, 900, 600);                 // pointer still where the click was
-    ok(asked.collapsed === false, 'and a mouse move far away does not tuck it back');
+    asked.mouseMove(graph, 260, 150);                 // nearby, on the way to it
+    ok(asked.collapsed === false, 'and a move near it does not tuck it back');
     asked.mouseMove(graph, 150, 120);                 // the user reaches it
     ok(asked.collapsed === false, 'it stays open while the pointer is in it');
     asked.mouseMove(graph, 900, 600);                 // and leaves again
     ok(asked.collapsed === true, 'once visited, leaving collapses it like any other menu');
     asked.mouseMove(graph, 150, 120);
     ok(asked.collapsed === false, 'and hovering the chip expands it again');
+
+    // MOVING WELL CLEAR IS AN ANSWER TOO. Waiting for a visit that never came left the
+    // panel open across the top-left of the canvas, which is where the layer rows under a
+    // track's name are drawn. A panel owns presses inside its own bounds, so a click on a
+    // layer row opened nothing at all and the editor looked broken.
+    const away = mk(true);
+    ok(away.collapsed === false, 'a menu opened from a click starts expanded');
+    away.mouseMove(graph, 900, 600);
+    ok(away.collapsed === true, 'and moving well clear of it tucks it into its chip');
+    away.mouseMove(graph, 880, 600);
+    ok(away.collapsed === true, 'it stays a chip out there');
+    away.mouseMove(graph, 150, 120);
+    ok(away.collapsed === false, 'and opens again when the pointer comes back to it');
 
     // A menu that arrived on its own is unchanged: a chip until the pointer finds it.
     const unasked = mk(false);

@@ -101,11 +101,23 @@ const glowing = (g) => g.track.reduce((s, t) => s.concat(t.track_layers.filter((
     ok(muted(g).indexOf('off') < 0, 'a hidden layer is not greyed: ' + muted(g).join(','));
 
     // ---- the chokepoint and the two things that must not fire through it ---------------------
+    // TWO TRACK CLASSES DRAW THE SAME THING: flexigraph/gene.js, which is the gene editor,
+    // builds its tracks from baja/bio/track.js, and the plate apps use
+    // baja/bio/track-flexi.js. A hook in one of them is a feature that works in half the
+    // product and cannot be seen to be missing from the other half, so both are checked
+    // here against the same rules.
     const flexi = fs.readFileSync('baja/bio/track-flexi.js', 'utf8');
-    ok(/addLayer\(t, opts\) \{[\s\S]{0,400}present-new-layer\.js/.test(flexi),
-       'addLayer is where every layer arrives, and where this is called');
-    ok(/this\.addLayer\(ttl, \{ quiet: true \}\)/.test(flexi),
-       'the child-track mirror, which rebuilds its parent layers every redraw, is quiet');
+    const plain = fs.readFileSync('baja/bio/track.js', 'utf8');
+    for (const [who, src] of [['track-flexi.js', flexi], ['track.js', plain]]) {
+        ok(/addLayer\(t, opts\) \{[\s\S]{0,500}present-new-layer\.js/.test(src),
+           who + ': addLayer is where every layer arrives, and where this is called');
+        ok(/addLayer\(ttl, \{ quiet: true \}\)/.test(src),
+           who + ': the child-track mirror, which rebuilds its parent layers every redraw, is quiet');
+        ok(/const __drawLayer = async \(l\)/.test(src), who + ': the layer draw goes through one wrapper');
+        ok(/l\.muted/.test(src) && /grayscale\(1\) opacity\(0\.3\)/.test(src), who + ': which greys a muted layer');
+        ok(/blur\(5px\) saturate\(1\.6\)/.test(src), who + ': haloes a glowing one');
+        ok(/blur\(3px\) brightness\(0\) saturate\(0\)/.test(src), who + ': and shadows a raised one');
+    }
     const genes = fs.readFileSync('flexigraph/gene.js', 'utf8');
     ok(!/\.addLayer\(/.test(genes.slice(genes.indexOf('Object.assign(new TrackLayer()'), genes.indexOf('Object.assign(new TrackLayer()') + 2000)),
        'and a document restore builds its layer array directly, so opening a file presents nothing');

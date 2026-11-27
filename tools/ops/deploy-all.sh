@@ -1732,7 +1732,7 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/gene.js:THE SAME NAVY AND THE SAME LIGHT INK AS EVERY OTHER PANEL"
   install_group "a menu the user clicked for opens showing its items" \
     "flexigraph/gene.js:THE PILL IS FOR A MENU NOBODY ASKED FOR" \
-    "flexigraph/menu.js:A MENU OPENED BY A CLICK STAYS OPEN UNTIL THE POINTER HAS BEEN IN IT"
+    "flexigraph/menu.js:A MENU OPENED BY A CLICK STAYS OPEN WHILE THE POINTER IS NEAR IT"
   install_group "potential exons: what the candidate acceptors would make, on the track" \
     "baja/bio/splicing/potential-exons-layer.js:WHAT THE CANDIDATE ACCEPTORS WOULD ACTUALLY ADD, DRAWN ON THE TRACK" \
     "baja/bio/splicing/acceptor-candidates-view.js:Potential exons to draw what all of them would make at once, coloured by frame" \
@@ -1786,6 +1786,11 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-flexi.js:A SHADOW LIFTS A LAYER OFF THE TRACK" \
     "baja/bio/layers/focus-layer.js:RAISED AS WELL AS COLOURED" \
     "baja/bio/expression/ratio-shift-view.js:A KEY PER CANDIDATE, THE SAME ON BOTH TRACKS AND IN THE WINDOW"
+  install_group "greying, glow and shadow in the class the gene editor actually draws with" \
+    "baja/bio/track.js:GREYING, GLOWING AND A SHADOW: three ways of saying WHICH layer" \
+    "flexigraph/menu.js:NEAR, NOT FOR EVER" \
+    "baja/manchester/menu/track-layers-side-menu.js:GREY OUT IS NOT HIDE ALL" \
+    "baja/bio/layers/focus-layer.js:One track or all of them"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

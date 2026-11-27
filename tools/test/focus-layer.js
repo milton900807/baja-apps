@@ -137,6 +137,38 @@ const muted = (g) => g.track.reduce((s, t) => s.concat(t.track_layers.filter((l)
     c = await callsOf({});
     ok(!c[0].opts.all && c[0].layer === null, 'and nothing at all is the restore too');
 
+    // ---- greying ONE TRACK's layers ---------------------------------------------------------
+    // The layer menu belongs to a track, so "Grey out all layers" there is about its own
+    // layers: greying a neighbouring track from it would answer a question nobody asked.
+    g = mkGraph();
+    r = await load('baja/bio/layers/focus-layer.js', g, null, { all: true, track: g.A });
+    ok(r.muted === 3 && r.scope === 'track', 'only that track\u2019s layers are greyed: ' + r.muted);
+    ok(muted(g).join(',') === 'PSI,ACC,CDD_domains', 'the other track keeps its colour: ' + muted(g).join(','));
+    ok(/on DNM1/.test(g.said.join(' ')), 'and the message names the track');
+
+    await load('baja/bio/layers/focus-layer.js', g, null, { all: true, track: g.B });
+    ok(muted(g).length === 4, 'a second track can be greyed on top of the first: ' + muted(g).join(','));
+    r = await load('baja/bio/layers/focus-layer.js', g, null, { track: g.A });
+    ok(muted(g).join(',') === 'PSI*', 'and un-greying one leaves the other greyed: ' + muted(g).join(','));
+
+    // ---- the layer menu offers it, for its own track ------------------------------------------
+    const menuSrc = fs.readFileSync('baja/manchester/menu/track-layers-side-menu.js', 'utf8');
+    ok(/Grey out all layers/.test(menuSrc), 'the track\u2019s layer menu offers greying');
+    ok(/__greyed \? 'Back to colour'/.test(menuSrc), 'and the same row takes it back once it is greyed');
+    ok(/\{ all: true, track: track \}/.test(menuSrc), 'for that track only');
+    ok(menuSrc.indexOf('Grey out all layers') > menuSrc.indexOf("label: 'Hide all'"),
+       'placed beside Hide all, which is what people pressed when they wanted this');
+
+    // ---- the focused layer is raised off the track -------------------------------------------
+    // Grey neighbours say WHICH layer to read; the shadow says it sits on top of the track
+    // rather than in it, which is what makes a band findable on a crowded one.
+    g = mkGraph();
+    await load('baja/bio/layers/focus-layer.js', g, g.A.track_layers[0]);
+    ok(g.A.track_layers[0].pop === true, 'the focused layer is raised');
+    ok(g.A.track_layers[1].pop !== true, 'and the greyed ones are not');
+    await load('baja/bio/layers/focus-layer.js', g, null);
+    ok(g.A.track_layers[0].pop !== true, 'releasing puts it flat again, leaving no stray cue');
+
     // ---- the renderer honours the flag ---------------------------------------------------
     // The flag is only worth setting if something reads it, and the read is one wrapper
     // around the layer's own draw in baja/bio/track-flexi.js: a filter rather than an

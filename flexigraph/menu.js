@@ -369,12 +369,28 @@ function () {
                     const over = this.isIn(graph, x, y);
                     if (over) this.__touched = true;
                     if (over && this.collapsed) { this.collapsed = false; this.highlight = -1; return; }
-                    // A MENU OPENED BY A CLICK STAYS OPEN UNTIL THE POINTER HAS BEEN IN IT.
+                    // A MENU OPENED BY A CLICK STAYS OPEN WHILE THE POINTER IS NEAR IT.
                     // Opening already expanded is not enough on its own: the menu appears at
                     // the edge of the canvas while the pointer is wherever the click happened,
                     // so the very next mouse move is a leave and the panel tucked itself back
                     // into a chip before it could be read. One visit arms the ordinary rule.
-                    if (!over && !this.collapsed && this.__openOnArrival && !this.__touched) { this.highlight = -1; return; }
+                    //
+                    // NEAR, NOT FOR EVER. Waiting for a visit that never came left the panel
+                    // open across the top-left of the canvas, which is where the layer rows
+                    // under a track's name are: the panel owns presses inside its bounds, so
+                    // clicking a layer row opened nothing at all and the editor looked
+                    // broken. Moving well clear of the menu is as clear a statement that it
+                    // is not wanted as moving into it is that it is.
+                    if (!over && !this.collapsed && this.__openOnArrival && !this.__touched) {
+                        const b = this.__bounds(graph);
+                        const px = x + this.xoffset, py = y + this.yoffset;
+                        const dx = Math.max(b.x - px, 0, px - (b.x + b.w));
+                        const dy = Math.max(b.y - py, 0, py - (b.y + b.h));
+                        const GRACE = 140;
+                        if ((dx * dx + dy * dy) <= GRACE * GRACE) { this.highlight = -1; return; }
+                        // Far away: it behaves like any other menu from here on.
+                        this.__openOnArrival = false;
+                    }
                     if (!over && !this.collapsed) { this.collapsed = true; this.highlight = -1; this.stopScrolling(); return; }
                     if (this.collapsed) { this.highlight = -1; return; }
                 }

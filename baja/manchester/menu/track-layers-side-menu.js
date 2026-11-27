@@ -150,6 +150,22 @@ function (track, genegraph_panel_layout, graph, focusLayer) {
                 items.push({ label: '— all layers —', header: true });
                 items.push({ label: 'Show all', move: () => { }, click: () => { layers.forEach((l) => { l.visible = true; }); refreshDraw(); showRoot(); } });
                 items.push({ label: 'Hide all', move: () => { }, click: () => { layers.forEach((l) => { l.visible = false; }); refreshDraw(); showRoot(); } });
+                // GREY OUT IS NOT HIDE ALL, and it sits beside it because Hide all is what
+                // people pressed when they wanted this: something drawn over the track --
+                // a compound, a variant, the sequence itself -- read against layers that
+                // are still there rather than against a track that has gone blank.
+                //
+                // THIS track only. The menu belongs to one track, so greying its
+                // neighbours from here would answer a question nobody asked.
+                const __greyed = layers.some((l) => l.muted);
+                items.push({
+                    label: __greyed ? 'Back to colour' : 'Grey out all layers', move: () => { },
+                    click: () => {
+                        exec('baja/bio/layers/focus-layer.js', graph, null,
+                            __greyed ? { track: track } : { all: true, track: track })
+                            .then(() => { refreshDraw(); showRoot(); }).catch(() => { });
+                    }
+                });
                 items.push({ label: 'Interaction on (all)', move: () => { }, click: () => { layers.forEach((l) => { l.interactive = true; }); refreshDraw(); showRoot(); } });
                 items.push({ label: 'Interaction off (all)', move: () => { }, click: () => { layers.forEach((l) => { l.interactive = false; }); refreshDraw(); showRoot(); } });
                 items.push({ label: 'Remove all layers', move: () => { }, click: () => { track.track_layers = []; refreshDraw(); showRoot(); } });
