@@ -106,7 +106,23 @@ function (graph, genegraph_panel_layout) {
                 if (!(top === el || (box && top && box.contains(top) && !top.closest('[role="menu"],[role="dialog"],#baja-layer-popup')))) return;
                 const p = toCanvas(e, el);
                 rec.at_canvas_px = { x: Math.round(p.x), y: Math.round(p.y) };
-                if (overCanvasMenu(g, p)) { rec.menu = true; return; }
+                if (overCanvasMenu(g, p)) {
+                    rec.menu = true;
+                    // A PRESS SWALLOWED IN SILENCE IS WHAT A BROKEN BUTTON LOOKS LIKE. A menu
+                    // painted on the canvas owns presses inside its own bounds, which is
+                    // right, but when one of those presses was aimed at a layer row the user
+                    // sees a row that highlights, a chevron that says there is a menu here,
+                    // and nothing happening. Say which menu is in the way.
+                    try {
+                        const over = rowAt(g, p);
+                        if (over) {
+                            rec.row = (over.row.layer && (over.row.layer.name || over.row.layer.data_type)) || '(more)';
+                            g.setMessage(' A menu is open over that layer row \u2014 close it, or move the'
+                                + ' pointer away from it, and press the row again. ');
+                        }
+                    } catch (err) { }
+                    return;
+                }
                 // The "?" after a layer's label: its explanation (baja/bio/decor-help.js).
                 const helpLayer = helpAt(g, p);
                 if (helpLayer) {
