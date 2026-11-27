@@ -154,8 +154,95 @@ function (graph, model, opts) {
             + (m.limits || []).map((x) => '<li style="margin-bottom:4px">' + esc(x) + '</li>').join('')
             + '</ul></div>';
 
+        // ---- DESIGN THE BLOCKERS THIS PAGE DESCRIBES -----------------------------------------
+        // The window ends at a shortlist of sites and a 20-mer for each, which is the point
+        // at which someone opens the Design library, picks the track, picks the modality and
+        // hopes the designer lands on the same stretches. The button hands those stretches
+        // straight to the steric designer, which tiles them: one dense design over exactly
+        // the regions listed here.
+        //
+        // Full 2'-MOE, full PS is the steric default in that designer already -- every
+        // residue modified, every linkage phosphorothioate, which is what makes a compound
+        // occupy a site without recruiting RNase H. It is named here as well because this
+        // button is a shortcut past the dialog where someone would otherwise read it.
+        //
+        // ONE TRACK PER RUN, because a design is a design against one sequence. The two arms
+        // live on different tracks, so the button asks which arm to design, with the counts
+        // in the question rather than leaving the user to work out which is which.
+        const designBtn = document.createElement('button');
+        designBtn.style.cssText = 'cursor:pointer;flex:0 0 auto;border-radius:8px;padding:9px 14px;'
+            + 'margin-right:8px;font:600 13px ' + C.font + ';border:1px solid ' + C.outline
+            + ';background:transparent;color:' + C.accent + ';';
+        designBtn.textContent = 'Design blockers';
+        designBtn.title = 'Tile these regions with steric-blocking ASOs (full 2\u2032-MOE, full PS)';
+        const armWindows = (arm, which) => {
+            const out = [];
+            for (const r of (arm.candidates || [])) {
+                if (r.footprintStart == null || r.footprintEnd == null) continue;
+                out.push({
+                    x0: Math.min(r.footprintStart, r.footprintEnd),
+                    x1: Math.max(r.footprintStart, r.footprintEnd),
+                    // What the designer ranks the regions by when there is no model to rank
+                    // against: this page's own score for the site.
+                    impact: +r.score || 0,
+                    label: (r.label || '') + ' (' + which + ')'
+                });
+            }
+            // A sequence that does both belongs to BOTH arms: it is a region worth tiling on
+            // whichever track is being designed.
+            for (const d of (m.dual || [])) {
+                const a0 = (which === 'raise') ? d.upStart : d.downStart;
+                const b0 = (which === 'raise') ? d.upEnd : d.downEnd;
+                if (a0 == null || b0 == null) continue;
+                out.push({ x0: Math.min(a0, b0), x1: Math.max(a0, b0),
+                    impact: (+d.score || 0) + 1, label: 'does both' });
+            }
+            return out;
+        };
+        designBtn.onclick = async () => {
+            try {
+                const arms = [
+                    { track: o.up, arm: m.up, which: 'raise', verb: 'raise' },
+                    { track: o.down, arm: m.down, which: 'lower', verb: 'lower' }
+                ].filter((a) => a.track && armWindows(a.arm, a.which).length);
+                if (!arms.length) { say('There are no sites on this page to design against.'); return; }
+                let pick = arms[0];
+                if (arms.length > 1) {
+                    pick = await new Promise((resolve) => {
+                        let done = false;
+                        const once = (v) => { if (!done) { done = true; resolve(v); } };
+                        exec('baja/lib/pick-list.js', {
+                            title: 'Design steric blockers \u00b7 which arm',
+                            subtitle: 'full 2\u2032-MOE, full PS \u00b7 one track per design run',
+                            items: arms.map((a) => ({
+                                label: a.track.name || 'track',
+                                sub: armWindows(a.arm, a.which).length + ' region'
+                                    + (armWindows(a.arm, a.which).length === 1 ? '' : 's') + ' to tile, to '
+                                    + a.verb + ' it',
+                                ref: a
+                            })),
+                            onPick: (it) => once(it && it.ref),
+                            onClose: () => once(null)
+                        }).then((x) => { if (x === null) once(null); });
+                    });
+                }
+                if (!pick) return;
+                const windows = armWindows(pick.arm, pick.which);
+                try { if (graph.deselectAllTracks) graph.deselectAllTracks(); } catch (e) { }
+                try { if (pick.track.select) pick.track.select(); } catch (e) { }
+                say('Designing steric blockers over ' + windows.length + ' region'
+                    + (windows.length === 1 ? '' : 's') + ' of ' + (pick.track.name || 'the track')
+                    + ', full 2\u2032-MOE and full PS\u2026');
+                await exec('baja/manchester/menu/track-design-menu.js', graph, pick.track,
+                    (o.layout || null), 'steric', windows);
+            } catch (e) {
+                say('The blocker design could not be started: ' + ((e && e.message) ? e.message : e));
+            }
+        };
+
         OV.open({
             id: 'baja-ratio-shift',
+            headerExtras: [designBtn],
             title: 'Ratio shift · raise ' + (m.up.track || '') + ', lower ' + (m.down.track || ''),
             body: body,
             maximized: true

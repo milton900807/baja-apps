@@ -497,7 +497,7 @@ function (graph, genegraph_panel_layout, tracks, runOn) {
             // tracks are a pair, not a direction, and running them the wrong way round is a
             // different experiment that would look like it worked. The picker asks, and a
             // selection only ever narrows what it asks about.
-            open: () => exec('baja/bio/expression/ratio-shift-picker.js', graph, {}),
+            open: () => exec('baja/bio/expression/ratio-shift-picker.js', graph, { layout: L }),
             docs: {
                 summary: 'Takes two transcripts and shortlists steric blockers that would push '
                     + 'them in opposite directions: over microRNA seed sites and 3\u2019 UTR '

@@ -151,6 +151,45 @@ const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [
     ok(/where the protein is made more than how much/.test(down.track_layers[0].decor.help.note),
        'and the lowering layer says what it actually changes');
 
+    // ---- the Design button ----------------------------------------------------------------
+    // The window ends at a shortlist and a 20-mer for each, which is where someone would
+    // open the Design library and hope the designer lands on the same stretches. The button
+    // hands those stretches to the steric designer instead.
+    const btn = Array.from(el().querySelectorAll('button')).filter((b) => /Design blockers/.test(b.textContent))[0];
+    ok(!!btn, 'the window carries a Design button');
+    ok(/full 2\u2032-MOE, full PS/.test(btn.title), 'which names the chemistry it will use: ' + btn.title);
+
+    const calls = [];
+    const realExec = global.lion_engine.exec;
+    global.lion_engine = { exec: (p2, ...a) => {
+        calls.push({ path: p2, args: a });
+        if (/pick-list/.test(p2)) { setTimeout(() => a[0].onPick(a[0].items[0]), 0); return Promise.resolve(true); }
+        if (/track-design-menu/.test(p2)) return Promise.resolve(true);
+        return realExec(p2, ...a);
+    } };
+    btn.onclick();
+    await new Promise((r) => setTimeout(r, 30));
+
+    // ONE TRACK PER RUN: a design is against one sequence, and the two arms are two tracks.
+    const asked = calls.filter((c) => /pick-list/.test(c.path))[0];
+    ok(!!asked, 'with two arms it asks which one to design');
+    ok(/which arm/.test(asked.args[0].title), 'by arm: ' + asked.args[0].title);
+    ok(/full 2\u2032-MOE, full PS/.test(asked.args[0].subtitle), 'and says the chemistry again there');
+    const design = calls.filter((c) => /track-design-menu/.test(c.path))[0];
+    ok(!!design, 'and then opens the designer');
+    ok(design.args[3] === 'steric', 'on the steric-blocking modality: ' + design.args[3]);
+
+    // THE REGIONS ARE THIS PAGE'S OWN SITES, in track coordinates, which is what makes the
+    // button worth pressing rather than opening the library by hand.
+    const wins = design.args[4];
+    ok(Array.isArray(wins) && wins.length === 3,
+       'handing over the footprints of this arm, plus the dual sequence: ' + (wins || []).length);
+    ok(wins.some((w) => w.x0 === 1394 && w.x1 === 1413), 'at the coordinates the window listed');
+    ok(wins.every((w) => isFinite(w.impact)), 'each with what to rank the regions by');
+    ok(wins.some((w) => /does both/.test(w.label || '')),
+       'and a sequence that does both counts as a region on either track');
+    global.lion_engine = { exec: realExec };
+
     ok(/nothing here measures either message/.test(said.join(' ')), 'the closing line says it too');
     ok(/1 sequence would do both ends at once/.test(said.join(' ')), 'and leads with the dual answer');
 
@@ -187,6 +226,24 @@ const mkTrack = (name, xi, xf) => ({ name: name, xi: xi, xf: xf, track_layers: [
         { ok: false, reason: 'DNM1 has no sequence loaded' }, {});
     ok(v2 === false && !el(), 'a refusal opens nothing');
     ok(/no sequence loaded/.test(said2.join(' ')), 'and is said as written: ' + said2.join(' '));
+
+    // ---- the designer tiles what it is handed ------------------------------------------
+    // The steric designer already tiles the cis-regulatory model's windows; the button
+    // feeds the same machinery a list of its own, so what matters is that the list is used
+    // as the regions and that nothing tries to rank it by an attribution that does not
+    // exist here.
+    const dm = fs.readFileSync('baja/manchester/menu/track-design-menu.js', 'utf8');
+    ok(/function \(graph, selectedTrack, genegraph_panel_layout, presetModality, presetWindows\)/.test(dm),
+       'the design library takes windows from a caller');
+    ok(/if \(__preset\) \{ __targets = __preset; spliceMode = null; \}/.test(dm),
+       'they become the regions to tile, and are not passed off as a splice mode');
+    ok(/if \(spliceMode \|\| __preset\) \{/.test(dm), 'and the region path runs for them');
+    ok(/NO MODEL, NO ATTRIBUTION/.test(dm),
+       'with a ranking that does not pretend to a model it has not got');
+    ok(/full_modification: __p\.wing_modification \|\| "2'-MOE"/.test(dm)
+       && /default_backbone: __p\.default_backbone \|\| "PS"/.test(dm)
+       && /po_link_positions: \[\]/.test(dm),
+       'and the steric default is full 2\u2032-MOE with a full PS backbone');
 
     console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
     process.exit(fails ? 1 : 0);

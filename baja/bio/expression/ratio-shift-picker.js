@@ -132,6 +132,10 @@ function (graph, opts) {
             { up: up, down: down, upRange: upRange, downRange: downRange,
               top: (o.top != null) ? +o.top : 8,
               footprint: (o.footprint != null) ? +o.footprint : 20 });
-        return exec('baja/bio/expression/ratio-shift-view.js', graph, m, { up: up, down: down });
+        // The layout travels with it: the view's Design button opens the design library,
+        // which needs it, and a button that cannot open what it offers is worse than no
+        // button.
+        return exec('baja/bio/expression/ratio-shift-view.js', graph, m,
+            { up: up, down: down, layout: o.layout || null });
     })();
 }

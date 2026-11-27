@@ -26,8 +26,9 @@ const calls = [];
 const mk = (partners, label, selected) => {
     const exec = (path, a, b, c) => { calls.push({ path: path, a: a, b: b, c: c }); return Promise.resolve({ ok: true }); };
     const f = new Function('__ratioPartners', '__trackLabel', 'selectedTrack', 'graph', 'exec',
+        'genegraph_panel_layout',
         'return ({ ' + text + ' });');
-    return f(partners, label, selected, { wake() { } }, exec);
+    return f(partners, label, selected, { wake() { } }, exec, { panel: true });
 };
 
 const SEQ = 'ACGT'.repeat(50);
@@ -48,9 +49,10 @@ ok(/3’ UTRs rather than two whole genes/.test(card.blurb), 'and where to run i
 calls.length = 0;
 card.open();
 ok(calls.length === 1 && /ratio-shift-picker/.test(calls[0].path), 'the card opens the picker: ' + (calls[0] || {}).path);
-ok(calls[0].b && Object.keys(calls[0].b).length === 0,
+ok(calls[0].b && !calls[0].b.up && !calls[0].b.down,
    'with neither end preset, so both tracks are chosen on purpose rather than one being '
    + 'taken from whichever track this menu was opened on');
+ok(calls[0].b.layout, 'but the layout travels with it, so the page it opens can open the designer');
 ok(typeof card.books !== 'function', 'and it is a leaf, not a shelf of pairings');
 
 // ---- with nothing to pair it with ---------------------------------------------------------

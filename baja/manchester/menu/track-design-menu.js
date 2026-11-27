@@ -1,4 +1,4 @@
-function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
+function (graph, selectedTrack, genegraph_panel_layout, presetModality, presetWindows) {
 
     // The Design LIBRARY for a single track — Therapeutics, Primer probes, Off-targets,
     // Compounds and the Clinical Library, each a shelf of described strategies rather than a
@@ -1412,6 +1412,19 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // must not get is a plain design silently presented as splice-switching.
                     let __prio = null, __targets = null, __sites = [], __scored = [];
                     const __trackName = ((selectedTrack && selectedTrack.name) || 'this track');
+                    // WINDOWS HANDED IN FROM SOMEWHERE ELSE. The splice path below gets its
+                    // regions from the track's cis-regulatory model; a caller that already
+                    // knows which stretches matter -- the ratio shift's blocker sites, a
+                    // region cut out by hand -- passes them here instead, in track
+                    // coordinates, and the same machinery tiles around them: one dense design
+                    // over the concatenated regions, mapped back, one quota charge.
+                    //
+                    // They are NOT a splice mode. Nothing is ranked by attribution here,
+                    // because there is no model to rank against; see __designOnRegions.
+                    const __preset = (Array.isArray(presetWindows) && presetWindows.length)
+                        ? presetWindows.filter((w) => w && isFinite(+w.x0) && isFinite(+w.x1))
+                        : null;
+                    if (__preset) { __targets = __preset; spliceMode = null; }
                     if (spliceMode) {
                         __prio = await exec('baja/manchester/menu/splice-tiling-priority.js');
                         const __windows = __prio.modelWindows(selectedTrack);
@@ -1670,6 +1683,36 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // a design whose whole purpose is the attribution. Set it to 1 to rank
                         // on the model alone and ignore the design rules entirely.
                         const ATTR_WEIGHT = 0.95;
+                        // NO MODEL, NO ATTRIBUTION. Windows handed in from outside carry an
+                        // impact of their own and nothing to integrate under a compound, so
+                        // they are ranked by the window they sit in and then by the design
+                        // score. Running the splice arithmetic over an empty __scored would
+                        // give every candidate a sum of zero and rank the lot by design score
+                        // alone, silently.
+                        if (!spliceMode || !__prio || !__scored.length) {
+                            const byWindow = kept.slice().sort((x, y) =>
+                                ((+y.__windowImpact || 0) - (+x.__windowImpact || 0))
+                                || ((+y.score || 0) - (+x.score || 0)));
+                            let out0 = byWindow;
+                            if (json_input.enforce_non_overlapping) {
+                                const taken0 = []; out0 = [];
+                                for (const c of byWindow) {
+                                    let clash = false;
+                                    for (const t of taken0) { if (c.start < t.hi && c.end > t.lo) { clash = true; break; } }
+                                    if (clash) continue;
+                                    taken0.push({ lo: c.start, hi: c.end });
+                                    out0.push(c);
+                                }
+                            }
+                            out0 = out0.slice(0, wantN);
+                            out0.forEach((c, i) => { c.rank = i + 1; });
+                            const res0 = Object.assign({}, rr,
+                                { top_candidates: out0, returned_candidates: out0.length });
+                            res0.__windowCount = (__targets || []).length;
+                            res0.__regionCount = regions.length;
+                            res0.__onSiteDropped = __onSite;
+                            return res0;
+                        }
                         const dir = (spliceMode === 'inclusion') ? -1 : 1;
                         const base2 = (selectedTrack.xi || 0) + __designOffset();
                         for (const c of kept) {
@@ -1720,13 +1763,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                     const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str);
                     let r = null;
-                    if (spliceMode) {
+                    if (spliceMode || __preset) {
                         const __regions = __spliceRegions();
+                        // WHAT THE REGIONS ARE CALLED depends on where they came from, and a
+                        // message about "suppressive windows" on a run that was handed a list
+                        // of blocker sites would send the reader to a model that was never
+                        // consulted.
+                        const __whatRegions = __preset
+                            ? ('region' + (__preset.length === 1 ? '' : 's') + ' handed to the designer')
+                            : ((spliceMode === 'inclusion' ? 'suppressive (down)' : 'supportive (up)') + ' window');
                         if (!__regions.length) {
                             // Nothing has been charged yet, so the plain design below is still
                             // this run's ONE call.
-                            graph.setMessage(' No ' + (spliceMode === 'inclusion' ? 'suppressive (down)' : 'supportive (up)')
-                                + ' window on ' + __trackName + ' lies inside the sequence being designed'
+                            graph.setMessage(' No ' + __whatRegions
+                                + ' on ' + __trackName + ' lies inside the sequence being designed'
                                 + ' \u2014 designing standard steric-blocking ASOs instead. ');
                             spliceMode = null;
                         } else {
@@ -1735,8 +1785,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 // The call was made and charged. Do NOT spend a second one on a
                                 // fallback design; say so and stop.
                                 graph.setMessage(' No compound could be placed on the '
-                                    + (spliceMode === 'inclusion' ? 'suppressive (down)' : 'supportive (up)')
-                                    + ' windows of ' + __trackName + '. Nothing was designed. ');
+                                    + __whatRegions + 's of ' + __trackName + '. Nothing was designed. ');
                                 try { __sp.stop(); } catch (e) { }
                                 return;
                             }
@@ -2757,7 +2806,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             // menu: with three transcripts open it was six near-identical entries to read.
             // The picker asks them in the order the sentence runs -- raise this one, lower
             // that one -- and starts from no assumption about which track is which.
-            open: () => exec('baja/bio/expression/ratio-shift-picker.js', graph, {})
+            open: () => exec('baja/bio/expression/ratio-shift-picker.js', graph,
+                { layout: genegraph_panel_layout })
         }, {
             // Screening belongs beside designing: an ASO is not finished until you know what
             // else it binds, and having to leave Therapeutics to find out made that a separate

@@ -1791,6 +1791,10 @@ if [[ $DO_API -eq 1 ]]; then
     "flexigraph/menu.js:NEAR, NOT FOR EVER" \
     "baja/manchester/menu/track-layers-side-menu.js:GREY OUT IS NOT HIDE ALL" \
     "baja/bio/layers/focus-layer.js:One track or all of them"
+  install_group "design steric blockers over the regions a page already found" \
+    "baja/bio/expression/ratio-shift-view.js:DESIGN THE BLOCKERS THIS PAGE DESCRIBES" \
+    "baja/manchester/menu/track-design-menu.js:WINDOWS HANDED IN FROM SOMEWHERE ELSE" \
+    "baja/bio/expression/ratio-shift-picker.js:The layout travels with it"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

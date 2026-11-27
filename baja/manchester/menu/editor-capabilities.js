@@ -2773,7 +2773,8 @@ function (graph, genegraph_panel_layout) {
                         return exec('baja/bio/expression/ratio-shift-picker.js', graph, {
                             up: U || null, down: D || null,
                             top: (a && a.top) ? +a.top : 8,
-                            footprint: (a && a.footprint) ? +a.footprint : 20
+                            footprint: (a && a.footprint) ? +a.footprint : 20,
+                            layout: genegraph_panel_layout
                         });
                     }
                     result('Scanning ' + (U.name || 'the first track') + ' for repression to relieve and '
@@ -2782,7 +2783,8 @@ function (graph, genegraph_panel_layout) {
                         { up: U, down: D, top: (a && a.top) ? +a.top : 8,
                           footprint: (a && a.footprint) ? +a.footprint : 20 });
                     if (!m || !m.ok) { result('Ratio shift: ' + ((m && m.reason) || 'nothing came back.')); return m; }
-                    await exec('baja/bio/expression/ratio-shift-view.js', graph, m, { up: U, down: D });
+                    await exec('baja/bio/expression/ratio-shift-view.js', graph, m,
+                        { up: U, down: D, layout: genegraph_panel_layout });
                     return { up: m.up.selective, down: m.down.selective };
                 },
                 preview: (a) => {
