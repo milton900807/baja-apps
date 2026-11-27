@@ -1799,6 +1799,9 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/mouse-over-highlight.js:GREYING FROM THE TRACK MENU" \
     "baja/manchester/menu/track-layer-popup.js:THIS TRACK, because this menu belongs to one" \
     "baja/bio/layers/focus-layer.js:The track given by the caller wins over the search"
+  install_group "compare the selected stretch across its own track" \
+    "baja/bio/compare/selection-similarity.js:WHERE ELSE ON THIS TRACK DOES THE SELECTED STRETCH OCCUR" \
+    "baja/manchester/menu/selected-sequence-menu.js:WHERE ELSE DOES THIS STRETCH OCCUR"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

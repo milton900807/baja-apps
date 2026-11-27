@@ -222,6 +222,16 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             go('Details...', async () => exec('baja/manchester/menu/show-selected-sequence-details.js', t, graph, genegraph_panel_layout)),
             go('Selected-sequence tools...', async () => exec('baja/manchester/menu/selected-sequence-tools.js', graph, genegraph_panel_layout, t)),
             go('Find motif...', async () => exec('baja/manchester/menu/motif-tools.js', graph)),
+            // WHERE ELSE DOES THIS STRETCH OCCUR. The question behind "is this repeated",
+            // "is there another copy of my site", "did the paralogue keep it" -- and until
+            // now the answer was to copy the sequence out and run something else on it. The
+            // threshold is in the label because it is the whole result: at 50% a 20-mer is
+            // noise and a 500-mer is a real relative, and the user is the one who knows
+            // which they have.
+            go('Compare across the track (\u226550%)...', async () =>
+                exec('baja/bio/compare/selection-similarity.js', graph, t, range, { min: 0.5 })),
+            go('Compare across the track (\u226570%)...', async () =>
+                exec('baja/bio/compare/selection-similarity.js', graph, t, range, { min: 0.7 })),
             go('Mutate from sequence...', async () => exec('baja/manchester/menu/mutation-from-track-sequence.js', graph, genegraph_panel_layout, true)),
             go('Copy sequence', async () => copy(seqOf(), 'selection')),
             go('Copy reverse complement', async () => copy(revComp(seqOf()), 'reverse complement')),
