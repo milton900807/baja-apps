@@ -1841,6 +1841,9 @@ if [[ $DO_API -eq 1 ]]; then
     "py/sequence/points-of-interest.py:rest is a quick interactive lookup, so use the FASTEST model the model" \
     "py/sequence/track-to-region.py:ask the model for the correct gene symbol, then resol" \
     "py/timeline/timeline-from-image.py:Image -> timeline extractor (the model vision)."
+  install_group "remove all graph layers means the lines" \
+    "baja/manchester/menu/editor-capabilities.js:SENTENCES THE EDITOR DOES NOT NEED A MODEL FOR" \
+    "baja/manchester/menu/editor-command.js:A SENTENCE THE EDITOR IS SURE OF DOES NOT GO TO A MODEL"
   install_group "the lines between tracks survive save and reload" \
     "baja/bio/compare/track-link-layer.js:IT IS NOT A LAYER, BUT IT IS SAVED" \
     "baja/bio/compare/restore-track-links.js:THE LINES BETWEEN TRACKS, BACK AFTER A RELOAD" \

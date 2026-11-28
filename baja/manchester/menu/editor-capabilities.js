@@ -1514,7 +1514,11 @@ function (graph, genegraph_panel_layout) {
                     + 'track". It removes LAYERS, not tracks and not sequence, and it names '
                     + 'every layer it takes so the user can see what went. Nothing else is '
                     + 'touched. Prefer naming what to remove; removing everything is only for '
-                    + 'a request that says so.',
+                    + 'a request that says so. A GRAPH LAYER IS NOT ONE OF THESE: that is the '
+                    + 'name the editor gives a set of lines drawn between two tracks, and '
+                    + '"remove the graph layer" or "remove all graph layers" is '
+                    + 'remove_track_links, not this. Reading it as this one deletes work that '
+                    + 'took a scan to produce and was not asked about.',
                 needs: 'track',
                 params: {
                     match: {
@@ -2639,9 +2643,13 @@ function (graph, genegraph_panel_layout) {
                 summary: 'TAKE THE LINES BETWEEN TRACKS OFF THE CANVAS: the curves joining a '
                     + 'match on one track to where it came from on another. The answer to '
                     + '"remove the lines", "clear the connections between the tracks", "get '
-                    + 'rid of the links", "take the comparison lines off". They are drawn '
-                    + 'over the tracks and belong to no layer, so no layer command reaches '
-                    + 'them. The layers the lines were drawn for are left alone; removing '
+                    + 'rid of the links", "take the comparison lines off" AND to "remove the '
+                    + 'graph layer" or "remove all graph layers", which is what the menu on '
+                    + 'each line calls them: a GRAPH LAYER IS A SET OF THESE LINES, drawn on '
+                    + 'the graph rather than on a track. It is NOT a track layer and this is '
+                    + 'NOT remove_layers: a request naming graph layers must never be read as '
+                    + 'the layers on the tracks, which are different work and are not coming '
+                    + 'back. The layers the lines were drawn for are left alone; removing '
                     + 'those is remove_layers.',
                 needs: 'track',
                 run: async () => {
@@ -2651,6 +2659,11 @@ function (graph, genegraph_panel_layout) {
                             const lp = owner && owner.__linkPainters;
                             if (lp && lp.length) { n += lp.length; owner.__linkPainters = []; }
                         } catch (e) { }
+                        // AND OUT OF THE DOCUMENT. The lines are kept twice -- live painters
+                        // and a plain record that is what gets saved -- so clearing only the
+                        // painters takes them off the screen and brings them all back the
+                        // next time the file is opened.
+                        try { if (owner && owner.__linkSets) owner.__linkSets = []; } catch (e) { }
                     }
                     try { if (graph.wake) graph.wake(); } catch (e) { }
                     result(n ? ('Removed ' + n + ' set' + (n === 1 ? '' : 's') + ' of lines between '
@@ -5146,9 +5159,33 @@ function (graph, genegraph_panel_layout) {
             };
         };
 
+        // ---- SENTENCES THE EDITOR DOES NOT NEED A MODEL FOR ----------------------------
+        // Not a shortcut for speed: a safety rail. "Remove all graph layers" is one
+        // adjective away from "remove all layers", and the editor calls a set of lines
+        // drawn between two tracks a GRAPH LAYER, because that is what the menu on each
+        // line says. Read as the layers ON the tracks, the request deletes work that took a
+        // scan to produce, was not asked about and is not coming back, while the lines it
+        // was actually about stay on the screen. The summaries say which is which; this
+        // makes sure of it, before anything is asked of a model.
+        //
+        // Anything here must be unambiguous in plain English. A sentence that could
+        // honestly mean two things belongs in clarify, which asks.
+        const decide = (text) => {
+            const raw = ('' + (text || '')).toLowerCase();
+            if (!raw) return null;
+            const gone = /\b(remove|delete|clear|drop|kill|erase)\b|\bget rid of\b|\btake\s+off\b/;
+            if (/\bgraph\s*layers?\b/.test(raw) && gone.test(raw)) {
+                if (LIST.find((x) => x.name === 'remove_track_links')) {
+                    return { capability: 'remove_track_links', args: {} };
+                }
+            }
+            return null;
+        };
+
         const localPlan = (text) => {
             const raw = ('' + (text || '')).toLowerCase();
             if (!raw) return null;
+
             const spec = (LIST.find((c) => c.name === 'load_variants') || {}).params || {};
             const has = (w) => new RegExp('(^|[^a-z])' + w + '[a-z]*([^a-z]|$)').test(raw);
             const db = (spec.db && spec.db.values || []).find((v) => has(v));
@@ -5260,7 +5297,7 @@ function (graph, genegraph_panel_layout) {
             list: LIST, byName: byName, validate: validate, preview: preview,
             regionInfo: regionInfo, regionsOf: regionsOf, selCountOf: selCountOf,
             blocker: blocker, catalogue: catalogue, suggest: suggest, localPlan: localPlan,
-            clarify: clarify,
+            clarify: clarify, decide: decide,
             vhits: vhits, vrows: vrows, crows: crows, selectVariants: selectVariants,
             selTracks: selTracks, oneSelTrack: oneSelTrack, tracks: tracks, rangeOf: rangeOf,
             VS: VS, F: F

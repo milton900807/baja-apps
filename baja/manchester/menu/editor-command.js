@@ -1143,6 +1143,21 @@ function (graph, genegraph_panel_layout, options) {
                     try { c = CAP.clarify ? CAP.clarify(ask) : null; } catch (e) { c = null; }
                     if (c && c.options && c.options.length > 1) { renderChoice(c, ask); return; }
                 }
+                {
+                    // A SENTENCE THE EDITOR IS SURE OF DOES NOT GO TO A MODEL. These are the
+                    // ones where a near miss costs something that cannot be undone: "remove
+                    // all graph layers" read as the layers on the tracks deletes a scan's
+                    // worth of work and leaves the lines it meant on the screen.
+                    let d = null;
+                    try { d = CAP.decide ? CAP.decide(ask) : null; } catch (e) { d = null; }
+                    if (d) {
+                        logged({ ask: ask, status: 'OK',
+                                 steps: [{ capability: d.capability, args: d.args || {} }] });
+                        render({ status: 'OK', steps: [d],
+                            explain: 'read here: this one is not ambiguous' }, ask);
+                        return;
+                    }
+                }
                 // ONE REQUEST AT A TIME, ACROSS INSTANCES.
                 //
                 // `busy` only guards this one. The toolbar's input execs a fresh copy of this
