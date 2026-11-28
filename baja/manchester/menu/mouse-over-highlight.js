@@ -2288,7 +2288,7 @@ function (graph, genegraph_panel_layout) {
                         const title = sh.name || sh.type || 'Shape';
 
                         shapeMenu.push({
-                            label: `Edit comment: ${title}`,
+                            label: (hitShapes.length > 1 ? `Edit text: ${title}` : 'Edit text'),
                             click: async () => {
                                 graph.currentShape = sh;
                                 const res = await prompt('Comment', ['Comment'], { Comment: sh.comment || '' }, 500, 300);
@@ -2298,7 +2298,7 @@ function (graph, genegraph_panel_layout) {
                         });
 
                         shapeMenu.push({
-                            label: `Color: ${title}`,
+                            label: (hitShapes.length > 1 ? `Color: ${title}` : 'Color'),
                             click: () => {
                                 const colorSub = COLORS.map(c => ({
                                     label: c,
@@ -2313,7 +2313,7 @@ function (graph, genegraph_panel_layout) {
                         });
 
                         shapeMenu.push({
-                            label: `Delete: ${title}`,
+                            label: (hitShapes.length > 1 ? `Delete: ${title}` : 'Delete'),
                             click: async () => {
                                 let confirm = await exec('baja/lib/confirm.js', 'Delete this shape?', async () => {
                                     graph.currentShape = null;
@@ -2327,7 +2327,28 @@ function (graph, genegraph_panel_layout) {
                         if (hitShapes.length > 1) shapeMenu.push({ type: 'separator' });
                     }
 
-                    graph.showSideMenu(orderMenu(shapeMenu), x, y, 'Shape ▸');
+                    // THE ITEMS, WHERE THE SHAPE IS. showSideMenu collapses to an orange
+                    // chip in the top-left corner, so pressing a label down on the canvas
+                    // put its menu as far from it as the window allows, behind a second
+                    // click on a pill that does not say what it is for. The variant menu
+                    // and the selected-sequence menu both moved to the floating menu for
+                    // this reason; this was the last one still going to the corner.
+                    const __sm = orderMenu(shapeMenu);
+                    const __title = (hitShapes.length === 1
+                        ? (hitShapes[0].name || (hitShapes[0].type === 'RectangleText'
+                            ? 'Text label' : hitShapes[0].type) || 'Shape')
+                        : (hitShapes.length + ' shapes'));
+                    let __floated = false;
+                    try {
+                        if (graph.openFloatingMenu) {
+                            const ds = graph.__downScreen || { x: graph.X(x), y: graph.Y(y) };
+                            __floated = graph.openFloatingMenu(__sm, ds.x, ds.y, __title);
+                        }
+                    } catch (e) { __floated = false; }
+                    // The corner is still the fallback: on a phone the full-screen list is
+                    // where a thumb wants it, and a floating menu that could not open is
+                    // worse than one in the wrong place.
+                    if (!__floated) graph.showSideMenu(__sm, x, y, __title + ' \u25b8');
                     return;
                 }
             }

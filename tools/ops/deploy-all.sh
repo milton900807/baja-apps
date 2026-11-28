@@ -1961,6 +1961,10 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "remove duplicate variants, by nucleotide or by peptide" \
     "baja/bio/variants/remove-duplicate-variants.js:THE SAME MUTATION, LOADED TWICE" \
     "baja/manchester/menu/editor-capabilities.js:REMOVE DUPLICATE VARIANTS FROM A TRACK"
+
+  install_group "a text label that holds its text, and its menu where it is" \
+    "flexigraph/shapes/Rect-text.js:A BOX THAT OVERFLOWS TELLS YOU WHICH ONE WAS CHOSEN" \
+    "baja/manchester/menu/mouse-over-highlight.js:THE ITEMS, WHERE THE SHAPE IS"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
