@@ -968,7 +968,8 @@ function (price) {
             let tools_menu = []
             tools_menu = [
                 {
-                    'label': 'AI Models', 'ionfunction': createIonFunction(async () => {
+                    // CALLED MODELS, NOT AI MODELS, as in the editor.
+                    'label': 'Models', 'ionfunction': createIonFunction(async () => {
                         graph.showWindowMenu(await exec('baja/demo-models', graph, genegraph_panel_layout), 10, 10, 400)
                     })
                 },

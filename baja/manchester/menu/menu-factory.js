@@ -761,11 +761,13 @@ function () {
                                 // resolves within the same tick and the menu session is still open.
                                 // On a cold load it is not, and the item does nothing -- an
                                 // intermittent version of the fault the two items below had outright.
-                                'label': 'AI Models', click: (async () => {
+                                // CALLED MODELS, NOT AI MODELS: every model in this list is
+                                // one, and the prefix said nothing the list did not.
+                                'label': 'Models', click: (async () => {
                                     {
                                         graph.showSideMenu([{ type: 'html', label: 'Loading\u2026',
                                                               html: 'Loading the models\u2026' }],
-                                                           null, 'AI Models');
+                                                           null, 'Models');
 
                                         const models = await exec('baja/bio/splicing/exon-ai-models.js',
                                             graph, genegraph_panel_layout, selectedTrack, annotation);

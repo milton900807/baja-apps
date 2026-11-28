@@ -1,5 +1,5 @@
 function (graph, genegraph_panel_layout, selectedTrack, annotation) {
-    // The Exon -> AI Models list, in one place.
+    // The Exon -> Models list, in one place.
     //
     //   const models = await exec('baja/bio/splicing/exon-ai-models.js',
     //                             graph, genegraph_panel_layout, selectedTrack, annotation);

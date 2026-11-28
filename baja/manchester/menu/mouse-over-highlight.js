@@ -1956,6 +1956,51 @@ function (graph, genegraph_panel_layout) {
 
             await showContextMenu(x, y);
             if (!graph.menuVisible()) {
+                // A CLICK ON A SASHIMI ARC, TESTED BEFORE ANYTHING ASKS WHICH TRACK IT IS ON.
+                //
+                // This is why the first version of it never fired. Everything below runs
+                // inside `graph.getTrack(x, y) >= 0`, which answers "whose BAND is the
+                // pointer in" -- and an arc is drawn above its track, often most of the
+                // canvas above it. The crest of a skip arc is nowhere near the band of the
+                // track it belongs to, so the press was discarded before any arc was
+                // considered, and the feature looked dead while the stamps underneath it
+                // were perfectly correct.
+                //
+                // So the arcs are asked first, against the circles the renderer drew this
+                // frame, and the track comes back from the stamp rather than from the
+                // pointer. Only the drawn part of each circle answers: the rest of it runs
+                // under the track and off the screen.
+                let __arcHit = null;
+                try {
+                    const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+                    const arcs = graph.__arcHits_transient_;
+                    if (arcs && arcs.length && (now - (graph.__arcHitsAt_transient_ || 0)) < 400) {
+                        const xPx = graph.X(x), yPx = graph.Y(y);
+                        let best = 9;                  // pixels: an arc is a thin line
+                        for (const e of arcs) {
+                            if (!e) continue;
+                            // A layer that stopped drawing -- hidden, removed, scrolled out --
+                            // leaves its last stamps behind, and an arc nobody can see is not
+                            // one that can be pressed.
+                            if ((now - (e.t || 0)) > 400) continue;
+                            const dx = xPx - e.cx, dy = yPx - e.cy;
+                            const d = Math.abs(Math.sqrt(dx * dx + dy * dy) - e.r);
+                            if (d > best) continue;
+                            let ang = Math.atan2(dy, dx);
+                            const a0 = Math.min(e.a0, e.a1), a1 = Math.max(e.a0, e.a1);
+                            if (ang < a0 - 0.02 || ang > a1 + 0.02) continue;
+                            best = d; __arcHit = e;
+                        }
+                    }
+                } catch (e) { __arcHit = null; }
+                if (__arcHit) {
+                    try {
+                        exec('baja/bio/splicing/junction-impact.js', graph,
+                            __arcHit.track, __arcHit.j);
+                    } catch (e) { }
+                    return;
+                }
+
                 let t = graph.getTrack(x, y);
                 if (t >= 0) {
                     let track = graph.track[t];
@@ -2022,53 +2067,6 @@ function (graph, genegraph_panel_layout) {
                         // The fallback is the old arithmetic, now through the LAYER's tgraph:
                         // it is what a bar that has not been painted yet this frame has, and
                         // it is at least the right grid.
-
-                        // A CLICK ON A SASHIMI ARC. The arcs are the most informative marks
-                        // on a splicing track and were the only ones that could not be asked
-                        // anything: an arc stands for a splice, and what matters about it is
-                        // what the transcript becomes if it happens. The way to ask was to
-                        // work out which exon the arc belonged to and open that instead.
-                        //
-                        // Tested against the circle the renderer actually drew, stamped by
-                        // baja/bio/track-layer.js as it draws (centre, radius, the two
-                        // angles). An arc is a curve worked out afresh on every frame, so a
-                        // geometry remembered from a pan ago points at a junction that has
-                        // moved: only the latest frame's stamps are honoured, the same rule
-                        // the "?" button uses.
-                        let __arcHit = null;
-                        try {
-                            const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
-                            const arcs = graph.__arcHits_transient_;
-                            if (arcs && arcs.length && (now - (graph.__arcHitsAt_transient_ || 0)) < 400) {
-                                const xPx = graph.X(track.tgraph.X(xw));
-                                const yPx = graph.Y(y);
-                                let best = 9;                  // pixels: an arc is a thin line
-                                for (const e of arcs) {
-                                    if (!e || e.track !== track) continue;
-                                    // A layer that stopped drawing -- hidden, removed, scrolled
-                                    // out -- leaves its last stamps behind, and an arc nobody
-                                    // can see is not one that can be pressed.
-                                    if ((now - (e.t || 0)) > 400) continue;
-                                    const dx = xPx - e.cx, dy = yPx - e.cy;
-                                    const rr = Math.sqrt(dx * dx + dy * dy);
-                                    const d = Math.abs(rr - e.r);
-                                    if (d > best) continue;
-                                    // On the drawn part of the circle, not the rest of it: an
-                                    // arc is a sixth of a circle and the other five sixths run
-                                    // under the track and off the screen.
-                                    let ang = Math.atan2(dy, dx);
-                                    const a0 = Math.min(e.a0, e.a1), a1 = Math.max(e.a0, e.a1);
-                                    if (ang < a0 - 0.02 || ang > a1 + 0.02) continue;
-                                    best = d; __arcHit = e;
-                                }
-                            }
-                        } catch (e) { __arcHit = null; }
-                        if (__arcHit) {
-                            try {
-                                exec('baja/bio/splicing/junction-impact.js', graph, track, __arcHit.j);
-                            } catch (e) { }
-                            return;
-                        }
 
                         let __slimHit = null;
                         try {

@@ -117,32 +117,48 @@ const clear = () => { try { const el = document.getElementById('baja-junction-im
     // The hit test, lifted from the editor so this is the arithmetic that ships.
     const src = fs.readFileSync('baja/manchester/menu/mouse-over-highlight.js', 'utf8');
     const block = src.slice(src.indexOf('let __arcHit = null;'), src.indexOf('if (__arcHit) {'));
-    const hit = new Function('graph', 'track', 'xw', 'y', block + '\nreturn __arcHit;');
+    const hit = new Function('graph', 'x', 'y', block + '\nreturn __arcHit;');
+
+    // WHERE IT IS TESTED IS THE WHOLE BUG. The first version sat inside
+    // `graph.getTrack(x, y) >= 0`, which asks whose BAND the pointer is in. An arc is drawn
+    // ABOVE its track, often most of the canvas above it, so the crest of a skip arc is
+    // nowhere near the band of the track it belongs to: every press on an arc was discarded
+    // before any arc was looked at, and the feature read as dead while the stamps under it
+    // were correct. So the order is the thing to hold onto.
+    ok(src.indexOf('let __arcHit = null;') < src.indexOf('let t = graph.getTrack(x, y);'),
+       'the arcs are asked BEFORE the pointer is matched to a track band');
+    ok(/exec\('baja\/bio\/splicing\/junction-impact\.js', graph,\s*\n\s*__arcHit\.track/.test(src),
+       'and the track comes from the stamp, not from where the pointer was');
+
     // An arc centred at (500, 400) with radius 200: its crest is at (500, 200).
     const j = { d: 1, a: 2 };
     const nowPx = (typeof performance !== 'undefined') ? performance.now() : Date.now();
-    const arc = { track: track, j: j, cx: 500, cy: 400, r: 200, t: nowPx,
+    const tr = { name: 'DNM1' };
+    const arc = { track: tr, j: j, cx: 500, cy: 400, r: 200, t: nowPx,
         a0: -Math.PI * 0.75, a1: -Math.PI * 0.25 };
     const g = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [arc], __arcHitsAt_transient_: nowPx };
-    const tr = { tgraph: { X: (v) => v } };
-    arc.track = tr;
-    ok(hit(g, tr, 500, 200) === arc, 'a press on the crest of the arc finds it');
-    ok(hit(g, tr, 500, 206) === arc, 'and a few pixels off it, since an arc is a thin line');
-    ok(hit(g, tr, 500, 240) === null, 'well away from it finds nothing');
+    ok(hit(g, 500, 200) === arc, 'a press on the crest of the arc finds it');
+    ok(hit(g, 500, 206) === arc, 'and a few pixels off it, since an arc is a thin line');
+    ok(hit(g, 500, 240) === null, 'well away from it finds nothing');
     // The rest of the circle is not the arc: it runs under the track and off the screen.
-    ok(hit(g, tr, 500, 600) === null, 'the far side of the same circle is not a hit');
-    ok(hit(g, tr, 300, 400) === null, 'nor its sides');
+    ok(hit(g, 500, 600) === null, 'the far side of the same circle is not a hit');
+    ok(hit(g, 300, 400) === null, 'nor its sides');
     // A stamp from an older frame points at a junction that has moved since.
     const stale = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [arc], __arcHitsAt_transient_: -100000 };
-    ok(hit(stale, tr, 500, 200) === null, 'a stamp from an old frame is ignored');
+    ok(hit(stale, 500, 200) === null, 'a stamp from an old frame is ignored');
+
     // A LAYER THAT STOPPED DRAWING leaves its last stamps in the list while other layers
     // keep refreshing theirs, so the list is fresh and that entry is not.
     const hidden = Object.assign({}, arc, { t: nowPx - 5000 });
     const g4 = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [hidden], __arcHitsAt_transient_: nowPx };
-    ok(hit(g4, tr, 500, 200) === null, 'an arc from a layer that is no longer drawing is not hit');
+    ok(hit(g4, 500, 200) === null, 'an arc from a layer that is no longer drawing is not hit');
 
-    // Another track's arcs are not this track's.
-    ok(hit(g, { tgraph: { X: (v) => v } }, 500, 200) === null, 'and arcs belong to their own track');
+    // Two tracks' arcs share the list, and the nearer curve answers.
+    const other = { track: { name: 'DNM3' }, j: { d: 9, a: 10 }, cx: 500, cy: 900, r: 200,
+        t: nowPx, a0: -Math.PI * 0.75, a1: -Math.PI * 0.25 };
+    const g5 = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [other, arc], __arcHitsAt_transient_: nowPx };
+    ok(hit(g5, 500, 200) === arc, 'with several tracks drawing arcs, the one under the pointer answers');
+    ok(hit(g5, 500, 700).track.name === 'DNM3', 'and the other one when the pointer is on it');
 
     // ---- THE STAMPS DO NOT PILE UP ------------------------------------------------------
     // The first version reset them only after a 120 ms gap between frames, which during a

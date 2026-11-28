@@ -11,7 +11,7 @@ function (graph, track, region, opts) {
     // stretch of intron is as conserved as an exon: a pseudo-exon that evolution appears
     // to be holding onto.
     //
-    // It ran from one place, the Exon -> AI Models side menu, where it needs an exon to
+    // It ran from one place, the Exon -> Models side menu, where it needs an exon to
     // have been right-clicked. The models catalogue lists every other splicing model and
     // could not list this one, because the catalogue hands over a TRACK. So the work moved
     // here and both callers hand it a window: the menu passes the exon it was opened on,

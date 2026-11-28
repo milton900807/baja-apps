@@ -1924,6 +1924,25 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "arc stamps replaced per draw, not piled up per frame" \
     "baja/bio/track-layer.js:REPLACED ONCE PER DRAW" \
     "baja/manchester/menu/mouse-over-highlight.js:A layer that stopped drawing"
+
+  # The arc dispatch sat inside getTrack(x,y) >= 0, which asks whose BAND the pointer is
+  # in -- and an arc is drawn above its track. Every press on one was discarded before any
+  # arc was looked at. Its own group again: the markers above are carried by the version
+  # that never fired.
+  install_group "a press on an arc is tested before the pointer is matched to a track" \
+    "baja/manchester/menu/mouse-over-highlight.js:TESTED BEFORE ANYTHING ASKS WHICH TRACK IT IS ON"
+
+  install_group "one bad junction is not a bad track, and a design that will not open says so" \
+    "baja/bio/track-layer.js:ONE BAD JUNCTION IS NOT A BAD TRACK" \
+    "manchester/editor.js:THIS DESIGN DID NOT OPEN, AND WHY"
+
+  install_group "the models menu is called Models" \
+    "baja/manchester/menu/menu-factory.js:CALLED MODELS, NOT AI MODELS" \
+    "baja/demo.js:CALLED MODELS, NOT AI MODELS, as in the editor"
+
+  install_group "world zero is a coordinate, not a reason to draw nothing" \
+    "baja/bio/track.js:A TRACK THAT DRAWS NOTHING AND SAYS NOTHING" \
+    "baja/bio/track-flexi.js:ZERO IS A COORDINATE, NaN IS A FAULT"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

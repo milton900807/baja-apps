@@ -847,7 +847,17 @@ return new Promise(async (resolve, reject) => {
                 graph.__arcHitsAt_transient_ = (typeof performance !== 'undefined') ? performance.now() : Date.now();
             } catch (e) { }
 
+            // ONE BAD JUNCTION IS NOT A BAD TRACK.
+            // Everything in this loop reads fields off a junction the layer was saved with,
+            // and a layer saved by an older model does not carry the same ones: a legacy PSI
+            // run stores a shape this code has since grown past. Thrown from here the
+            // exception left the whole TRACK unpainted, which reads as a track that failed to
+            // load rather than one arc the renderer could not draw -- and the design it came
+            // from reads as broken. So each arc is drawn on its own, what cannot be drawn is
+            // counted, and the layer says how many and why on its own label.
+            let __badArcs = 0, __badWhy = '';
             for (let j of __ordered) {
+              try {
                 let x1 = graph.X(tgraph.X(j.d));   // donor
                 let x2 = graph.X(tgraph.X(j.a));   // acceptor
                 if (Math.max(x1, x2) < 0 || Math.min(x1, x2) > w) continue;
@@ -1047,6 +1057,24 @@ return new Promise(async (resolve, reject) => {
                     ctx.fillText(label, 0, 0);
                     ctx.restore();
                 }
+              } catch (__arcErr) {
+                __badArcs++;
+                if (!__badWhy) __badWhy = (__arcErr && __arcErr.message) ? __arcErr.message : ('' + __arcErr);
+              }
+            }
+            // SAID, NOT SWALLOWED. A layer quietly drawing four of its nine arcs is worse
+            // than one that fails loudly: the four that drew look like the whole answer.
+            if (__badArcs) {
+                try {
+                    this.staleArcs = { n: __badArcs, why: __badWhy, of: __ordered.length };
+                    const __nm = (this.name || 'This layer');
+                    if (graph.setError) {
+                        graph.setError(' ' + __nm + ': ' + __badArcs + ' of ' + __ordered.length
+                            + ' arcs could not be drawn (' + __badWhy + '). This layer was saved '
+                            + 'by an older run and does not carry what the current one draws '
+                            + 'from; re-run the model on this track to replace it. ');
+                    }
+                } catch (e) { }
             }
             // HOW STABLY EACH EXON SPLICES, said on the exon itself.
             //

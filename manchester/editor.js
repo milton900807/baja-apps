@@ -829,6 +829,16 @@ function (path, config) {
 
                                             }
                                             else if (s != null && s.length > 0 && s.startsWith('{')) {
+                                                // A DESIGN THAT WILL NOT OPEN HAS TO SAY SO.
+                                                // Everything below restores a saved .baja, and
+                                                // all of it used to sit under an empty catch: a
+                                                // truncated file, a layer type that no longer
+                                                // exists, one bad track, any of them left the
+                                                // editor looking like a design with nothing in
+                                                // it. That is indistinguishable from an empty
+                                                // canvas, so the first thing anyone can do with
+                                                // it is guess. The restore is unchanged; what
+                                                // it does when it fails is not.
                                                 try {
                                                     let jsonObject = JSON.parse(s);
                                                     if (jsonObject['viewport']) {
@@ -904,7 +914,30 @@ function (path, config) {
                                                             graph.addTrackJSON(jsonObject);
                                                         }
                                                 } catch (exception) {
-
+                                                    // THIS DESIGN DID NOT OPEN, AND WHY.
+                                                    try {
+                                                        const __msg = (exception && exception.message)
+                                                            ? exception.message : ('' + exception);
+                                                        const __n = ('' + s).length;
+                                                        // A file cut off mid-write is the common
+                                                        // one and does not look like the others:
+                                                        // JSON.parse names an unexpected end of
+                                                        // input, and the last character of a
+                                                        // whole file is its closing brace.
+                                                        const __cut = /Unexpected end of (JSON|input)/i.test(__msg)
+                                                            || ('' + s).trim().slice(-1) !== '}';
+                                                        console.error('design did not open', exception);
+                                                        graph.setError(' This design did not open: ' + __msg
+                                                            + (__cut ? ('. The file is ' + __n.toLocaleString()
+                                                                + ' characters and does not end where a whole one '
+                                                                + 'would, so it looks cut off rather than wrong: '
+                                                                + 'the save that wrote it did not finish. An earlier '
+                                                                + 'copy of the file is the way back.')
+                                                                : ('. The file is complete, so this is the restore '
+                                                                + 'failing on something inside it rather than a bad '
+                                                                + 'file: the console has the whole error.'))
+                                                            + ' ');
+                                                    } catch (e2) { }
                                                 }
 
                                             }

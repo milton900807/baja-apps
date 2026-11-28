@@ -6012,10 +6012,10 @@ return new Promise(async (resolve, reject) => {
     gitVisibleTrackRange(__graph) {
       let graph = __graph.graph;
       let gwcxs = graph.Xwc(0);
-      if (!gwcxs) return -1;
+      if (!isFinite(gwcxs)) return -1;
 
       let gwcxf = graph.Xwc(0 + graph.grid.width);
-      if (!gwcxf) return -1;
+      if (!isFinite(gwcxf)) return -1;
       let twcxs = this.tgraph.Xwc(gwcxs - 2 * this.tgraph.xi);
       let twcxf = this.tgraph.Xwc(gwcxf - 2 * this.tgraph.xi);
       let startIndex = Math.floor(twcxs);
@@ -6938,12 +6938,32 @@ return new Promise(async (resolve, reject) => {
         let yend = graph.screenHeight(this.tgraph.height);
 
         let trackScreenWidth = graph.screenWidth(this.tgraph.width);
+        // A TRACK THAT DRAWS NOTHING AND SAYS NOTHING. This asked whether the world
+        // coordinate at the left edge of the canvas is TRUTHY, and returned from the whole
+        // body draw if it was not. Two different things are falsy here and neither one is a
+        // reason to skip a track: a view whose left edge sits exactly at world 0, which is
+        // an ordinary place to be, and NaN, which is what a half-restored design hands back
+        // and is a real fault. The header is already painted by this point, so either way
+        // the track appeared as a title bar over an empty strip -- the exact picture of a
+        // file that will not open, with nothing anywhere to say so.
+        //
+        // Now 0 draws, and only a coordinate that is not a number stops the body -- loudly,
+        // once per track, naming the track and what the grid gave back.
         let gwcxs = graph.Xwc(0);
-        if (!gwcxs) {
+        if (!isFinite(gwcxs)) {
+          try {
+            if (!this.__noCoordSaid) {
+              this.__noCoordSaid = true;
+              const __nm = (this.name || 'A track');
+              if (graph.setError) {
+                graph.setError(' ' + __nm + ' has a title but no body: the view cannot say which coordinate its left edge is at (' + gwcxs + '). The track is loaded; the grid it draws through is not, which is what a design that restored only part way leaves behind. Reloading the file, or dropping the track back on, rebuilds it. ');
+              }
+            }
+          } catch (e) { }
           return;
         }
         let gwcxf = graph.Xwc(0 + graph.grid.width);
-        if (!gwcxf) return;
+        if (!isFinite(gwcxf)) return;
         let twcxs = this.tgraph.Xwc(gwcxs - 2 * this.tgraph.xi);
         let twcxf = this.tgraph.Xwc(gwcxf - 2 * this.tgraph.xi);
         graph.rescale();
@@ -7001,8 +7021,8 @@ return new Promise(async (resolve, reject) => {
           ctx.stroke();
         }
         if (screencell > 5) {
-          if (!gwcxs) return;
-          if (!gwcxf) return;
+          if (!isFinite(gwcxs)) return;
+          if (!isFinite(gwcxf)) return;
           let twcxs = this.tgraph.Xwc(gwcxs - 2 * this.tgraph.xi);
           let twcxf = this.tgraph.Xwc(gwcxf - 2 * this.tgraph.xi);
           const i0 = Math.floor(visMin);

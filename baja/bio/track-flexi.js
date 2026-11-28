@@ -4154,11 +4154,11 @@ return new Promise(async (resolve, reject) => {
         gitVisibleTrackRange(__graph) {
             let graph = __graph.graph;
             let gwcxs = graph.Xwc(0);
-            if (!gwcxs)
+            if (!isFinite(gwcxs))
                 return -1;
 
             let gwcxf = graph.Xwc(0 + graph.width);
-            if (!gwcxf)
+            if (!isFinite(gwcxf))
                 return -1;
             let twcxs = this.grid.Xwc(gwcxs - 2 * this.grid.xi);
             let twcxf = this.grid.Xwc(gwcxf - 2 * this.grid.xi);
@@ -4973,9 +4973,12 @@ return new Promise(async (resolve, reject) => {
                 ctx.stroke();
             }
             if (screencell > 5) {
-                if (!gwcxs)
+                // ZERO IS A COORDINATE, NaN IS A FAULT. These asked whether the world
+                // coordinate at each edge of the canvas is truthy, which is false for both,
+                // so a view whose edge sits at world 0 silently stopped drawing.
+                if (!isFinite(gwcxs))
                     return;
-                if (!gwcxf)
+                if (!isFinite(gwcxf))
                     return;
                 let twcxs = this.grid.Xwc(gwcxs - 2 * this.grid.xi);
                 let twcxf = this.grid.Xwc(gwcxf - 2 * this.grid.xi);
