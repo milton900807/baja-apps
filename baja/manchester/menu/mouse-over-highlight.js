@@ -2038,13 +2038,17 @@ function (graph, genegraph_panel_layout) {
                         let __arcHit = null;
                         try {
                             const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
-                            const arcs = graph.__arcHits;
-                            if (arcs && arcs.length && (now - (graph.__arcHitsAt || 0)) < 400) {
+                            const arcs = graph.__arcHits_transient_;
+                            if (arcs && arcs.length && (now - (graph.__arcHitsAt_transient_ || 0)) < 400) {
                                 const xPx = graph.X(track.tgraph.X(xw));
                                 const yPx = graph.Y(y);
                                 let best = 9;                  // pixels: an arc is a thin line
                                 for (const e of arcs) {
                                     if (!e || e.track !== track) continue;
+                                    // A layer that stopped drawing -- hidden, removed, scrolled
+                                    // out -- leaves its last stamps behind, and an arc nobody
+                                    // can see is not one that can be pressed.
+                                    if ((now - (e.t || 0)) > 400) continue;
                                     const dx = xPx - e.cx, dy = yPx - e.cy;
                                     const rr = Math.sqrt(dx * dx + dy * dy);
                                     const d = Math.abs(rr - e.r);

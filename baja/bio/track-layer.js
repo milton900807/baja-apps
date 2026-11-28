@@ -831,6 +831,22 @@ return new Promise(async (resolve, reject) => {
             // visibly two, and the label says which exon each one is about.
             const __seenSpan = new Map();
 
+            // ---- THIS LAYER'S ARC GEOMETRY, REPLACED ONCE PER DRAW ---------------------
+            // The stamps below are what a press is tested against, and they only mean
+            // anything for the frame they were drawn in. The first version of this bucketed
+            // them by time -- reset only after a gap of 120 ms -- which during a pan or any
+            // continuous redraw never fires: the list APPENDED on every frame, a few hundred
+            // objects at a time, until the tracks carrying the most junctions were the first
+            // to stop drawing. So the entries for this layer are REPLACED here, once per
+            // draw of it, which is bounded by the number of junctions it has however long
+            // the canvas runs. Entries for other layers are left alone: several sashimi
+            // layers share one frame.
+            try {
+                const __prev = graph.__arcHits_transient_;
+                graph.__arcHits_transient_ = (Array.isArray(__prev) ? __prev : []).filter((e) => e && e.layer !== this);
+                graph.__arcHitsAt_transient_ = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+            } catch (e) { }
+
             for (let j of __ordered) {
                 let x1 = graph.X(tgraph.X(j.d));   // donor
                 let x2 = graph.X(tgraph.X(j.a));   // acceptor
@@ -911,13 +927,8 @@ return new Promise(async (resolve, reject) => {
                 // rectangle remembered from a pan ago points at a junction that has moved.
                 // The press handler honours the latest frame only, exactly as the "?" does.
                 try {
-                    const __now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
-                    if (!graph.__arcHits || (__now - (graph.__arcHitsAt || 0)) > 120) {
-                        graph.__arcHits = [];
-                        graph.__arcHitsAt = __now;
-                    }
-                    graph.__arcHits.push({
-                        t: __now, track: track || null, layer: this, j: j,
+                    graph.__arcHits_transient_.push({
+                        t: graph.__arcHitsAt_transient_, track: track || null, layer: this, j: j,
                         cx: centerX, cy: centerY, r: radius, a0: aL, a1: aR,
                         x1: x1, x2: x2, ghost: !!isGhost, skip: !!isSkip
                     });

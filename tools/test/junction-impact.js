@@ -120,9 +120,10 @@ const clear = () => { try { const el = document.getElementById('baja-junction-im
     const hit = new Function('graph', 'track', 'xw', 'y', block + '\nreturn __arcHit;');
     // An arc centred at (500, 400) with radius 200: its crest is at (500, 200).
     const j = { d: 1, a: 2 };
-    const arc = { track: track, j: j, cx: 500, cy: 400, r: 200,
+    const nowPx = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+    const arc = { track: track, j: j, cx: 500, cy: 400, r: 200, t: nowPx,
         a0: -Math.PI * 0.75, a1: -Math.PI * 0.25 };
-    const g = { X: (v) => v, Y: (v) => v, __arcHits: [arc], __arcHitsAt: (typeof performance !== 'undefined' ? performance.now() : Date.now()) };
+    const g = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [arc], __arcHitsAt_transient_: nowPx };
     const tr = { tgraph: { X: (v) => v } };
     arc.track = tr;
     ok(hit(g, tr, 500, 200) === arc, 'a press on the crest of the arc finds it');
@@ -132,10 +133,51 @@ const clear = () => { try { const el = document.getElementById('baja-junction-im
     ok(hit(g, tr, 500, 600) === null, 'the far side of the same circle is not a hit');
     ok(hit(g, tr, 300, 400) === null, 'nor its sides');
     // A stamp from an older frame points at a junction that has moved since.
-    const stale = { X: (v) => v, Y: (v) => v, __arcHits: [arc], __arcHitsAt: -100000 };
+    const stale = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [arc], __arcHitsAt_transient_: -100000 };
     ok(hit(stale, tr, 500, 200) === null, 'a stamp from an old frame is ignored');
+    // A LAYER THAT STOPPED DRAWING leaves its last stamps in the list while other layers
+    // keep refreshing theirs, so the list is fresh and that entry is not.
+    const hidden = Object.assign({}, arc, { t: nowPx - 5000 });
+    const g4 = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [hidden], __arcHitsAt_transient_: nowPx };
+    ok(hit(g4, tr, 500, 200) === null, 'an arc from a layer that is no longer drawing is not hit');
+
     // Another track's arcs are not this track's.
     ok(hit(g, { tgraph: { X: (v) => v } }, 500, 200) === null, 'and arcs belong to their own track');
+
+    // ---- THE STAMPS DO NOT PILE UP ------------------------------------------------------
+    // The first version reset them only after a 120 ms gap between frames, which during a
+    // pan or any continuous redraw never happens: every frame APPENDED a few hundred more,
+    // and the tracks carrying the most junctions were the first to stop drawing. So this
+    // drives the real reset and the real push, as drawSashimi runs them, over many frames.
+    const lay = fs.readFileSync('baja/bio/track-layer.js', 'utf8');
+    const resetRaw = lay.slice(lay.indexOf('const __prev = graph.__arcHits_transient_;'),
+        lay.indexOf('for (let j of __ordered) {'));
+    // Without the try/catch that wraps it in the file, whose opening brace is above the slice.
+    // `this` in the file is the layer being drawn; here it is the one passed in.
+    const reset = resetRaw.slice(0, resetRaw.indexOf('} catch (e) { }'))
+        .replace('e.layer !== this', 'e.layer !== self');
+    const push = lay.slice(lay.indexOf('graph.__arcHits_transient_.push({'),
+        lay.indexOf('} catch (e) { }', lay.indexOf('graph.__arcHits_transient_.push({')));
+    const frame = new Function('graph', 'self', 'track', 'n', `
+        ${reset}
+        for (let i = 0; i < n; i++) {
+            const j = { d: i, a: i + 1 }, centerX = 0, centerY = 0, radius = 1,
+                aL = 0, aR = 1, x1 = 0, x2 = 1, isGhost = false, isSkip = false;
+            ${push.replace('layer: this', 'layer: self')}
+        }`);
+    const g3 = {}, layerA = { id: 'A' }, layerB = { id: 'B' };
+    for (let f = 0; f < 50; f++) { frame(g3, layerA, track, 200); frame(g3, layerB, track, 200); }
+    ok(g3.__arcHits_transient_.length === 400,
+       'fifty frames of two layers with two hundred junctions each leave four hundred stamps, '
+       + 'not twenty thousand: ' + g3.__arcHits_transient_.length);
+    frame(g3, layerA, track, 3);
+    ok(g3.__arcHits_transient_.length === 203,
+       'and redrawing one layer replaces only its own: ' + g3.__arcHits_transient_.length);
+    ok(g3.__arcHits_transient_.filter((e) => e.layer === layerB).length === 200,
+       'the other layer in the same frame keeps its arcs');
+    ok(/_transient_$/.test('__arcHits_transient_') && /__arcHits_transient_/.test(lay),
+       'and the key ends in _transient_, so the saver does not try to write the canvas '
+       + 'geometry, the layer and the track into the file');
 
     const layer = fs.readFileSync('baja/bio/track-layer.js', 'utf8');
     ok(/WHERE THIS ARC WAS JUST DRAWN/.test(layer), 'the renderer stamps what it drew');

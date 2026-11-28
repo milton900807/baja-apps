@@ -1916,6 +1916,14 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/splicing/region-exon-structure.js:WHAT EXON STRUCTURE THIS STRETCH OF SEQUENCE SUPPORTS" \
     "baja/manchester/menu/selected-sequence-menu.js:Predict the exon structure here" \
     "baja/manchester/menu/editor-capabilities.js:predict_exon_structure"
+
+  # The arc stamps were bucketed by time and so never reset during a continuous redraw:
+  # every frame appended a few hundred more and the busiest sashimi tracks stopped
+  # drawing. Its own group, with its own markers: the markers above are carried by the
+  # broken version too, so a stale cached copy would pass their served-check.
+  install_group "arc stamps replaced per draw, not piled up per frame" \
+    "baja/bio/track-layer.js:REPLACED ONCE PER DRAW" \
+    "baja/manchester/menu/mouse-over-highlight.js:A layer that stopped drawing"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
