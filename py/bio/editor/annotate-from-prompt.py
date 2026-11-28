@@ -236,22 +236,27 @@ except Exception:
     ctx = {}
 extra = str(works.param(3) or "").strip()
 
+# works.resolve is how every other module here hands an answer back: a flat map, with
+# anything that is not a scalar given as JSON text. One JSON blob instead reaches the
+# client as nothing at all ("Unexpected end of JSON input"), which reads as the server
+# having died rather than as a result in the wrong shape.
 if not text:
-    works.result(json.dumps({"error": "nothing was described"}))
+    works.resolve({"error": "nothing was described"})
 else:
-    works.msg("Reading the description against %s…" % (ctx.get("gene") or "this track"))
+    works.msg("Reading the description against %s\u2026" % (ctx.get("gene") or "this track"))
     parsed, err = ask(text, ctx, extra)
     if err:
-        works.result(json.dumps({"error": err}))
+        works.resolve({"error": err})
     else:
         regions, dropped = clean(parsed, ctx)
         note = str(parsed.get("note") or "").strip()
         if dropped:
             note = (note + "  " if note else "") + " ".join(dropped)
         works.msg("%d region(s) to place." % len(regions))
-        works.result(json.dumps({
-            "regions": regions,
+        works.resolve({
+            "regions": json.dumps(regions),
             "note": note,
             "model": ANTHROPIC_MODEL,
             "asked": text,
-        }))
+            "error": "",
+        })

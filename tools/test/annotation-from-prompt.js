@@ -14,12 +14,25 @@ const fs = require('fs');
 let fails = 0;
 const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) fails++; };
 
-global.window = { env: { apiUrl: '' } };
+global.window = { env: { apiUrl: 'https://gene.clinic' } };
+global.EngineMonitor = function (f) { this.f = f; };
 const core = fs.readFileSync('lib/core.js', 'utf8');
 const AF = Object.getPrototypeOf(async function () { }).constructor;
 let ANSWER = null, ASKED = null, PROMPTED = null, PROMPT_RETURNS = null;
 const load = async (p, ...a) => {
-    if (/annotate-from-prompt\.py$/.test(p)) { ASKED = { text: a[0], ctx: JSON.parse(a[1]) }; return ANSWER; }
+    // Called the way the editor calls it: the api host in front of the path, a monitor
+    // first, then the parameters. A bare path is a different endpoint and comes back as
+    // nothing at all, which is what sent "Unexpected end of JSON input" to the screen.
+    if (/annotate-from-prompt\.py$/.test(p)) {
+        ok(/\/py\/bio\/editor\/annotate-from-prompt\.py$/.test(p), 'called by its server path: ' + p);
+        ok(a[0] && typeof a[0] === 'object', 'with a monitor first, so progress is seen');
+        ASKED = { text: a[1], ctx: JSON.parse(a[2]) };
+        // works.resolve hands lists back as JSON TEXT, which is the shape the client has
+        // to read: an object with the list already parsed would hide the bug.
+        const out = Object.assign({}, ANSWER);
+        if (out.regions) out.regions = JSON.stringify(out.regions);
+        return out;
+    }
     if (/prompt-text\.js$/.test(p)) { PROMPTED = a[0]; return PROMPT_RETURNS; }
     const body = fs.readFileSync(p, 'utf8');
     const src = /^\s*(?:\/\/[^\n]*\n|\s)*return\b/.test(body) ? (core + '\n' + body) : (core + '\nreturn (' + body + ')');

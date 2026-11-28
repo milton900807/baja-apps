@@ -1841,9 +1841,11 @@ if [[ $DO_API -eq 1 ]]; then
     "py/sequence/points-of-interest.py:rest is a quick interactive lookup, so use the FASTEST model the model" \
     "py/sequence/track-to-region.py:ask the model for the correct gene symbol, then resol" \
     "py/timeline/timeline-from-image.py:Image -> timeline extractor (the model vision)."
+  install_group "the running strip is reachable from every GO" \
+    "baja/manchester/menu/editor-command.js:HOISTED OUT OF render ON PURPOSE"
   install_group "draw an annotation you describe in words" \
-    "baja/bio/annotate/annotation-from-prompt.js:SAY WHAT IS THERE, AND HAVE IT DRAWN" \
-    "py/bio/editor/annotate-from-prompt.py:YOU DO NOT PICK COORDINATES" \
+    "baja/bio/annotate/annotation-from-prompt.js:THE WAY EVERY OTHER SERVER MODULE IS CALLED HERE" \
+    "py/bio/editor/annotate-from-prompt.py:works.resolve is how every other module here hands an answer back" \
     "baja/manchester/menu/editor-capabilities.js:THE THING YOU ALREADY KNOW, PUT ON THE TRACK" \
     "baja/manchester/menu/mouse-over-highlight.js:THE ONE ANNOTATION THAT CAME FROM NOWHERE ELSE"
   install_group "a track is never flattened below fifty pixels" \

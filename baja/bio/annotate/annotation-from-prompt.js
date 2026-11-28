@@ -87,10 +87,13 @@ function (graph, track, options) {
         say('Reading that against ' + name + '…');
         let res = null;
         try {
-            res = await exec('py/bio/editor/annotate-from-prompt.py', text, JSON.stringify(ctx),
-                ('' + (o.extra || '')));
-            if (typeof res === 'string') { try { res = JSON.parse(res); } catch (e) { } }
-            if (res && typeof res.result === 'string') { try { res = JSON.parse(res.result); } catch (e) { } }
+            // THE WAY EVERY OTHER SERVER MODULE IS CALLED HERE: the api host in front of
+            // the path, and a monitor first so its progress lines reach the status bar
+            // instead of nowhere. Called as a bare path it is a different endpoint, and
+            // what came back was not an answer at all.
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            res = await exec(window['env']['apiUrl'] + '/py/bio/editor/annotate-from-prompt.py',
+                em, text, JSON.stringify(ctx), ('' + (o.extra || '')));
         } catch (e) {
             say('That could not be read: ' + ((e && e.message) ? e.message : e));
             return { ok: false, why: 'server' };
@@ -101,7 +104,12 @@ function (graph, track, options) {
         }
 
         // ---- ANCHORS INTO COORDINATES ----------------------------------------------------
-        const regions = (res.regions || []);
+        // works.resolve hands lists back as JSON text, so this is where they become lists.
+        let regions = [];
+        try {
+            regions = (typeof res.regions === 'string') ? (JSON.parse(res.regions) || [])
+                : (res.regions || []);
+        } catch (e) { regions = []; }
         const placed = [], refused = [];
         const minus = (avail.strand === '-');
         for (const r of regions) {

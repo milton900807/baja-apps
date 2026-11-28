@@ -499,6 +499,112 @@ function (graph, genegraph_panel_layout, options) {
             };
 
             // ------------------------------------------------------------- the plan ---------
+            // HOISTED OUT OF render ON PURPOSE. These used to be declared in the middle of
+            // it, below a branch that RETURNS: the one-step-several-tracks card hands back
+            // before the declaration is ever reached, so its GO button closed over a const
+            // that had not been initialised and every press of it died with "Cannot access
+            // withSpinner before initialization" -- naming the operation, so it read as the
+            // operation being broken. Out here there is no path that can reach a use before
+            // the declaration, and the choice card gets the same running strip as every
+            // other way of starting the same work.
+            // EVERY OPERATION THAT TAKES TIME SAYS SO, WITHOUT BEING ASKED TO.
+            //
+            // The panel was opt-in: an operation had to raise it itself, so most of them
+            // did not, and pressing GO on anything slow gave a closed card and a silent
+            // canvas. Which operations are slow is not knowable in advance either -- the
+            // same comparison is instant on two short tracks and a minute on two
+            // genomic ones -- so it cannot be decided per operation at all.
+            //
+            // It is decided by the clock instead, at the one place every operation runs
+            // through. Anything still going after a moment gets the spinner, with the
+            // card's own description of the step as its title, so what is running is
+            // named rather than being "Working". Anything that finishes before that
+            // shows nothing, because a flash of a panel on an instant operation is its
+            // own kind of noise.
+            //
+            // An operation that raises its own panel keeps it: working.js is a
+            // singleton, and a second one would replace the first and lose the detail
+            // it was reporting. So this only opens one where there is none.
+            // NOTHING TO LOAD, NOTHING TO RACE: THE STRIP IS BUILT HERE.
+            //
+            // This has now been reported three times as showing no feedback at all, and
+            // the reason it kept not being fixed is that every version of it depended on
+            // something else working first -- a module fetched through exec, a singleton
+            // another panel might hold, a timer that had to win a race against the work
+            // starting. Any one of those failing leaves a closed card and a silent
+            // canvas, which is exactly what it looks like when nothing ran.
+            //
+            // So the thing that says "this is running" is a few lines of DOM made right
+            // here, synchronously, out of nothing but document.createElement. It cannot
+            // fail to load because there is nothing to load.
+            //
+            // It counts the seconds rather than only spinning: a number going up is
+            // proof the page is alive, where a spinner alone can be a frozen animation.
+            // And it stands aside for working.js -- an operation that raises its own
+            // panel is saying something more specific ("Searching exon 3 of 22") and
+            // should not have this underneath it.
+            const SPIN_AFTER = 150;
+            const runStrip = (label) => {
+                let el = null, tick = null, t0 = Date.now();
+                try {
+                    el = document.createElement('div');
+                    el.id = 'ec-running';
+                    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);'
+                        + 'bottom:26px;z-index:2147483400;display:flex;align-items:center;'
+                        + 'gap:12px;padding:12px 18px;border-radius:14px;'
+                        + 'background:rgba(10,26,43,0.96);border:1px solid #1e4a6d;'
+                        + 'box-shadow:0 10px 30px rgba(0,0,0,0.45);font:13px Arial;'
+                        + 'color:#e8f1f8;max-width:min(92vw,820px);';
+                    // The dot is drawn with a border and a keyframe added once, so there
+                    // is no image, no SVG and no stylesheet to fetch.
+                    if (!document.getElementById('ec-running-kf')) {
+                        const st = document.createElement('style');
+                        st.id = 'ec-running-kf';
+                        st.textContent = '@keyframes ecspin{to{transform:rotate(360deg)}}';
+                        document.head.appendChild(st);
+                    }
+                    el.innerHTML = '<span style="width:15px;height:15px;border-radius:50%;'
+                        + 'border:2px solid rgba(159,196,212,0.35);border-top-color:#7fb0e8;'
+                        + 'display:inline-block;animation:ecspin 0.9s linear infinite;"></span>'
+                        + '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;'
+                        + 'white-space:nowrap;">' + H(label) + '</span>'
+                        + '<span data-id="secs" style="color:#9fb3c8;white-space:nowrap;">0s</span>';
+                    document.body.appendChild(el);
+                    try { if (window.__bajaWorking) el.style.display = 'none'; } catch (e) { }
+                    // A quarter second, not a second: the hand-off to an operation's own
+                    // panel should not leave the two of them stacked for a whole beat.
+                    tick = setInterval(() => {
+                        try {
+                            const n = el.querySelector('[data-id="secs"]');
+                            if (n) n.textContent = Math.round((Date.now() - t0) / 1000) + 's';
+                            // Out of the way of an operation's own panel, and back when
+                            // that one goes.
+                            el.style.display = window.__bajaWorking ? 'none' : 'flex';
+                        } catch (e) { }
+                    }, 250);
+                } catch (e) { el = null; }
+                return () => {
+                    try { if (tick) clearInterval(tick); } catch (e) { }
+                    try { if (el && el.parentNode) el.parentNode.removeChild(el); } catch (e) { }
+                };
+            };
+            const withSpinner = async (p0, run) => {
+                const title = (p0 && p0.text) ? ('' + p0.text) : 'Working';
+                const label = title.length > 110 ? (title.slice(0, 108) + '\u2026') : title;
+                let stop = null, settled = false;
+                const timer = setTimeout(() => {
+                    if (settled) return;
+                    stop = runStrip(label);
+                }, SPIN_AFTER);
+                try {
+                    return await run();
+                } finally {
+                    settled = true;
+                    try { clearTimeout(timer); } catch (e) { }
+                    try { if (stop) stop(); } catch (e) { }
+                }
+            };
+
             const render = (r, ask) => {
                 const out = q('#ec-out');
                 const steps = parse(r.steps, []) || [];
@@ -842,103 +948,6 @@ function (graph, genegraph_panel_layout, options) {
                     syncGo();
                 }
 
-                // EVERY OPERATION THAT TAKES TIME SAYS SO, WITHOUT BEING ASKED TO.
-                //
-                // The panel was opt-in: an operation had to raise it itself, so most of them
-                // did not, and pressing GO on anything slow gave a closed card and a silent
-                // canvas. Which operations are slow is not knowable in advance either -- the
-                // same comparison is instant on two short tracks and a minute on two
-                // genomic ones -- so it cannot be decided per operation at all.
-                //
-                // It is decided by the clock instead, at the one place every operation runs
-                // through. Anything still going after a moment gets the spinner, with the
-                // card's own description of the step as its title, so what is running is
-                // named rather than being "Working". Anything that finishes before that
-                // shows nothing, because a flash of a panel on an instant operation is its
-                // own kind of noise.
-                //
-                // An operation that raises its own panel keeps it: working.js is a
-                // singleton, and a second one would replace the first and lose the detail
-                // it was reporting. So this only opens one where there is none.
-                // NOTHING TO LOAD, NOTHING TO RACE: THE STRIP IS BUILT HERE.
-                //
-                // This has now been reported three times as showing no feedback at all, and
-                // the reason it kept not being fixed is that every version of it depended on
-                // something else working first -- a module fetched through exec, a singleton
-                // another panel might hold, a timer that had to win a race against the work
-                // starting. Any one of those failing leaves a closed card and a silent
-                // canvas, which is exactly what it looks like when nothing ran.
-                //
-                // So the thing that says "this is running" is a few lines of DOM made right
-                // here, synchronously, out of nothing but document.createElement. It cannot
-                // fail to load because there is nothing to load.
-                //
-                // It counts the seconds rather than only spinning: a number going up is
-                // proof the page is alive, where a spinner alone can be a frozen animation.
-                // And it stands aside for working.js -- an operation that raises its own
-                // panel is saying something more specific ("Searching exon 3 of 22") and
-                // should not have this underneath it.
-                const SPIN_AFTER = 150;
-                const runStrip = (label) => {
-                    let el = null, tick = null, t0 = Date.now();
-                    try {
-                        el = document.createElement('div');
-                        el.id = 'ec-running';
-                        el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);'
-                            + 'bottom:26px;z-index:2147483400;display:flex;align-items:center;'
-                            + 'gap:12px;padding:12px 18px;border-radius:14px;'
-                            + 'background:rgba(10,26,43,0.96);border:1px solid #1e4a6d;'
-                            + 'box-shadow:0 10px 30px rgba(0,0,0,0.45);font:13px Arial;'
-                            + 'color:#e8f1f8;max-width:min(92vw,820px);';
-                        // The dot is drawn with a border and a keyframe added once, so there
-                        // is no image, no SVG and no stylesheet to fetch.
-                        if (!document.getElementById('ec-running-kf')) {
-                            const st = document.createElement('style');
-                            st.id = 'ec-running-kf';
-                            st.textContent = '@keyframes ecspin{to{transform:rotate(360deg)}}';
-                            document.head.appendChild(st);
-                        }
-                        el.innerHTML = '<span style="width:15px;height:15px;border-radius:50%;'
-                            + 'border:2px solid rgba(159,196,212,0.35);border-top-color:#7fb0e8;'
-                            + 'display:inline-block;animation:ecspin 0.9s linear infinite;"></span>'
-                            + '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;'
-                            + 'white-space:nowrap;">' + H(label) + '</span>'
-                            + '<span data-id="secs" style="color:#9fb3c8;white-space:nowrap;">0s</span>';
-                        document.body.appendChild(el);
-                        try { if (window.__bajaWorking) el.style.display = 'none'; } catch (e) { }
-                        // A quarter second, not a second: the hand-off to an operation's own
-                        // panel should not leave the two of them stacked for a whole beat.
-                        tick = setInterval(() => {
-                            try {
-                                const n = el.querySelector('[data-id="secs"]');
-                                if (n) n.textContent = Math.round((Date.now() - t0) / 1000) + 's';
-                                // Out of the way of an operation's own panel, and back when
-                                // that one goes.
-                                el.style.display = window.__bajaWorking ? 'none' : 'flex';
-                            } catch (e) { }
-                        }, 250);
-                    } catch (e) { el = null; }
-                    return () => {
-                        try { if (tick) clearInterval(tick); } catch (e) { }
-                        try { if (el && el.parentNode) el.parentNode.removeChild(el); } catch (e) { }
-                    };
-                };
-                const withSpinner = async (p0, run) => {
-                    const title = (p0 && p0.text) ? ('' + p0.text) : 'Working';
-                    const label = title.length > 110 ? (title.slice(0, 108) + '\u2026') : title;
-                    let stop = null, settled = false;
-                    const timer = setTimeout(() => {
-                        if (settled) return;
-                        stop = runStrip(label);
-                    }, SPIN_AFTER);
-                    try {
-                        return await run();
-                    } finally {
-                        settled = true;
-                        try { clearTimeout(timer); } catch (e) { }
-                        try { if (stop) stop(); } catch (e) { }
-                    }
-                };
 
                 if (go) go.onclick = async () => {
                     // Read BEFORE the panel closes: the boxes go with it.
@@ -1073,7 +1082,14 @@ function (graph, genegraph_panel_layout, options) {
                         logged({ ask: ask, status: 'OK',
                                  steps: [{ capability: o2.capability.name, args: o2.args || {} }] });
                         close();
-                        try { await o2.capability.run(o2.args || {}); loggedRan(1); done(1); }
+                        // The same running strip as every other way of starting work: the
+                        // half that was chosen can take a minute, and a closed card with
+                        // nothing after it looks exactly like nothing having happened.
+                        try {
+                            await withSpinner({ text: o2.label, capability: o2.capability },
+                                () => o2.capability.run(o2.args || {}));
+                            loggedRan(1); done(1);
+                        }
                         catch (e) {
                             result(o2.capability.name + ': ' + (e && e.message ? e.message : e));
                             done(0);
