@@ -5599,6 +5599,25 @@ function (graph, genegraph_panel_layout) {
                                     });
                                 }
                                 items.push({ type: 'separator' });
+                                // THE ONE ANNOTATION THAT CAME FROM NOWHERE ELSE: the one
+                                // in your head. Everything else on a track arrived from a
+                                // file, a database or a scan.
+                                items.push({
+                                    label: 'Draw an annotation you describe\u2026',
+                                    move: () => { },
+                                    click: async () => {
+                                        try {
+                                            await exec('baja/bio/annotate/annotation-from-prompt.js',
+                                                graph, st, {});
+                                        } catch (e) {
+                                            try {
+                                                graph.setResultMessage(' That could not be drawn: '
+                                                    + (e && e.message ? e.message : e) + ' ');
+                                            } catch (e2) { }
+                                        }
+                                    }
+                                });
+                                items.push({ type: 'separator' });
                                 // THE REPORT, not a layer. The layers answer "where on this
                                 // protein"; a reader asking what a set of variants does needs
                                 // the rows themselves: sortable, searchable, and leaving the

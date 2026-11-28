@@ -2625,6 +2625,54 @@ function (graph, genegraph_panel_layout) {
             },
 
             {
+                // THE THING YOU ALREADY KNOW, PUT ON THE TRACK. Every shape in this editor
+                // came from a file, a database or a scan, so "draw an annotation on DNM3"
+                // was answered, correctly, with "not something the editor can do". What was
+                // missing is the commonest annotation of all: the one in the user's head.
+                name: 'draw_annotation',
+                summary: 'DRAW A FEATURE YOU DESCRIBE IN WORDS onto a track. The answer to '
+                    + '"draw an annotation on DNM3", "mark the poison exon", "put the '
+                    + 'alternative 5\u2032 splice site on this transcript", "annotate the PUM1 '
+                    + 'site in the 3\u2032 UTR", "show me where the NMD-inducing exon is". '
+                    + 'WITH NO DESCRIPTION GIVEN it asks for one in a box, which is the usual '
+                    + 'way in: the sentence is the input. WHAT IT DRAWS IS A READING, NOT A '
+                    + 'MEASUREMENT: a language model reads the sentence against this '
+                    + 'transcript and names the exon, intron, UTR or annotation the feature '
+                    + 'sits in, and the editor turns that into a position. It is not allowed '
+                    + 'to pick coordinates itself. Each band carries how sure the model is, '
+                    + 'filled for documented and outlined for inferred, with its reason in '
+                    + 'the layer help. Nothing is scanned, scored or checked against a '
+                    + 'database, so this is not how to FIND a motif or a splice site: that is '
+                    + 'load_protein_motifs, rbp_profile or the splicing scans.',
+                needs: 'track',
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for the selected one, or when only '
+                            + 'one is open'
+                    },
+                    description: {
+                        type: 'string',
+                        about: 'what is there, in the user\u2019s own words, when the request '
+                            + 'already says it ("the poison exon", "a regulated alternative '
+                            + '5\u2032 splice site that routes the transcript to NMD"). Omit '
+                            + 'to be asked for it in a box'
+                    }
+                },
+                run: async (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    if (!t) { result('Which track? Name it, or click one first.'); return; }
+                    return exec('baja/bio/annotate/annotation-from-prompt.js', graph, t,
+                        { text: a.description || '' });
+                },
+                preview: (a) => {
+                    const t = a.track ? matchTrack(a.track) : oneTrack();
+                    return 'Draw ' + (a.description ? ('\u201c' + a.description + '\u201d')
+                        : 'something you describe') + ' on ' + ((t && t.name) || 'the selected track');
+                }
+            },
+
+            {
                 // THE OTHER HALF OF THE SAME QUESTION. A variant in a UTR has no protein
                 // motifs to change, and UTR variants are most of what gets loaded here, so
                 // a motif question answered only in protein space is answered for a

@@ -1841,6 +1841,11 @@ if [[ $DO_API -eq 1 ]]; then
     "py/sequence/points-of-interest.py:rest is a quick interactive lookup, so use the FASTEST model the model" \
     "py/sequence/track-to-region.py:ask the model for the correct gene symbol, then resol" \
     "py/timeline/timeline-from-image.py:Image -> timeline extractor (the model vision)."
+  install_group "draw an annotation you describe in words" \
+    "baja/bio/annotate/annotation-from-prompt.js:SAY WHAT IS THERE, AND HAVE IT DRAWN" \
+    "py/bio/editor/annotate-from-prompt.py:YOU DO NOT PICK COORDINATES" \
+    "baja/manchester/menu/editor-capabilities.js:THE THING YOU ALREADY KNOW, PUT ON THE TRACK" \
+    "baja/manchester/menu/mouse-over-highlight.js:THE ONE ANNOTATION THAT CAME FROM NOWHERE ELSE"
   install_group "a track is never flattened below fifty pixels" \
     "flexigraph/gene.js:A TRACK'S OWN BODY, not just the gap to the next one"
   install_group "colour or delete a variant from its own page" \
