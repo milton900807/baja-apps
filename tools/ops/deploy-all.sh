@@ -1822,6 +1822,8 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"
+  install_group "colour or delete a variant from its own page" \
+    "baja/manchester/menu/snp-more-info.js:THE VARIANT ITSELF, NOT ONLY WHAT IS KNOWN ABOUT IT"
   install_group "one reading of the frame for both motif windows" \
     "baja/bio/protein/variants-to-residues.js:THE VARIANTS ON A TRACK, READ AS RESIDUE SUBSTITUTIONS" \
     "baja/bio/protein/motif-impact.js:ONE READING OF THE FRAME, shared with the report" \

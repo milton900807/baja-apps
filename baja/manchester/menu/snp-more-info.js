@@ -89,6 +89,25 @@ function (graph, genegraph_panel_layout, picks) {
 
         const byKey = {};
         for (const p of payload) byKey[p.key] = p;
+
+        // ---- THE VARIANT ITSELF, NOT ONLY WHAT IS KNOWN ABOUT IT ------------------------
+        // This page is where someone decides what a variant is worth, which is exactly the
+        // moment they want to mark it or be rid of it -- and until now the only way to do
+        // either was to close the page, find the marker again on the canvas, and open its
+        // menu. The two actions are the ones that follow from reading this: colour it so
+        // it can be picked out among forty others, or delete it.
+        const objByKey = {};
+        use.forEach((pk, i) => { objByKey['v' + (i + 1)] = { snp: pk.ref, track: pk.track }; });
+        const PALETTE = (() => {
+            try {
+                const C = use[0] && use[0].ref && use[0].ref.constructor;
+                if (C && C.MARKER_COLORS && C.MARKER_COLORS.length) return C.MARKER_COLORS;
+            } catch (e) { }
+            // The same six the layer menus offer, so a variant and a layer coloured "amber"
+            // are the same amber.
+            return [['#4fd0e6', 'Cyan'], ['#ffaa3c', 'Amber'], ['#78e696', 'Green'],
+                ['#f06e8c', 'Pink'], ['#b496ff', 'Violet'], ['#f5f5f5', 'White']];
+        })();
         const meta = (p) => [
             p.gene, p.transcript,
             (p.chr ? 'chr' + p.chr + ':' + p.pos.toLocaleString() : ''),
@@ -111,6 +130,22 @@ function (graph, genegraph_panel_layout, picks) {
                     + esc(s.heading) + '</div>'
                     + '<div style="font:13.5px/1.55 Arial;color:#dde8f6;margin-top:5px;">' + esc(s.text) + '</div>'
                     + '</div>').join('')
+                + '</div>'
+                + '<div data-act="' + v.key + '" style="padding:0 18px 16px;display:flex;'
+                + 'align-items:center;gap:8px;flex-wrap:wrap;font:12px Arial;color:#9fb3c8;">'
+                + '<span>Marker</span>'
+                + PALETTE.map(([hex, nm], i) => '<button data-col="' + v.key + ':' + i + '" '
+                    + 'title="' + esc(nm) + '" style="width:18px;height:18px;border-radius:50%;'
+                    + 'cursor:pointer;border:1px solid rgba(255,255,255,0.35);background:'
+                    + esc(hex) + ';"></button>').join('')
+                + '<button data-col="' + v.key + ':auto" style="cursor:pointer;border-radius:6px;'
+                + 'padding:3px 9px;font:12px Arial;border:1px solid rgba(255,255,255,0.22);'
+                + 'background:transparent;color:#cfe0f0;">Automatic</button>'
+                + '<span data-said="' + v.key + '" style="color:#7fb0e8;"></span>'
+                + '<button data-del="' + v.key + '" style="margin-left:auto;cursor:pointer;'
+                + 'border-radius:6px;padding:4px 12px;font:700 12px Arial;'
+                + 'border:1px solid rgba(255,180,162,0.5);background:transparent;color:#ffb4a2;">'
+                + 'Delete this variant</button>'
                 + '</div></div>';
         };
 
@@ -145,6 +180,85 @@ function (graph, genegraph_panel_layout, picks) {
         const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
         panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); restoreHover(); } });
         panel.querySelector('#si-close').onclick = () => { close(); restoreHover(); };
+
+        // ---- COLOUR, AND DELETE -----------------------------------------------------------
+        const redraw = () => {
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            try { if (graph.rescale) graph.rescale(); } catch (e) { }
+        };
+        const note = (key, text) => {
+            try {
+                const el = panel.querySelector('[data-said="' + key + '"]');
+                if (el) el.textContent = text;
+            } catch (e) { }
+        };
+        for (const b of panel.querySelectorAll('[data-col]')) {
+            b.onclick = () => {
+                const [key, which] = ('' + b.getAttribute('data-col')).split(':');
+                const o = objByKey[key];
+                if (!o || !o.snp) return;
+                // The canvas is behind this page, so the change is not visible until it is
+                // closed. Saying what was set is the only feedback there is.
+                try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                if (which === 'auto') {
+                    o.snp.markerColor = null;
+                    note(key, 'marker colour: automatic');
+                } else {
+                    const pair = PALETTE[+which] || [];
+                    o.snp.markerColor = pair[0] || null;
+                    note(key, 'marker colour: ' + (pair[1] || pair[0] || ''));
+                }
+                redraw();
+            };
+        }
+        for (const b of panel.querySelectorAll('[data-del]')) {
+            let armed = false;
+            b.onclick = () => {
+                const key = '' + b.getAttribute('data-del');
+                const o = objByKey[key];
+                if (!o || !o.snp) return;
+                // DELETING IS NOT COLOURING. It asks once, in place: the confirmation
+                // dialog the canvas uses is mounted under this page and would not be seen,
+                // and a delete that happens on the first press of a button sitting under a
+                // paragraph somebody is reading is a delete nobody meant.
+                if (!armed) {
+                    armed = true;
+                    b.textContent = 'Delete for real?  press again';
+                    setTimeout(() => {
+                        if (!armed) return;
+                        armed = false;
+                        b.textContent = 'Delete this variant';
+                    }, 4000);
+                    return;
+                }
+                armed = false;
+                try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                let gone = false;
+                try { o.track.removesnp(o.snp); gone = true; } catch (e) { gone = false; }
+                if (!gone) {
+                    try {
+                        const a = (o.track.snpindels || []);
+                        const i = a.indexOf(o.snp);
+                        if (i >= 0) { a.splice(i, 1); gone = true; }
+                    } catch (e) { gone = false; }
+                }
+                b.textContent = gone ? 'Deleted' : 'Could not delete';
+                b.disabled = true;
+                b.style.opacity = '0.6';
+                if (gone) {
+                    // The card stays, faded, rather than vanishing from under the reader:
+                    // what they were reading is still what they were reading, and the page
+                    // does not reshuffle around the gap.
+                    try {
+                        const row = panel.querySelector('[data-act="' + key + '"]');
+                        if (row && row.parentNode) row.parentNode.style.opacity = '0.45';
+                    } catch (e) { }
+                    note(key, 'deleted from ' + ((o.track && o.track.name) || 'the track')
+                        + ' \u00b7 undo restores it');
+                    redraw();
+                }
+            };
+        }
         panel.querySelector('#si-pdf').onclick = async () => {
             try {
                 const P = await exec('baja/io/pdf-writer.js');
