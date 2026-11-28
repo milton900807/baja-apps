@@ -1289,7 +1289,7 @@ function (path, config) {
             $('fc-tl-out').textContent = 'Added. Publish to put it on the campaign details page.';
         };
 
-        // A FIRST DRAFT, WHICH IS ALL IT IS. The server asks Claude from what is already
+        // A FIRST DRAFT, WHICH IS ALL IT IS. The server asks the model from what is already
         // typed here and hands back rows; they land in the fields above, editable, and
         // nothing reaches the display until Publish. An existing timeline is not thrown
         // away without being asked twice: it is somebody's own writing.
