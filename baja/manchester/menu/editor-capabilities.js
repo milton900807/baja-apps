@@ -380,6 +380,40 @@ function (graph, genegraph_panel_layout) {
         // and the Ask card shows a Go button for each. __track never comes from the model --
         // validate() drops any key that is not a declared parameter -- only from a choice.
         const pickTrack = (a) => (a && a.__track) || (a && a.track ? matchTrack(a.track) : oneTrack());
+
+        // THE POSITION MAY BE A TRACK. "goto dnm3_3utr" names a track, and the planner read
+        // it as a track plus a region -- the 3' UTR of DNM3_3utr -- which is a thing that
+        // track cannot have: it IS the 3' UTR, cut out as its own track, so it carries no
+        // coding region and therefore no UTRs. The answer came back as "cannot run", which
+        // is true of the reading and useless as an answer to the sentence.
+        //
+        // Matching ignores case and punctuation, because a name is typed the way it is
+        // said: dnm3 3utr, DNM3_3UTR and dnm3-3utr are one track. An exact name wins
+        // outright; a partial one only counts when it fits exactly one track, since going
+        // to the wrong track is worse than asking which.
+        const __norm = (x) => ('' + (x == null ? '' : x)).toLowerCase().replace(/[^a-z0-9]+/g, '');
+        const trackNamed = (text) => {
+            const q = __norm(text);
+            if (q.length < 3) return null;
+            const all = tracks();
+            const exact = all.filter((t) => __norm(t && t.name) === q);
+            if (exact.length === 1) return exact[0];
+            if (exact.length > 1) return null;
+            const part = all.filter((t) => __norm(t && t.name).indexOf(q) >= 0);
+            return (part.length === 1) ? part[0] : null;
+        };
+
+        // A TRACK THAT IS ALREADY THE REGION BEING ASKED FOR. DNM3_3utr has no annotated
+        // CDS, so resolving "the 3' UTR" on it fails -- but its name says that is what the
+        // whole track is, which is a better answer than a refusal.
+        const trackIsRegion = (t, region) => {
+            const n = __norm(t && t.name);
+            if (!n) return false;
+            if (region === 'three_prime_utr') return /3utr|threeprimeutr/.test(n);
+            if (region === 'five_prime_utr') return /5utr|fiveprimeutr/.test(n);
+            if (region === 'cds') return /(^|[^a-z])cds$/.test(n) || /_cds/.test(n);
+            return false;
+        };
         // SEVERAL TRACKS BY NAME, for an operation asked of more than one at once ("cut the
         // 3' UTR from DNM3 and DNM1"). A name that matches nothing is left out rather than
         // failing the whole step: the run reports it, and cutting one of two tracks is a
@@ -4052,8 +4086,11 @@ function (graph, genegraph_panel_layout) {
                     + 'intron 3", "show me the 3\u2032 UTR". A single position is marked as the '
                     + 'selection; a named region is framed and selected whole, since an exon '
                     + 'is a stretch and showing one base of it would be showing the wrong '
-                    + 'thing. Use this, not select_sequence_region, whenever the request is '
-                    + 'about GOING somewhere or LOOKING at it.',
+                    + 'thing. A TRACK NAME IS ALSO A PLACE: "goto DNM3_3utr", "show me '
+                    + 'DNM1", "take me to the DNM3 track" frame that whole track, so pass '
+                    + 'the name as the position rather than splitting it into a track and a '
+                    + 'region it may not have. Use this, not select_sequence_region, whenever '
+                    + 'the request is about GOING somewhere or LOOKING at it.',
                 needs: 'track',
                 params: {
                     position: {
@@ -4066,6 +4103,21 @@ function (graph, genegraph_panel_layout) {
                     track: { type: 'string', about: 'which track, by name. Omit unless the request names one: with several open, the user is offered each' }
                 },
                 run: async (a) => {
+                    // A POSITION THAT NAMES A TRACK MEANS THAT TRACK. Framing it whole is
+                    // what "goto dnm3_3utr" asks for, and it is the only reading under
+                    // which the sentence has an answer at all.
+                    const named = trackNamed(a.position);
+                    if (named) {
+                        const lo = Math.min(+named.xi, +named.xf), hi = Math.max(+named.xi, +named.xf);
+                        try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
+                        try { graph.selectedTrack = named; } catch (e) { }
+                        try { await frameRange(named, lo, hi); } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                        result((named.name || 'That track') + ' \u00b7 the whole track \u00b7 '
+                            + (hi - lo + 1).toLocaleString() + ' bases ('
+                            + lo.toLocaleString() + '\u2013' + hi.toLocaleString() + ').');
+                        return;
+                    }
                     const t = pickTrack(a);
                     if (!t) { result('Which track? Name it, or click one first.'); return; }
                     const R = await regionsOf(t);
@@ -4075,7 +4127,15 @@ function (graph, genegraph_panel_layout) {
                     // exon 15 and marking one base of it would be showing the wrong thing:
                     // the same framing the selection operations use is what was wanted.
                     if (r.error && r.named) {
-                        const got = R.resolve(r.named);
+                        let got = R.resolve(r.named);
+                        if (got.error && trackIsRegion(t, ('' + (r.named.region || '')))) {
+                            // The track IS that region. Saying it has none is true of the
+                            // annotations and wrong about the track.
+                            const lo2 = Math.min(+t.xi, +t.xf), hi2 = Math.max(+t.xi, +t.xf);
+                            got = { start: lo2, end: hi2,
+                                label: 'the whole track, which is the ' + (r.named.region === 'five_prime_utr'
+                                    ? '5\u2032 UTR' : (r.named.region === 'cds' ? 'CDS' : '3\u2032 UTR')) };
+                        }
                         if (got.error) { result(got.error); return; }
                         try { if (typeof graph.clearSequenceSelections === 'function') graph.clearSequenceSelections(); } catch (e) { }
                         t.markstart = got.start;
@@ -4103,6 +4163,12 @@ function (graph, genegraph_panel_layout) {
                         + (r.label.indexOf('position') === 0 ? '' : (' (track position ' + r.pos.toLocaleString() + ')')) + '.');
                 },
                 preview: (a) => {
+                    const named = trackNamed(a.position);
+                    if (named) {
+                        const lo = Math.min(+named.xi, +named.xf), hi = Math.max(+named.xi, +named.xf);
+                        return 'frame the whole of ' + (named.name || 'that track') + ' \u00b7 '
+                            + (hi - lo + 1).toLocaleString() + ' bases';
+                    }
                     const t = pickTrack(a);
                     // With no track settled yet the card still says what KIND of place this is:
                     // reading the region off the first track that has one beats describing
