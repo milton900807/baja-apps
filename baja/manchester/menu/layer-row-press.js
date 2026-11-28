@@ -68,6 +68,71 @@ function (graph, genegraph_panel_layout) {
             }
             return null;
         };
+        // A SASHIMI ARC. Stamped by TrackLayer.drawSashimi as it strokes each curve --
+        // centre, radius and the two angles, in the same canvas pixels this press is
+        // converted to.
+        //
+        // THIS IS THE THIRD HOME FOR THIS TEST AND THE REASON IS THE ONE WRITTEN AT THE TOP
+        // OF THIS FILE. It began inside `graph.getTrack(x, y) >= 0` over in
+        // mouse-over-highlight.js, which asks whose ROW the pointer is in while an arc is
+        // drawn above its track. Moved to that file's mouse-up, it ran after
+        // showContextMenu and was skipped whenever a menu was already on screen. Moved to
+        // that file's mouse-down, it still went through the graph's own listener chain and
+        // through pressPx -- and the canvas is scaled: its backing store is not its CSS
+        // size, which is why toCanvas above multiplies by el.width / r.width. A press
+        // measured without that factor lands somewhere else entirely on a scaled display,
+        // and every arc reads as fifty pixels away from a pointer that is on it.
+        //
+        // Everything painted on this canvas and pressed by where it was painted belongs
+        // here, for the same reasons the layer rows and the "?" are here.
+        const arcAt = (g, p) => {
+            const arcs = g && g.__arcHits_transient_;
+            if (!arcs || !arcs.length) return null;
+            const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+            if ((now - (g.__arcHitsAt_transient_ || 0)) > 400) return null;
+            let hit = null, best = 10;          // pixels: an arc is a thin line
+            for (const e2 of arcs) {
+                if (!e2) continue;
+                // A layer that stopped drawing -- hidden, removed, scrolled out -- leaves
+                // its last stamps behind, and an arc nobody can see is not pressable.
+                if ((now - (e2.t || 0)) > 400) continue;
+                const dx = p.x - e2.cx, dy = p.y - e2.cy;
+                const d = Math.abs(Math.sqrt(dx * dx + dy * dy) - e2.r);
+                if (d > best) continue;
+                // On the drawn part of the circle only: an arc is a sixth of one and the
+                // other five sixths run under the track and off the screen.
+                const ang = Math.atan2(dy, dx);
+                const a0 = Math.min(e2.a0, e2.a1), a1 = Math.max(e2.a0, e2.a1);
+                if (ang < a0 - 0.03 || ang > a1 + 0.03) continue;
+                best = d; hit = e2;
+            }
+            return hit;
+        };
+        // WHY A PRESS ON AN ARC DID NOTHING, without a deploy to find out. Three states look
+        // identical from the chair: nothing stamped (the layer never reached the sashimi
+        // renderer), stamped but the press was elsewhere, and near one but outside the drawn
+        // span. Recorded on every press into the same place __bajaLayerRowInfo() reads.
+        const arcMiss = (g, p) => {
+            try {
+                const arcs = (g && g.__arcHits_transient_) || [];
+                let near = null, which = null;
+                for (const e2 of arcs) {
+                    if (!e2) continue;
+                    const dx = p.x - e2.cx, dy = p.y - e2.cy;
+                    const d = Math.abs(Math.sqrt(dx * dx + dy * dy) - e2.r);
+                    if (near === null || d < near) { near = d; which = e2; }
+                }
+                const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+                let span = null;
+                if (which) {
+                    const ang = Math.atan2(p.y - which.cy, p.x - which.cx);
+                    span = (ang >= Math.min(which.a0, which.a1) && ang <= Math.max(which.a0, which.a1));
+                }
+                return { stamped: arcs.length, ageMs: Math.round(now - ((g && g.__arcHitsAt_transient_) || 0)),
+                    nearestPx: near === null ? null : Math.round(near), onDrawnSpan: span };
+            } catch (err) { return null; }
+        };
+
         // A menu DRAWN ON THE CANVAS owns the press. The side menu (the track's Layers menu, the
         // model menus...) and the centre menu are painted onto this same canvas, so the element
         // test below sees only the canvas; a menu item lying over a layer row or a label's "?"
@@ -157,6 +222,27 @@ function (graph, genegraph_panel_layout) {
                         return;
                     }
                 }
+                // A sashimi arc: what that junction would do to the protein.
+                const arc = arcAt(g, p);
+                rec.arcs = arcMiss(g, p);
+                if (arc) {
+                    rec.hit = true; rec.arc = (arc.track && arc.track.name) || 'track';
+                    const dupA = (rec.at - lastHandledAt) < 250;
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+                    if (dupA) return;
+                    lastHandledAt = rec.at;
+                    g.__downMenuHandled = true;
+                    try {
+                        await exec('baja/bio/splicing/junction-impact.js', g, arc.track, arc.j);
+                        rec.opened = 'junction';
+                    } catch (err) {
+                        rec.error = '' + ((err && err.message) || err);
+                        console.warn('[arc press] failed', err);
+                    }
+                    return;
+                }
+
                 // The "?" after a layer's label: its explanation (baja/bio/decor-help.js).
                 const helpLayer = helpAt(g, p);
                 if (helpLayer) {

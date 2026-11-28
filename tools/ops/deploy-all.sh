@@ -1910,7 +1910,7 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "ask a sashimi arc what it does to the protein" \
     "baja/bio/splicing/junction-impact.js:WHAT THIS ARC WOULD DO TO THE PROTEIN" \
     "baja/bio/track-layer.js:WHERE THIS ARC WAS JUST DRAWN" \
-    "baja/manchester/menu/mouse-over-highlight.js:A CLICK ON A SASHIMI ARC"
+    "baja/manchester/menu/layer-row-press.js:A SASHIMI ARC. Stamped by TrackLayer.drawSashimi"
 
   install_group "predict the exon structure of a selected region" \
     "baja/bio/splicing/region-exon-structure.js:WHAT EXON STRUCTURE THIS STRETCH OF SEQUENCE SUPPORTS" \
@@ -1923,15 +1923,20 @@ if [[ $DO_API -eq 1 ]]; then
   # broken version too, so a stale cached copy would pass their served-check.
   install_group "arc stamps replaced per draw, not piled up per frame" \
     "baja/bio/track-layer.js:REPLACED ONCE PER DRAW" \
-    "baja/manchester/menu/mouse-over-highlight.js:A layer that stopped drawing"
+    "baja/manchester/menu/layer-row-press.js:A layer that stopped drawing"
 
   # The arc dispatch was wrong twice: first inside getTrack(x,y) >= 0, which asks whose
   # ROW the pointer is in while an arc is drawn above its track, then on mouse-UP, which
   # runs after showContextMenu and is skipped whenever a menu is already on screen. It now
   # sits beside the SNP hit-test on the press, ungated, where this file had already
   # learned the lesson once. Its own group: both earlier versions carry the old markers.
-  install_group "a press on an arc is tested on the press, not behind a track row" \
-    "baja/manchester/menu/mouse-over-highlight.js:ON THE PRESS AND NOT GATED ON A TRACK ROW"
+  # Third home for this test, and the last: the canvas is painted in its backing store,
+  # not its CSS size, so a press measured without el.width / r.width lands somewhere else
+  # entirely on a scaled display. layer-row-press.js is the file that already converts it
+  # correctly, which is why the layer rows and the "?" buttons live there too.
+  install_group "a press on an arc is tested in canvas pixels, where the rows are" \
+    "baja/manchester/menu/layer-row-press.js:THIS IS THE THIRD HOME FOR THIS TEST" \
+    "baja/manchester/menu/mouse-over-highlight.js:hit-tested in layer-row-press.js"
 
   install_group "one bad junction is not a bad track, and a design that will not open says so" \
     "baja/bio/track-layer.js:ONE BAD JUNCTION IS NOT A BAD TRACK" \

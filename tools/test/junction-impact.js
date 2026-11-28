@@ -115,42 +115,45 @@ const clear = () => { try { const el = document.getElementById('baja-junction-im
 
     // ---- THE PRESS -----------------------------------------------------------------------------
     // The hit test, lifted from the editor so this is the arithmetic that ships.
-    const src = fs.readFileSync('baja/manchester/menu/mouse-over-highlight.js', 'utf8');
-    const block = src.slice(src.indexOf('let __hit = null, __best = 10;'),
-        src.indexOf('if (__hit) {'));
-    const hit = new Function('__arcs', '__aps', '__now', 'graph',
-        block + '\nreturn __hit;');
+    const src = fs.readFileSync('baja/manchester/menu/layer-row-press.js', 'utf8');
+    const aStart = src.indexOf('const arcAt = (g, p) => {');
+    const block = src.slice(aStart, src.indexOf('\n        };', aStart) + '\n        };'.length);
+    const arcAt = new Function(block + '\nreturn arcAt;')();
 
-    // WHERE AND WHEN IT IS TESTED IS THE WHOLE BUG, TWICE OVER.
+    // WHERE THIS TEST LIVES IS THE WHOLE BUG, THREE TIMES OVER.
     //
-    // First inside `graph.getTrack(x, y) >= 0`, which asks whose ROW the pointer is in: an
-    // arc is drawn above its track, so a skip arc crest is nowhere near the row of the
-    // track it belongs to and every press was discarded before an arc was looked at.
+    //   1. inside graph.getTrack(x, y) >= 0, which asks whose ROW the pointer is in, while
+    //      an arc is drawn above its track and often most of the canvas above it;
+    //   2. on mouse-UP, which runs after showContextMenu and is skipped outright whenever a
+    //      menu is already on screen;
+    //   3. on mouse-DOWN through the graph's own listeners and pressPx -- which measures in
+    //      CSS pixels while the canvas is painted in its backing store. On a scaled display
+    //      those differ by the device pixel ratio, so every arc read as far from a pointer
+    //      sitting on it.
     //
-    // Then on mouse-UP, which is both too late and too conditional -- it runs after
-    // showContextMenu, so a menu already on screen skips the branch entirely. The SNP
-    // hit-test in this same file learned this before us and says so in its own comment;
-    // the arcs now sit beside it, on the press, ungated.
-    const downAt = src.indexOf('graph.addMouseDownListener(async (x, y) => {',
-        src.indexOf('graph.addMouseDownListener(async (x, y) => {') );
-    ok(src.indexOf('A CLICK ON A SASHIMI ARC, ON THE PRESS') > downAt,
-       'the arc test is in the mouse-DOWN handler');
-    ok(src.indexOf('A CLICK ON A SASHIMI ARC, ON THE PRESS')
-       < src.indexOf('// SNP menu on press (moved from mouse-up).'),
-       'beside the SNP hit-test, which is ungated for the same reason');
-    ok(!/graph\.getTrack\(x, y\)[\s\S]{0,400}A CLICK ON A SASHIMI ARC/.test(src),
-       'and NOT behind a question about which track row the pointer is in');
-    ok(/graph\.__downMenuHandled = true;[\s\S]{0,200}junction-impact/.test(src),
-       'the matching mouse-up is told not to open a track menu over the panel');
+    // layer-row-press.js exists for exactly this: a window listener in the capture phase
+    // that converts the press with el.width / r.width and tests it against where things
+    // were painted. The layer rows and the "?" buttons are there for the same reasons.
+    ok(/toCanvas/.test(src) && /el\.width \/ r\.width/.test(src),
+       'the arc test lives where the press is converted to CANVAS pixels, scaling included');
+    const mo = fs.readFileSync('baja/manchester/menu/mouse-over-highlight.js', 'utf8');
+    ok(mo.indexOf('junction-impact') < 0,
+       'and nowhere else: one answer to where a press on an arc goes');
+    ok(/hit-tested in layer-row-press\.js/.test(mo),
+       'with a line where it used to be saying where it went');
+    ok(src.indexOf('const arc = arcAt(g, p);') < src.indexOf('const helpLayer = helpAt(g, p);'),
+       'an arc is drawn over the track furniture, so it is asked first');
+    ok(/e\.stopImmediatePropagation\(\);[\s\S]{0,400}junction-impact/.test(src),
+       'and a press it takes does not also pan the canvas');
 
     // An arc centred at (500, 400) with radius 200: its crest is at (500, 200).
     const j = { d: 1, a: 2 };
-    const nowPx = 1000000;
+    const nowPx = (typeof performance !== 'undefined') ? performance.now() : Date.now();
     const tr = { name: 'DNM1' };
     const arc = { track: tr, j: j, cx: 500, cy: 400, r: 200, t: nowPx,
         a0: -Math.PI * 0.75, a1: -Math.PI * 0.25 };
-    const G = { __arcHitsAt_transient_: nowPx };
-    const at = (x, y) => hit([arc], { x: x, y: y }, nowPx, G);
+    const G = { __arcHits_transient_: [arc], __arcHitsAt_transient_: nowPx };
+    const at = (x, y) => arcAt(G, { x: x, y: y });
     ok(at(500, 200) === arc, 'a press on the crest of the arc finds it');
     ok(at(500, 207) === arc, 'and a few pixels off it, since an arc is a thin line');
     ok(at(500, 240) === null, 'well away from it finds nothing');
@@ -158,28 +161,31 @@ const clear = () => { try { const el = document.getElementById('baja-junction-im
     ok(at(500, 600) === null, 'the far side of the same circle is not a hit');
     ok(at(300, 400) === null, 'nor its sides');
 
-    // A LAYER THAT STOPPED DRAWING leaves its last stamps in the list while other layers
-    // keep refreshing theirs, so the list is fresh and that entry is not.
-    const hidden = Object.assign({}, arc, { t: nowPx - 5000 });
-    ok(hit([hidden], { x: 500, y: 200 }, nowPx, G) === null,
+    // A stamp from a frame ago points at a junction that has moved since.
+    ok(arcAt({ __arcHits_transient_: [arc], __arcHitsAt_transient_: nowPx - 100000 },
+        { x: 500, y: 200 }) === null, 'a stamp from an old frame is ignored');
+    // A LAYER THAT STOPPED DRAWING leaves its last stamps while the rest keep refreshing.
+    ok(arcAt({ __arcHits_transient_: [Object.assign({}, arc, { t: nowPx - 5000 })],
+        __arcHitsAt_transient_: nowPx }, { x: 500, y: 200 }) === null,
        'an arc from a layer that is no longer drawing is not hit');
 
     // Two tracks' arcs share the list, and the nearer curve answers.
     const other = { track: { name: 'DNM3' }, j: { d: 9, a: 10 }, cx: 500, cy: 900, r: 200,
         t: nowPx, a0: -Math.PI * 0.75, a1: -Math.PI * 0.25 };
-    ok(hit([other, arc], { x: 500, y: 200 }, nowPx, G) === arc,
+    const G2 = { __arcHits_transient_: [other, arc], __arcHitsAt_transient_: nowPx };
+    ok(arcAt(G2, { x: 500, y: 200 }) === arc,
        'with several tracks drawing arcs, the one under the pointer answers');
-    ok(hit([other, arc], { x: 500, y: 700 }, nowPx, G).track.name === 'DNM3',
+    ok(arcAt(G2, { x: 500, y: 700 }).track.name === 'DNM3',
        'and the other one when the pointer is on it');
 
     // ---- AND WHEN IT MISSES, IT SAYS WHY ---------------------------------------------------------
-    // Three states look identical from the chair: nothing stamped (the layer never reached
-    // the sashimi renderer), stamped but the press was elsewhere, and near one but outside
-    // the drawn span. Guessing between them cost two deploys.
-    ok(/\[arcs\] stamped=/.test(src), 'a missed press logs what it had to work with');
-    ok(['stamped=', 'age=', 'press=', 'nearest='].every((k) => src.indexOf(k) >= 0),
-       'the count, how old it is, where the press was and how near the closest arc came');
-    ok(/__arcPressLog/.test(src) && /> 1000/.test(src), 'at most one line a second');
+    // Three states look identical from the chair, and guessing between them has cost three
+    // deploys. Every press records which one it was where __bajaLayerRowInfo() reads.
+    ok(/const arcMiss = \(g, p\) =>/.test(src), 'a missed press records what it had to work with');
+    ok(['stamped:', 'ageMs:', 'nearestPx:', 'onDrawnSpan:'].every((k) => src.indexOf(k) >= 0),
+       'the count, its age, how near the closest arc came, and whether the press was on its '
+       + 'drawn span rather than the rest of the circle');
+    ok(/rec\.arcs = arcMiss\(g, p\);/.test(src), 'on every press, hit or miss');
 
     // ---- THE STAMPS DO NOT PILE UP ------------------------------------------------------
     // The first version reset them only after a 120 ms gap between frames, which during a

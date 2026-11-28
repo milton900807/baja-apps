@@ -6108,77 +6108,11 @@ function (graph, genegraph_panel_layout) {
             }
             if (move) return;
 
-            // A CLICK ON A SASHIMI ARC, ON THE PRESS AND NOT GATED ON A TRACK ROW.
-            //
-            // Twice wrong before this. First inside `graph.getTrack(x, y) >= 0`, which asks
-            // whose ROW the pointer is in -- and an arc is drawn above its track, often most
-            // of the canvas above it, so a skip arc crest is nowhere near the row of the
-            // track it belongs to. Then on mouse-UP, which is too late and too conditional:
-            // it runs after showContextMenu, so a menu already on screen (a layer list, the
-            // one from the press before) skips the whole branch, and a press that moved the
-            // canvas even slightly never gets there at all.
-            //
-            // It belongs exactly where the SNP hit-test is, for exactly the reason stated
-            // below it: on the press, across all tracks, matched by where the thing was
-            // PAINTED. __downMenuHandled stops the matching mouse-up opening a track menu
-            // over the panel this opens.
-            try {
-                const __aps = pressPx(x, y);
-                const __arcs = graph.__arcHits_transient_;
-                const __now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
-                if (__aps && __arcs && __arcs.length
-                    && (__now - (graph.__arcHitsAt_transient_ || 0)) < 400) {
-                    let __hit = null, __best = 10;     // pixels: an arc is a thin line
-                    for (const e of __arcs) {
-                        if (!e) continue;
-                        // A layer that stopped drawing -- hidden, removed, scrolled out --
-                        // leaves its last stamps behind, and an arc nobody can see is not one
-                        // that can be pressed.
-                        if ((__now - (e.t || 0)) > 400) continue;
-                        const dx = __aps.x - e.cx, dy = __aps.y - e.cy;
-                        const d = Math.abs(Math.sqrt(dx * dx + dy * dy) - e.r);
-                        if (d > __best) continue;
-                        // On the drawn part of the circle, not the rest of it: an arc is a
-                        // sixth of a circle and the other five sixths run under the track.
-                        const ang = Math.atan2(dy, dx);
-                        const a0 = Math.min(e.a0, e.a1), a1 = Math.max(e.a0, e.a1);
-                        if (ang < a0 - 0.03 || ang > a1 + 0.03) continue;
-                        __best = d; __hit = e;
-                    }
-                    if (__hit) {
-                        graph.__downMenuHandled = true;
-                        md = false;
-                        try {
-                            exec('baja/bio/splicing/junction-impact.js', graph,
-                                __hit.track, __hit.j);
-                        } catch (e) { }
-                        return;
-                    }
-                }
-                // WHY A PRESS ON AN ARC DID NOTHING, answerable from the console instead of
-                // by another round of deploying and guessing. Three different states look
-                // identical from the chair: no arc was drawn this frame (the layer is not
-                // going through the sashimi renderer at all), arcs were drawn but the press
-                // was not near one, and the press was near one but outside the drawn span.
-                // At most one line a second, and only on a press.
-                try {
-                    const __w = window;
-                    if (!__w.__arcPressLog || (__now - __w.__arcPressLog) > 1000) {
-                        __w.__arcPressLog = __now;
-                        let near = null;
-                        for (const e of (__arcs || [])) {
-                            if (!e) continue;
-                            const dx = __aps ? (__aps.x - e.cx) : 0, dy = __aps ? (__aps.y - e.cy) : 0;
-                            const d = Math.abs(Math.sqrt(dx * dx + dy * dy) - e.r);
-                            if (near === null || d < near) near = d;
-                        }
-                        console.log('[arcs] stamped=' + ((__arcs && __arcs.length) || 0)
-                            + ' age=' + Math.round(__now - (graph.__arcHitsAt_transient_ || 0)) + 'ms'
-                            + ' press=' + (__aps ? (Math.round(__aps.x) + ',' + Math.round(__aps.y)) : 'none')
-                            + ' nearest=' + (near === null ? 'n/a' : Math.round(near) + 'px'));
-                    }
-                } catch (e) { }
-            } catch (e) { }
+            // The sashimi arcs are hit-tested in layer-row-press.js, with the layer rows
+            // and the "?" buttons: everything painted on the canvas and pressed by where it
+            // was painted is tested there, in canvas pixels, at the window in the capture
+            // phase. Two tries in this handler failed for the reasons that file was written
+            // to solve, and a second copy here would be a second answer to one question.
 
             // SNP menu on press (moved from mouse-up). Match by proximity across
             // ALL tracks — do NOT gate on getTrack(x, y), otherwise a press that
