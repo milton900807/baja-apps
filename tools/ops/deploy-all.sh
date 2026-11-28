@@ -1841,6 +1841,11 @@ if [[ $DO_API -eq 1 ]]; then
     "py/sequence/points-of-interest.py:rest is a quick interactive lookup, so use the FASTEST model the model" \
     "py/sequence/track-to-region.py:ask the model for the correct gene symbol, then resol" \
     "py/timeline/timeline-from-image.py:Image -> timeline extractor (the model vision)."
+  install_group "the lines between tracks survive save and reload" \
+    "baja/bio/compare/track-link-layer.js:IT IS NOT A LAYER, BUT IT IS SAVED" \
+    "baja/bio/compare/restore-track-links.js:THE LINES BETWEEN TRACKS, BACK AFTER A RELOAD" \
+    "flexigraph/gene.js:BACK AFTER A RELOAD. The painters cannot be written to a file" \
+    "baja/bio/rehydrate-layer.js:A TYPE THAT IS NOT A CLASS NAME IS THE LAYER SAYING WHAT IT IS"
   install_group "a track name is a place you can go to" \
     "baja/manchester/menu/editor-capabilities.js:THE POSITION MAY BE A TRACK"
   install_group "a one-step plan runs itself" \

@@ -74,7 +74,13 @@ function () {
         // save did not contain would otherwise be undefined and the painter throws on the
         // first one it reads.
         try { if (typeof K.hydrate === 'function') K.hydrate(layer); } catch (e) { }
-        try { layer.type = name; } catch (e) { }
+        // A TYPE THAT IS NOT A CLASS NAME IS THE LAYER SAYING WHAT IT IS, and it is kept.
+        // Layers built by the comparisons and the annotation reader carry types of their
+        // own (SelectionSimilarity, DescribedAnnotation) to mark what produced them;
+        // overwriting those with the class that happens to draw them -- TrackLayer -- threw
+        // the only record of that away on the first reload, silently, in a file that
+        // otherwise looked complete.
+        try { if (!tl.type || PATHS['' + tl.type]) layer.type = name; } catch (e) { }
         return layer;
     };
 

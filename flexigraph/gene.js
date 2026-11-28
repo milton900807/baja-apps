@@ -13880,6 +13880,25 @@ pattern, GGGG | Required`
                     // tracks it holds. A painter that throws is dropped rather than taking
                     // the frame with it, since half a drawn canvas is worse than a missing
                     // line.
+                    // BACK AFTER A RELOAD. The painters cannot be written to a file, so a
+                    // document carries the plain record of its lines instead
+                    // (graph.__linkSets) and they are built again from it the first time the
+                    // canvas draws with tracks on it. Done here rather than at the end of
+                    // the loader because there are several ways a document arrives, and a
+                    // restore wired into one of them is a restore missing from the others.
+                    // The once-only flag ends in _transient_ because the saver drops those:
+                    // written into the file it would come back already true, and the next
+                    // reload would skip the restore it is there to trigger.
+                    if (!this.__linkRestore_transient_ && this.__linkSets && this.__linkSets.length
+                        && (this.track || []).length) {
+                        this.__linkRestore_transient_ = true;
+                        try {
+                            exec('baja/bio/compare/restore-track-links.js', this)
+                                .then(() => { try { if (this.wake) this.wake(); } catch (e) { } })
+                                .catch(() => { });
+                        } catch (e) { }
+                    }
+
                     if (this.__linkPainters && this.__linkPainters.length) {
                         const __keep = [];
                         for (const lp of this.__linkPainters) {

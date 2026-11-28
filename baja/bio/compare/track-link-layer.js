@@ -16,9 +16,13 @@ function (graph, links, opts) {
     // both ends are worked out from the tracks' own coordinates on every frame rather than
     // being baked in, so a pan, a zoom or a track being dragged keeps the line attached.
     //
-    // IT IS NOT A LAYER and is not saved with the document. A line between two tracks is a
-    // statement about a comparison that was just run, not data on either track; the layers
-    // the comparison leaves behind are where the result lives.
+    // IT IS NOT A LAYER, BUT IT IS SAVED. The painter itself cannot be: it is closures over
+    // live track objects, and a file full of those comes back as junk. What is written is a
+    // plain RECORD of the same lines -- track NAMES and coordinates -- on graph.__linkSets,
+    // and baja/bio/compare/restore-track-links.js builds the painters again from it when
+    // the document is opened. Saving nothing was the old behaviour and it meant a figure
+    // that took a comparison and a dozen decisions to arrange came back with the lines gone
+    // and no way to tell what had been joined to what.
 
     return (async () => {
         const o = opts || {};
@@ -28,8 +32,44 @@ function (graph, links, opts) {
         const list = (links || []).filter((L) => L && L.from && L.to && L.from.track && L.to.track);
 
         if (!graph) return false;
+
+        // THE LIVE PAINTERS ARE NOT WRITTEN TO THE FILE. The saver walks the graph with
+        // for-in, so a property that is not enumerable is not visited: that is how these
+        // stay out of the document while __linkSets, which is plain data, goes in.
+        if (!Object.prototype.hasOwnProperty.call(graph, '__linkPainters')) {
+            try {
+                Object.defineProperty(graph, '__linkPainters',
+                    { value: [], writable: true, enumerable: false, configurable: true });
+            } catch (e) { graph.__linkPainters = []; }
+        }
         graph.__linkPainters = (graph.__linkPainters || []).filter((p) => p && p.id !== id);
-        if (!list.length) { try { if (graph.wake) graph.wake(); } catch (e) { } return false; }
+
+        // THE RECORD THAT DOES GO IN THE FILE. Tracks by name, because a track object is
+        // rebuilt on load and the one saved here would be a copy of a copy; names are what
+        // survive, and a name that is not on the canvas when it reopens is a link that is
+        // honestly dropped rather than drawn somewhere wrong.
+        const nameOf = (t) => ('' + ((t && t.name) || ''));
+        const record = () => ({
+            id: id, color: color, labelColor: ink,
+            links: list.map((L) => ({
+                from: { track: nameOf(L.from.track), start: L.from.start, end: L.from.end, y: L.from.y },
+                to: { track: nameOf(L.to.track), start: L.to.start, end: L.to.end, y: L.to.y },
+                label: L.label == null ? '' : ('' + L.label),
+                color: L.color || null
+            }))
+        });
+        const sync = () => {
+            try {
+                const keep = (graph.__linkSets || []).filter((x) => x && x.id !== id);
+                graph.__linkSets = list.length ? keep.concat([record()]) : keep;
+            } catch (e) { }
+        };
+        if (!list.length) {
+            sync();
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            return false;
+        }
+        sync();
 
         const painter = {
             id: id,
@@ -221,7 +261,10 @@ function (graph, links, opts) {
                 const gg = g || graph;
                 const where = (e) => (((e.track && e.track.name) || 'track') + ' '
                     + Math.min(e.start, e.end) + '\u2013' + Math.max(e.start, e.end));
-                const redraw = () => { try { if (gg.wake) gg.wake(); } catch (e) { } };
+                // Every edit here changes what should be reopened tomorrow, so the saved
+                // record is rewritten with the picture rather than at save time: a colour
+                // chosen and then not saved is a colour chosen twice.
+                const redraw = () => { try { sync(); } catch (e) { } try { if (gg.wake) gg.wake(); } catch (e) { } };
                 const close = () => { try { gg.showSideMenu(null); } catch (e) { } };
                 const open = (rows) => {
                     try { (gg.openMenuAtPointer || gg.showSideMenu).call(gg, rows); } catch (e) { }
