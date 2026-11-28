@@ -1943,6 +1943,14 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "world zero is a coordinate, not a reason to draw nothing" \
     "baja/bio/track.js:A TRACK THAT DRAWS NOTHING AND SAYS NOTHING" \
     "baja/bio/track-flexi.js:ZERO IS A COORDINATE, NaN IS A FAULT"
+
+  # save-obj.js now reads the serializer from the module rather than carrying it, so the
+  # two must land together: an old save-obj with the new module is fine, but a save-obj
+  # that has lost its own copy without the module being there saves nothing.
+  install_group "download the canvas as json, with the bytes the save writes" \
+    "manchester/io/graph-to-json.js:WHAT THE CANVAS IS, AS JSON, IN ONE PLACE" \
+    "manchester/io/save-obj.js:The serializer lives in one place now" \
+    "baja/manchester/menu/editor-capabilities.js:THE CANVAS ITSELF, AS A FILE"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

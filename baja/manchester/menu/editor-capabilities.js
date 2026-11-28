@@ -4520,6 +4520,71 @@ function (graph, genegraph_panel_layout) {
                 }
             },
             {
+                // THE CANVAS ITSELF, AS A FILE. The editor could save a design to the
+                // server and open one back, and could export almost everything ON the
+                // canvas -- sequences, variants, layers, reports -- but not the canvas.
+                // Asking for it came back as not something the editor can do, which was
+                // true and is a strange thing to be true of the one object everything
+                // else hangs off.
+                //
+                // Same bytes as the save: the serializer moved to manchester/io/graph-to-json.js
+                // and both read it from there, so a downloaded canvas is the file the save
+                // would have written and not a second opinion about what the canvas is.
+                name: 'download_canvas_json',
+                summary: 'DOWNLOAD THE WHOLE CANVAS AS A JSON FILE: every track, layer, '
+                    + 'variant, annotation and view setting, as the save writes them. This '
+                    + 'is the answer to "download canvas as json", "export the canvas", '
+                    + '"save the canvas to a file", "give me this design as json", "download '
+                    + 'the editor state". It is the same content a saved .baja holds, so it '
+                    + 'can be kept as a backup before a risky edit. Derived state that is '
+                    + 'rebuilt on load is left out, and anything the canvas refers to twice '
+                    + 'is written once. It changes nothing on the canvas.',
+                needs: null, params: {
+                    name: {
+                        type: 'string',
+                        about: 'what to call the file. Omit for the design or track name'
+                    }
+                },
+                run: async (a) => {
+                    let text = '';
+                    try {
+                        const toJson = await exec('manchester/io/graph-to-json.js');
+                        text = await toJson(graph, () => { });
+                    } catch (e) {
+                        result('The canvas could not be written out: '
+                            + ((e && e.message) ? e.message : e));
+                        return;
+                    }
+                    if (!text) { result('The canvas came back empty, so nothing was downloaded.'); return; }
+                    const base = ('' + (a.name || (graph.fileName || '')
+                        || ((tracks()[0] || {}).name || 'canvas')))
+                        .replace(/\.(baja|json)$/i, '').replace(/[^A-Za-z0-9_.-]+/g, '_') || 'canvas';
+                    let ok = false;
+                    try {
+                        const blob = new Blob([text], { type: 'application/json' });
+                        const el = document.createElement('a');
+                        el.href = URL.createObjectURL(blob);
+                        el.download = base + '.json';
+                        document.body.appendChild(el); el.click();
+                        setTimeout(() => { try { URL.revokeObjectURL(el.href); el.remove(); } catch (e) { } }, 0);
+                        ok = true;
+                    } catch (e) { ok = false; }
+                    const kb = Math.max(1, Math.round(text.length / 1024));
+                    if (!ok) {
+                        result('The canvas was written (' + kb.toLocaleString() + ' KB) but this '
+                            + 'browser would not take the download.');
+                        return;
+                    }
+                    result('Downloaded ' + base + '.json \u2014 ' + kb.toLocaleString() + ' KB, '
+                        + tracks().length + ' track' + (tracks().length === 1 ? '' : 's')
+                        + '. This is the same content the save writes, so it opens as a design '
+                        + 'and keeps as a backup. State the editor rebuilds on load is not in it.');
+                },
+                preview: () => 'Write the whole canvas \u2014 ' + tracks().length + ' track'
+                    + (tracks().length === 1 ? '' : 's') + ' with their layers and variants '
+                    + '\u2014 to a JSON file and download it'
+            },
+            {
                 name: 'clear_sequence_selection',
                 summary: 'Drop the selected sequence: the marked stretch on a track, made by '
                     + 'dragging across it. This is what "deselect", "deselect sequence", "clear '
