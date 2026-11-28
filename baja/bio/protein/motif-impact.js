@@ -11,79 +11,31 @@ function (graph, track, snp) {
     // Refuses, loudly, for anything that is not a single missense change. A scan that draws
     // nothing must never be mistaken for a scan that found nothing.
 
-    const AA = {
-        TTT:'F',TTC:'F',TTA:'L',TTG:'L',CTT:'L',CTC:'L',CTA:'L',CTG:'L',
-        ATT:'I',ATC:'I',ATA:'I',ATG:'M',GTT:'V',GTC:'V',GTA:'V',GTG:'V',
-        TCT:'S',TCC:'S',TCA:'S',TCG:'S',CCT:'P',CCC:'P',CCA:'P',CCG:'P',
-        ACT:'T',ACC:'T',ACA:'T',ACG:'T',GCT:'A',GCC:'A',GCA:'A',GCG:'A',
-        TAT:'Y',TAC:'Y',TAA:'*',TAG:'*',CAT:'H',CAC:'H',CAA:'Q',CAG:'Q',
-        AAT:'N',AAC:'N',AAA:'K',AAG:'K',GAT:'D',GAC:'D',GAA:'E',GAG:'E',
-        TGT:'C',TGC:'C',TGA:'*',TGG:'W',CGT:'R',CGC:'R',CGA:'R',CGG:'R',
-        AGT:'S',AGC:'S',AGA:'R',AGG:'R',GGT:'G',GGC:'G',GGA:'G',GGG:'G'
-    };
+    // The codon table lives in baja/bio/protein/variants-to-residues.js now, with the
+    // one reading of the frame that uses it.
 
     const say = (m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } };
 
     return (async () => {
         try {
-            const alt = ('' + (snp.alternate || snp.alt || '')).toUpperCase();
-            const ref = ('' + (snp.reference || snp.ref || '')).toUpperCase();
-            if (alt.length !== 1 || ref.length !== 1) {
-                say('Motif impact needs a single-nucleotide substitution; this one is ' +
-                    (ref || '?') + '>' + (alt || '?') + '.');
-                return null;
-            }
-
-            let cdsi = null;
-            try { cdsi = track && track.orf && track.orf.cdsi; } catch (e) { cdsi = null; }
-            if (!cdsi || !cdsi.length) {
-                try { if (track && track.generateORF) track.generateORF(); } catch (e) { }
-                try { cdsi = track && track.orf && track.orf.cdsi; } catch (e) { cdsi = null; }
-            }
-            if (!cdsi || !cdsi.length) {
+            // ONE READING OF THE FRAME, shared with the report over all the variants:
+            // baja/bio/protein/variants-to-residues.js. Two readings is how the same
+            // track answered this question from a click and reported no coding variants
+            // at all from the command bar.
+            const V = await exec('baja/bio/protein/variants-to-residues.js', track, [snp]);
+            if (!V || !V.ok) {
                 say('This track has no reading frame, so there is no codon to change.');
                 return null;
             }
-
-            const xi = Math.round(snp.xi);
-            const hit = cdsi.find((e) => e && Math.round(+e.index) === xi);
-            if (!hit) {
-                say('This variant is not inside a codon of this track\u2019s reading frame ' +
-                    '(intronic, UTR, or outside the ORF), so it changes no residue.');
+            const one = V.list[0];
+            if (!one) {
+                const left = (V.skipped || [])[0];
+                say('No residue changes here: ' + ((left && left.why) || 'this variant is '
+                    + 'not a single-base substitution inside a codon') + '.');
                 return null;
             }
-
-            // The codon as the track has it, and the residue it codes for. ci is which of the
-            // three bases this variant sits on.
-            const ciIdx = +hit.ci;
-            const codon = ('' + (hit.codon || '')).toUpperCase();
-            if (codon.length !== 3 || !(ciIdx >= 0 && ciIdx <= 2)) {
-                say('Could not read this variant\u2019s codon from the track.');
-                return null;
-            }
-            const wt = AA[codon];
-            const mutCodon = codon.slice(0, ciIdx) + alt + codon.slice(ciIdx + 1);
-            const mu = AA[mutCodon];
-            if (!wt || !mu) {
-                say('Could not translate ' + codon + ' \u2192 ' + mutCodon + '.');
-                return null;
-            }
-            const pos = (+hit.codon_index || 0) + 1;
-
-            if (wt === mu) {
-                say(codon + '>' + mutCodon + ' is synonymous (' + wt + pos +
-                    ' unchanged), so no motif can change.');
-                return null;
-            }
-            if (mu === '*') {
-                say(wt + pos + ' \u2192 stop. A truncation is not a motif substitution; ' +
-                    'scan the shortened protein instead.');
-                return null;
-            }
-            if (wt === '*') {
-                say('This changes a stop codon, not a residue.');
-                return null;
-            }
+            const codon = one.codon, mutCodon = one.mutCodon;
+            const wt = one.wt, mu = one.mu, pos = one.pos;
 
             const spec = wt + pos + mu;
             say('Motif impact: ' + codon + '>' + mutCodon + '  (' + spec + ') \u2026');

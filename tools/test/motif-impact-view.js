@@ -186,7 +186,10 @@ const mkTrack = () => ({
     said.length = 0;
     const r3 = await load('baja/bio/protein/motif-impact-view.js', graph,
         { name: 'E', annotations: [], track_layers: [] }, { protein: 'MKV', ask: false });
-    ok(r3 && !r3.ok && r3.why === 'no variants', 'a track with no coding variants is refused too');
+    ok(r3 && !r3.ok && r3.why === 'no coding variants',
+       'a track with no coding variants is refused too');
+    ok(said.some((m) => /none of the 0 variants/.test(m) && /nucleotide half/.test(m)),
+       'saying why, and where the question does have an answer: ' + (said[0] || ''));
 
     // A scan that could not run on the host is a deployment problem, not a quiet nothing.
     said.length = 0;

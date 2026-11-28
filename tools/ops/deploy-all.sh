@@ -1822,6 +1822,10 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"
+  install_group "one reading of the frame for both motif windows" \
+    "baja/bio/protein/variants-to-residues.js:THE VARIANTS ON A TRACK, READ AS RESIDUE SUBSTITUTIONS" \
+    "baja/bio/protein/motif-impact.js:ONE READING OF THE FRAME, shared with the report" \
+    "baja/bio/protein/motif-impact-view.js:WHERE THE VARIANTS ACTUALLY ARE"
   install_group "peptide or nucleotide, asked and then answered" \
     "baja/bio/rna/nucleotide-motif-catalog.js:A SMALL, NAMED CATALOGUE OF RNA SEQUENCE ELEMENTS" \
     "baja/bio/rna/nucleotide-motif-impact.js:WHAT THE VARIANTS DO TO THE SEQUENCE ELEMENTS AROUND THEM" \

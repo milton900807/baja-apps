@@ -97,7 +97,18 @@ function (graph, track, options) {
         // ---- THE NUMBERS ---------------------------------------------------------------
         let res = o.result || null;
         let protein = ('' + (o.protein || ''));
-        let vars = variantsOf(track || {});
+
+        // WHERE THE VARIANTS ACTUALLY ARE. Reading them off the track's annotations finds
+        // nothing on a ClinVar load, which does not write a protein field: the same track
+        // whose SNPs each report their own motif impact when clicked came back here as
+        // having no coding variants at all. They are read off the reading frame instead,
+        // by the one module that does it, and the annotations are kept as a fallback for
+        // tracks that were annotated by hand.
+        let fromFrame = null;
+        try { fromFrame = await exec('baja/bio/protein/variants-to-residues.js', track); }
+        catch (e) { fromFrame = null; }
+        let vars = (fromFrame && fromFrame.ok) ? fromFrame.list.map((x) => x.spec) : [];
+        for (const v of variantsOf(track || {})) { if (vars.indexOf(v) < 0) vars.push(v); }
         if (!res) {
             if (!protein) {
                 try { protein = await exec('baja/bio/protein/peptide-of.js', track); } catch (e) { protein = ''; }
@@ -110,10 +121,23 @@ function (graph, track, options) {
                 return { ok: false, why: 'no protein' };
             }
             if (!vars.length) {
-                say(label + ': no coding variants on this track, so there is no impact to '
-                    + 'show. The motifs the protein already carries are a layer: Linear '
-                    + 'motifs on the track menu.');
-                return { ok: false, why: 'no variants' };
+                // WHY THERE ARE NONE, not just that there are none. A track carrying forty
+                // ClinVar rows that are every one of them in the 3' UTR is a real answer
+                // and a different one from a track with no variants at all; without this
+                // they read the same, as a broken screen.
+                const n = ((track && track.snpindels) || []).length;
+                const left = (fromFrame && fromFrame.skipped) || [];
+                let why = '';
+                if (left.length) {
+                    const tally = {};
+                    for (const x of left) tally[x.why] = (tally[x.why] || 0) + 1;
+                    why = ' ' + Object.keys(tally).map((k) => tally[k] + ' ' + k).join(', ') + '.';
+                }
+                say(label + ': none of the ' + (n || 0) + ' variants on this track change a '
+                    + 'residue, so there is no peptide motif impact to show.' + why
+                    + ' For variants outside the coding sequence the question is what they do '
+                    + 'to the elements in the message: that is the nucleotide half.');
+                return { ok: false, why: 'no coding variants', skipped: left };
             }
 
             // ---- WHICH OF THEM ---------------------------------------------------------
@@ -126,6 +150,20 @@ function (graph, track, options) {
                 const described = describedVariants(track || {});
                 const byName = {};
                 for (const d of described) byName[d.v] = d.sub;
+                // What each substitution IS, from whichever source knows: the clinical
+                // call when the track carries one, the codon change otherwise. A list of
+                // forty bare substitutions cannot be narrowed, which is the whole point of
+                // being asked.
+                if (fromFrame && fromFrame.ok) {
+                    for (const x of fromFrame.list) {
+                        const sig = ('' + (((x.snp && (x.snp.significance || x.snp.clinical_significance
+                            || x.snp.clinvar)) || '')));
+                        const bits = [];
+                        if (sig) bits.push(sig);
+                        bits.push(x.codon + '>' + x.mutCodon);
+                        if (!byName[x.spec]) byName[x.spec] = bits.join(' \u00b7 ');
+                    }
+                }
                 const items = vars.map((v) => ({ label: v, sub: byName[v] || '', ref: v }));
                 const picked = await new Promise((resolve) => {
                     let done = false;
