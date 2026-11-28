@@ -1841,6 +1841,13 @@ if [[ $DO_API -eq 1 ]]; then
     "py/sequence/points-of-interest.py:rest is a quick interactive lookup, so use the FASTEST model the model" \
     "py/sequence/track-to-region.py:ask the model for the correct gene symbol, then resol" \
     "py/timeline/timeline-from-image.py:Image -> timeline extractor (the model vision)."
+  install_group "the threshold is asked for and the reverse complement is not assumed" \
+    "baja/manchester/menu/selected-sequence-menu.js:HOW CLOSE COUNTS AS A MATCH" \
+    "baja/manchester/menu/selected-sequence-menu.js:THIS STRAND, UNLESS ASKED"
+  install_group "an out-of-frame exon says what would happen" \
+    "baja/bio/exon-details.js:WHAT SKIPPING IT WOULD ACTUALLY DO"
+  install_group "no label for an interval that is off screen" \
+    "baja/bio/track-layer.js:A LABEL BELONGS TO ITS BAR, AND GOES WHERE THE BAR GOES"
   install_group "remove all graph layers means the lines" \
     "baja/manchester/menu/editor-capabilities.js:SENTENCES THE EDITOR DOES NOT NEED A MODEL FOR" \
     "baja/manchester/menu/editor-command.js:A SENTENCE THE EDITOR IS SURE OF DOES NOT GO TO A MODEL"

@@ -298,12 +298,23 @@ const at = (hits, pos) => hits.filter((h) => Math.abs(h.start - (BASE + pos)) <=
 
     // ---- the menu offers it ------------------------------------------------------------------
     const menu = fs.readFileSync('baja/manchester/menu/selected-sequence-menu.js', 'utf8');
-    ok(/Compare across a track \(\\u226550%\)/.test(menu), 'the selected-sequence menu offers it');
-    ok(/compareAcross\(0\.7\)/.test(menu),
-       'at a second threshold, because 50% on a 20-mer and 50% on a 500-mer are different questions');
+    ok(/go\('Compare across a track\.\.\.'/.test(menu), 'the selected-sequence menu offers it');
+    ok(/compareAcross\(null\)/.test(menu),
+       'with the threshold asked for rather than baked into two menu entries');
     // It asks which track only when there IS another one, so the common case stays one press.
-    ok(/if \(!others\.length\) \{\n\s+const w0 = await pickWindow\(\);/.test(menu),
+    ok(/if \(!others\.length\) \{\n\s+const m0 = \(min == null\) \? await pickThreshold\(\)/.test(menu),
        'with one track open it does not ask which track');
+    // THE THRESHOLD IS THE RESULT. It was two menu entries, 50% and 70%: two of the
+    // thresholds somebody might want and no way to say any other.
+    ok(/How close counts as a match/.test(menu) && /Another threshold/.test(menu),
+       'the threshold is asked for, with a way to type one of your own');
+    ok(/is not a threshold to compare at/.test(menu),
+       'and a number outside 30 to 100 is refused rather than rounded');
+    // THIS STRAND, UNLESS ASKED. Taking the reverse complement every time doubled the
+    // bands and the lines with an answer to a question almost nobody asked.
+    ok(/bothStrands: !!O2\.bothStrands/.test(menu), 'the strand choice is passed through');
+    ok(/Compare across a track, both strands/.test(menu),
+       'and both strands is an entry of its own, for an inverted repeat');
     ok(/The whole selection/.test(menu) && /nt windows/.test(menu),
        'and the window question has the whole selection as its first answer');
     // THE SIZES PEOPLE MEAN, and a box for the one they mean that is not listed.

@@ -49,6 +49,40 @@ function (graph, track, annotation) {
             : ('<span style="color:' + K.warm + ';font-weight:700;">out of frame</span> · '
                 + (len % 3) + ' base' + ((len % 3) === 1 ? '' : 's') + ' over a multiple of three, '
                 + 'so skipping it alone would shift the frame')));
+        // ---- WHAT SKIPPING IT WOULD ACTUALLY DO ----------------------------------------
+        // "Out of frame" is a fact about the exon's length and stops exactly where the
+        // reader's question begins: a shifted frame runs to some stop codon, and whether
+        // that stop is read as a premature one decides between a truncated protein and
+        // almost no protein at all. The editor already works that out for the exon menu's
+        // "what would removing this do", so asking it here is a call rather than a second
+        // answer: baja/bio/orfs/exon-removal-impact.js translates the skip isoform from the
+        // same start codon and applies the same NMD rules.
+        //
+        // Only for an out-of-frame exon. In frame, the skip is an internal deletion and the
+        // page already says so; running it anyway would put a paragraph of consequence
+        // under every exon somebody clicks.
+        let impact = null;
+        if (!inFrame && track) {
+            try {
+                impact = await exec('baja/bio/orfs/exon-removal-impact.js', track, a);
+            } catch (e) { impact = null; }
+        }
+        if (impact && impact.ok) {
+            const tone = (impact.nmd === 'nmd') ? K.warm
+                : (impact.nmd === 'escapes' ? K.ok : K.accent);
+            rows.push(line('if it were skipped',
+                '<span style="color:' + tone + ';font-weight:700;">'
+                + esc(('' + (impact.outcome || 'frameshift')).replace(/-/g, ' ')) + '</span>'
+                + (impact.nmd ? (' \u00b7 ' + esc(('' + impact.nmd).replace(/-/g, ' '))) : '')));
+        } else if (!inFrame && track) {
+            // THE REFUSAL IS PART OF THE ANSWER. A transcript with no start codon to work
+            // from cannot be translated, and saying nothing here leaves the reader thinking
+            // the question was not worth asking.
+            rows.push(line('if it were skipped',
+                '<span style="color:' + K.dim + ';">not worked out: '
+                + esc((impact && impact.reason) || 'this track has no reading frame to translate from')
+                + '</span>'));
+        }
         if (haveG) rows.push(line('genomic', num(Math.min(gi, gf)) + ' – ' + num(Math.max(gi, gf))));
         if (haveX) rows.push(line('on the track', num(Math.min(xi, xf)) + ' – ' + num(Math.max(xi, xf))));
         if (a.index != null) rows.push(line('exon', '' + a.index));
@@ -67,9 +101,30 @@ function (graph, track, annotation) {
                 + '<div style="margin-top:16px;padding:12px 14px;background:rgba(79,208,230,0.08);'
                 + 'border-left:3px solid ' + K.accent + ';border-radius:6px;font:13px/1.65 '
                 + K.font + ';color:' + K.text + ';max-width:620px;">'
-                + 'Frame here is a property of this exon’s own length. It says what would '
+                + 'Frame here is a property of this exon\u2019s own length. It says what would '
                 + 'happen to the reading frame if the exon were skipped, not that anything is '
                 + 'wrong with the transcript as it stands.</div>'
+                // The consequence, in the words the exon menu uses for the same calculation,
+                // with what it rests on said plainly underneath: these are rules of thumb
+                // applied to a translation, not a measurement of this transcript in a cell.
+                + (impact && impact.ok
+                    ? ('<div style="margin-top:12px;padding:12px 14px;background:rgba(255,255,255,0.04);'
+                        + 'border-left:3px solid ' + ((impact.nmd === 'nmd') ? K.warm : K.accent)
+                        + ';border-radius:6px;font:13px/1.65 ' + K.font + ';color:' + K.text
+                        + ';max-width:620px;">'
+                        + '<div style="font-weight:700;margin-bottom:6px;">If this exon were skipped</div>'
+                        + esc(impact.headline || '')
+                        + ((impact.lines && impact.lines.length)
+                            ? ('<div style="margin-top:8px;color:' + K.dim + ';font-size:12.5px;">'
+                                + impact.lines.map((l) => esc(l)).join('<br>') + '</div>')
+                            : '')
+                        + '<div style="margin-top:8px;color:' + K.dim + ';font-size:12px;">'
+                        + 'Worked out by translating the skip isoform from this transcript\u2019s own '
+                        + 'start codon and applying the usual NMD rules of thumb (the 50 to 55 nt '
+                        + 'rule, start-proximal and long-exon exceptions). It is a prediction about '
+                        + 'the isoform, not a measurement of how often the skip happens.</div>'
+                        + '</div>')
+                    : '')
         });
         return true;
     })();

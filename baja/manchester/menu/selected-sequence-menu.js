@@ -297,16 +297,65 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             return w;
         };
 
-        const compareAcross = async (min) => {
+        // HOW CLOSE COUNTS AS A MATCH. It was two menu entries, 50% and 70%, which is two
+        // of the thresholds somebody might want and no way to say any other. It is the
+        // whole result: at 50% a 20-mer is noise and a 500-mer is a real relative, and the
+        // person looking at the selection is the one who knows which they have.
+        const pickThreshold = async () => {
+            const chosen = await new Promise((resolve) => {
+                let done = false;
+                const once = (v) => { if (!done) { done = true; resolve(v); } };
+                exec('baja/lib/pick-list.js', {
+                    title: 'How close counts as a match',
+                    subtitle: 'the lowest identity to keep \u00b7 every position is compared, '
+                        + 'so 100% means every base agrees',
+                    items: [
+                        { label: '50%', sub: 'half the bases \u00b7 noisy on anything short', ref: 0.5 },
+                        { label: '60%', sub: 'a loose relative', ref: 0.6 },
+                        { label: '70%', sub: 'a recognisable copy', ref: 0.7 },
+                        { label: '80%', sub: 'a close copy', ref: 0.8 },
+                        { label: '90%', sub: 'nearly identical', ref: 0.9 },
+                        { label: '100%', sub: 'exact, every base', ref: 1 },
+                        { label: 'Another threshold...', sub: 'type any percentage from 30 up', ref: 'ask' }
+                    ],
+                    onPick: (it) => once(it ? it.ref : null),
+                    onClose: () => once(null)
+                }).then((x) => { if (x === null) once(null); });
+            });
+            if (chosen !== 'ask') return chosen;
+            const typed = await exec('baja/lib/prompt-text.js', {
+                title: 'Identity threshold',
+                message: 'The lowest percentage of positions that must agree for a stretch to '
+                    + 'be kept. Between 30 and 100.',
+                placeholder: 'e.g. 85',
+                action: 'Compare'
+            });
+            if (typed == null) return null;
+            const pct = +('' + typed).replace(/[^0-9.]/g, '');
+            if (!isFinite(pct) || pct < 30 || pct > 100) {
+                // Refused rather than rounded: below 30% a comparison of four bases matches
+                // everything, and the number typed is a different question from the one it
+                // would be quietly turned into.
+                say(' ' + (('' + typed).trim() || 'That') + ' is not a threshold to compare at: '
+                    + 'give a percentage between 30 and 100. ');
+                return null;
+            }
+            return pct / 100;
+        };
+
+        const compareAcross = async (min, opts2) => {
+            const O2 = opts2 || {};
             const usable = ((graph && graph.track) || []).filter((x) => {
                 try { return !!x && ('' + (x.sequence || '')).length >= 20; } catch (e) { return false; }
             });
             const others = usable.filter((x) => x !== t);
             if (!others.length) {
+                const m0 = (min == null) ? await pickThreshold() : min;
+                if (m0 == null) { say(' Nothing was compared. '); return; }
                 const w0 = await pickWindow();
                 if (w0 === null) { say(' Nothing was compared. '); return; }
                 return exec('baja/bio/compare/selection-similarity.js', graph, t, range,
-                    { min: min, window: w0 || null });
+                    { min: m0, window: w0 || null, bothStrands: !!O2.bothStrands });
             }
             const pick = await new Promise((resolve) => {
                 let done = false;
@@ -331,10 +380,12 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                 }).then((x) => { if (x === null) once(null); });
             });
             if (!pick) { say(' Nothing to compare against was chosen. '); return; }
+            const m1 = (min == null) ? await pickThreshold() : min;
+            if (m1 == null) { say(' Nothing was compared. '); return; }
             const win = await pickWindow();
             if (win === null) { say(' Nothing was compared. '); return; }
             return exec('baja/bio/compare/selection-similarity.js', graph, t, range,
-                { min: min, against: pick, window: win || null });
+                { min: m1, against: pick, window: win || null, bothStrands: !!O2.bothStrands });
         };
 
         const seqItems = [
@@ -347,8 +398,14 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             // threshold is in the label because it is the whole result: at 50% a 20-mer is
             // noise and a 500-mer is a real relative, and the user is the one who knows
             // which they have.
-            go('Compare across a track (\u226550%)...', async () => compareAcross(0.5)),
-            go('Compare across a track (\u226570%)...', async () => compareAcross(0.7)),
+            // THIS STRAND, UNLESS ASKED. The comparison used to take the reverse
+            // complement every time, so half of what came back was the selection read
+            // backwards -- a real answer to a question almost nobody was asking, and on a
+            // 3' UTR it doubled the bands and the lines for nothing. Both strands is still
+            // an entry of its own, because an inverted repeat is a real thing to look for.
+            go('Compare across a track...', async () => compareAcross(null)),
+            go('Compare across a track, both strands...',
+                async () => compareAcross(null, { bothStrands: true })),
             go('Mutate from sequence...', async () => exec('baja/manchester/menu/mutation-from-track-sequence.js', graph, genegraph_panel_layout, true)),
             go('Copy sequence', async () => copy(seqOf(), 'selection')),
             go('Copy reverse complement', async () => copy(revComp(seqOf()), 'reverse complement')),

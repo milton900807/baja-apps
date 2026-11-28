@@ -1764,6 +1764,22 @@ return new Promise(async (resolve, reject) => {
                         } else {
                             text = this.name;
                         }
+                        // A LABEL BELONGS TO ITS BAR, AND GOES WHERE THE BAR GOES. The grid
+                        // clamps a coordinate outside the view to the edge of it, so an
+                        // interval panned off to the right still had its name drawn, pinned
+                        // at the right-hand edge with nothing underneath it: a reader sees
+                        // "Repressive Element" sitting over a stretch that has no such
+                        // thing. The guard that was here read
+                        //   if (screenx > 0 || screenx < W - 100 || ...)
+                        // which is true for every x there is -- below zero satisfies the
+                        // second clause, above it the first -- so it never once rejected a
+                        // label. Tested in the track's own coordinates rather than screen
+                        // ones, because that is the test the clamping cannot defeat.
+                        try {
+                            const __wlo = this.tgraph.getxmin(), __whi = this.tgraph.getxmax();
+                            if (isFinite(__wlo) && isFinite(__whi)
+                                && (int.x2 < __wlo || int.x1 > __whi)) return;
+                        } catch (e) { }
                         ctx.fillStyle = 'black';
                         let screeny = this.tgraph.Y(int.y);
                         let screenx = this.tgraph.X(int.x2 + 1)
@@ -1866,7 +1882,10 @@ return new Promise(async (resolve, reject) => {
                             const maxWidth = 300;
                             const lineHeight = 15;
                             const lines = this.wrapText(ctx, text, maxWidth);
-                            if (screenx > 0 || screenx < graph.grid.width - 100 || screeny > 0 || screeny < graph.grid.height - 100) {
+                            // The interval is known to be in view by now (above), so what is
+                            // left to check is that the label itself has not been pushed off
+                            // the bottom or the right by its own length.
+                            if (screenx < graph.grid.width && screeny < graph.grid.height) {
 
                                 lines.forEach((line) => {
                                     ctx.fillText(line, screenx, screeny);
@@ -2255,6 +2274,22 @@ return new Promise(async (resolve, reject) => {
                         } else {
                             text = this.name;
                         }
+                        // A LABEL BELONGS TO ITS BAR, AND GOES WHERE THE BAR GOES. The grid
+                        // clamps a coordinate outside the view to the edge of it, so an
+                        // interval panned off to the right still had its name drawn, pinned
+                        // at the right-hand edge with nothing underneath it: a reader sees
+                        // "Repressive Element" sitting over a stretch that has no such
+                        // thing. The guard that was here read
+                        //   if (screenx > 0 || screenx < W - 100 || ...)
+                        // which is true for every x there is -- below zero satisfies the
+                        // second clause, above it the first -- so it never once rejected a
+                        // label. Tested in the track's own coordinates rather than screen
+                        // ones, because that is the test the clamping cannot defeat.
+                        try {
+                            const __wlo = this.tgraph.getxmin(), __whi = this.tgraph.getxmax();
+                            if (isFinite(__wlo) && isFinite(__whi)
+                                && (int.x2 < __wlo || int.x1 > __whi)) return;
+                        } catch (e) { }
                         ctx.fillStyle = 'black';
                         let screeny = this.tgraph.Y(int.y);
                         let screenx = this.tgraph.X(int.x2 + 1)
@@ -2357,7 +2392,10 @@ return new Promise(async (resolve, reject) => {
                             const maxWidth = 300;
                             const lineHeight = 15;
                             const lines = this.wrapText(ctx, text, maxWidth);
-                            if (screenx > 0 || screenx < graph.grid.width - 100 || screeny > 0 || screeny < graph.grid.height - 100) {
+                            // The interval is known to be in view by now (above), so what is
+                            // left to check is that the label itself has not been pushed off
+                            // the bottom or the right by its own length.
+                            if (screenx < graph.grid.width && screeny < graph.grid.height) {
 
                                 lines.forEach((line) => {
                                     ctx.fillText(line, screenx, screeny);
