@@ -22,6 +22,9 @@ function (graph, genegraph_panel_layout) {
     //               type is one of: enum, enum[], string, string[], number, boolean
     //   needs       what must be on the canvas: 'track' | 'selection' | 'variants' | 'compounds'
     //   destructive true when it deletes work. These never run without their own click.
+    //   confirm     true when it is not destructive but should still be shown before it
+    //               runs: a long wait, a paid call, something that replaces the view. A
+    //               one-step plan with neither flag runs as soon as it is understood.
     //   opens       true when it opens a dialog rather than finishing by itself, so the
     //               preview can say so instead of implying the work is done
     //   run         (args) => the actual call. Arguments arrive already validated.
@@ -4945,6 +4948,10 @@ function (graph, genegraph_panel_layout) {
             return {
                 ok: true, capability: c, args: v.args, text: text, count: n,
                 blocker: b, destructive: !!c.destructive,
+                // A ONE-STEP PLAN RUNS ITSELF, unless the capability says otherwise. Set
+                // confirm on anything that is not destructive but still deserves a press:
+                // a long wait, a paid call, something that replaces what is on screen.
+                confirm: !!c.confirm,
                 opens: !!c.opens, answers: !!c.answers,
                 choices: choices.length > 1 ? choices : null,
                 choiceTitle: (choices.length > 1 && c.choiceTitle) ? c.choiceTitle(v.args, choices) : null,

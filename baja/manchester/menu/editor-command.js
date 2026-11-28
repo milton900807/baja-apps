@@ -817,6 +817,42 @@ function (graph, genegraph_panel_layout, options) {
                 // and re-checked for real immediately before it runs.
                 const runnable = good.filter((x, i) => (i === 0 ? !x.p.blocker : true));
 
+                // ---- ONE OPERATION, NOTHING TO DECIDE: JUST DO IT -------------------------
+                // A card with a single GO on it asks a question that has one answer. The
+                // user typed the sentence; reading it back to them and waiting is a second
+                // press for nothing, and on "show me exon 20 on dnm1" it is a press between
+                // them and the thing they asked to look at.
+                //
+                // It runs itself ONLY when there is nothing left to decide: one step, no
+                // step refused, nothing in the sentence the editor could not do, no blocker
+                // on the canvas, no choice of track still open (that card comes first and
+                // returns above), and nothing destructive. Any of those is a real question
+                // and still gets asked -- a plan that deletes, overwrites or costs a long
+                // wait is not something to start on the user's behalf because it happened to
+                // be one line long.
+                //
+                // What ran is not hidden: the running strip names the step, the capability
+                // reports as it always does, and the log keeps the sentence with what it was
+                // read as, so a surprise can be read back afterwards.
+                const autoRun = (good.length === 1 && !bad.length && runnable.length === 1
+                    && !danger && !unsupported.length && !problems.length
+                    && !good[0].p.choices && !good[0].p.confirm);
+                if (autoRun) {
+                    const p1 = good[0].p;
+                    close();
+                    (async () => {
+                        try {
+                            await withSpinner(p1, () => p1.capability.run(good[0].step.args || {}));
+                            loggedRan(1);
+                            done(1);
+                        } catch (e) {
+                            result(p1.capability.name + ': ' + (e && e.message ? e.message : e));
+                            done(0);
+                        }
+                    })();
+                    return;
+                }
+
                 // EACH STEP IS ITS OWN DECISION.
                 //
                 // A plan used to be all of it or none of it, which is the wrong shape for a

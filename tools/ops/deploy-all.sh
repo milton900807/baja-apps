@@ -1841,6 +1841,9 @@ if [[ $DO_API -eq 1 ]]; then
     "py/sequence/points-of-interest.py:rest is a quick interactive lookup, so use the FASTEST model the model" \
     "py/sequence/track-to-region.py:ask the model for the correct gene symbol, then resol" \
     "py/timeline/timeline-from-image.py:Image -> timeline extractor (the model vision)."
+  install_group "a one-step plan runs itself" \
+    "baja/manchester/menu/editor-command.js:ONE OPERATION, NOTHING TO DECIDE: JUST DO IT" \
+    "baja/manchester/menu/editor-capabilities.js:A ONE-STEP PLAN RUNS ITSELF, unless the capability says otherwise"
   install_group "the running strip is reachable from every GO" \
     "baja/manchester/menu/editor-command.js:HOISTED OUT OF render ON PURPOSE"
   install_group "draw an annotation you describe in words" \
