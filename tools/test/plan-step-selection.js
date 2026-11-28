@@ -110,8 +110,12 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
        'a later step stays tickable: the step before it is usually what provides what it needs');
 
     // WITH NO BUTTON, THE SPINNER IS THE ONLY SIGN THE REQUEST IS ALIVE.
+    // TWO STEPS, so the card stays up to be looked at: a single step runs itself the
+    // moment the plan lands, and a card that is gone has no field to be quiet and no
+    // spinner to watch. The one-step path is tested in one-step-runs-itself.js.
     planReply = { status: 'OK', explain: 'x', unsupported: [], problems: [],
-        steps: [{ capability: 'zoom_selection', args: {} }] };
+        steps: [{ capability: 'zoom_selection', args: {} },
+            { capability: 'zoom_selection', args: {} }] };
     graph = mkGraph(true);
     let release = null;
     stall = new Promise((r) => { release = r; });

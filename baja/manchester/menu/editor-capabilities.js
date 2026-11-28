@@ -1157,6 +1157,59 @@ function (graph, genegraph_panel_layout) {
                 run: () => { const t = oneSelTrack(); return exec('baja/bio/rbp/rbp-competition.js', graph, genegraph_panel_layout, t, rangeOf(t)); }
             },
             {
+                // THE SITES ARE NOT THE STRUCTURE. splice_site_strength draws how strong
+                // each position is; this pairs those positions into exons and says which
+                // of the edges the gene model already carries. Asked for by name because
+                // "predict the exon structure here" came back as the site layer, which
+                // answers a question next to the one asked.
+                name: 'predict_exon_structure',
+                summary: 'PREDICT THE EXON STRUCTURE OF THE SELECTED REGION: the site model '
+                    + 'is run over the selection, its donors and acceptors are paired in '
+                    + 'transcript order into exons, and every edge is laid beside the gene '
+                    + 'model as already annotated or new. This is the answer to "predict '
+                    + 'the exon structure here", "what exons are in this region", "find '
+                    + 'the donor and acceptor sites in the selection", "where are the '
+                    + 'splice sites in this stretch", "is there a cryptic exon here". It '
+                    + 'reports the dinucleotide actually at each site (GT and AG, or AC '
+                    + 'and CT on a minus-strand track) beside the score, and will draw the '
+                    + 'exons it proposes on the track when asked. NOTHING IT RETURNS IS A '
+                    + 'MEASUREMENT: no reads say any of these exons is used, and the only '
+                    + 'part checked against something observed is the agreement with the '
+                    + 'annotation. For how strong one site is, splice_site_strength; for '
+                    + 'what a sashimi arc would do to the protein, the arc itself.',
+                needs: 'selection',
+                params: {
+                    min_site: {
+                        type: 'number', default: 0.10,
+                        about: 'the score a donor or acceptor must reach to be paired, 0 to 1'
+                    },
+                    min_len: {
+                        type: 'number', default: 25,
+                        about: 'the shortest exon to propose, in bases'
+                    },
+                    max_len: {
+                        type: 'number', default: 1000,
+                        about: 'the longest exon to propose, in bases'
+                    }
+                },
+                run: (a) => {
+                    const t = oneSelTrack();
+                    if (!t) { result('Select a stretch of sequence on a track first.'); return; }
+                    return exec('baja/bio/splicing/region-exon-structure.js', graph, t,
+                        rangeOf(t), { min_site: a.min_site, min_len: a.min_len,
+                            max_len: a.max_len });
+                },
+                preview: () => {
+                    const t = oneSelTrack();
+                    const r = t ? rangeOf(t) : null;
+                    const n = (r && isFinite(+r.start) && isFinite(+r.end))
+                        ? (Math.abs(Math.floor(+r.end) - Math.floor(+r.start)) + 1) : 0;
+                    return 'Score the splice sites in the ' + (n ? n.toLocaleString() + ' nt ' : '')
+                        + 'selection on ' + ((t && t.name) || 'the selected track')
+                        + ' and pair them into exons';
+                }
+            },
+            {
                 // A SELECTION IS A SCOPE, NOT A PRECONDITION. "add rna binding proteins to the
                 // spag9_mrna" names the track it wants and selects nothing, and this refused
                 // it for want of a selection -- while the module behind it has run on a whole

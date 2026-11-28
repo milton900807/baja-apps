@@ -160,6 +160,13 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                 exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t, range, null)),
             go('Splice-site strength (SpliceNet)\u2026', async () =>
                 exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range, 'sites')),
+            // THE SITES ARE NOT THE STRUCTURE. Splice-site strength draws how strong each
+            // position is, which is the right answer to "is this site any good" and the
+            // wrong one to the question a selection usually carries: given these sites,
+            // where does an exon start and stop, and does the gene model already know about
+            // it. This pairs them into exons and lays the result beside the annotation.
+            go('Predict the exon structure here\u2026', async () =>
+                exec('baja/bio/splicing/region-exon-structure.js', graph, t, range, {})),
             go('Exon inclusion, PSI (PSINet)\u2026', async () =>
                 exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range, 'psi')),
             // Sequence-only, so it is the one entry here that needs no model and no server:

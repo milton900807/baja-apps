@@ -1906,6 +1906,16 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/manchester/menu/selected-sequence-menu.js:AND HOW MUCH OF IT AT A TIME"
   install_group "any window size, including one you type" \
     "baja/manchester/menu/selected-sequence-menu.js:A NUMBER OF YOUR OWN"
+
+  install_group "ask a sashimi arc what it does to the protein" \
+    "baja/bio/splicing/junction-impact.js:WHAT THIS ARC WOULD DO TO THE PROTEIN" \
+    "baja/bio/track-layer.js:WHERE THIS ARC WAS JUST DRAWN" \
+    "baja/manchester/menu/mouse-over-highlight.js:A CLICK ON A SASHIMI ARC"
+
+  install_group "predict the exon structure of a selected region" \
+    "baja/bio/splicing/region-exon-structure.js:WHAT EXON STRUCTURE THIS STRETCH OF SEQUENCE SUPPORTS" \
+    "baja/manchester/menu/selected-sequence-menu.js:Predict the exon structure here" \
+    "baja/manchester/menu/editor-capabilities.js:predict_exon_structure"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------

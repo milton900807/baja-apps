@@ -68,10 +68,14 @@ const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fai
     el('ec-q').value = 'zoom into the selection';
     el('ec-q').onkeydown({ key: 'Enter', preventDefault() { } });
     await settle(12);
-    ok(!!el('ec-go'), 'the card offers GO: ' + (document.body.textContent || '').slice(0, 60));
+    // A ONE-STEP PLAN NO LONGER WAITS FOR GO: it runs itself, which is the one path that
+    // could have gone quiet again, since it is a second place that starts a capability. So
+    // the strip is watched over the run that STARTED ITSELF, not over a pressed button --
+    // if auto-run ever stops going through the wrapper, this file is what says so.
+    ok(!el('ec-go'), 'a single step runs itself rather than offering GO');
+    ok(!el('ec-q'), 'and the card is gone, since there is nothing left to answer');
 
     const before = loaded.length;
-    el('ec-go').onclick();
     await sleep(60);
     ok(!strip(), 'the first moment shows nothing, so an instant step does not flash');
 

@@ -900,6 +900,29 @@ return new Promise(async (resolve, reject) => {
                 ctx.setLineDash([]);
                 ctx.restore();
 
+                // ---- WHERE THIS ARC WAS JUST DRAWN -------------------------------------
+                // An arc is the most informative thing on a sashimi plot and was the one
+                // thing on it that could not be pressed: the junction it stands for has a
+                // consequence for the transcript, and the only way to ask was to find the
+                // exon it belongs to and open that instead.
+                //
+                // Stamped per frame, in screen space, because that is what it is: the curve
+                // is a circle worked out from the tracks' coordinates on every draw, and a
+                // rectangle remembered from a pan ago points at a junction that has moved.
+                // The press handler honours the latest frame only, exactly as the "?" does.
+                try {
+                    const __now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+                    if (!graph.__arcHits || (__now - (graph.__arcHitsAt || 0)) > 120) {
+                        graph.__arcHits = [];
+                        graph.__arcHitsAt = __now;
+                    }
+                    graph.__arcHits.push({
+                        t: __now, track: track || null, layer: this, j: j,
+                        cx: centerX, cy: centerY, r: radius, a0: aL, a1: aR,
+                        x1: x1, x2: x2, ghost: !!isGhost, skip: !!isSkip
+                    });
+                } catch (e) { }
+
                 // Value labels sit on the OUTER side of each bar: left of a donor that is left
                 // of its acceptor, right of one that is right of it (minus strand), and the
                 // mirror for the acceptor. Labelled only when the arc is wide enough to keep the
