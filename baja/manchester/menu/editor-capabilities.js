@@ -4520,6 +4520,67 @@ function (graph, genegraph_panel_layout) {
                 }
             },
             {
+                // THE SAME MUTATION, LOADED TWICE. Loading ClinVar over a track that
+                // already carries it leaves every change on the canvas more than once,
+                // and every count inflated by however many times the set was loaded.
+                // Nothing here could find them, which is why 457 variants is 457
+                // lollipops and not 457 mutations.
+                name: 'remove_duplicate_variants',
+                summary: 'REMOVE DUPLICATE VARIANTS FROM A TRACK: variants that are the '
+                    + 'same change, kept once. '
+                    + 'This is the answer to "remove duplicate mutations", '
+                    + '"deduplicate the variants", "I loaded clinvar twice", '
+                    + '"get rid of the repeated snps", "how many of these are duplicates". '
+                    + 'THE SAME CHANGE means, by default, the same NUCLEOTIDE signature: '
+                    + 'same position, same kind, same reference and alternate, which are '
+                    + 'the same variant and lose nothing when collapsed. Matching by '
+                    + 'PEPTIDE instead collapses variants that give the same residue '
+                    + 'substitution by different nucleotide changes (c.943G>A and c.943G>C '
+                    + 'both giving A315T): those are NOT the same variant and the report '
+                    + 'names every nucleotide change it dropped. Of each set the copy '
+                    + 'carrying the most (clinical significance, condition, an id) is the '
+                    + 'one kept. Undo puts them back. To count them without removing '
+                    + 'anything, ask for a dry run.',
+                needs: 'variants', destructive: true, confirm: true,
+                params: {
+                    track: {
+                        type: 'string',
+                        about: 'which track, by name. Omit for every track that has variants'
+                    },
+                    by: {
+                        type: 'string', default: 'nucleotide',
+                        about: 'what makes two variants the same: nucleotide (same position '
+                            + 'and change), peptide (same residue substitution, however the '
+                            + 'codon got there), or both'
+                    },
+                    dry_run: {
+                        type: 'boolean', default: false,
+                        about: 'count them and report, removing nothing'
+                    }
+                },
+                run: async (a) => {
+                    const chosen = a.track ? [matchTrack(a.track)].filter(Boolean)
+                        : tracks().filter((t) => ((t && t.snpindels) || []).length);
+                    if (!chosen.length) {
+                        result(a.track ? ('No track matches \u201c' + a.track + '\u201d.')
+                            : 'No track on the canvas has any variants on it.');
+                        return;
+                    }
+                    return exec('baja/bio/variants/remove-duplicate-variants.js', graph, chosen,
+                        { by: a.by, dryRun: !!a.dry_run });
+                },
+                preview: (a) => {
+                    const chosen = a.track ? [matchTrack(a.track)].filter(Boolean)
+                        : tracks().filter((t) => ((t && t.snpindels) || []).length);
+                    const n = chosen.reduce((k, t) => k + ((t.snpindels || []).length), 0);
+                    const by = ('' + (a.by || 'nucleotide')).toLowerCase();
+                    return (a.dry_run ? 'Count the duplicates among ' : 'Keep one copy of each of the ')
+                        + n.toLocaleString() + ' variant' + (n === 1 ? '' : 's') + ' on '
+                        + (chosen.map((t) => t.name || 'track').join(', ') || 'the canvas')
+                        + ', matching on ' + (by === 'both' ? 'nucleotide and peptide' : by);
+                }
+            },
+            {
                 // THE CANVAS ITSELF, AS A FILE. The editor could save a design to the
                 // server and open one back, and could export almost everything ON the
                 // canvas -- sequences, variants, layers, reports -- but not the canvas.

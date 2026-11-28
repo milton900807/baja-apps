@@ -1952,6 +1952,10 @@ if [[ $DO_API -eq 1 ]]; then
     "manchester/io/graph-to-json.js:WHAT THE CANVAS IS, AS JSON, IN ONE PLACE" \
     "manchester/io/save-obj.js:The serializer lives in one place now" \
     "baja/manchester/menu/editor-capabilities.js:THE CANVAS ITSELF, AS A FILE"
+
+  install_group "remove duplicate variants, by nucleotide or by peptide" \
+    "baja/bio/variants/remove-duplicate-variants.js:THE SAME MUTATION, LOADED TWICE" \
+    "baja/manchester/menu/editor-capabilities.js:REMOVE DUPLICATE VARIANTS FROM A TRACK"
 fi
 
 # ---- 2c: the karyotype view: which variants go to the oligo editor ----------------
