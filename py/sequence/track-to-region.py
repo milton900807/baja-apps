@@ -4,7 +4,7 @@ Resolve a track to its GENOMIC REGION for a ClinVar (or other region) lookup.
 
 Preferred: the track's Ensembl id (gene/transcript) -> Ensembl REST /lookup/id -> region.
 Fallback: if no usable Ensembl id, use the track's METADATA (name, description, species) and
-ask Claude for the correct gene symbol, then resolve that symbol via Ensembl to a region.
+ask the model for the correct gene symbol, then resolve that symbol via Ensembl to a region.
 
   let r = await exec('/py/sequence/track-to-region.py', em, ensemblId, name, description, species)
   // r = { chr, start, end, gene, source, error }
@@ -84,7 +84,7 @@ def lookup_symbol(sp, symbol):
 
 
 def claude_gene_symbol(nm, desc, sp):
-    """Ask Claude for the gene symbol from the track's metadata."""
+    """Ask the model for the gene symbol from the track's metadata."""
     if requests is None or not ANTHROPIC_API_KEY:
         return ""
     prompt = (
@@ -126,7 +126,7 @@ if re.match(r"^ENS[A-Z]*[GT]\d", ens_id, re.I):
         out.update(loc)
         out["source"] = "ensembl-id"
 
-# 2) No id (or it didn't resolve) -> Claude-search the gene symbol from metadata, then Ensembl.
+# 2) No id (or it didn't resolve) -> model search the gene symbol from metadata, then Ensembl.
 if not out["chr"]:
     if requests is None:
         out["error"] = "requests unavailable on server python"

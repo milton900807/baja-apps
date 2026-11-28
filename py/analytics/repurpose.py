@@ -218,7 +218,7 @@ def _stream_message(body: Dict[str, Any], on_search: Any = None) -> Dict[str, An
             resp = requests.post(API_URL, headers=_headers(with_fallback), json=body,
                                  stream=True, timeout=(15, 180))
         except Exception as ex:
-            raise ApiError("Claude request failed: %s" % ex)
+            raise ApiError("The model request failed: %s" % ex)
 
         if resp.status_code != 200:
             text = (resp.text or "")[:400]
@@ -286,7 +286,7 @@ def _stream_message(body: Dict[str, Any], on_search: Any = None) -> Dict[str, An
         message["content"] = [blocks[i] for i in sorted(blocks.keys())]
         return message
 
-    raise ApiError("Claude is busy (rate limited or overloaded). Try again in a minute.")
+    raise ApiError("The model is busy (rate limited or overloaded). Try again in a minute.")
 
 
 def _text_of(content: List[Dict[str, Any]]) -> str:
@@ -346,7 +346,7 @@ def research(prompt: str, max_candidates: int, max_searches: int
         info["model"] = msg.get("model") or info["model"]
         if msg.get("stop_reason") == "refusal":
             det = msg.get("stop_details") or {}
-            raise ApiError("the model declined this request"
+            raise ApiError("The model declined this request"
                            + (f" ({det.get('category')})" if det.get("category") else ""))
         if msg.get("stop_reason") != "pause_turn":
             break

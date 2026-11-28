@@ -1822,6 +1822,27 @@ if [[ $DO_API -eq 1 ]]; then
   install_group "press a cross-track line for its own menu" \
     "baja/bio/compare/track-link-layer.js:A LINE IS SOMETHING YOU CAN PRESS" \
     "flexigraph/gene.js:A LINE BETWEEN TWO TRACKS IS SOMETHING YOU CAN PRESS"
+  install_group "no model name in what the editor prints (1 of 3)" \
+    "baja/analytics/progress-learner.js:A long tool (Indication market: the model plus live web search, a few minutes) ca" \
+    "baja/data/variant-from-prompt.js:py/bio/variant-from-prompt.py asks the model only to NORMALISE the description --" \
+    "baja/draw/timeline-from-image.js:t or whiteboard plan; py/timeline/timeline-from-image.py has the model" \
+    "baja/manchester/menu/file-extract.js:s own the model request is bounded to ~3 minutes server" \
+    "baja/manchester/menu/points-of-interest.js:s Ensembl id -> resolve it (Ensembl id, else the model)." \
+    "baja/plate/ops/resolve-missing-references.js:with the model (py/openai/resolve-reference.py) for wh"
+  install_group "no model name in what the editor prints (2 of 3)" \
+    "baja/plate/plate-track.js:rewrite, and/or inputs the model suggests creating. Nothing changes unti" \
+    "cpd/baja-analytics.js:researches with the model + live web search (a few minutes) and r" \
+    "flexigraph/plot.js:The formatted report: the model groups the events into phases and write" \
+    "manchester/karyotype.js:to py/bio/genetic-file.py, which asks the model what the file is and, for a report," \
+    "py/bio/loh-selective-lethality.py:the part handed to the model -- over candidates chosen deterministic" \
+    "py/bio/variant-from-prompt.py:already loaded. the model is asked only to NORMALISE the descript"
+  install_group "no model name in what the editor prints (3 of 3)" \
+    "py/sequence/extract-entities.py:best-effort enrichment: the genes, mutations and residues the model read out of the text are" \
+    "py/sequence/points-of-interest.py:rest is a quick interactive lookup, so use the FASTEST model the model" \
+    "py/sequence/track-to-region.py:ask the model for the correct gene symbol, then resol" \
+    "py/timeline/timeline-from-image.py:Image -> timeline extractor (the model vision)."
+  install_group "a track is never flattened below fifty pixels" \
+    "flexigraph/gene.js:A TRACK'S OWN BODY, not just the gap to the next one"
   install_group "colour or delete a variant from its own page" \
     "baja/manchester/menu/snp-more-info.js:THE VARIANT ITSELF, NOT ONLY WHAT IS KNOWN ABOUT IT"
   install_group "one reading of the frame for both motif windows" \

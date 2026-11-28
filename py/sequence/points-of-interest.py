@@ -28,7 +28,7 @@ except Exception:
     requests = None
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-# Points-of-interest is a quick interactive lookup, so use the FASTEST model Claude
+# Points-of-interest is a quick interactive lookup, so use the FASTEST model the model
 # offers (Haiku 4.5) by default rather than the slower global default. Override with
 # POINTS_MODEL if ever needed; kept independent of ANTHROPIC_MODEL so a global Sonnet
 # setting can't slow this path down.

@@ -2,7 +2,7 @@ function () {
 
     // A progress bar that gets better every time it is used.
     //
-    // A long tool (Indication market: Claude plus live web search, a few minutes) can say
+    // A long tool (Indication market: the model plus live web search, a few minutes) can say
     // very little about how far along it is. What it CAN say is which phase it is in --
     // "Checking earlier research", "Searching: <query>", "Organising the findings" -- and
     // those phases arrive in the same order every run. So the bar is not driven by a

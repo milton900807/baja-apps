@@ -153,7 +153,7 @@ def _pick_primary_mapping(maps):
 
 
 # ONE TIME BUDGET FOR ALL OF ENSEMBL. Everything below that talks to rest.ensembl.org is
-# best-effort enrichment: the genes, mutations and residues Claude read out of the text are
+# best-effort enrichment: the genes, mutations and residues the model read out of the text are
 # already in hand before the first Ensembl call, and the client has its own fallbacks for
 # whatever Ensembl did not answer (a gene with no transcript id is looked up by
 # prompt-to-transcript.py; a mutation with no coordinate is placed by matching the peptide).
@@ -530,7 +530,7 @@ def resolve_protein_variant(species, gene, protein, tid_by_gene=None):
 
 
 obj, err = ask_claude(text)
-_ens_start()      # the clock for every Ensembl call below starts when Claude has answered
+_ens_start()      # the clock for every Ensembl call below starts when the model has answered
 works.progress(40)
 if obj is None:
     works.progress(100)

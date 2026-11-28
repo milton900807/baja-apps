@@ -315,7 +315,7 @@ def generate_serial_groups_from_prompt(
     model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> List[svg_group]:
-    works.msg("🧱 Stage 1: requesting ordered serial steps (nodes) from Claude…")
+    works.msg("🧱 Stage 1: requesting ordered serial steps (nodes) from the model…")
     content = _chat_call(
         model=model,
         system=SERIAL_NODE_EXTRACTION_SYSTEM,
@@ -445,7 +445,7 @@ def assemble_serial_svg_from_groups(
     groups = _apply_serial_layout(groups)
     steps_json = _serialize_groups_for_gpt(groups)
 
-    works.msg("🧩 Stage 2: requesting assembled SERIAL SVG (one chain) from Claude…")
+    works.msg("🧩 Stage 2: requesting assembled SERIAL SVG (one chain) from the model…")
     content = _chat_call(
         model=model,
         system=SERIAL_SVG_ASSEMBLY_SYSTEM,

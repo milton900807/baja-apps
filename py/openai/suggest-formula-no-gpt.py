@@ -367,7 +367,7 @@ def _main_ion() -> int:
       param(3): ignored
       param(4): ignored
     """
-    works.msg("\tready: heuristic formula suggester (no Claude)")
+    works.msg("\tready: heuristic formula suggester (no model call)")
 
     raw1 = works.param(1)  # tables or composite list
     raw2 = works.param(2)  # keyword
@@ -409,5 +409,5 @@ def _main_ion() -> int:
 
 
 # Auto-run when loaded by Ion
-works.msg(' loading heuristic suggester (no Claude) ')
+works.msg(' loading heuristic suggester (no model call) ')
 _main_ion()

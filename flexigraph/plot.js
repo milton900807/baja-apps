@@ -5637,7 +5637,7 @@ function (MGrid) {
                     } catch (e) { console.warn('timeline picture', e); return []; }
                 };
 
-                // The formatted report: Claude groups the events into phases and writes the
+                // The formatted report: the model groups the events into phases and writes the
                 // summary, the browser draws the timeline, and /export-table puts the two
                 // together. If the write-up fails the report still goes -- the events ARE the
                 // report, the prose is commentary, and losing it is no reason to lose the

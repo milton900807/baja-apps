@@ -9,14 +9,14 @@ function (pt, formula, options) {
     //   1. locally, with no model call: case and near-miss spelling of a table or label; a
     //      function name run into a table name (ABSPnL[Net_Income] -> ABS(PnL[Net_Income]));
     //      a label that exists in exactly one other table.
-    //   2. with Claude (py/openai/resolve-reference.py) for what is left: it either rewrites the
+    //   2. with the model (py/openai/resolve-reference.py) for what is left: it either rewrites the
     //      formula or defines the missing inputs, which are then created on the canvas through
     //      the same builder the AI models use (a row in an existing table, or a new
     //      Label/Value table), so the formula can calculate.
     // Results are cached per formula on the plate track so a recalculation does not ask again.
     return (async () => {
         // options.apply === false  -> PROPOSE only: nothing is created on the canvas; the rows
-        // Claude would add come back in `tables` and every rewrite in `changes`, for the
+        // the model would add come back in `tables` and every rewrite in `changes`, for the
         // caller to show the user and apply on approval (see plate-track.repairMissingReferences).
         const o = options || {};
         const applyNow = o.apply !== false;
@@ -151,8 +151,8 @@ function (pt, formula, options) {
             pending.push({ token, table, key });
         }
 
-        // ---- 2. Claude for whatever is still unresolved ------------------------------------
-        if (pending.length && !o.noClaude) {
+        // ---- 2. the model for whatever is still unresolved ------------------------------------
+        if (pending.length && !o.noModel) {
             const payload = {
                 formula: text,
                 missing: pending.map(p => ({ table: p.table, key: p.key })),
@@ -160,7 +160,7 @@ function (pt, formula, options) {
             };
             let answer = null;
             try {
-                if (pt.setMessage) pt.setMessage('Resolving ' + pending.map(p => p.token).join(', ') + ' with Claude…', 1);
+                if (pt.setMessage) pt.setMessage('Resolving ' + pending.map(p => p.token).join(', ') + ' with the model…', 1);
                 answer = await exec('py/openai/resolve-reference.py', JSON.stringify(payload));
             } catch (e) { answer = null; }
             if (answer && answer.status === 'OK') {
@@ -192,7 +192,7 @@ function (pt, formula, options) {
                     text = lead + answer.formula.trim();
                     result.changed = true;
                 }
-                // Inputs Claude created now exist, so a token it left alone (or a token in its
+                // Inputs the model created now exist, so a token it left alone (or a token in its
                 // rewrite) can be matched to them by the same local rules.
                 for (const m of Array.from(text.matchAll(TOKEN))) {
                     const [token, table, key] = m;
@@ -202,7 +202,7 @@ function (pt, formula, options) {
                 }
                 for (const n of (answer.notes || [])) result.notes.push(String(n));
             } else if (answer && answer.error) {
-                result.notes.push('Claude could not resolve the reference: ' + answer.error);
+                result.notes.push('The model could not resolve the reference: ' + answer.error);
             }
         }
 

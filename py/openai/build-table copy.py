@@ -2130,9 +2130,9 @@ USER PROMPT (from caller):
 
     # visible breadcrumb
     try:
-        works.msg("🔗 calling Claude chat.completions (generate_json_from_grammar)")
+        works.msg("🔗 calling the model chat.completions (generate_json_from_grammar)")
     except Exception:
-        print("🔗 calling Claude chat.completions (generate_json_from_grammar)", file=sys.stderr)
+        print("🔗 calling the model chat.completions (generate_json_from_grammar)", file=sys.stderr)
 
     raw_output = call_llm_with_retry(
         prompt=f"{system_scaffold}\n\nYour task:\nReturn ONLY the JSON model.\n\n{user_instruction}",

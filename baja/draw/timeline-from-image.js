@@ -1,6 +1,6 @@
 function (platetrack, targetPlot) {
     // Image -> timeline. The user uploads (or pastes) a picture of a timeline, roadmap,
-    // Gantt chart or whiteboard plan; py/timeline/timeline-from-image.py has Claude
+    // Gantt chart or whiteboard plan; py/timeline/timeline-from-image.py has the model
     // transcribe every dated item; the result is drawn as a timeline plot.
     //
     //   platetrack  the PlateTrack to draw on
@@ -108,7 +108,7 @@ function (platetrack, targetPlot) {
         const fileName = name || blob.name || 'timeline-image.png';
 
         closeDialog();
-        say('Reading the timeline image with Claude…', 5);
+        say('Reading the timeline image with the model…', 5);
 
         let b64 = '';
         try { b64 = await readAsBase64(blob); } catch (e) { busy = false; say('Could not read the image.', 1); return; }
@@ -201,7 +201,7 @@ function (platetrack, targetPlot) {
                                 <div style="font-size:18px;font-weight:600;color:#0f172a;">Timeline from an image</div>
                                 <div style="margin-top:4px;font-size:13px;color:#64748b;">
                                     Upload a screenshot or photo of a timeline, roadmap, Gantt chart or whiteboard plan.
-                                    Claude reads every dated item and draws it${targetPlot ? ' into this timeline' : ' as a new timeline'}.
+                                    the model reads every dated item and draws it${targetPlot ? ' into this timeline' : ' as a new timeline'}.
                                     You can also paste an image from the clipboard with Ctrl+V.
                                 </div>
                             </div>`

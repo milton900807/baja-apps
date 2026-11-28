@@ -282,7 +282,7 @@ def generate_svg_diagram(
 User description of coordinated effort, roles, and responsibilities:
 {user_prompt}
 """
-    works.msg("🧠 requesting SVG diagram from Claude…")
+    works.msg("🧠 requesting SVG diagram from the model…")
     content = _chat_call(
         model=model,
         system=system,

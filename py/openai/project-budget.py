@@ -105,7 +105,7 @@ def plan(prompt: str) -> Dict[str, Any]:
     client = OpenAI(api_key=os.getenv("ANTHROPIC_API_KEY", ""), timeout=60, max_retries=1)
     today = datetime.now().strftime("%Y-%m-%d")
     if works is not None:
-        try: works.msg("Asking Claude to plan the budget (usually 5-20 s)...")
+        try: works.msg("Asking the model to plan the budget (usually 5-20 s)...")
         except Exception: pass
     r = client.responses.create(
         model=MODEL,

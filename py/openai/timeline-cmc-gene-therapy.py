@@ -378,7 +378,7 @@ def _chat_call(line: str, model="claude-haiku-4-5", temperature=0.2):
             )
             return json.loads(resp.choices[0].message.content.strip())
         except Exception as e:
-            works.msg(f"⚠️ Claude error: {e}; retrying...")
+            works.msg(f"⚠️ The model error: {e}; retrying...")
             time.sleep(2 ** attempt)
     return None
 

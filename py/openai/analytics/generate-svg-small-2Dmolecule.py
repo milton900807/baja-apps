@@ -3,8 +3,8 @@
 """
 Free text (a name, a description, or a SMILES string) -> a 2D structure drawing.
 
-Claude reads the text and returns the SMILES; the drawing is made by RDKit when it is
-installed, and by Claude itself (an SVG of the skeletal structure) when it is not.
+the model reads the text and returns the SMILES; the drawing is made by RDKit when it is
+installed, and by the model itself (an SVG of the skeletal structure) when it is not.
 Every outcome is answered as JSON: an import or model failure used to end the process
 with nothing on stdout, which the canvas reported as "Unexpected end of JSON input".
 """
@@ -61,7 +61,7 @@ STRUCTURE_SCHEMA = {
 
 
 def interpret(text: str) -> Dict[str, Any]:
-    """Name / description / SMILES -> canonical-ish SMILES, via Claude."""
+    """Name / description / SMILES -> canonical-ish SMILES, via the model."""
     client = _client()
     r = client.responses.create(
         model=MODEL,

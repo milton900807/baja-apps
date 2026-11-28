@@ -82,7 +82,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ The model timed out — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -272,7 +272,7 @@ def expand_prompt_via_gpt(prompt: str, *, model: str, temperature: float, expand
         data["time_window"] = str(data["time_window"]).strip() if data.get("time_window") else None
         return data
     except Exception as e:
-        works.msg(f"⚠️ Claude scope expansion failed: {e}")
+        works.msg(f"⚠️ The model scope expansion failed: {e}")
         return {"expanded_prompt": sanitized, "keywords": [], "synonyms": [], "entities": [], "time_window": None}
 
 # ===== GPT Judge #1: alignment verdict for borderline cases =====
@@ -319,7 +319,7 @@ def gpt_alignment_judge(expected: Dict[str, Any], candidate: Dict[str, Any],
         raw = _chat_call(model=model, system=sys, user=user, temperature=min(0.4, max(0.0, temperature-0.1)), json_mode=True, max_tokens=400)
         return json.loads(raw)
     except Exception as e:
-        works.msg(f"⚠️ Claude alignment judge failed: {e}")
+        works.msg(f"⚠️ The model alignment judge failed: {e}")
         return {"verdict":"unsure","confidence":0.0,"reasons":["model_error"]}
 
 # ===== GPT Judge #2: candidate ranking/selection =====
@@ -354,7 +354,7 @@ def gpt_rank_candidates(expected: Dict[str, Any], candidates: List[Dict[str, Any
         raw = _chat_call(model=model, system=sys, user=user, temperature=min(0.4, max(0.0, temperature-0.1)), json_mode=True, max_tokens=600)
         return json.loads(raw)
     except Exception as e:
-        works.msg(f"⚠️ Claude ranker failed: {e}")
+        works.msg(f"⚠️ The model ranker failed: {e}")
         return {"choice_index": -1, "confidence": 0.0, "reasons":["model_error"]}
 
 # ===== GPT extraction of references (with DOI hardening) =====
@@ -450,7 +450,7 @@ def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, den
         return out
 
     except Exception as e:
-        works.msg(f"⚠️ Claude reference extraction failed: {e}")
+        works.msg(f"⚠️ The model reference extraction failed: {e}")
         infer_references_via_gpt._last_report = {"invalid_dois": [], "unresolvable_dois": []}  # type: ignore[attr-defined]
         return []
 
@@ -750,7 +750,7 @@ def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     expand_strength = _clamp01(_read_param(5), 0.6)
     if not prompt:
         raise RuntimeError("param(1) required: prompt")
-    works.msg("📍 building publication points (scope expansion → strict IDs → DOI alignment + Claude validation)…")
+    works.msg("📍 building publication points (scope expansion → strict IDs → DOI alignment + the model validation)…")
     result = build_publication_milestones(str(prompt), model=str(model),
                                           temperature=temperature, density=density,
                                           expand_strength=expand_strength)
@@ -758,5 +758,5 @@ def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     return 0
 
 if __name__ == "__main__":
-    works.msg("🔧 citation scheduler (expand → extract → validate DOI → Claude judge(s))")
+    works.msg("🔧 citation scheduler (expand → extract → validate DOI → the model judge(s))")
     _main_ion()

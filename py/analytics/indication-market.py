@@ -4,14 +4,14 @@
 Indication market sizing for the Analytics canvas.
 
 A user names a disease, or a series of indications, and optionally the therapeutic
-approach (target, mechanism, modality). Claude researches the patient population for
+approach (target, mechanism, modality). the model researches the patient population for
 each indication with live web search, then proposes further indications the same
 approach could expand into, with their populations.
 
 The therapeutic area is GENETIC DISEASE OF THE CENTRAL NERVOUS SYSTEM: inherited or
 de novo variants whose burden falls on brain, spinal cord or motor neurons. An
 indication the user names is always sized, even from outside the area -- it is their
-question -- but the expansion indications Claude proposes stay inside it, because
+question -- but the expansion indications the model proposes stay inside it, because
 those are the programmes the team could actually run. The example prompts the panel
 offers (baja/analytics/indication-examples.js) are drawn from the same area. The result comes back as finished
 value tables for the canvas, every figure tied to the source it came from.
@@ -55,7 +55,7 @@ Result
   "notes": [...] }
 { "status": "error", "error": "..." }
 
-Calls the Messages API over HTTPS with `requests`, matching the other Claude tools in
+Calls the Messages API over HTTPS with `requests`, matching the other the model tools in
 baja-apps: the production python has no Anthropic SDK.
 """
 
@@ -439,7 +439,7 @@ def _stream_message(body: Dict[str, Any], on_search: Any = None) -> Dict[str, An
             resp = requests.post(API_URL, headers=_headers(with_fallback), json=body,
                                  stream=True, timeout=(15, 180))
         except Exception as ex:
-            raise ApiError("Claude request failed: %s" % ex)
+            raise ApiError("The model request failed: %s" % ex)
 
         if resp.status_code != 200:
             text = (resp.text or "")[:400]
@@ -516,7 +516,7 @@ def _stream_message(body: Dict[str, Any], on_search: Any = None) -> Dict[str, An
         message["content"] = [blocks[i] for i in sorted(blocks)]
         return message
 
-    raise ApiError("Claude is busy (rate limited or overloaded). Try again in a minute.")
+    raise ApiError("The model is busy (rate limited or overloaded). Try again in a minute.")
 
 
 def _text_of(content: List[Dict[str, Any]]) -> str:
@@ -572,7 +572,7 @@ def research(prompt: str, region: str, max_expansions: int, max_searches: int
         info["model"] = msg.get("model") or info["model"]
         if msg.get("stop_reason") == "refusal":
             det = msg.get("stop_details") or {}
-            raise ApiError("the model declined this request" + (f" ({det.get('category')})" if det.get("category") else ""))
+            raise ApiError("The model declined this request" + (f" ({det.get('category')})" if det.get("category") else ""))
         if msg.get("stop_reason") != "pause_turn":
             break
         if resumes >= MAX_RESUMES or time.time() - started > RESEARCH_DEADLINE_SEC:
@@ -630,7 +630,7 @@ def structure(prompt: str, research_text: str, found: List[Dict[str, str]]) -> D
     }
     msg = _stream_message(body, None)
     if msg.get("stop_reason") == "refusal":
-        raise ApiError("the model declined this request")
+        raise ApiError("The model declined this request")
     parsed = _last_json_block(_text_of(msg.get("content") or []))
     if not parsed:
         raise ApiError("the research could not be organised into tables")

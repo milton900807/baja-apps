@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Image -> timeline extractor (Claude vision).
+Image -> timeline extractor (the model vision).
 
 Reads a picture of a timeline, roadmap, Gantt chart, schedule slide, or a photo of a
-whiteboard, asks Claude to list every dated event on it, and returns points in the shape
+whiteboard, asks the model to list every dated event on it, and returns points in the shape
 the timeline plot (flexigraph/plot.js, type 'timeline') draws directly:
 
     intervals : [{name, start, end, type:'interval', y, color, startX, x}]
@@ -12,7 +12,7 @@ the timeline plot (flexigraph/plot.js, type 'timeline') draws directly:
     window    : {start, end}              ISO instants bounding every event
     points    : intervals + milestones    ready for `new MPlot({points})`
     title     : chart title read off the image (or '')
-    notes     : anything Claude flagged as uncertain
+    notes     : anything the model flagged as uncertain
 
 x / startX are hours from window.start, which is how the plot lays out time.
 
@@ -27,7 +27,7 @@ Env:
     ANTHROPIC_API_KEY      required (set on the server, handed to /py scripts by the bridge)
     TIMELINE_IMAGE_MODEL   optional model override; default claude-opus-5
 
-Calls the Messages API over HTTPS with `requests`, matching the other Claude tools in
+Calls the Messages API over HTTPS with `requests`, matching the other the model tools in
 py/sequence (the Anthropic SDK is not installed on the server's python).
 """
 from __future__ import annotations
@@ -169,7 +169,7 @@ def _hex_or(default: str, s: Any) -> str:
     return v if re.fullmatch(r"#[0-9a-fA-F]{6}", v) else default
 
 
-# ---------------- Claude ----------------
+# ---------------- the model ----------------
 
 def _post(body: Dict[str, Any], headers: Dict[str, str]):
     return requests.post(API_URL, headers=headers, json=body, timeout=240)
@@ -238,7 +238,7 @@ def ask_claude(b64: str, mime: str, fname: str, hint: str, today: str) -> Tuple[
         data = r.json()
         if data.get("stop_reason") == "refusal":
             det = data.get("stop_details") or {}
-            return None, "the model declined to read this image" + (
+            return None, "The model declined to read this image" + (
                 f" ({det.get('category')})" if det.get("category") else "")
 
         parts = data.get("content", []) or []
@@ -259,7 +259,7 @@ def ask_claude(b64: str, mime: str, fname: str, hint: str, today: str) -> Tuple[
 # ---------------- model -> plot points ----------------
 
 def build_model(extracted: Dict[str, Any], today: Optional[str] = None) -> Dict[str, Any]:
-    """Turn Claude's transcription into the point contract the timeline plot draws."""
+    """Turn the model's transcription into the point contract the timeline plot draws."""
     now = _parse_date(today) or datetime.now(timezone.utc)
     events = extracted.get("events") or []
 
@@ -378,7 +378,7 @@ def _main_ion() -> int:
     if isinstance(b64, str) and b64.startswith("data:"):
         b64 = b64.split(",", 1)[1] if "," in b64 else ""
 
-    works.msg("Reading the image with Claude…")
+    works.msg("Reading the image with the model…")
     works.progress(10)
     extracted, err = ask_claude(b64, mime, fname, hint, today)
     if err:

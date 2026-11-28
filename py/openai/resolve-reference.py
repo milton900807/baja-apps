@@ -104,7 +104,7 @@ def _main() -> None:
         return
     model = works.param(2) or "claude-haiku-4-5"
     try:
-        works.msg("Resolving a missing reference with Claude…")
+        works.msg("Resolving a missing reference with the model…")
         works.resolve(_clean(ask(model, payload), payload))
     except Exception as e:
         works.resolve({"status": "ERROR", "error": str(e)})

@@ -638,7 +638,7 @@ def generate_assumptions_from_taxonomy(
         user_prompt=user_prompt.strip() if user_prompt else ""
     )
 
-    works.msg("🔒 requesting JSON operating assumptions from Claude (RNA-target screening)…")
+    works.msg("🔒 requesting JSON operating assumptions from the model (RNA-target screening)…")
     content = _chat_call(
         model=model,
         system=system,

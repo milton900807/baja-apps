@@ -215,7 +215,7 @@ def run_return_new_assumptions(existing_payload: Any, user_prompt: str, *, model
             existing_rows = [{"label": _norm_label(it.get("label","")), "value": str(it.get("value",""))}
                              for it in loaded_existing]
 
-    works.msg("🧠 requesting assumptions from Claude…")
+    works.msg("🧠 requesting assumptions from the model…")
     incoming_rows = _chat_json(prompt=user_prompt, model=model, temperature=temperature)
 
     works.msg("🧮 computing diff (only new labels)…")

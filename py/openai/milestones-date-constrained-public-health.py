@@ -87,7 +87,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ The model timed out — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -680,7 +680,7 @@ def infer_milestones_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt})
         return out
     except Exception as e:
-        works.msg(f"⚠️ Claude milestone inference failed: {e}")
+        works.msg(f"⚠️ The model milestone inference failed: {e}")
         return []
 
 def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, density: float,
@@ -716,7 +716,7 @@ def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt, "url": url})
         return out
     except Exception as e:
-        works.msg(f"⚠️ Claude reference extraction failed: {e}")
+        works.msg(f"⚠️ The model reference extraction failed: {e}")
         return []
 
 # ===== Business time helpers =====

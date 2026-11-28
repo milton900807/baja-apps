@@ -380,7 +380,7 @@ def generate_budget_and_special_ops(
         + gmp_preview
     )
 
-    works.msg("📊 requesting GMP_Budget + modality-specific GMP_Special_Ops rows from Claude…")
+    works.msg("📊 requesting GMP_Budget + modality-specific GMP_Special_Ops rows from the model…")
     content = _chat_call(
         model=model,
         system=system,

@@ -8678,7 +8678,7 @@ function (progress) {
 
             // A formula naming a table or label the model does not have gets a "Did you mean…?"
             // proposal (baja/plate/ops/resolve-missing-references.js, run in propose mode): a
-            // rewrite, and/or inputs Claude suggests creating. Nothing changes until the user
+            // rewrite, and/or inputs the model suggests creating. Nothing changes until the user
             // approves; then the stored formula is replaced, the inputs are built on the
             // canvas and everything is recalculated. Ignore is remembered for the session.
             // The current calculation is never blocked: it carries on with the formula as

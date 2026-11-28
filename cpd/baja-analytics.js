@@ -4502,7 +4502,7 @@ function (path, config) {
                     'label': 'Therapeutic Area', 'ionfunction': createIonFunction(async () => {
                         // Patient-population sizing for one or more indications, plus expansion
                         // indications the same approach could reach. py/analytics/indication-market.py
-                        // researches with Claude + live web search (a few minutes) and returns finished
+                        // researches with the model + live web search (a few minutes) and returns finished
                         // value tables: <X>_Market, <X>_Expansion, <X>_Sources, <X>_Market_Summary.
                         // Every figure keeps its source, and sources the search never returned are
                         // marked "no - verify" so they are checked before going into a forecast.
@@ -5114,7 +5114,7 @@ function (path, config) {
                     // here -- along four separate routes of evidence (molecular, systems,
                     // phenotypic, clinical), because a candidate with one route is a hypothesis
                     // and a candidate with three is worth a meeting. py/analytics/repurpose.py
-                    // researches with Claude + live web search and returns finished tables:
+                    // researches with the model + live web search and returns finished tables:
                     // <X>_Repurpose_Candidates / _Evidence / _Targets / _Sources / _Summary.
                     'label': 'Repurpose', 'ionfunction': createIonFunction(async () => {
                         const pt = pm.plateTrack;

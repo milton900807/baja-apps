@@ -430,7 +430,7 @@ def generate_pnl_via_gpt(
         "Reminder: Only reference the labels listed above when using Assumptions[...]."
     )
 
-    works.msg("🧾 requesting PnL rows + formulas from Claude…")
+    works.msg("🧾 requesting PnL rows + formulas from the model…")
     content = _chat_call(
         model=model,
         system=system,

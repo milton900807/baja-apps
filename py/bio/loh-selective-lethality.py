@@ -7,7 +7,7 @@ copy (so an allele-specific agent removes all of it in the tumor and half of it 
 a hypomorph on the last copy that leaves the tumor with no reserve, an essential gene down to one
 copy by LOH (CYCLOPS), a paralog the mutant now leans on, a neighbour lost with a deletion
 (collateral lethality). Whether any of that applies to a given variant is judgement, and that is
-the part handed to Claude -- over candidates chosen deterministically, with the numbers attached.
+the part handed to the model -- over candidates chosen deterministically, with the numbers attached.
 
 Six actions (param 1):
 
@@ -625,7 +625,7 @@ def call_claude(content):
             return None, "anthropic %s: %s" % (r.status_code, (r.text or "")[:300]), ""
         data = r.json()
         if data.get("stop_reason") == "refusal":
-            return None, "the model declined the request", data.get("model") or ANTHROPIC_MODEL
+            return None, "The model declined the request", data.get("model") or ANTHROPIC_MODEL
         txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text").strip()
         try:
             return json.loads(txt), None, data.get("model") or ANTHROPIC_MODEL

@@ -5342,7 +5342,7 @@ function (path, config) {
         // locally, and a VCF header -- or rows of the five-column shape -- goes straight to
         // the streaming reader above: a five-million-row file is the case that reader was
         // built for, and the case nothing should be handed to a model. Everything else goes
-        // to py/bio/genetic-file.py, which asks Claude what the file is and, for a report,
+        // to py/bio/genetic-file.py, which asks the model what the file is and, for a report,
         // reads out the genes and variants it names and resolves each one to a place on
         // this genome from the annotation on the server -- deterministically, so nothing is
         // drawn where a model guessed it goes. What comes back is in the two shapes this
@@ -7529,7 +7529,7 @@ function (path, config) {
         // AND across groups; a group with nothing ticked lets every gene through. Zygosity
         // and consequence come from the matrix itself; cancer-gene classification from
         // py/bio/gene-annotations.py (curated lists + DepMap dependency); therapeutic
-        // interpretation and evidence level from py/bio/gene-therapeutics.py (Claude over
+        // interpretation and evidence level from py/bio/gene-therapeutics.py (the model over
         // the literature it knows, fixed labels); expression needs data a VCF does not
         // carry, so only "unavailable" and "functional transcript retained" (a monoallelic
         // loss keeps one working copy) can be answered here.
@@ -8972,13 +8972,13 @@ function (path, config) {
         // variants from this genome, kept only when they are the tumor's own -- somatic, or a
         // germline heterozygote whose other allele the tumor has lost -- because a change
         // every normal cell also carries gives no selectivity at all. Protein-altering ones
-        // are handed to Claude with the dependency numbers ('assess'), together with the
+        // are handed to the model with the dependency numbers ('assess'), together with the
         // essential genes that sit in a tract unmutated, the single-copy kind. What comes
         // back is a set of hypotheses, and the report prints it as one.
         const LOH_SL_SCRIPT = server + '/py/bio/loh-selective-lethality.py';
         // Two steps, both cached on the LOH result for the germline they were read against (so
         // they are saved with the genome): the essential-gene scan, which is quick and
-        // deterministic, and the Claude assessment, which costs a minute and a model call and
+        // deterministic, and the model assessment, which costs a minute and a model call and
         // is only asked for when wanted -- the interactive report offers it as a button, the
         // PDF reuses one already made.
         const lohSlKey = (spec) => spec.kind + ':' + spec.normal + ':' + spec.tumor;
@@ -9029,7 +9029,7 @@ function (path, config) {
             R.sl = { key: key, res: res };
             return res;
         };
-        const lohClaudeAssess = async (R, spec, tracts, res, gof, say) => {
+        const lohModelAssess = async (R, spec, tracts, res, gof, say) => {
             const species = ('' + (r.species || 'human')).toLowerCase();
             const em = new EngineMonitor((m) => { try { log(m); say(m); } catch (e) { } });
             const payload = {
@@ -9065,7 +9065,7 @@ function (path, config) {
         const lohSelectiveLethality = async (R, spec, tracts, say, gof, fresh) => {
             const res = await lohEssentialScan(R, spec, tracts, say);
             if (res.error) return res;
-            if (fresh || !res.assessment) await lohClaudeAssess(R, spec, tracts, res, gof, say);
+            if (fresh || !res.assessment) await lohModelAssess(R, spec, tracts, res, gof, say);
             return Object.assign({}, res, { error: res.assessError || '' });
         };
         // ---- GAIN OF FUNCTION, AND WHAT LOH DID TO IT ------------------------------------
@@ -9082,7 +9082,7 @@ function (path, config) {
         // activate a gene without being a point hotspot (EGFR exon 19 deletions, MET exon 14
         // splice changes, CALR exon 9 frameshifts, truncations of PPM1D and the NOTCH1 PEST
         // domain). Anything else protein-altering in these genes is reported as "possible",
-        // and the Claude assessment judges it.
+        // and the model assessment judges it.
         const GOF_HOTSPOTS = {
             KRAS: [12, 13, 59, 61, 117, 146], NRAS: [12, 13, 59, 61, 117, 146], HRAS: [12, 13, 61],
             BRAF: [464, 466, 469, 594, 597, 600, 601], MAP2K1: [57, 124], RAC1: [29],
@@ -9338,7 +9338,7 @@ function (path, config) {
         };
         // opts: { germ: { normal, label }, claude: true|false }. The germline is the track
         // every variant's origin is read against (somatic = absent from it); the tumor is the
-        // LOH scan's. Without opts, the scan's own normal and no Claude assessment.
+        // LOH scan's. Without opts, the scan's own normal and no model call assessment.
         // BEFORE THE REPORT: WHICH SAMPLE IS THE TUMOUR'S OWN NORMAL TISSUE. Every change is
         // read against it: present in both means inherited, present only in the tumour means
         // acquired, and only the acquired ones are worth designing against. With more than two
@@ -9678,7 +9678,7 @@ function (path, config) {
         // against it -- an allele-selective oligo for a change the tumor has on every copy, a
         // knockdown for a single-copy dependency. Tick several and they open together. Tracts
         // open their gene list (the region panel, with its own Analysis and editor buttons) or
-        // zoom the genome to them. The Claude assessment is a button, not a wait: it is cached
+        // zoom the genome to them. The the model assessment is a button, not a wait: it is cached
         // on the LOH result with everything else here, so it is asked once and saved.
         let lohUiBusy = false;
         // WHAT THE CELL-LINE PANEL SAYS ABOUT EACH GENE IN THE STRATEGY. Essentiality, the
@@ -10348,7 +10348,7 @@ function (path, config) {
                     if (!ESS) return;
                     const host = e && e.target ? e.target.closest('div') : null;
                     try { if (host) host.innerHTML = '<span style="color:#fbbf24;">Running the assessment... this takes a minute or two.</span>'; } catch (e2) { }
-                    try { await lohClaudeAssess(R, spec, tracts, ESS, GOF, say); } catch (e2) { ESS.assessError = '' + e2; }
+                    try { await lohModelAssess(R, spec, tracts, ESS, GOF, say); } catch (e2) { ESS.assessError = '' + e2; }
                     say(ESS.assessment ? 'The assessment is in the report.' : ('The assessment failed: ' + (ESS.assessError || '')));
                     render();
                 };
@@ -13276,7 +13276,7 @@ function (path, config) {
                 { note: true, title: 'What it is' },
                 { note: true, title: 'A gradient-boosted classifier from the ppset toolkit, scored once over every human '
                     + 'paralog pair and shipped as a table. One row per (gene lost, paralog), and the number on a card is '
-                    + 'the model\u2019s probability that the paralog becomes the copy the cell cannot then do without. It is '
+                    + 'The model\u2019s probability that the paralog becomes the copy the cell cannot then do without. It is '
                     + 'read off the table, not re-run: the features need GTEx and BioPlex, which this server does not hold.' },
                 { note: true, title: 'What it reads' },
                 { note: true, title: 'Sequence identity between the pair, how large the family is, the partner\u2019s own '

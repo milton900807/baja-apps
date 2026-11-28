@@ -401,7 +401,7 @@ def _gpt_analyze_label_values(
             return {}
         return data
     except Exception as e:
-        works.msg(f"⚠️ Claude label-analysis error, ignoring Claude hints: {e}")
+        works.msg(f"⚠️ The model label-analysis error, ignoring the model hints: {e}")
         return {}
 
 # ==========================================================
@@ -750,7 +750,7 @@ def _gpt_filter_step_lines(
             return []
         return filtered[:max_lines]
     except Exception as e:
-        works.msg(f"⚠️ Claude filter-step-lines error, using unfiltered lines: {e}")
+        works.msg(f"⚠️ The model filter-step-lines error, using unfiltered lines: {e}")
         return [_clean_step_text(l) for l in candidate_lines if l and l.strip()]
 
 def _gpt_expand_prompt_to_lines(
@@ -824,7 +824,7 @@ def _gpt_expand_prompt_to_lines(
             raise ValueError("GPT returned no usable lines")
 
         # >>> run filter pass to drop non-task / structural noise and clean
-        works.msg("🧹 filtering Claude step lines to remove structural/table noise and clean text…")
+        works.msg("🧹 filtering the model step lines to remove structural/table noise and clean text…")
         filtered_lines = _gpt_filter_step_lines(
             user_prompt,
             lines,
@@ -838,11 +838,11 @@ def _gpt_expand_prompt_to_lines(
             return filtered_lines[:max_lines]
 
         # If filter wiped everything out, fall back to original cleaned lines
-        works.msg("⚠️ Claude filter removed all lines; using unfiltered lines from expansion.")
+        works.msg("⚠️ The model filter removed all lines; using unfiltered lines from expansion.")
         return lines[:max_lines]
 
     except Exception as e:
-        works.msg(f"⚠️ Claude expansion error, using raw prompt lines instead: {e}")
+        works.msg(f"⚠️ The model expansion error, using raw prompt lines instead: {e}")
         return [_clean_step_text(l) for l in (user_prompt or "").splitlines() if l.strip()]
 
 # ==========================================================
@@ -966,7 +966,7 @@ def _chat_schedule_fallback(
             text = (resp.choices[0].message.content or '').strip()
             return json.loads(text)
         except (APITimeoutError, Exception) as e:
-            works.msg(f"⚠️ Claude schedule-fallback error: {e}; retrying...")
+            works.msg(f"⚠️ The model schedule-fallback error: {e}; retrying...")
             time.sleep(2 ** attempt)
     return None
 
@@ -1191,7 +1191,7 @@ def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
             merged_label_values.update(plate_label_values)
 
         if merged_label_values:
-            works.msg("🧮 building intervals + milestones from merged labels (heuristics + Claude + duration_periods)…")
+            works.msg("🧮 building intervals + milestones from merged labels (heuristics + the model + duration_periods)…")
             label_intervals, label_milestones = build_intervals_and_milestones_from_labels(
                 merged_label_values,
                 model=str(model),

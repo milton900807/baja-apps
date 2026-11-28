@@ -107,7 +107,7 @@ def generate_ops_timeline(user_prompt: str, *, model: str = "claude-haiku-4-5", 
     )
     user = f"{OPS_JSON_INSTRUCTIONS}\n\nUser prompt:\n{(user_prompt or '').strip()}"
 
-    works.msg("🧮 requesting operations & times from Claude…")
+    works.msg("🧮 requesting operations & times from the model…")
     content = _chat_call(
         model=model,
         system=system,

@@ -335,7 +335,7 @@ def generate_assumptions_from_taxonomy(
         user_prompt=user_prompt.strip() if user_prompt else ""
     )
 
-    works.msg("🔒 requesting CRO-based R&D JSON assumptions from Claude (no buildout/equipment)…")
+    works.msg("🔒 requesting CRO-based R&D JSON assumptions from the model (no buildout/equipment)…")
     content = _chat_call(
         model=model,
         system=system,

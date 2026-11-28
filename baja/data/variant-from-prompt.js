@@ -4,7 +4,7 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
     //
     // Division of labour, because a language model must not be the thing that picks a base:
     //   1. the track supplies its own coding sequence (from the ORF the track already computed),
-    //   2. py/bio/variant-from-prompt.py asks Claude only to NORMALISE the description --
+    //   2. py/bio/variant-from-prompt.py asks the model only to NORMALISE the description --
     //      which level, which residue, which position -- then checks the residue against that
     //      coding sequence and derives the smallest nucleotide change that produces the
     //      requested residue (K27M on H3F3A: histone numbering omits Met1, so it is Lys28 in

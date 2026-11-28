@@ -5101,9 +5101,73 @@ function (progress, options) {
                     return [x0, x1, y0, y1];
                 };
 
+                // A TRACK'S OWN BODY, not just the gap to the next one. The pitch clamp
+                // below keeps STACKED tracks apart, and with fewer than two it does
+                // nothing at all: one track on its own could be zoomed down to a line a
+                // few pixels high, with its name card and its variants on top of it and
+                // nothing underneath to read. A track's height is a fixed number of world
+                // units, so its pixel height is that times the y scale, and holding it
+                // above a floor is the same arithmetic as the pitch cap.
+                //
+                // 50px is Jeff's number and it is about the right one: it is what fits a
+                // strand line, the glyph row above it and the annotation row below without
+                // them touching.
+                this.MIN_TRACK_HEIGHT_PX = 50;
+
+                // The shortest track body on screen, in world units. Tracks carry their
+                // height on their own grid (negative means it is measured downwards, which
+                // is a direction and not a size), and a track that does not say gets the
+                // 2 units baja/bio/track.js gives every track by default.
+                this.minTrackHeightWorld = (ymin, ymax) => {
+                    const lo = Math.min(ymin, ymax), hi = Math.max(ymin, ymax);
+                    let h = Infinity;
+                    for (const t of (this.track || [])) {
+                        const g = t && (t.tgraph || t.grid);   // track.js vs track-flexi
+                        if (!g || typeof g.yi !== 'number' || !isFinite(g.yi)) continue;
+                        if (g.yi < lo || g.yi > hi) continue;   // not on screen at this zoom
+                        const own = Math.abs(+g.height);
+                        const use = (isFinite(own) && own > 1e-9) ? own : 2;
+                        if (use < h) h = use;
+                    }
+                    return h;
+                };
+
+                // The widest y range that still leaves the shortest track on screen
+                // MIN_TRACK_HEIGHT_PX tall. Infinity when there is nothing to protect.
+                this.maxYRangeForTrackBody = (ymin, ymax) => {
+                    const hw = this.minTrackHeightWorld(ymin, ymax);
+                    if (!isFinite(hw) || hw <= 0) return Infinity;
+                    const g0 = (this.graph && this.graph.grid) || this.graph || {};
+                    const usable0 = (g0.height || 0) - 2 * (g0.yinset || 0);
+                    if (!isFinite(usable0) || usable0 <= 0) return Infinity;
+                    const r = (hw * usable0) / this.MIN_TRACK_HEIGHT_PX;
+                    return (isFinite(r) && r > 0) ? r : Infinity;
+                };
+
+                const __squeezeY = (lo2, hi2, maxRange) => {
+                    const range = hi2 - lo2;
+                    if (!isFinite(maxRange) || maxRange <= 0 || !(range > maxRange)) return [lo2, hi2];
+                    const c = (lo2 + hi2) / 2, h = maxRange / 2;
+                    return [c - h, c + h];
+                };
+
+                // THE FLOOR ON ITS OWN, for the one zoom the user is driving in y
+                // deliberately. Shift+wheel is allowed to bring stacked tracks closer
+                // together, because that is what it is for; it is not allowed to flatten a
+                // track into a line, because nothing is readable at that size and the way
+                // back is not obvious from the picture it leaves.
+                this.clampYRangeForTrackBody = (ymin, ymax) =>
+                    __squeezeY(ymin, ymax, this.maxYRangeForTrackBody(ymin, ymax));
+
                 this.clampYRangeForTracks = (ymin, ymax) => {
+                    // Two caps, and the tighter one wins: tracks must stay apart AND each
+                    // one must stay readable. Either on its own leaves a way to a picture
+                    // nobody can read.
+                    const bodyRange = this.maxYRangeForTrackBody(ymin, ymax);
+                    const squeeze = __squeezeY;
+
                     const pitch = this.stackedTrackPitchWorld(ymin, ymax);
-                    if (!isFinite(pitch) || pitch <= 0) return [ymin, ymax];
+                    if (!isFinite(pitch) || pitch <= 0) return squeeze(ymin, ymax, bodyRange);
                     // The canvas size is on graph.GRID; graph itself has no height, so this
                     // read undefined, made `usable` 0 and returned the range untouched every
                     // time. The guard below has never once fired: zooming out squeezed seven
@@ -5112,9 +5176,11 @@ function (progress, options) {
                     const g = (this.graph && this.graph.grid) || this.graph || {};
                     const usable = (g.height || 0) - 2 * (g.yinset || 0);
                     const range = ymax - ymin;
-                    if (!isFinite(usable) || usable <= 0 || !(range > 0)) return [ymin, ymax];
+                    if (!isFinite(usable) || usable <= 0 || !(range > 0)) {
+                        return squeeze(ymin, ymax, bodyRange);
+                    }
                     // want: pitch * (usable / range) >= MIN_TRACK_GAP_PX
-                    const maxRange = (pitch * usable) / this.MIN_TRACK_GAP_PX;
+                    const maxRange = Math.min((pitch * usable) / this.MIN_TRACK_GAP_PX, bodyRange);
                     if (!isFinite(maxRange) || maxRange <= 0 || range <= maxRange) {
                         return [ymin, ymax];
                     }
@@ -5701,6 +5767,11 @@ function (progress, options) {
                     // leave that alone - the user is driving y deliberately there.
                     if (factor > 1 && !isShiftPressed) {
                         const [cy0, cy1] = this.clampYRangeForTracks(newYMin, newYMax);
+                        newYMin = cy0; newYMax = cy1;
+                    } else if (factor > 1) {
+                        // Driving y deliberately may close the gaps; it may not flatten a
+                        // track into a line.
+                        const [cy0, cy1] = this.clampYRangeForTrackBody(newYMin, newYMax);
                         newYMin = cy0; newYMax = cy1;
                     }
                     // A VIEW MAY SAY HOW FAR OUT IS FAR ENOUGH. Only the view knows what it

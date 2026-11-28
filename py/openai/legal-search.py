@@ -62,7 +62,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ The model timed out — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -210,7 +210,7 @@ def expand_prompt_via_gpt(prompt: str, *, model: str, temperature: float, densit
         if expanded:
             return expanded
     except Exception as e:
-        works.msg(f"⚠️ Claude prompt expansion failed: {e}")
+        works.msg(f"⚠️ The model prompt expansion failed: {e}")
     return prompt  # fallback
 
 # ===== GPT milestone inference (LEGAL) =====
@@ -296,7 +296,7 @@ def infer_milestones_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt, **meta})
         return out
     except Exception as e:
-        works.msg(f"⚠️ Claude legal milestone inference failed: {e}")
+        works.msg(f"⚠️ The model legal milestone inference failed: {e}")
         return []
 
 def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, density: float) -> List[Dict[str, Any]]:
@@ -327,7 +327,7 @@ def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt, "url": url})
         return out
     except Exception as e:
-        works.msg(f"⚠️ Claude reference extraction failed: {e}")
+        works.msg(f"⚠️ The model reference extraction failed: {e}")
         return []
 
 # ===== Business time helpers =====
@@ -491,14 +491,14 @@ def build_milestones(prompt: str, *, model: str = "claude-haiku-4-5", temperatur
     if not milestones:
         works.msg("🧠 inferring legal milestones from expanded content (no dated lines found)…")
         inferred = infer_milestones_via_gpt(combined_prompt, model=model, temperature=temperature, density=density)
-        works.msg(f"🧠 Claude inference (expanded) produced: {len(inferred)}")
+        works.msg(f"🧠 The model inference (expanded) produced: {len(inferred)}")
         milestones = inferred
 
     # 1b) If still none, fallback: infer on the ORIGINAL prompt
     if not milestones:
         works.msg("↩️ fallback inference on original prompt…")
         inferred2 = infer_milestones_via_gpt(prompt, model=model, temperature=temperature, density=density)
-        works.msg(f"🧠 Claude inference (original) produced: {len(inferred2)}")
+        works.msg(f"🧠 The model inference (original) produced: {len(inferred2)}")
         milestones = inferred2
 
     # 1c) High density → augmentation

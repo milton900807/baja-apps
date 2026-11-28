@@ -392,7 +392,7 @@ def generate_budget_and_special_ops(
         + cmc_preview
     )
 
-    works.msg("📊 requesting CMC_Budget + gene-therapy CMC_Special_Ops rows from Claude…")
+    works.msg("📊 requesting CMC_Budget + gene-therapy CMC_Special_Ops rows from the model…")
     content = _chat_call(
         model=model,
         system=system,

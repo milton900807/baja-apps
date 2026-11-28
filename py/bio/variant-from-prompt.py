@@ -1,7 +1,7 @@
 """Describe a variant in words, get the exact edit on THIS track.
 
 The user types "K27M", "p.Arg175His", "c.83A>T", "delete codon 27", ... for a track that is
-already loaded. Claude is asked only to NORMALISE the description into a structured change --
+already loaded. the model is asked only to NORMALISE the description into a structured change --
 which level (protein / cDNA / genomic / rsID), which reference residue or base, which
 position, which alternate -- given the gene and the track's own protein sequence. Everything
 after that is deterministic and checked here against the coding sequence the client sent:
@@ -200,7 +200,7 @@ def ask_cohort(text, ctx, protein, extra=""):
             return None, "anthropic %s: %s" % (r.status_code, r.text[:300])
         data = r.json()
         if data.get("stop_reason") == "refusal":
-            return None, "the model declined this request"
+            return None, "The model declined this request"
         txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text")
         parsed = parse_json_blob(txt)
         if parsed is None:
@@ -286,7 +286,7 @@ def ask(text, ctx, protein, extra=""):
             return None, "anthropic %s: %s" % (r.status_code, r.text[:300])
         data = r.json()
         if data.get("stop_reason") == "refusal":
-            return None, "the model declined this request"
+            return None, "The model declined this request"
         txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text")
         parsed = parse_json_blob(txt)
         if not parsed:

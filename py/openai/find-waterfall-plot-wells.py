@@ -80,7 +80,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ The model timed out — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -231,7 +231,7 @@ Candidate labels (choose ONLY from these; exact strings):
         ordered = [x for x in out if not (x in seen or seen.add(x))]
         return ordered
     except Exception as e:
-        works.msg(f"❕ Claude label parse failed; will use heuristic fallback. ({e})")
+        works.msg(f"❕ the model label parse failed; will use heuristic fallback. ({e})")
         return []
 
 def _heuristic_labels(candidates: List[str]) -> List[str]:
@@ -286,7 +286,7 @@ def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
         works.msg(f"🧠 asking ChatGPT to pick ordered waterfall labels from {len(candidates)} candidates…")
         labels = _gpt_pick_labels(candidates, model=default_model, temperature=0.0)
         if not labels:
-            works.msg("ℹ️ using heuristic label ordering (Claude unavailable or returned none)")
+            works.msg("ℹ️ using heuristic label ordering (the model unavailable or returned none)")
             labels = _heuristic_labels(candidates)
         if not labels:
             raise RuntimeError("No suitable waterfall labels found")

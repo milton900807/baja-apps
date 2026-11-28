@@ -65,7 +65,7 @@ def _span(events: List[Dict[str, Any]]) -> str:
 
 
 def write_up(name: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Claude groups the events into phases and says what each one is for. Failing that,
+    """The model groups the events into phases and says what each one is for. Failing that,
     the report still goes out -- the events are the report, the prose is the commentary,
     and losing the commentary is not a reason to lose the download."""
     span = _span(events)

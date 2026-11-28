@@ -134,7 +134,7 @@ def generate_assumptions(user_prompt: str, *, model: str = "claude-haiku-4-5", t
     # --- Compose GPT message ---
     user = f"{llm_instructions}\n\nUser prompt:\n{augmented_prompt}"
 
-    works.msg("🔒 requesting JSON assumptions from Claude…")
+    works.msg("🔒 requesting JSON assumptions from the model…")
     content = _chat_call(
         model=model,
         system=system,

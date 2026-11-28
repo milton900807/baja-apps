@@ -2,7 +2,7 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
     // Points-of-interest: load ClinVar variants (filtered by clinical significance) for the
     // selected track. The track's genomic region comes from its Ensembl id (the track was loaded
     // from it, so it already carries chr + coordinates); if that isn't available, the track's
-    // metadata (name / description / species) is used to Claude-search the correct gene and
+    // metadata (name / description / species) is used to model search the correct gene and
     // resolve its region. ClinVar is read from the reference VCF (read-vcf-variants.py), filtered
     // to pathogenic / likely-pathogenic, and each variant is dropped as a SnpIndel with its
     // clinical significance + disease in the annotation — then a Go-to / Tour side menu appears.
@@ -57,7 +57,7 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
             if (gStart != null) { gStart = Math.floor(gStart); gEnd = Math.ceil(gEnd); }
         } catch (e) { }
 
-        // No usable region from the track's Ensembl id -> resolve it (Ensembl id, else Claude).
+        // No usable region from the track's Ensembl id -> resolve it (Ensembl id, else the model).
         if (!(chr && gEnd != null && gEnd > gStart)) {
             graph.setMessage(' Resolving the gene for ' + (t.name || 'this track') + '… ');
             try {

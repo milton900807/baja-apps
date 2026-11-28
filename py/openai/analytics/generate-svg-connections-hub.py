@@ -437,7 +437,7 @@ Natural-language description of roles / responsibilities:
 
 Now extract nodes and return ONLY the JSON object as described.
 """
-    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from Claude…")
+    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from the model…")
     content = _chat_call(
         model=model,
         system=NODE_EXTRACTION_SYSTEM,
@@ -618,7 +618,7 @@ Build a COMPLETE hub-and-spoke SVG diagram:
 Return ONLY the <svg>...</svg> markup.
 """
 
-    works.msg("🧩 Stage 2: requesting assembled HUB-AND-SPOKE SVG (star topology) from Claude…")
+    works.msg("🧩 Stage 2: requesting assembled HUB-AND-SPOKE SVG (star topology) from the model…")
     content = _chat_call(
         model=model,
         system=SVG_ASSEMBLY_SYSTEM,

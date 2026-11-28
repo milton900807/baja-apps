@@ -69,7 +69,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ The model timed out — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -200,7 +200,7 @@ def infer_milestones_via_gpt(prompt: str, *, model: str, temperature: float) -> 
             out.append({"name": name, "date": dt, "url": url})
         return out
     except Exception as e:
-        works.msg(f"⚠️ Claude milestone inference failed: {e}")
+        works.msg(f"⚠️ The model milestone inference failed: {e}")
         return []
 
 # ===== Orchestrator bits =====

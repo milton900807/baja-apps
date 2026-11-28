@@ -459,7 +459,7 @@ def generate_assumptions_from_taxonomy(
         user_prompt=user_prompt.strip() if user_prompt else ""
     )
 
-    works.msg("🔒 requesting JSON GMP operating assumptions from Claude…")
+    works.msg("🔒 requesting JSON GMP operating assumptions from the model…")
     content = _chat_call(
         model=model,
         system=system,

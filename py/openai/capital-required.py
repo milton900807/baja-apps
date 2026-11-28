@@ -155,7 +155,7 @@ def generate_capital_requirements_via_gpt(
         "Reminder: Use only these labels when building formulas."
     )
 
-    works.msg("🏗️ requesting Capital Requirements table from Claude…")
+    works.msg("🏗️ requesting Capital Requirements table from the model…")
     content = _chat_call(model=model, system=system, user=user, temperature=temperature, json_mode=True, max_tokens=4000)
     try:
         data = json.loads(content)

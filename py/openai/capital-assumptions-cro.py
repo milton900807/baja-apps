@@ -207,7 +207,7 @@ def generate_capital_assumptions(
     )
     user = f"{CAPITAL_JSON_INSTRUCTIONS}\n\nUser prompt:\n{user_prompt.strip() if user_prompt else ''}"
 
-    works.msg("🏗️ requesting Capital_Assumptions JSON from Claude (initial & working capital, no lab/equipment/instruments)…")
+    works.msg("🏗️ requesting Capital_Assumptions JSON from the model (initial & working capital, no lab/equipment/instruments)…")
     content = _chat_call(
         model=model,
         system=system,

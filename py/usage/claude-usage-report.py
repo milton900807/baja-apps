@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Report a user's Claude-search usage, accessible by email address.
+Report a user's model search usage, accessible by email address.
 
   let r = await exec('/py/usage/claude-usage-report.py', em, 'user@example.com', '30')
   // r = { email, today,

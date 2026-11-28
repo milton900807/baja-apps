@@ -132,7 +132,7 @@ def plan(prompt: str) -> Dict[str, Any]:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI(api_key=os.getenv("ANTHROPIC_API_KEY", ""), timeout=60, max_retries=1)
     if works is not None:
-        try: works.msg("Asking Claude for the key numbers (usually 5-15 s)...")
+        try: works.msg("Asking the model for the key numbers (usually 5-15 s)...")
         except Exception: pass
     r = client.responses.create(
         model=MODEL,

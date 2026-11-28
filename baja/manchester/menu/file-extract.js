@@ -127,8 +127,8 @@ function (graph, genegraph_panel_layout, presetFile) {
             const slow = setTimeout(() => { try { notice.set('Analyzing ' + file.name + '… this can take up to 2 minutes'); } catch (e) { } }, 20000);
             // Hard 3-minute cap: if the job runs longer, treat the service as overloaded, stop
             // waiting on it and drop the notice. exec() has no client-side abort hook, but the
-            // extractor's own Claude request is bounded to ~3 minutes server-side (requests
-            // timeout=180), so the underlying Claude job is dropped around the same moment.
+            // extractor's own the model request is bounded to ~3 minutes server-side (requests
+            // timeout=180), so the underlying the model job is dropped around the same moment.
             const TIMEOUT_MS = 3 * 60 * 1000;
             let timedOut = false, toTimer = null;
             const timeoutP = new Promise((res) => { toTimer = setTimeout(() => { timedOut = true; res(null); }, TIMEOUT_MS); });

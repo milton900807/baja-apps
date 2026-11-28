@@ -447,7 +447,7 @@ def generate_pnl_via_gpt(
         "Reminder: Only reference the labels listed above when using Assumptions[...] or Capital_Assumptions[...]."
     )
 
-    works.msg("🧾 requesting preclinical budget rows + formulas from Claude…")
+    works.msg("🧾 requesting preclinical budget rows + formulas from the model…")
     content = _chat_call(model=model, system=system, user=user, temperature=temperature, json_mode=True, max_tokens=4000)
     try:
         data = json.loads(content)

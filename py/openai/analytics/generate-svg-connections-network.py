@@ -603,7 +603,7 @@ Natural-language description of roles / responsibilities:
 
 Now extract nodes and return ONLY the JSON object as described.
 """
-    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from Claude…")
+    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from the model…")
     content = _chat_call(
         model=model,
         system=NODE_EXTRACTION_SYSTEM,
@@ -844,7 +844,7 @@ that follows the system instructions:
 Return ONLY the <svg>...</svg> markup.
 """
 
-    works.msg("🧩 Stage 2: requesting assembled SVG (nodes + edges, fully connected) from Claude…")
+    works.msg("🧩 Stage 2: requesting assembled SVG (nodes + edges, fully connected) from the model…")
     content = _chat_call(
         model=model,
         system=SVG_ASSEMBLY_SYSTEM,

@@ -67,7 +67,7 @@ def build_two_col(table_name: str, rows: List[Dict[str, str]]) -> Dict[str, str]
 # ---------------- Orchestrator ----------------
 
 def run(user_prompt: str, model: str, temperature: float) -> Dict[str, Any]:
-    works.msg("📡 Requesting capital assumptions from Claude…")
+    works.msg("📡 Requesting capital assumptions from the model…")
 
     data = gpt_call(model, temperature, user_prompt)
     rows = data.get("capital_assumptions", [])
