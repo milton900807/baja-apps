@@ -1925,12 +1925,13 @@ if [[ $DO_API -eq 1 ]]; then
     "baja/bio/track-layer.js:REPLACED ONCE PER DRAW" \
     "baja/manchester/menu/mouse-over-highlight.js:A layer that stopped drawing"
 
-  # The arc dispatch sat inside getTrack(x,y) >= 0, which asks whose BAND the pointer is
-  # in -- and an arc is drawn above its track. Every press on one was discarded before any
-  # arc was looked at. Its own group again: the markers above are carried by the version
-  # that never fired.
-  install_group "a press on an arc is tested before the pointer is matched to a track" \
-    "baja/manchester/menu/mouse-over-highlight.js:TESTED BEFORE ANYTHING ASKS WHICH TRACK IT IS ON"
+  # The arc dispatch was wrong twice: first inside getTrack(x,y) >= 0, which asks whose
+  # ROW the pointer is in while an arc is drawn above its track, then on mouse-UP, which
+  # runs after showContextMenu and is skipped whenever a menu is already on screen. It now
+  # sits beside the SNP hit-test on the press, ungated, where this file had already
+  # learned the lesson once. Its own group: both earlier versions carry the old markers.
+  install_group "a press on an arc is tested on the press, not behind a track row" \
+    "baja/manchester/menu/mouse-over-highlight.js:ON THE PRESS AND NOT GATED ON A TRACK ROW"
 
   install_group "one bad junction is not a bad track, and a design that will not open says so" \
     "baja/bio/track-layer.js:ONE BAD JUNCTION IS NOT A BAD TRACK" \

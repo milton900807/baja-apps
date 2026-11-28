@@ -116,49 +116,70 @@ const clear = () => { try { const el = document.getElementById('baja-junction-im
     // ---- THE PRESS -----------------------------------------------------------------------------
     // The hit test, lifted from the editor so this is the arithmetic that ships.
     const src = fs.readFileSync('baja/manchester/menu/mouse-over-highlight.js', 'utf8');
-    const block = src.slice(src.indexOf('let __arcHit = null;'), src.indexOf('if (__arcHit) {'));
-    const hit = new Function('graph', 'x', 'y', block + '\nreturn __arcHit;');
+    const block = src.slice(src.indexOf('let __hit = null, __best = 10;'),
+        src.indexOf('if (__hit) {'));
+    const hit = new Function('__arcs', '__aps', '__now', 'graph',
+        block + '\nreturn __hit;');
 
-    // WHERE IT IS TESTED IS THE WHOLE BUG. The first version sat inside
-    // `graph.getTrack(x, y) >= 0`, which asks whose BAND the pointer is in. An arc is drawn
-    // ABOVE its track, often most of the canvas above it, so the crest of a skip arc is
-    // nowhere near the band of the track it belongs to: every press on an arc was discarded
-    // before any arc was looked at, and the feature read as dead while the stamps under it
-    // were correct. So the order is the thing to hold onto.
-    ok(src.indexOf('let __arcHit = null;') < src.indexOf('let t = graph.getTrack(x, y);'),
-       'the arcs are asked BEFORE the pointer is matched to a track band');
-    ok(/exec\('baja\/bio\/splicing\/junction-impact\.js', graph,\s*\n\s*__arcHit\.track/.test(src),
-       'and the track comes from the stamp, not from where the pointer was');
+    // WHERE AND WHEN IT IS TESTED IS THE WHOLE BUG, TWICE OVER.
+    //
+    // First inside `graph.getTrack(x, y) >= 0`, which asks whose ROW the pointer is in: an
+    // arc is drawn above its track, so a skip arc crest is nowhere near the row of the
+    // track it belongs to and every press was discarded before an arc was looked at.
+    //
+    // Then on mouse-UP, which is both too late and too conditional -- it runs after
+    // showContextMenu, so a menu already on screen skips the branch entirely. The SNP
+    // hit-test in this same file learned this before us and says so in its own comment;
+    // the arcs now sit beside it, on the press, ungated.
+    const downAt = src.indexOf('graph.addMouseDownListener(async (x, y) => {',
+        src.indexOf('graph.addMouseDownListener(async (x, y) => {') );
+    ok(src.indexOf('A CLICK ON A SASHIMI ARC, ON THE PRESS') > downAt,
+       'the arc test is in the mouse-DOWN handler');
+    ok(src.indexOf('A CLICK ON A SASHIMI ARC, ON THE PRESS')
+       < src.indexOf('// SNP menu on press (moved from mouse-up).'),
+       'beside the SNP hit-test, which is ungated for the same reason');
+    ok(!/graph\.getTrack\(x, y\)[\s\S]{0,400}A CLICK ON A SASHIMI ARC/.test(src),
+       'and NOT behind a question about which track row the pointer is in');
+    ok(/graph\.__downMenuHandled = true;[\s\S]{0,200}junction-impact/.test(src),
+       'the matching mouse-up is told not to open a track menu over the panel');
 
     // An arc centred at (500, 400) with radius 200: its crest is at (500, 200).
     const j = { d: 1, a: 2 };
-    const nowPx = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+    const nowPx = 1000000;
     const tr = { name: 'DNM1' };
     const arc = { track: tr, j: j, cx: 500, cy: 400, r: 200, t: nowPx,
         a0: -Math.PI * 0.75, a1: -Math.PI * 0.25 };
-    const g = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [arc], __arcHitsAt_transient_: nowPx };
-    ok(hit(g, 500, 200) === arc, 'a press on the crest of the arc finds it');
-    ok(hit(g, 500, 206) === arc, 'and a few pixels off it, since an arc is a thin line');
-    ok(hit(g, 500, 240) === null, 'well away from it finds nothing');
+    const G = { __arcHitsAt_transient_: nowPx };
+    const at = (x, y) => hit([arc], { x: x, y: y }, nowPx, G);
+    ok(at(500, 200) === arc, 'a press on the crest of the arc finds it');
+    ok(at(500, 207) === arc, 'and a few pixels off it, since an arc is a thin line');
+    ok(at(500, 240) === null, 'well away from it finds nothing');
     // The rest of the circle is not the arc: it runs under the track and off the screen.
-    ok(hit(g, 500, 600) === null, 'the far side of the same circle is not a hit');
-    ok(hit(g, 300, 400) === null, 'nor its sides');
-    // A stamp from an older frame points at a junction that has moved since.
-    const stale = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [arc], __arcHitsAt_transient_: -100000 };
-    ok(hit(stale, 500, 200) === null, 'a stamp from an old frame is ignored');
+    ok(at(500, 600) === null, 'the far side of the same circle is not a hit');
+    ok(at(300, 400) === null, 'nor its sides');
 
     // A LAYER THAT STOPPED DRAWING leaves its last stamps in the list while other layers
     // keep refreshing theirs, so the list is fresh and that entry is not.
     const hidden = Object.assign({}, arc, { t: nowPx - 5000 });
-    const g4 = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [hidden], __arcHitsAt_transient_: nowPx };
-    ok(hit(g4, 500, 200) === null, 'an arc from a layer that is no longer drawing is not hit');
+    ok(hit([hidden], { x: 500, y: 200 }, nowPx, G) === null,
+       'an arc from a layer that is no longer drawing is not hit');
 
     // Two tracks' arcs share the list, and the nearer curve answers.
     const other = { track: { name: 'DNM3' }, j: { d: 9, a: 10 }, cx: 500, cy: 900, r: 200,
         t: nowPx, a0: -Math.PI * 0.75, a1: -Math.PI * 0.25 };
-    const g5 = { X: (v) => v, Y: (v) => v, __arcHits_transient_: [other, arc], __arcHitsAt_transient_: nowPx };
-    ok(hit(g5, 500, 200) === arc, 'with several tracks drawing arcs, the one under the pointer answers');
-    ok(hit(g5, 500, 700).track.name === 'DNM3', 'and the other one when the pointer is on it');
+    ok(hit([other, arc], { x: 500, y: 200 }, nowPx, G) === arc,
+       'with several tracks drawing arcs, the one under the pointer answers');
+    ok(hit([other, arc], { x: 500, y: 700 }, nowPx, G).track.name === 'DNM3',
+       'and the other one when the pointer is on it');
+
+    // ---- AND WHEN IT MISSES, IT SAYS WHY ---------------------------------------------------------
+    // Three states look identical from the chair: nothing stamped (the layer never reached
+    // the sashimi renderer), stamped but the press was elsewhere, and near one but outside
+    // the drawn span. Guessing between them cost two deploys.
+    ok(/\[arcs\] stamped=/.test(src), 'a missed press logs what it had to work with');
+    ok(['stamped=', 'age=', 'press=', 'nearest='].every((k) => src.indexOf(k) >= 0),
+       'the count, how old it is, where the press was and how near the closest arc came');
+    ok(/__arcPressLog/.test(src) && /> 1000/.test(src), 'at most one line a second');
 
     // ---- THE STAMPS DO NOT PILE UP ------------------------------------------------------
     // The first version reset them only after a 120 ms gap between frames, which during a
